@@ -1,0 +1,127 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/// Reprezentuje trackovanou adresu (smart wallet) na Solaně
+model SmartWallet {
+  id                    String   @id @default(cuid())
+  address               String   @unique // Solana wallet address
+  label                 String?  // Volitelné jméno/label (např. "Trader X", "Call channel Y")
+  tags                  String[] @default([]) // Tagy pro kategorizaci (např. ["degen", "sniper", "calls"])
+  
+  // Metriky (průběžně přepočítávané)
+  score                 Float    @default(0) // Celkové skóre kvality tradera (0-100)
+  totalTrades           Int      @default(0) // Celkový počet tradeů
+  winRate               Float    @default(0) // Win rate (0-1, např. 0.65 = 65%)
+  avgRr                 Float    @default(0) // Průměrný risk/reward poměr
+  avgPnlPercent         Float    @default(0) // Průměrné % na trade
+  pnlTotalBase          Float    @default(0) // Celkový PnL v base měně (SOL/USDC/USDT)
+  avgHoldingTimeMin     Float    @default(0) // Průměrná doba držení pozice v minutách
+  maxDrawdownPercent    Float    @default(0) // Maximální drawdown v %
+  recentPnl30dPercent   Float    @default(0) // PnL za posledních 30 dní v %
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  
+  trades                Trade[]
+  metricsHistory        SmartWalletMetricsHistory[]
+  
+  @@index([address])
+  @@index([score])
+  @@index([updatedAt])
+}
+
+/// Základní informace o tokenech, které se v obchodech objevují
+model Token {
+  id                    String   @id @default(cuid())
+  mintAddress           String   @unique // Solana token mint address
+  symbol                String?  // Symbol tokenu (např. "SOL", "USDC")
+  name                  String?  // Název tokenu
+  decimals              Int      @default(9) // Počet desetinných míst
+  firstSeenAt           DateTime @default(now()) // Kdy byl token poprvé viděn v systému
+  updatedAt             DateTime @updatedAt
+  
+  trades                Trade[]
+  marketSnapshots       TokenMarketSnapshot[]
+  
+  @@index([mintAddress])
+  @@index([symbol])
+}
+
+/// Jednotlivé trady smart wallets (per TX/per fill, ideálně per swap)
+model Trade {
+  id                    String   @id @default(cuid())
+  txSignature           String   // Solana transaction signature
+  walletId              String
+  tokenId               String
+  side                  String   // 'buy' | 'sell'
+  amountToken           Decimal  @db.Decimal(36, 18) // Množství tokenů
+  amountBase            Decimal  @db.Decimal(36, 18) // Hodnota v SOL nebo jiném base assetu (USDC/USDT)
+  priceBasePerToken     Decimal  @db.Decimal(36, 18) // Cena v base měně za 1 token
+  timestamp             DateTime // Čas transakce
+  dex                   String   // Identifikace DEXu (např. "pumpfun", "raydium", "jupiter", "orca")
+  positionId            String?  // Volitelné - FK na logickou pozici (pro budoucí rozšíření)
+  meta                  Json?    // Doplňkové údaje v JSON formátu
+  
+  wallet                SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  token                 Token        @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  
+  @@index([walletId])
+  @@index([tokenId])
+  @@index([timestamp])
+  @@index([txSignature])
+  @@index([walletId, timestamp])
+}
+
+/// Snapshot trhu pro daný token v čase (agregace v intervalech, např. 1 minuta / 5 minut)
+/// Volitelné, ale užitečné pro analýzu trhu
+model TokenMarketSnapshot {
+  id                    String   @id @default(cuid())
+  tokenId               String
+  timestamp             DateTime // Čas snapshotu
+  price                 Decimal  @db.Decimal(36, 18) // Cena tokenu v base měně
+  liquidity             Decimal  @db.Decimal(36, 18) // Velikost LP (liquidity pool)
+  volume1m              Decimal  @db.Decimal(36, 18) // Objem za 1 minutu
+  volume5m              Decimal  @db.Decimal(36, 18) // Objem za 5 minut
+  holdersCount          Int?     // Počet holderů (volitelné, pokud bude možné získat)
+  smartWalletHolders    Int      @default(0) // Kolik z našich smart wallets ten token aktuálně drží
+  
+  token                 Token    @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  
+  @@index([tokenId])
+  @@index([timestamp])
+  @@index([tokenId, timestamp])
+}
+
+/// Verzování metrik v čase - historické hodnoty metrik wallet
+/// Přepočítáváno periodicky (např. 1x denně) pro grafy v dashboardu
+model SmartWalletMetricsHistory {
+  id                    String   @id @default(cuid())
+  walletId              String
+  timestamp             DateTime // Čas přepočtu metrik
+  score                 Float    // Celkové skóre kvality tradera (0-100)
+  totalTrades           Int      // Celkový počet tradeů
+  winRate               Float    // Win rate (0-1)
+  avgRr                 Float    // Průměrný risk/reward poměr
+  avgPnlPercent         Float    // Průměrné % na trade
+  pnlTotalBase          Float    // Celkový PnL v base měně
+  avgHoldingTimeMin     Float    // Průměrná doba držení pozice v minutách
+  maxDrawdownPercent    Float    // Maximální drawdown v %
+  recentPnl30dPercent   Float    // PnL za posledních 30 dní v %
+  
+  wallet                SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  
+  @@index([walletId])
+  @@index([timestamp])
+  @@index([walletId, timestamp])
+}
+

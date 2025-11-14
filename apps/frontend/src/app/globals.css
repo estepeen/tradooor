@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Dark mode - custom colors */
+    --background: 20 0% 8%; /* #141414 */
+    --foreground: 0 0% 100%; /* #ffffff */
+    --card: 20 0% 10%;
+    --card-foreground: 0 0% 100%;
+    --primary: 200 100% 65%; /* #4bb6ff */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 20 0% 15%;
+    --secondary-foreground: 0 0% 100%;
+    --muted: 20 0% 15%;
+    --muted-foreground: 0 0% 70%;
+    --accent: 20 0% 15%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 20 0% 20%;
+    --input: 20 0% 20%;
+    --ring: 200 100% 65%; /* #4bb6ff */
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    background-color: #141414;
+    color: #ffffff;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    color: #4bb6ff;
+  }
+  
+  .text-primary {
+    color: #4bb6ff;
+  }
+  
+  .bg-primary {
+    background-color: #4bb6ff;
+  }
+  
+  .border-border {
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+  
+  .bg-muted {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+  
+  .text-muted-foreground {
+    color: rgba(255, 255, 255, 0.6);
+  }
+}
+

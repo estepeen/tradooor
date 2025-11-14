@@ -1,0 +1,93 @@
+// Shared types between backend and frontend
+
+export type TradeSide = 'buy' | 'sell';
+
+export interface SmartWallet {
+  id: string;
+  address: string;
+  label: string | null;
+  tags: string[];
+  score: number;
+  totalTrades: number;
+  winRate: number;
+  avgRr: number;
+  avgPnlPercent: number;
+  pnlTotalBase: number;
+  avgHoldingTimeMin: number;
+  maxDrawdownPercent: number;
+  recentPnl30dPercent: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface Token {
+  id: string;
+  mintAddress: string;
+  symbol: string | null;
+  name: string | null;
+  decimals: number;
+  firstSeenAt: Date;
+  updatedAt: Date;
+}
+
+export interface Trade {
+  id: string;
+  txSignature: string;
+  walletId: string;
+  tokenId: string;
+  side: TradeSide;
+  amountToken: number;
+  amountBase: number;
+  priceBasePerToken: number;
+  timestamp: Date;
+  dex: string;
+  positionId: string | null;
+  meta: Record<string, any> | null;
+}
+
+export interface SmartWalletMetricsHistory {
+  id: string;
+  walletId: string;
+  timestamp: Date;
+  score: number;
+  totalTrades: number;
+  winRate: number;
+  avgRr: number;
+  avgPnlPercent: number;
+  pnlTotalBase: number;
+  avgHoldingTimeMin: number;
+  maxDrawdownPercent: number;
+  recentPnl30dPercent: number;
+}
+
+export interface TokenMarketSnapshot {
+  id: string;
+  tokenId: string;
+  timestamp: Date;
+  price: number;
+  liquidity: number;
+  volume1m: number;
+  volume5m: number;
+  holdersCount: number | null;
+  smartWalletHolders: number;
+}
+
+// API Response types
+export interface SmartWalletListResponse {
+  wallets: SmartWallet[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface TradeListResponse {
+  trades: Trade[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface MetricsHistoryResponse {
+  metrics: SmartWalletMetricsHistory[];
+}
+

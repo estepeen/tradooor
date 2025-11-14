@@ -1,0 +1,29 @@
+{
+  "name": "@solbot/db",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "db:generate": "dotenv -e ../../apps/backend/.env -- pnpm exec prisma generate",
+    "db:migrate": "dotenv -e ../../apps/backend/.env -- pnpm exec prisma migrate dev",
+    "db:studio": "dotenv -e ../../apps/backend/.env -- pnpm exec prisma studio",
+    "db:push": "dotenv -e ../../apps/backend/.env -- pnpm exec prisma db push"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.7.1"
+  },
+  "devDependencies": {
+    "prisma": "^5.7.1",
+    "typescript": "^5.3.3"
+  }
+}
+
