@@ -542,5 +542,63 @@ router.post('/dedupe', async (req, res) => {
   }
 });
 
+// GET /api/trades/recent - Get recent trades from all wallets
+router.get('/recent', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 100;
+    const since = req.query.since ? new Date(req.query.since as string) : undefined;
+
+    let query = supabase
+      .from(TABLES.TRADE)
+      .select(`
+        *,
+        token:${TABLES.TOKEN}(*),
+        wallet:${TABLES.SMART_WALLET}(id, address, label)
+      `)
+      .order('timestamp', { ascending: false })
+      .limit(limit);
+
+    if (since) {
+      query = query.gte('timestamp', since.toISOString());
+    }
+
+    const { data: trades, error } = await query;
+
+    if (error) {
+      throw new Error(`Failed to fetch recent trades: ${error.message}`);
+    }
+
+    // Format trades for notifications
+    const formattedTrades = (trades || []).map((trade: any) => ({
+      id: trade.id,
+      txSignature: trade.txSignature,
+      wallet: {
+        id: trade.wallet?.id,
+        address: trade.wallet?.address,
+        label: trade.wallet?.label || trade.wallet?.address?.substring(0, 8) + '...',
+      },
+      token: {
+        id: trade.token?.id,
+        symbol: trade.token?.symbol || 'UNKNOWN',
+        name: trade.token?.name,
+        mintAddress: trade.token?.mintAddress,
+      },
+      side: trade.side,
+      amountToken: parseFloat(trade.amountToken || '0'),
+      amountBase: parseFloat(trade.amountBase || '0'),
+      timestamp: trade.timestamp,
+      dex: trade.dex,
+    }));
+
+    res.json({
+      trades: formattedTrades,
+      total: formattedTrades.length,
+    });
+  } catch (error: any) {
+    console.error('Error fetching recent trades:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch recent trades' });
+  }
+});
+
 export { router as tradesRouter };
 

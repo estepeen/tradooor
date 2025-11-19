@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import Notifications from './Notifications';
 
 export default function Navigation() {
   const pathname = usePathname();
@@ -56,6 +57,9 @@ export default function Navigation() {
                 Statistics
               </Link>
             </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <Notifications />
           </div>
         </div>
       </div>

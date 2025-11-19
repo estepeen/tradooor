@@ -120,3 +120,20 @@ export async function fetchWalletPortfolioRefresh(walletId: string) {
   return res.json();
 }
 
+export async function fetchRecentTrades(params?: {
+  limit?: number;
+  since?: string;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.limit) searchParams.set('limit', params.limit.toString());
+  if (params?.since) searchParams.set('since', params.since);
+
+  const url = `${API_BASE_URL}/trades/recent${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) throw new Error('Failed to fetch recent trades');
+  return res.json();
+}
+
