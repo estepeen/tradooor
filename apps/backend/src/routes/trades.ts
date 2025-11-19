@@ -83,8 +83,8 @@ router.get('/', async (req, res) => {
           } catch (error: any) {
             console.warn(`Failed to fetch SOL price from Binance for trade ${t.txSignature}: ${error.message}`);
             // Použij existující valueUsd jako fallback, pokud je k dispozici
-            priceUsd = t.valueUsd != null && toNumber(t.valueUsd) && amountToken > 0 
-              ? toNumber(t.valueUsd) / amountToken 
+            priceUsd = t.valueUsd != null && toNumber(t.valueUsd) != null && toNumber(t.valueUsd) > 0 && amountToken > 0 
+              ? toNumber(t.valueUsd)! / amountToken 
               : null;
           }
         } else if (baseToken === 'USDC' || baseToken === 'USDT') {
