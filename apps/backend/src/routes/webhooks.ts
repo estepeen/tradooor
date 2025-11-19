@@ -16,6 +16,18 @@ const collectorService = new SolanaCollectorService(
 );
 
 /**
+ * GET /api/webhooks/helius/test
+ * Test endpoint - zkontroluje, jestli webhook endpoint funguje
+ */
+router.get('/helius/test', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Webhook endpoint is working!',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
  * POST /api/webhooks/helius
  * 
  * Endpoint pro příjem webhook notifikací od Helius
