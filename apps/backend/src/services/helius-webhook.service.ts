@@ -66,7 +66,11 @@ export class HeliusWebhookService {
       `${this.baseUrl}/webhooks?api-key=${this.apiKey}`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Tradooor-Bot/1.0',
+          'Accept': 'application/json',
+        },
         body: JSON.stringify(payload),
       }
     );
@@ -91,18 +95,20 @@ export class HeliusWebhookService {
 
     // Helius API vyžaduje všechny parametry při update, ne jen některé
     // Získej existující webhook, abychom měli všechny parametry
-    const webhooks = await this.getAllWebhooks();
-    const existingWebhook = webhooks.find(wh => wh.webhookID === webhookId);
-    
-    if (!existingWebhook) {
-      throw new Error(`Webhook ${webhookId} not found`);
+    let existingWebhook: HeliusWebhook | undefined;
+    try {
+      const webhooks = await this.getAllWebhooks();
+      existingWebhook = webhooks.find(wh => wh.webhookID === webhookId);
+    } catch (error: any) {
+      console.warn('⚠️  Failed to get existing webhook details, using defaults:', error.message);
     }
-
+    
+    // Pokud nemáme existující webhook, použijeme default hodnoty
     const payload = {
-      webhookURL: existingWebhook.webhookURL, // Musí být stejné jako při vytvoření
+      webhookURL: existingWebhook?.webhookURL || this.webhookUrl, // Musí být stejné jako při vytvoření
       accountAddresses: walletAddresses,
       transactionTypes: ['SWAP'],
-      webhookType: 'enhanced',
+      webhookType: 'enhanced' as const,
     };
 
     console.log(`🔧 Updating webhook ${webhookId} with ${walletAddresses.length} addresses`);
@@ -112,7 +118,11 @@ export class HeliusWebhookService {
       `${this.baseUrl}/webhooks/${webhookId}?api-key=${this.apiKey}`,
       {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Tradooor-Bot/1.0',
+          'Accept': 'application/json',
+        },
         body: JSON.stringify(payload),
       }
     );
@@ -130,12 +140,24 @@ export class HeliusWebhookService {
    */
   async getAllWebhooks(): Promise<HeliusWebhook[]> {
     const response = await fetch(
-      `${this.baseUrl}/webhooks?api-key=${this.apiKey}`
+      `${this.baseUrl}/webhooks?api-key=${this.apiKey}`,
+      {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Tradooor-Bot/1.0',
+          'Accept': 'application/json',
+        },
+      }
     );
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to get webhooks: ${response.status} ${error}`);
+      const errorText = await response.text();
+      // Pokud je to Cloudflare blokace, vrať prázdné pole (webhook možná neexistuje)
+      if (response.status === 403 && errorText.includes('Cloudflare')) {
+        console.warn('⚠️  Cloudflare blocked Helius API request - webhook may not exist yet');
+        return [];
+      }
+      throw new Error(`Failed to get webhooks: ${response.status} ${errorText.substring(0, 200)}`);
     }
 
     const data = await response.json() as HeliusWebhook[];
@@ -150,6 +172,10 @@ export class HeliusWebhookService {
       `${this.baseUrl}/webhooks/${webhookId}?api-key=${this.apiKey}`,
       {
         method: 'DELETE',
+        headers: {
+          'User-Agent': 'Tradooor-Bot/1.0',
+          'Accept': 'application/json',
+        },
       }
     );
 
@@ -171,7 +197,14 @@ export class HeliusWebhookService {
     }
 
     // Zkus najít existující webhook s naším URL
-    const webhooks = await this.getAllWebhooks();
+    let webhooks: HeliusWebhook[] = [];
+    try {
+      webhooks = await this.getAllWebhooks();
+    } catch (error: any) {
+      // Pokud selže getAllWebhooks (např. Cloudflare blokace), zkus vytvořit nový webhook
+      console.warn('⚠️  Failed to get existing webhooks, will try to create new one:', error.message);
+    }
+
     const existingWebhook = webhooks.find(
       (wh) => wh.webhookURL === this.webhookUrl && wh.webhookType === 'enhanced'
     );
@@ -187,8 +220,14 @@ export class HeliusWebhookService {
         new Set([...existingAddresses, ...walletAddresses])
       );
       
-      await this.updateWebhook(existingWebhook.webhookID, allAddresses);
-      return existingWebhook.webhookID;
+      try {
+        await this.updateWebhook(existingWebhook.webhookID, allAddresses);
+        return existingWebhook.webhookID;
+      } catch (error: any) {
+        console.warn('⚠️  Failed to update webhook, will try to create new one:', error.message);
+        // Fallback: zkus vytvořit nový webhook
+        return await this.createWebhook(walletAddresses);
+      }
     } else {
       // Vytvoř nový webhook
       return await this.createWebhook(walletAddresses);
