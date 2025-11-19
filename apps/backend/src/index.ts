@@ -21,14 +21,29 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Webhook routes - musí být před debug middleware, aby odpovídaly rychle
+app.use('/api/webhooks', webhookRouter);
+
 // Debug middleware (after JSON/body parsing to avoid undefined body)
+// Skip logging for webhook endpoints to avoid slowing them down
 app.use((req, res, next) => {
+  // Skip debug logging for webhook endpoints (they need to respond quickly)
+  if (req.path.startsWith('/api/webhooks')) {
+    return next();
+  }
+  
   console.log(`\n🌐 ${new Date().toISOString()} ${req.method} ${req.path}`);
   if (req.query && Object.keys(req.query).length > 0) {
     console.log('   Query:', req.query);
   }
   if (req.body && typeof req.body === 'object' && Object.keys(req.body).length > 0) {
-    console.log('   Body:', JSON.stringify(req.body, null, 2));
+    // Limit body logging to avoid performance issues
+    const bodyStr = JSON.stringify(req.body);
+    if (bodyStr.length > 500) {
+      console.log('   Body:', bodyStr.substring(0, 500) + '... (truncated)');
+    } else {
+      console.log('   Body:', bodyStr);
+    }
   }
   next();
 });
@@ -58,12 +73,11 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// API routes
+// API routes (webhook router už je zaregistrovaný výše)
 app.use('/api/smart-wallets', smartWalletRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/stats', statsRouter);
 app.use('/api/tokens', tokensRouter);
-app.use('/api/webhooks', webhookRouter);
 
 // Ošetření chyb "route not found"
 app.use((req, res, next) => {

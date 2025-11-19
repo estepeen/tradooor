@@ -36,53 +36,51 @@ router.get('/helius/test', (req, res) => {
  * DŮLEŽITÉ: Odpovídá okamžitě (200 OK) a zpracování provádí asynchronně na pozadí,
  * aby se vyhnul timeoutům od Helius (Helius má timeout ~5-10 sekund)
  */
-router.post('/helius', async (req, res) => {
-  try {
-    // Logování pro debugging - IP adresa, headers, atd.
-    const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-    const startTime = Date.now();
-    
-    console.log('📨 ===== WEBHOOK REQUEST RECEIVED =====');
-    console.log(`   Time: ${new Date().toISOString()}`);
-    console.log(`   IP: ${clientIp}`);
-    console.log(`   User-Agent: ${req.headers['user-agent'] || 'unknown'}`);
+router.post('/helius', (req, res) => {
+  // DŮLEŽITÉ: Odpověz Helius okamžitě (200 OK) PŘED jakýmkoliv zpracováním
+  // Helius má timeout ~5-10 sekund, takže musíme odpovědět co nejrychleji
+  const startTime = Date.now();
+  
+  // Logování pro debugging - IP adresa, headers, atd.
+  const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  
+  // Odpověz okamžitě - před jakýmkoliv zpracováním
+  res.status(200).json({
+    success: true,
+    message: 'Webhook received, processing in background',
+    responseTimeMs: Date.now() - startTime,
+  });
 
-    // Helius enhanced webhook posílá data v tomto formátu:
-    // { accountData: [{ account: "wallet_address", ... }], transactions: [{ type: "SWAP", ... }] }
-    const { transactions, accountData } = req.body;
+  // Zpracování provede asynchronně na pozadí (neblokuje odpověď)
+  setImmediate(async () => {
+    try {
+      console.log('📨 ===== WEBHOOK REQUEST RECEIVED =====');
+      console.log(`   Time: ${new Date().toISOString()}`);
+      console.log(`   IP: ${clientIp}`);
+      console.log(`   User-Agent: ${req.headers['user-agent'] || 'unknown'}`);
 
-    // Normalizuj formát - Helius enhanced webhook posílá { accountData: [...], transactions: [...] }
-    let txList: any[] = [];
-    if (transactions && Array.isArray(transactions)) {
-      txList = transactions;
-    } else if (Array.isArray(req.body)) {
-      // Fallback: někdy Helius posílá přímo pole transakcí
-      txList = req.body;
-    }
+      // Helius enhanced webhook posílá data v tomto formátu:
+      // { accountData: [{ account: "wallet_address", ... }], transactions: [{ type: "SWAP", ... }] }
+      const { transactions, accountData } = req.body;
 
-    if (txList.length === 0) {
-      console.warn('⚠️  Invalid webhook payload - no transactions found');
-      console.log('   Payload keys:', Object.keys(req.body));
-      // Vrať 200 OK okamžitě - Helius očekává rychlou odpověď
-      return res.status(200).json({ success: false, error: 'No transactions in payload' });
-    }
+      // Normalizuj formát - Helius enhanced webhook posílá { accountData: [...], transactions: [...] }
+      let txList: any[] = [];
+      if (transactions && Array.isArray(transactions)) {
+        txList = transactions;
+      } else if (Array.isArray(req.body)) {
+        // Fallback: někdy Helius posílá přímo pole transakcí
+        txList = req.body;
+      }
 
-    console.log(`📨 Received Helius webhook: ${txList.length} transaction(s), ${accountData?.length || 0} account(s)`);
+      if (txList.length === 0) {
+        console.warn('⚠️  Invalid webhook payload - no transactions found');
+        console.log('   Payload keys:', Object.keys(req.body || {}));
+        return;
+      }
 
-    // DŮLEŽITÉ: Odpověz Helius okamžitě (200 OK), aby se vyhnul timeoutu
-    // Zpracování provede asynchronně na pozadí
-    const responseTime = Date.now() - startTime;
-    res.status(200).json({
-      success: true,
-      received: txList.length,
-      message: 'Webhook received, processing in background',
-      responseTimeMs: responseTime,
-    });
+      console.log(`📨 Received Helius webhook: ${txList.length} transaction(s), ${accountData?.length || 0} account(s)`);
 
-    // Zpracuj transakce asynchronně na pozadí (neblokuje odpověď)
-    setImmediate(async () => {
       const backgroundStartTime = Date.now();
-      try {
         // Vytvoř mapu account addresses -> wallet (pro rychlé vyhledávání)
         const accountMap = new Map<string, string>();
         if (accountData && Array.isArray(accountData)) {
@@ -198,26 +196,15 @@ router.post('/helius', async (req, res) => {
           }
         }
 
-        const backgroundTime = Date.now() - backgroundStartTime;
-        console.log(`✅ Webhook processed (background): ${processed} transactions, ${saved} saved, ${skipped} skipped (took ${backgroundTime}ms)`);
-      } catch (error: any) {
-        console.error('❌ Error processing webhook in background:', error);
-        if (error.stack) {
-          console.error('   Stack:', error.stack.split('\n').slice(0, 5).join('\n'));
-        }
+      const backgroundTime = Date.now() - backgroundStartTime;
+      console.log(`✅ Webhook processed (background): ${processed} transactions, ${saved} saved, ${skipped} skipped (took ${backgroundTime}ms)`);
+    } catch (error: any) {
+      console.error('❌ Error processing webhook in background:', error);
+      if (error.stack) {
+        console.error('   Stack:', error.stack.split('\n').slice(0, 5).join('\n'));
       }
-    });
-  } catch (error: any) {
-    console.error('❌ Error receiving webhook:', error);
-    if (error.stack) {
-      console.error('   Stack:', error.stack.split('\n').slice(0, 5).join('\n'));
     }
-    // I při chybě vrať 200, aby Helius neopakoval request
-    res.status(200).json({
-      success: false,
-      error: error.message,
-    });
-  }
+  });
 });
 
 export default router;
