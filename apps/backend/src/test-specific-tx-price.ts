@@ -165,7 +165,7 @@ async function testTransaction() {
     console.log(`   DEX: ${normalized.dex}\n`);
 
     // Calculate USD value
-    const solPrice = await solPriceService.getCurrentPrice();
+    const solPrice = await solPriceService.getSolPriceUsd();
     const valueUsd = normalized.amountBase * solPrice;
     
     console.log('💵 Price calculation:');

@@ -29,7 +29,7 @@ dotenv.config();
  *   pnpm --filter backend metrics:cron
  * 
  * Nebo s vlastním cron schedule:
- *   CRON_SCHEDULE="0 */6 * * *" pnpm --filter backend metrics:cron
+ *   CRON_SCHEDULE="0 * /6 * * *" pnpm --filter backend metrics:cron
  */
 async function calculateAllMetrics() {
   console.log(`\n⏰ [${new Date().toISOString()}] Starting metrics calculation...`);

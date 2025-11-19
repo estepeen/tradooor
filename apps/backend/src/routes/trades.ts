@@ -83,7 +83,7 @@ router.get('/', async (req, res) => {
           } catch (error: any) {
             console.warn(`Failed to fetch SOL price from Binance for trade ${t.txSignature}: ${error.message}`);
             // Použij existující valueUsd jako fallback, pokud je k dispozici
-            priceUsd = toNumber(t.valueUsd) && amountToken > 0 
+            priceUsd = t.valueUsd != null && toNumber(t.valueUsd) && amountToken > 0 
               ? toNumber(t.valueUsd) / amountToken 
               : null;
           }
@@ -453,7 +453,7 @@ router.post('/recalculate-all', async (req, res) => {
         const wallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
         for (const wallet of wallets.wallets) {
           try {
-            await metricsCalculator.calculateMetrics(wallet.id);
+            await metricsCalculator.calculateMetricsForWallet(wallet.id);
           } catch (error: any) {
             console.error(`   ❌ Error calculating metrics for wallet ${wallet.id}:`, error.message);
           }

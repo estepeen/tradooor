@@ -129,11 +129,11 @@ async function testPortfolio() {
           });
           
           console.log(`      → Response status: ${response.status}`);
-          const data = await response.json();
+          const data = await response.json() as { success?: boolean; data?: { value?: string | number } };
           console.log(`      → Response data: ${JSON.stringify(data).substring(0, 200)}`);
           
           if (data.success && data.data && data.data.value !== undefined) {
-            const priceUsd = parseFloat(data.data.value);
+            const priceUsd = parseFloat(String(data.data.value));
             console.log(`      → Parsed price: $${priceUsd}`);
           } else {
             console.log(`      → No price in response`);

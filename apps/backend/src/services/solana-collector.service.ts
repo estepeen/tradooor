@@ -633,13 +633,15 @@ export class SolanaCollectorService {
         // Vytvoř Set všech existujících signature pro rychlou kontrolu
         existingSignaturesForStop = new Set<string>();
         allExistingTrades.trades.forEach(t => {
-          if (t.txSignature) {
+          if (t.txSignature && existingSignaturesForStop) {
             existingSignaturesForStop.add(t.txSignature);
           }
         });
         
         console.log(`   📅 Found ${allExistingTrades.trades.length} existing trades in DB`);
-        console.log(`   📅 Last trade: ${new Date(lastTrade.timestamp).toISOString()} (${lastSignature.substring(0, 16)}...)`);
+        if (lastSignature) {
+          console.log(`   📅 Last trade: ${new Date(lastTrade.timestamp).toISOString()} (${lastSignature.substring(0, 16)}...)`);
+        }
         console.log(`   🔍 Will stop pagination when we hit any existing trade signature`);
       } else {
         console.log(`   📅 No trades in DB yet - will fetch all recent swaps`);
@@ -1733,7 +1735,7 @@ export class SolanaCollectorService {
         meta: {
           slot: tx.slot,
           fee: tx.meta.fee,
-          baseToken: swapData.baseToken || 'SOL', // Ulož baseToken do meta
+          baseToken: (swapData as any).baseToken || 'SOL', // Ulož baseToken do meta
         },
       });
 

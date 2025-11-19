@@ -29,7 +29,7 @@ export class BinancePriceService {
         throw new Error(`Binance API error: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data = await response.json() as { price: string };
       const price = parseFloat(data.price);
 
       if (!price || isNaN(price) || price <= 0) {

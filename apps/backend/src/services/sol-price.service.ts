@@ -38,7 +38,7 @@ export class SolPriceService {
         throw new Error(`CoinGecko API error: ${response.status}`);
       }
 
-      const data = await response.json();
+      const data = await response.json() as { solana?: { usd?: number } };
       const price = data.solana?.usd;
 
       if (!price || typeof price !== 'number') {
@@ -103,7 +103,7 @@ export class SolPriceService {
         return await this.getSolPriceUsd();
       }
 
-      const data = await response.json();
+      const data = await response.json() as { market_data?: { current_price?: { usd?: number } } };
       const price = data.market_data?.current_price?.usd;
 
       if (!price || typeof price !== 'number') {

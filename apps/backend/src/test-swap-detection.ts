@@ -221,8 +221,8 @@ async function main() {
       process.exit(1);
     }
 
-    const data = await response.json();
-    if (!data || data.length === 0) {
+    const data = await response.json() as any[];
+    if (!data || !Array.isArray(data) || data.length === 0) {
       console.error('❌ Helius API vrátil prázdnou odpověď');
       process.exit(1);
     }

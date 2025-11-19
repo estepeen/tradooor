@@ -86,7 +86,7 @@ export class TokenMetadataService {
         return null;
       }
 
-      const data = await response.json();
+      const data = await response.json() as { pairs?: Array<any> };
       if (data.pairs && data.pairs.length > 0) {
         // Vezmi první pair, který má token info
         const pair = data.pairs.find((p: any) => 
@@ -138,7 +138,7 @@ export class TokenMetadataService {
         return null;
       }
 
-      const data = await response.json();
+      const data = await response.json() as { success?: boolean; data?: { symbol?: string; name?: string; decimals?: number } };
       if (data.success && data.data) {
         return {
           symbol: data.data.symbol || undefined,
@@ -255,7 +255,7 @@ export class TokenMetadataService {
           continue;
         }
 
-        const data = await response.json();
+        const data = await response.json() as { pairs?: Array<any> };
         if (data.pairs && Array.isArray(data.pairs)) {
           // Vytvoř mapu mintAddress -> token info
           const tokenMap = new Map<string, any>();

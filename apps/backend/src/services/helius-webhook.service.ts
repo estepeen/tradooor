@@ -76,7 +76,7 @@ export class HeliusWebhookService {
       throw new Error(`Failed to create webhook: ${response.status} ${error}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { webhookID: string };
     console.log(`✅ Created Helius webhook: ${data.webhookID} for ${walletAddresses.length} wallets`);
     return data.webhookID;
   }
@@ -138,7 +138,7 @@ export class HeliusWebhookService {
       throw new Error(`Failed to get webhooks: ${response.status} ${error}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as HeliusWebhook[];
     return data;
   }
 

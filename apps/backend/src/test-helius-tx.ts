@@ -81,9 +81,9 @@ async function main() {
       return;
     }
 
-    const data = await response.json();
+    const data = await response.json() as any[];
     
-    if (!data || data.length === 0) {
+    if (!data || !Array.isArray(data) || data.length === 0) {
       console.error('❌ Helius API vrátil prázdnou odpověď');
       process.exit(1);
     }

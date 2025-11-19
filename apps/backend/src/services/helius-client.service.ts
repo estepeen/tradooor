@@ -522,10 +522,13 @@ export class HeliusClient {
       let transactions: HeliusTransaction[] = [];
       if (Array.isArray(data)) {
         transactions = data;
-      } else if (data.transactions) {
-        transactions = data.transactions;
-      } else if (data.result) {
-        transactions = data.result;
+      } else if (typeof data === 'object' && data !== null) {
+        const dataObj = data as { transactions?: HeliusTransaction[]; result?: HeliusTransaction[] };
+        if (dataObj.transactions) {
+          transactions = dataObj.transactions;
+        } else if (dataObj.result) {
+          transactions = dataObj.result;
+        }
       }
 
         if (transactions.length === 0) {
@@ -791,7 +794,7 @@ export class HeliusClient {
        * (např. 0.047074 SOL), ale description obsahuje brutto hodnotu swapu.
        */
       const parseBaseAmountFromDescription = (): number => {
-        const desc = heliusTx.description;
+        const desc = (heliusTx as any).description;
         if (!desc || typeof desc !== 'string') {
           return 0;
         }

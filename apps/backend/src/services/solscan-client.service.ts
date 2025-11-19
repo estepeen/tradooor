@@ -147,14 +147,23 @@ export class SolscanClient {
         });
 
         if (res.ok) {
-          const data = await res.json();
+          const data = await res.json() as {
+            success?: boolean;
+            data?: {
+              valueUsd?: string | number;
+              nativeTransfers?: Array<{ amount?: string; lamport?: string }>;
+              solTransfers?: Array<{ amount?: string }>;
+              tokenTransfers?: Array<{ valueUsd?: string | number }>;
+            };
+            solTransfers?: Array<{ amount?: string }>;
+          };
           console.log(`   📊 Solscan Pro API response for ${txSignature.substring(0, 16)}...:`, JSON.stringify(data).substring(0, 500));
           
           // Pro API structure - look for USD value or SOL amount
           if (data?.success && data?.data) {
             // Try to get USD value directly
             if (data.data.valueUsd !== undefined && data.data.valueUsd !== null) {
-              const valueUsd = parseFloat(data.data.valueUsd);
+              const valueUsd = parseFloat(String(data.data.valueUsd));
               if (valueUsd > 0) {
                 console.log(`   ✅ Got USD value from Solscan Pro API: $${valueUsd.toFixed(2)}`);
                 return valueUsd;
@@ -193,7 +202,7 @@ export class SolscanClient {
             if (data.data.tokenTransfers && Array.isArray(data.data.tokenTransfers)) {
               for (const transfer of data.data.tokenTransfers) {
                 if (transfer.valueUsd !== undefined && transfer.valueUsd !== null) {
-                  const valueUsd = parseFloat(transfer.valueUsd);
+                  const valueUsd = parseFloat(String(transfer.valueUsd));
                   if (valueUsd > 0) {
                     console.log(`   ✅ Got USD value from token transfer: $${valueUsd.toFixed(2)}`);
                     return valueUsd;
@@ -218,12 +227,13 @@ export class SolscanClient {
         headers: { accept: 'application/json' } as any,
       });
       if (res.ok) {
-        const data = await res.json();
+        const data = await res.json() as { solTransfers?: Array<{ amount?: string }> };
         // Public API might have different structure, try to extract value
-        if (data?.solTransfers && Array.isArray(data.solTransfers)) {
+        const dataTyped = data;
+        if (dataTyped?.solTransfers && Array.isArray(dataTyped.solTransfers)) {
           // Sum up SOL transfers
           let totalSol = 0;
-          for (const transfer of data.solTransfers) {
+          for (const transfer of dataTyped.solTransfers) {
             const amount = parseFloat(transfer.amount || '0');
             if (amount > 0) totalSol += amount;
           }
