@@ -1153,7 +1153,10 @@ export class HeliusClient {
       console.warn(`⚠️  Swap ${heliusTx.signature.substring(0, 8)}... - unsupported format (inMint: ${inMint}, outMint: ${outMint}, nativeIn: ${nativeIn}, nativeOut: ${nativeOut})`);
       return null;
     } catch (error: any) {
-      console.error(`Error normalizing Helius swap ${heliusTx.signature.substring(0, 8)}...:`, error.message);
+      console.warn(`⚠️  Error normalizing Helius swap ${heliusTx.signature.substring(0, 8)}...:`, error.message);
+      if (error.stack) {
+        console.warn(`   Stack:`, error.stack.split('\n').slice(0, 3).join('\n'));
+      }
       return null;
     }
   }
@@ -1480,7 +1483,12 @@ export class HeliusClient {
         dex: heliusTx.source.toLowerCase() || 'unknown',
       };
     } catch (error: any) {
-      console.error('Error normalizing Helius swap (legacy):', error.message);
+      // Změňme na warn - může to být nekompletní test data nebo skutečná chyba
+      // V reálných webhook notifikacích by data měla být kompletní
+      console.warn(`⚠️  Error normalizing Helius swap (legacy) ${heliusTx.signature?.substring(0, 16) || 'unknown'}...:`, error.message);
+      if (error.stack) {
+        console.warn(`   Stack:`, error.stack.split('\n').slice(0, 3).join('\n'));
+      }
       return null;
     }
   }

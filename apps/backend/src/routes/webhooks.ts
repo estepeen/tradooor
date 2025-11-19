@@ -167,8 +167,11 @@ router.post('/helius', async (req, res) => {
 
         processed++;
       } catch (error: any) {
-        console.error(`❌ Error processing webhook transaction ${tx.signature?.substring(0, 16) || 'unknown'}:`, error.message);
-        console.error(`   Stack:`, error.stack?.split('\n').slice(0, 3).join('\n'));
+        // Změňme na warn - některé chyby (např. nekompletní data) nejsou kritické
+        console.warn(`⚠️  Error processing webhook transaction ${tx.signature?.substring(0, 16) || 'unknown'}:`, error.message);
+        if (error.stack) {
+          console.warn(`   Stack:`, error.stack.split('\n').slice(0, 3).join('\n'));
+        }
         // Pokračuj s další transakcí
       }
     }
