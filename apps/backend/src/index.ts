@@ -19,24 +19,22 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 
-// Speciální handler pro webhook endpoint - odpovídá okamžitě
+// MINIMÁLNÍ handler pro webhook endpoint - odpovídá okamžitě bez jakéhokoliv zpracování
 // Musí být PŘED JSON parserem, aby se vyhnul parsování body
 app.post('/api/webhooks/helius', express.raw({ type: 'application/json', limit: '10mb' }), (req, res) => {
   const startTime = Date.now();
   const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
   
+  // Odpověz okamžitě PŘED jakýmkoliv zpracováním (i před logováním)
+  res.status(200).json({ ok: true, message: 'webhook received' });
+  
+  // Logování až po odeslání odpovědi
+  const responseTime = Date.now() - startTime;
   console.log('📨 ===== WEBHOOK REQUEST RECEIVED (IMMEDIATE) =====');
   console.log(`   Time: ${new Date().toISOString()}`);
   console.log(`   IP: ${clientIp}`);
+  console.log(`   Response time: ${responseTime}ms`);
   console.log(`   Content-Length: ${req.headers['content-length'] || 'unknown'}`);
-  
-  // Odpověz okamžitě PŘED jakýmkoliv zpracováním
-  const responseTime = Date.now() - startTime;
-  res.status(200).json({
-    success: true,
-    message: 'Webhook received, processing in background',
-    responseTimeMs: responseTime,
-  });
 
   // Zpracuj asynchronně na pozadí
   setImmediate(async () => {

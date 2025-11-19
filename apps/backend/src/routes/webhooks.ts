@@ -28,6 +28,20 @@ router.get('/helius/test', (req, res) => {
 });
 
 /**
+ * POST /api/webhooks/helius/test-minimal
+ * Minimální testovací endpoint - odpovídá okamžitě bez jakéhokoliv zpracování
+ * Použij pro debugging timeoutů
+ */
+router.post('/helius/test-minimal', (req, res) => {
+  console.log('📨 MINIMAL TEST WEBHOOK HIT at', new Date().toISOString());
+  console.log('   IP:', req.ip || req.headers['x-forwarded-for']);
+  console.log('   Headers:', JSON.stringify(req.headers).substring(0, 200));
+  
+  // Odpověz okamžitě - žádné zpracování
+  res.status(200).json({ ok: true, message: 'minimal test ok' });
+});
+
+/**
  * POST /api/webhooks/helius
  * 
  * Endpoint pro příjem webhook notifikací od Helius

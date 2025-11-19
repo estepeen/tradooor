@@ -65,13 +65,17 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         
-        # Rychlejší timeout pro webhooky
-        proxy_connect_timeout 5s;
-        proxy_send_timeout 5s;
-        proxy_read_timeout 5s;
+        # Rychlejší timeout pro webhooky (Helius má timeout ~2-3 sekundy)
+        proxy_connect_timeout 2s;
+        proxy_send_timeout 2s;
+        proxy_read_timeout 2s;
         
-        # Odpověz okamžitě
+        # Odpověz okamžitě - žádné buffering
         proxy_buffering off;
+        proxy_request_buffering off;
+        
+        # Zvyš limit pro velké requesty
+        client_max_body_size 10M;
     }
 }
 ```
