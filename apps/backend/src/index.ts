@@ -18,10 +18,63 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors());
+
+// Speciální handler pro webhook endpoint - odpovídá okamžitě
+// Musí být PŘED JSON parserem, aby se vyhnul parsování body
+app.post('/api/webhooks/helius', express.raw({ type: 'application/json', limit: '10mb' }), (req, res) => {
+  const startTime = Date.now();
+  const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  
+  console.log('📨 ===== WEBHOOK REQUEST RECEIVED (IMMEDIATE) =====');
+  console.log(`   Time: ${new Date().toISOString()}`);
+  console.log(`   IP: ${clientIp}`);
+  console.log(`   Content-Length: ${req.headers['content-length'] || 'unknown'}`);
+  
+  // Odpověz okamžitě PŘED jakýmkoliv zpracováním
+  const responseTime = Date.now() - startTime;
+  res.status(200).json({
+    success: true,
+    message: 'Webhook received, processing in background',
+    responseTimeMs: responseTime,
+  });
+
+  // Zpracuj asynchronně na pozadí
+  setImmediate(async () => {
+    try {
+      // Parse JSON z raw body
+      const body = JSON.parse(req.body.toString());
+      
+      // Zavolej webhook handler z routeru
+      const mockReq = {
+        ...req,
+        body,
+        method: 'POST',
+        path: '/helius',
+        originalUrl: '/api/webhooks/helius',
+      } as any;
+      
+      const mockRes = {
+        status: () => mockRes,
+        json: () => {},
+        send: () => {},
+      } as any;
+      
+      // Zavolej webhook handler
+      await (webhookRouter as any).handle(mockReq, mockRes, () => {});
+    } catch (error: any) {
+      console.error('❌ Error processing webhook in background:', error);
+      if (error.stack) {
+        console.error('   Stack:', error.stack.split('\n').slice(0, 5).join('\n'));
+      }
+    }
+  });
+});
+
+// Ostatní routes používají JSON parser
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Webhook routes - musí být před debug middleware, aby odpovídaly rychle
+// Webhook routes (pro ostatní endpointy jako /test)
 app.use('/api/webhooks', webhookRouter);
 
 // Debug middleware (after JSON/body parsing to avoid undefined body)
