@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prisma } from '@solbot/db';
+import { supabase, TABLES } from '../lib/supabase.js';
 import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
@@ -18,33 +18,70 @@ const metricsCalculator = new MetricsCalculatorService(
 // GET /api/stats/overview - Overall statistics across all wallets
 router.get('/overview', async (req, res) => {
   try {
-    const wallets = await prisma.smartWallet.findMany({
-      select: {
-        id: true,
-        address: true,
-        label: true,
-        score: true,
-        totalTrades: true,
-        winRate: true,
-        pnlTotalBase: true,
-        recentPnl30dPercent: true,
-      },
+    // Get actual trade count from trades table
+    const { count: actualTradeCount } = await supabase
+      .from(TABLES.TRADE)
+      .select('*', { count: 'exact', head: true });
+
+    const { data: wallets, error } = await supabase
+      .from(TABLES.SMART_WALLET)
+      .select('id, address, label, score, totalTrades, winRate, pnlTotalBase, recentPnl30dPercent');
+
+    // Calculate recent PnL in USD for each wallet
+    const walletIds = (wallets || []).map(w => w.id);
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const { data: recentTrades, error: recentTradesError } = await supabase
+      .from(TABLES.TRADE)
+      .select('walletId, side, valueUsd')
+      .in('walletId', walletIds)
+      .gte('timestamp', thirtyDaysAgo.toISOString());
+
+    const walletPnLMap = new Map<string, { buyValue: number; sellValue: number }>();
+    if (!recentTradesError && recentTrades) {
+      for (const trade of recentTrades) {
+        if (!walletPnLMap.has(trade.walletId)) {
+          walletPnLMap.set(trade.walletId, { buyValue: 0, sellValue: 0 });
+        }
+        const pnl = walletPnLMap.get(trade.walletId)!;
+        const valueUsd = Number(trade.valueUsd || 0);
+        if (trade.side === 'buy') {
+          pnl.buyValue += valueUsd;
+        } else if (trade.side === 'sell') {
+          pnl.sellValue += valueUsd;
+        }
+      }
+    }
+
+    // Add recentPnl30dUsd to wallets
+    const walletsWithUsd = (wallets || []).map(w => {
+      const pnl = walletPnLMap.get(w.id);
+      return {
+        ...w,
+        recentPnl30dUsd: pnl ? pnl.sellValue - pnl.buyValue : 0,
+      };
     });
 
-    const totalWallets = wallets.length;
-    const totalTrades = wallets.reduce((sum, w) => sum + w.totalTrades, 0);
-    const totalPnl = wallets.reduce((sum, w) => sum + w.pnlTotalBase, 0);
+    if (error) {
+      throw new Error(`Failed to fetch wallets: ${error.message}`);
+    }
+
+    const walletList = walletsWithUsd ?? [];
+    const totalWallets = walletList.length;
+    const totalTrades = actualTradeCount ?? 0; // Use actual count from trades table
+    const totalPnl = walletList.reduce((sum, w) => sum + (w.pnlTotalBase || 0), 0);
     const avgScore = totalWallets > 0 
-      ? wallets.reduce((sum, w) => sum + w.score, 0) / totalWallets 
+      ? walletList.reduce((sum, w) => sum + (w.score || 0), 0) / totalWallets 
       : 0;
     const avgWinRate = totalWallets > 0
-      ? wallets.reduce((sum, w) => sum + w.winRate, 0) / totalWallets
+      ? walletList.reduce((sum, w) => sum + (w.winRate || 0), 0) / totalWallets
       : 0;
 
     // Top performers
-    const topByScore = [...wallets].sort((a, b) => b.score - a.score).slice(0, 5);
-    const topByPnl = [...wallets].sort((a, b) => b.pnlTotalBase - a.pnlTotalBase).slice(0, 5);
-    const topByRecentPnl = [...wallets].sort((a, b) => b.recentPnl30dPercent - a.recentPnl30dPercent).slice(0, 5);
+    const topByScore = [...walletList].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
+    const topByPnl = [...walletList].sort((a, b) => (b.pnlTotalBase || 0) - (a.pnlTotalBase || 0)).slice(0, 5);
+    const topByRecentPnl = [...walletList].sort((a, b) => (b.recentPnl30dPercent || 0) - (a.recentPnl30dPercent || 0)).slice(0, 5);
 
     res.json({
       totalWallets,
@@ -58,26 +95,26 @@ router.get('/overview', async (req, res) => {
         byRecentPnl: topByRecentPnl,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching overview stats:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', message: error?.message });
   }
 });
 
 // GET /api/stats/tokens - Token statistics
 router.get('/tokens', async (req, res) => {
   try {
-    const trades = await prisma.trade.findMany({
-      include: {
-        token: true,
-        wallet: {
-          select: {
-            id: true,
-            address: true,
-          },
-        },
-      },
-    });
+    const { data: trades, error } = await supabase
+      .from(TABLES.TRADE)
+      .select(`
+        *,
+        token:${TABLES.TOKEN}(*),
+        wallet:${TABLES.SMART_WALLET}(id, address)
+      `);
+
+    if (error) {
+      throw new Error(`Failed to fetch trades: ${error.message}`);
+    }
 
     // Group by token
     const tokenMap = new Map<string, {
@@ -88,7 +125,7 @@ router.get('/tokens', async (req, res) => {
       sellCount: number;
     }>();
 
-    for (const trade of trades) {
+    for (const trade of trades ?? []) {
       const tokenId = trade.tokenId;
       if (!tokenMap.has(tokenId)) {
         tokenMap.set(tokenId, {
@@ -119,35 +156,42 @@ router.get('/tokens', async (req, res) => {
       .slice(0, 50); // Top 50 most traded tokens
 
     res.json({ tokens: tokenStats });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching token stats:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', message: error?.message });
   }
 });
 
 // GET /api/stats/dex - DEX statistics
 router.get('/dex', async (req, res) => {
   try {
-    const trades = await prisma.trade.groupBy({
-      by: ['dex'],
-      _count: {
-        id: true,
-      },
-    });
+    const { data: trades, error } = await supabase
+      .from(TABLES.TRADE)
+      .select('dex');
 
-    const dexStats = trades
-      .map(d => ({
-        dex: d.dex,
-        tradeCount: d._count.id,
+    if (error) {
+      throw new Error(`Failed to fetch trades: ${error.message}`);
+    }
+
+    // Group by DEX
+    const dexMap = new Map<string, number>();
+    for (const trade of trades ?? []) {
+      const count = dexMap.get(trade.dex) || 0;
+      dexMap.set(trade.dex, count + 1);
+    }
+
+    const dexStats = Array.from(dexMap.entries())
+      .map(([dex, tradeCount]) => ({
+        dex,
+        tradeCount,
       }))
       .sort((a, b) => b.tradeCount - a.tradeCount);
 
     res.json({ dexes: dexStats });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error fetching DEX stats:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', message: error?.message });
   }
 });
 
 export { router as statsRouter };
-

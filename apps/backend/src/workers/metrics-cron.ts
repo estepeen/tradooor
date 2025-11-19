@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import cron from 'node-cron';
-import { prisma } from '@solbot/db';
+import { supabase, TABLES } from '../lib/supabase.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
@@ -44,16 +44,21 @@ async function calculateAllMetrics() {
   );
 
   try {
-    const wallets = await prisma.smartWallet.findMany({
-      select: { id: true, address: true },
-    });
+    const { data: wallets, error } = await supabase
+      .from(TABLES.SMART_WALLET)
+      .select('id, address');
 
-    console.log(`📊 Processing ${wallets.length} wallets...`);
+    if (error) {
+      throw new Error(`Failed to fetch wallets: ${error.message}`);
+    }
+
+    const walletList = wallets ?? [];
+    console.log(`📊 Processing ${walletList.length} wallets...`);
 
     let successCount = 0;
     let errorCount = 0;
 
-    for (const wallet of wallets) {
+    for (const wallet of walletList) {
       try {
         console.log(`  Processing: ${wallet.address.substring(0, 8)}...`);
         await metricsCalculator.calculateMetricsForWallet(wallet.id);
@@ -92,7 +97,6 @@ async function main() {
   // Keep process running
   process.on('SIGINT', async () => {
     console.log('\n🛑 Shutting down metrics cron...');
-    await prisma.$disconnect();
     process.exit(0);
   });
 
@@ -100,4 +104,3 @@ async function main() {
 }
 
 main();
-

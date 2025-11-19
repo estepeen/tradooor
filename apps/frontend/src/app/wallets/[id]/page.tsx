@@ -3,8 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { fetchSmartWallet, fetchTrades } from '@/lib/api';
-import { formatAddress, formatPercent, formatNumber, formatDate, copyToClipboard } from '@/lib/utils';
+import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio, fetchWalletPortfolioRefresh } from '@/lib/api';
+import { formatAddress, formatPercent, formatNumber, formatDate, copyToClipboard, formatMultiplier, formatDateTimeCZ, formatHoldTime } from '@/lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { SmartWallet, Trade } from '@solbot/shared';
 
@@ -14,10 +14,20 @@ export default function WalletDetailPage() {
   
   const [wallet, setWallet] = useState<any>(null);
   const [trades, setTrades] = useState<{ trades: Trade[]; total: number } | null>(null);
+  const [pnlData, setPnlData] = useState<any>(null);
+  const [portfolio, setPortfolio] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [tokenFilter, setTokenFilter] = useState<string>('');
   const [timeframeFilter, setTimeframeFilter] = useState<string>('all');
+  const [pnlTimeframe, setPnlTimeframe] = useState<'7d' | '30d' | '90d' | '1y'>('30d');
   const [copiedAddress, setCopiedAddress] = useState(false);
+  const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic');
+  const [showAllPortfolio, setShowAllPortfolio] = useState(false);
+  const [showAllOpenPositions, setShowAllOpenPositions] = useState(false);
+  const [showAllClosedPositions, setShowAllClosedPositions] = useState(false);
+  const [positionsTab, setPositionsTab] = useState<'open' | 'closed'>('open');
+  const [portfolioRefreshing, setPortfolioRefreshing] = useState(false);
+  const [portfolioRefreshMsg, setPortfolioRefreshMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
 
   useEffect(() => {
     if (walletId) {
@@ -46,7 +56,7 @@ export default function WalletDetailPage() {
       }
 
       // Get unique tokens for filter
-      const [walletData, tradesData] = await Promise.all([
+      const [walletData, tradesData, pnl, portfolioData] = await Promise.all([
         fetchSmartWallet(walletId),
         fetchTrades(walletId, { 
           page: 1, 
@@ -54,13 +64,71 @@ export default function WalletDetailPage() {
           tokenId: tokenFilter || undefined,
           fromDate,
         }),
+        fetchWalletPnl(walletId).catch(() => null), // PnL data is optional
+        // Portfolio data - still needed for Open/Closed Positions
+        fetchWalletPortfolio(walletId).catch(() => null), // Portfolio data is optional
       ]);
       setWallet(walletData);
       setTrades(tradesData);
+      setPnlData(pnl);
+      setPortfolio(portfolioData);
     } catch (error) {
       console.error('Error loading wallet data:', error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function refreshPortfolio() {
+    if (!walletId) return;
+    try {
+      setPortfolioRefreshing(true);
+      // Step 1: Refresh portfolio (this saves to PortfolioBaseline)
+      await fetchWalletPortfolioRefresh(walletId);
+      
+      // Step 2: Reload portfolio from baseline (to ensure we have the saved version)
+      // Wait a bit to ensure database write is complete
+      await new Promise(resolve => setTimeout(resolve, 500));
+      const refreshed = await fetchWalletPortfolio(walletId);
+      
+      // Basic validation: structure + positions above $1
+      if (!refreshed || typeof refreshed !== 'object') {
+        throw new Error('Empty response');
+      }
+      const positions = Array.isArray(refreshed.portfolio) ? refreshed.portfolio : [];
+      // Calculate count of positions with value > $1 (including base tokens)
+      const positionsOver1 = positions.filter((pos: any) => {
+        const value = pos.currentValue || (pos.balance || 0) * (pos.averageBuyPrice || 0);
+        return value > 1;
+      });
+      // Detect common base tokens (WSOL, SOL, USDC, USDT) if present in response
+      const BASE_MINTS = new Set([
+        'So11111111111111111111111111111111111111112', // WSOL
+        'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+        'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+      ]);
+      const hasBaseTokenOver1 = positionsOver1.some((p: any) => {
+        const mint = p?.token?.mintAddress || '';
+        const symbol = (p?.token?.symbol || '').toUpperCase();
+        return BASE_MINTS.has(mint) || symbol === 'SOL' || symbol === 'WSOL' || symbol === 'USDC' || symbol === 'USDT';
+      });
+
+      setPortfolio(refreshed);
+      if (positionsOver1.length === 0) {
+        setPortfolioRefreshMsg({ type: 'warning', text: 'No positions above $1 detected.' });
+      } else if (!hasBaseTokenOver1) {
+        setPortfolioRefreshMsg({ type: 'warning', text: 'No SOL/WSOL/USDC/USDT position above $1 detected.' });
+      } else {
+        setPortfolioRefreshMsg({ type: 'success', text: `Portfolio refreshed and saved (${positionsOver1.length} positions > $1).` });
+      }
+    } catch (error: any) {
+      console.error('Failed to refresh portfolio:', error);
+      const msg = error?.message || 'Failed to refresh portfolio. Try again.';
+      setPortfolioRefreshMsg({ type: 'error', text: msg });
+    } finally {
+      setPortfolioRefreshing(false);
+      // Auto hide message after 4s
+      setTimeout(() => setPortfolioRefreshMsg(null), 4000);
     }
   }
 
@@ -98,19 +166,26 @@ export default function WalletDetailPage() {
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="container mx-auto">
-        <Link href="/wallets" className="text-primary hover:underline mb-4 inline-block">
-          ← Back to Wallets
+        <Link 
+          href="/wallets" 
+          style={{
+            color: 'hsl(var(--muted-foreground))',
+            fontSize: '.75rem',
+            textTransform: 'uppercase',
+            letterSpacing: '0.03em',
+            padding: '0 0 2rem .5rem'
+          }}
+          className="inline-block hover:opacity-80"
+        >
+          ← BACK
         </Link>
 
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">
+          <div className="flex items-center gap-2 mb-2">
+            <h1 className="mb-0">
             {wallet.label || formatAddress(wallet.address)}
           </h1>
-          <div className="flex items-center gap-2 mb-4">
-            <p className="font-mono text-sm text-muted-foreground">
-              {wallet.address}
-            </p>
             <button
               onClick={async () => {
                 const success = await copyToClipboard(wallet.address);
@@ -119,10 +194,19 @@ export default function WalletDetailPage() {
                   setTimeout(() => setCopiedAddress(false), 2000);
                 }
               }}
-              className="text-muted-foreground hover:text-foreground text-sm"
+              className="text-muted-foreground hover:text-foreground"
               title="Copy address"
             >
-              {copiedAddress ? '✓ Copied!' : '📋 Copy'}
+              {copiedAddress ? (
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M13.5 4.5L6 12L2.5 8.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="5.5" y="5.5" width="8" height="8" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                  <rect x="2.5" y="2.5" width="8" height="8" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                </svg>
+              )}
             </button>
           </div>
           {wallet.tags && wallet.tags.length > 0 && (
@@ -139,31 +223,501 @@ export default function WalletDetailPage() {
           )}
         </div>
 
+        {/* Tabs */}
+        <div className="flex gap-2 mb-6 border-b border-border">
+          <button
+            onClick={() => setActiveTab('basic')}
+            className={`px-4 py-2 font-medium ${
+              activeTab === 'basic'
+                ? 'border-b-2 border-white text-white'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Basic
+          </button>
+          <button
+            onClick={() => setActiveTab('advanced')}
+            className={`px-4 py-2 font-medium ${
+              activeTab === 'advanced'
+                ? 'border-b-2 border-white text-white'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Advanced
+          </button>
+        </div>
+
+        {/* Basic Tab */}
+        {activeTab === 'basic' && (
+          <>
         {/* Metrics Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="border border-border rounded-lg p-4">
-            <div className="text-sm text-muted-foreground mb-1">Score</div>
-            <div className="text-2xl font-bold">{formatNumber(wallet.score, 1)}</div>
+          <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
+            <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Score</div>
+            <div style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }} className="text-white">{formatNumber(wallet.score, 1)}</div>
           </div>
-          <div className="border border-border rounded-lg p-4">
-            <div className="text-sm text-muted-foreground mb-1">Total Trades</div>
-            <div className="text-2xl font-bold">{wallet.totalTrades}</div>
+          <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
+            <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Total Trades</div>
+            <div style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }} className="text-white">{wallet.totalTrades}</div>
           </div>
-          <div className="border border-border rounded-lg p-4">
-            <div className="text-sm text-muted-foreground mb-1">Win Rate</div>
-            <div className="text-2xl font-bold">{formatPercent(wallet.winRate)}</div>
+          <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
+            <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Win Rate</div>
+            <div style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }} className="text-white">{formatPercent(wallet.winRate)}</div>
           </div>
-          <div className="border border-border rounded-lg p-4">
-            <div className="text-sm text-muted-foreground mb-1">Recent PnL (30d)</div>
-            <div className={`text-2xl font-bold ${
-              wallet.recentPnl30dPercent >= 0 ? 'text-green-600' : 'text-red-600'
-            }`}>
-              {wallet.recentPnl30dPercent >= 0 ? '+' : ''}
-              {formatPercent(wallet.recentPnl30dPercent / 100)}
+          <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
+            <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Avg Hold Time</div>
+            <div style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }} className="text-white">
+              {wallet.avgHoldingTimeMin > 0 
+                ? `${formatNumber(wallet.avgHoldingTimeMin, 0)} min`
+                : '-'
+              }
             </div>
           </div>
         </div>
 
+        {/* PnL Periods Overview */}
+        {pnlData && pnlData.periods && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            {(['1d', '7d', '14d', '30d'] as const).map((period) => {
+              const data = pnlData.periods[period];
+              if (!data) return null;
+              return (
+                <div key={period} style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
+                  <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">PnL ({period})</div>
+                  <div className={`${
+                    data.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {data.pnlUsd !== undefined && data.pnlUsd !== null
+                      ? (
+                        <>
+                          <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                            ${formatNumber(Math.abs(data.pnlUsd), 2)}
+                          </span>
+                          {' '}
+                          <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                            ({data.pnlPercent >= 0 ? '+' : ''}{formatPercent(data.pnlPercent / 100)})
+                          </span>
+                        </>
+                      )
+                      : `${data.pnlPercent >= 0 ? '+' : ''}${formatPercent(data.pnlPercent / 100)}`
+                    }
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {data.trades} trades
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+            {/* Portfolio - DISABLED/TEMPORARILY COMMENTED OUT */}
+            {/* {portfolio && (
+              <div className="grid grid-cols-2 gap-4 mb-8">
+                Portfolio section disabled
+              </div>
+            )} */}
+
+            {/* Open Positions and Closed Positions - Side by Side */}
+            {portfolio && (
+              <div className="grid grid-cols-2 gap-4 mb-8">
+                {/* Open Positions - Left 50% */}
+                <div className="overflow-hidden">
+                  <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">
+                    Open Positions
+                  </h2>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-muted/30">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-sm font-medium">TOKEN</th>
+                          <th className="px-4 py-3 text-right text-sm font-medium">BALANCE</th>
+                          <th className="px-4 py-3 text-right text-sm font-medium">VALUE</th>
+                          <th className="px-4 py-3 text-right text-sm font-medium">PnL</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                  {(() => {
+                          const openPositions = portfolio.openPositions || [];
+                          
+                          if (openPositions.length === 0) {
+                    return (
+                              <tr className="border-t border-border">
+                                <td colSpan={4} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                                  No open positions
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return openPositions
+                            .slice(0, showAllOpenPositions ? openPositions.length : 10)
+                            .map((position: any) => {
+                              const token = position.token;
+                              const balance = position.balance || 0;
+                              const value = position.currentValue || (balance * (position.averageBuyPrice || 0));
+                              const pnl = position.pnl || 0;
+                              const pnlPercent = position.pnlPercent || 0;
+
+                              return (
+                                <tr key={position.tokenId} className="border-t border-border hover:bg-muted/50">
+                                  <td className="px-4 py-3 text-sm">
+                                    {token?.mintAddress ? (
+                                      <a
+                                        href={`https://solscan.io/token/${token.mintAddress}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-white hover:opacity-80 hover:underline"
+                                      >
+                                        {token.symbol 
+                                          ? `$${token.symbol}` 
+                                          : token.name 
+                                          ? token.name 
+                                          : `${token.mintAddress.slice(0, 8)}...${token.mintAddress.slice(-8)}`}
+                                      </a>
+                                    ) : (
+                                      <span className="text-muted-foreground">-</span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-right text-sm font-mono">
+                                    {formatNumber(balance, 6)}
+                                  </td>
+                                  <td className="px-4 py-3 text-right text-sm font-mono">
+                                    {value > 0 ? `$${formatNumber(value, 2)}` : '-'}
+                                  </td>
+                                  <td className={`px-4 py-3 text-right text-sm font-mono ${
+                                    pnl >= 0 ? 'text-green-400' : 'text-red-400'
+                                  }`}>
+                                    {pnl !== 0 ? (
+                                      <>
+                                        ${formatNumber(Math.abs(pnl), 2)} ({pnlPercent >= 0 ? '+' : ''}{formatPercent(pnlPercent / 100)})
+                                      </>
+                                    ) : '-'}
+                                  </td>
+                                </tr>
+                              );
+                            });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                  {(() => {
+                    const openPositions = portfolio.openPositions || [];
+                    if (openPositions.length > 10) {
+                      return (
+                        <div className="mt-4 text-center">
+                          <button
+                            onClick={() => setShowAllOpenPositions(!showAllOpenPositions)}
+                            className="text-sm text-muted-foreground hover:text-foreground"
+                          >
+                            {showAllOpenPositions ? 'Show Less' : `Show More (${openPositions.length - 10} more)`}
+                          </button>
+                      </div>
+                    );
+                    }
+                    return null;
+                  })()}
+                </div>
+
+                {/* Closed Positions - Right 50% */}
+                <div className="overflow-hidden">
+                  <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">
+                    Closed Positions
+                  </h2>
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-muted/30">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-sm font-medium">TOKEN</th>
+                          <th className="px-4 py-3 text-right text-sm font-medium">SOLD</th>
+                          <th className="px-4 py-3 text-right text-sm font-medium">PnL</th>
+                          <th className="px-4 py-3 text-right text-sm font-medium">HOLD TIME</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const closedPositions = portfolio.closedPositions || [];
+
+                          if (closedPositions.length === 0) {
+                            return (
+                              <tr className="border-t border-border">
+                                <td colSpan={4} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                                  No closed positions
+                                </td>
+                              </tr>
+                            );
+                          }
+
+                          return closedPositions
+                            .slice(0, showAllClosedPositions ? closedPositions.length : 10)
+                            .map((position: any) => {
+                              const token = position.token;
+                              const totalSold = position.totalSold || 0;
+                              const closedPnl = position.closedPnl || 0;
+                              const closedPnlPercent = position.closedPnlPercent || 0;
+                              const holdTimeMinutes = position.holdTimeMinutes;
+                              
+                              return (
+                                <tr key={position.tokenId} className="border-t border-border hover:bg-muted/50">
+                                  <td className="px-4 py-3 text-sm">
+                                    {token?.mintAddress ? (
+                                      <a
+                                        href={`https://solscan.io/token/${token.mintAddress}`}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-white hover:opacity-80 hover:underline"
+                                      >
+                                        {token.symbol 
+                                          ? `$${token.symbol}` 
+                                          : token.name 
+                                          ? token.name 
+                                          : `${token.mintAddress.slice(0, 8)}...${token.mintAddress.slice(-8)}`}
+                                      </a>
+                                    ) : (
+                                      <span className="text-muted-foreground">-</span>
+                                    )}
+                                  </td>
+                                  <td className="px-4 py-3 text-right text-sm font-mono">
+                                    {formatNumber(totalSold, 6)}
+                                  </td>
+                                  <td className={`px-4 py-3 text-right text-sm font-mono ${
+                                    closedPnl >= 0 ? 'text-green-400' : 'text-red-400'
+                                  }`}>
+                                    {closedPnl !== null && closedPnl !== undefined ? (
+                                      <>
+                                        ${formatNumber(Math.abs(closedPnl), 2)} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent(closedPnlPercent / 100)})
+                                      </>
+                                    ) : '-'}
+                                  </td>
+                                  <td className="px-4 py-3 text-right text-sm font-mono">
+                                    {holdTimeMinutes !== null && holdTimeMinutes !== undefined
+                                      ? formatHoldTime(holdTimeMinutes)
+                                      : '-'}
+                                  </td>
+                                </tr>
+                              );
+                            });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
+                  {(() => {
+                    const closedPositions = portfolio.closedPositions || [];
+                    if (closedPositions.length > 10) {
+                      return (
+                        <div className="mt-4 text-center">
+                        <button
+                            onClick={() => setShowAllClosedPositions(!showAllClosedPositions)}
+                          className="text-sm text-muted-foreground hover:text-foreground"
+                        >
+                            {showAllClosedPositions ? 'Show Less' : `Show More (${closedPositions.length - 10} more)`}
+                        </button>
+                      </div>
+                    );
+                    }
+                    return null;
+                  })()}
+                </div>
+              </div>
+            )}
+
+            {/* Recent Trades */}
+            <div className="overflow-hidden">
+              <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">Recent Trades</h2>
+              
+              {/* Filters */}
+              <div className="flex gap-4 flex-wrap mb-4">
+                <div className="flex-1 min-w-[200px]">
+                  <input
+                    type="text"
+                    placeholder="Filter by token..."
+                    value={tokenFilter}
+                    onChange={(e) => setTokenFilter(e.target.value)}
+                    className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background"
+                  />
+                </div>
+                <select
+                  value={timeframeFilter}
+                  onChange={(e) => setTimeframeFilter(e.target.value)}
+                  className="px-3 py-2 text-sm border border-border rounded-md bg-background"
+                >
+                  <option value="all">All time</option>
+                  <option value="24h">Last 24 hours</option>
+                  <option value="7d">Last 7 days</option>
+                  <option value="30d">Last 30 days</option>
+                </select>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-muted">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-medium">DATE</th>
+                      <th className="px-4 py-3 text-center text-sm font-medium">TYPE</th>
+                      <th className="px-4 py-3 text-center text-sm font-medium">POSITION</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium">TOKEN</th>
+                      <th className="px-4 py-3 text-right text-sm font-medium">Value</th>
+                      <th className="px-4 py-3 text-right text-sm font-medium">PRICE</th>
+                      <th className="px-4 py-3 text-right text-sm font-medium">AMOUNT</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      // Calculate position before each trade to determine if it's ADD/REM or BUY/SELL
+                      const allTrades = [...(trades?.trades || [])].sort((a, b) => 
+                        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                      );
+                      
+                      // Calculate position for each token before each trade
+                      const positionBeforeTrade = new Map<string, number>(); // tradeId -> position before
+                      
+                      const tokenPositions = new Map<string, number>(); // tokenId -> current position
+                      
+                      // First pass: calculate positions for all trades
+                      for (const trade of allTrades) {
+                        const tokenId = trade.tokenId;
+                        const positionBefore = tokenPositions.get(tokenId) || 0;
+                        
+                        // Store position before this trade
+                        positionBeforeTrade.set(trade.id, positionBefore);
+                        
+                        // Update position after this trade
+                        const amount = Number(trade.amountToken);
+                        if (trade.side === 'buy') {
+                          tokenPositions.set(tokenId, positionBefore + amount);
+                        } else if (trade.side === 'sell') {
+                          tokenPositions.set(tokenId, Math.max(0, positionBefore - amount));
+                        }
+                      }
+                      
+                      // Get last 10 trades (most recent) and calculate positions again for those
+                      const recentTrades = allTrades.slice(-10);
+                      const tokenPositionsForRecent = new Map<string, number>(); // tokenId -> current position before recent trades
+                      
+                      // Calculate positions before recent trades
+                      for (const trade of allTrades) {
+                        if (recentTrades.some(t => t.id === trade.id)) {
+                          break; // We've reached recent trades
+                        }
+                        const tokenId = trade.tokenId;
+                        const amount = Number(trade.amountToken);
+                        const currentPos = tokenPositionsForRecent.get(tokenId) || 0;
+                        if (trade.side === 'buy') {
+                          tokenPositionsForRecent.set(tokenId, currentPos + amount);
+                        } else if (trade.side === 'sell') {
+                          tokenPositionsForRecent.set(tokenId, Math.max(0, currentPos - amount));
+                        }
+                      }
+                      
+                      return recentTrades.reverse().map((trade) => {
+                        const tradeDate = new Date(trade.timestamp);
+                        const isBuy = trade.side === 'buy';
+                        const positionBefore = positionBeforeTrade.get(trade.id) || 0;
+                        const tradeAmount = Number(trade.amountToken);
+                        const positionAfter = isBuy 
+                          ? positionBefore + tradeAmount 
+                          : Math.max(0, positionBefore - tradeAmount);
+                        
+                        // Determine trade type
+                        // BUY = first purchase (positionBefore === 0)
+                        // ADD = additional purchase (positionBefore > 0)
+                        // SELL = complete sale (positionAfter === 0)
+                        // REM = partial sale (positionAfter > 0)
+                        const MIN_POSITION = 0.000001; // Small threshold to avoid floating point issues
+                        let tradeType: 'BUY' | 'ADD' | 'SELL' | 'REM' = isBuy ? 'BUY' : 'SELL';
+                        if (isBuy && positionBefore > MIN_POSITION) {
+                          tradeType = 'ADD';
+                        } else if (!isBuy && positionAfter > MIN_POSITION) {
+                          tradeType = 'REM';
+                        }
+                        
+                        return (
+                          <tr key={trade.id} className="border-t border-border hover:bg-muted/50">
+                            <td className="px-4 py-3 text-sm">
+                              <a
+                                href={`https://solscan.io/tx/${trade.txSignature}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-400 hover:text-blue-300 hover:underline text-muted-foreground"
+                              >
+                                {`${String(tradeDate.getDate()).padStart(2, '0')}.${String(tradeDate.getMonth() + 1).padStart(2, '0')}.${tradeDate.getFullYear()}, ${String(tradeDate.getHours()).padStart(2, '0')}:${String(tradeDate.getMinutes()).padStart(2, '0')}`}
+                              </a>
+                            </td>
+                            <td className="px-4 py-3 text-center">
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                tradeType === 'BUY' || tradeType === 'ADD'
+                                  ? 'bg-green-500/20 text-green-400'
+                                  : 'bg-red-500/20 text-red-400'
+                              }`}>
+                                {tradeType}
+                              </span>
+                            </td>
+                          <td className="px-4 py-3 text-center text-sm font-mono">
+                            {trade.positionChangePercent !== null && trade.positionChangePercent !== undefined ? (
+                              <span className={
+                                trade.positionChangePercent > 0
+                                  ? 'text-green-400'
+                                  : trade.positionChangePercent < 0
+                                  ? 'text-red-400'
+                                  : 'text-muted-foreground'
+                              }>
+                                {formatMultiplier(trade.positionChangePercent)}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            {trade.token?.mintAddress ? (
+                              <a
+                                href={`https://solscan.io/token/${trade.token.mintAddress}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-white hover:opacity-80 hover:underline"
+                              >
+                                {trade.token.symbol 
+                                  ? `$${trade.token.symbol}` 
+                                  : trade.token.name 
+                                  ? trade.token.name 
+                                  : `${trade.token.mintAddress.slice(0, 6)}...${trade.token.mintAddress.slice(-6)}`}
+                              </a>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </td>
+                          <td className={`px-4 py-3 text-right text-sm font-mono ${
+                            tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            {trade.valueUsd ? `$${formatNumber(Number(trade.valueUsd), 2)}` : '-'}
+                          </td>
+                          <td className={`px-4 py-3 text-right text-sm font-mono ${
+                            tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            ${formatNumber(Number(trade.priceBasePerToken), 6)}
+                          </td>
+                          <td className={`px-4 py-3 text-right text-sm font-mono ${
+                            tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
+                          }`}>
+                            {formatNumber(Number(trade.amountBase), 6)} SOL
+                          </td>
+                        </tr>
+                      );
+                    });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+              {(!trades || trades.trades.length === 0) && (
+                <div className="text-center py-12 text-muted-foreground">
+                  No trades found
+                </div>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Advanced Tab */}
+        {activeTab === 'advanced' && (
+          <>
         {/* Advanced Stats */}
         {wallet.advancedStats && (
           <div className="border border-border rounded-lg p-6 mb-8">
@@ -289,110 +843,50 @@ export default function WalletDetailPage() {
           </div>
 
           <div className="border border-border rounded-lg p-6">
-            <h2 className="text-lg font-semibold mb-4">Recent PnL (30d) Over Time</h2>
-            <ResponsiveContainer width="100%" height={300}>
-              <LineChart data={pnlChartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey="pnl"
-                  stroke="#82ca9d"
-                  strokeWidth={2}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Recent Trades */}
-        <div className="border border-border rounded-lg overflow-hidden">
-          <div className="p-4 border-b border-border">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Recent Trades</h2>
-            </div>
-            
-            {/* Filters */}
-            <div className="flex gap-4 flex-wrap">
-              <div className="flex-1 min-w-[200px]">
-                <input
-                  type="text"
-                  placeholder="Filter by token..."
-                  value={tokenFilter}
-                  onChange={(e) => setTokenFilter(e.target.value)}
-                  className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background"
-                />
+            <h2 className="text-lg font-semibold mb-4">PnL Over Time</h2>
+            {pnlData && pnlData.daily && pnlData.daily.length > 0 ? (
+              <>
+                <div className="flex gap-2 mb-4">
+                  {(['7d', '30d', '90d', '1y'] as const).map((period) => (
+                    <button
+                      key={period}
+                      onClick={() => setPnlTimeframe(period)}
+                      className={`px-3 py-1 text-sm rounded ${
+                        pnlTimeframe === period
+                          ? 'bg-primary text-primary-foreground'
+                          : 'bg-muted text-muted-foreground hover:bg-muted/80'
+                      }`}
+                    >
+                      {period}
+                    </button>
+                  ))}
+                </div>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={pnlData.daily}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="date" />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    <Line
+                      type="monotone"
+                      dataKey="cumulativePnl"
+                      stroke="#82ca9d"
+                      strokeWidth={2}
+                      name="Cumulative PnL"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </>
+            ) : (
+              <div className="text-center text-muted-foreground py-12">
+                No PnL data available
               </div>
-              <select
-                value={timeframeFilter}
-                onChange={(e) => setTimeframeFilter(e.target.value)}
-                className="px-3 py-2 text-sm border border-border rounded-md bg-background"
-              >
-                <option value="all">All time</option>
-                <option value="24h">Last 24 hours</option>
-                <option value="7d">Last 7 days</option>
-                <option value="30d">Last 30 days</option>
-              </select>
-            </div>
+            )}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-muted">
-                <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium">Timestamp</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">Token</th>
-                  <th className="px-4 py-3 text-center text-sm font-medium">Side</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Amount</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Price</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">PnL</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">DEX</th>
-                </tr>
-              </thead>
-              <tbody>
-                {trades?.trades.map((trade) => (
-                  <tr key={trade.id} className="border-t border-border">
-                    <td className="px-4 py-3 text-sm">
-                      {formatDate(trade.timestamp)}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      {trade.token?.symbol || formatAddress(trade.token?.mintAddress || '')}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`px-2 py-1 rounded text-xs ${
-                        trade.side === 'buy'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        {trade.side.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-mono">
-                      {formatNumber(Number(trade.amountToken), 4)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-mono">
-                      {formatNumber(Number(trade.priceBasePerToken), 6)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm">
-                      {/* TODO: Calculate PnL per trade when position is closed */}
-                      <span className="text-muted-foreground text-xs">-</span>
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      {trade.dex}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {(!trades || trades.trades.length === 0) && (
-            <div className="text-center py-12 text-muted-foreground">
-              No trades found
-            </div>
-          )}
         </div>
+          </>
+        )}
       </div>
     </div>
   );

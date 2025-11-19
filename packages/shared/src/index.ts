@@ -16,6 +16,8 @@ export interface SmartWallet {
   avgHoldingTimeMin: number;
   maxDrawdownPercent: number;
   recentPnl30dPercent: number;
+  recentPnl30dUsd?: number;
+  lastTradeTimestamp?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -43,6 +45,12 @@ export interface Trade {
   dex: string;
   positionId: string | null;
   meta: Record<string, any> | null;
+  valueUsd?: number | null;
+  pnlUsd?: number | null;
+  pnlPercent?: number | null;
+  positionChangePercent?: number | null;
+  token?: Token | null;
+  wallet?: SmartWallet | null;
 }
 
 export interface SmartWalletMetricsHistory {

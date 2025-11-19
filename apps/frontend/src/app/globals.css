@@ -9,7 +9,7 @@
     --foreground: 0 0% 100%; /* #ffffff */
     --card: 20 0% 10%;
     --card-foreground: 0 0% 100%;
-    --primary: 200 100% 65%; /* #4bb6ff */
+    --primary: 231 100% 40%; /* #002bcb */
     --primary-foreground: 0 0% 100%;
     --secondary: 20 0% 15%;
     --secondary-foreground: 0 0% 100%;
@@ -21,8 +21,8 @@
     --destructive-foreground: 0 0% 100%;
     --border: 20 0% 20%;
     --input: 20 0% 20%;
-    --ring: 200 100% 65%; /* #4bb6ff */
-    --radius: 0.5rem;
+    --ring: 231 100% 40%; /* #002bcb */
+    --radius: 0;
   }
 }
 
@@ -37,15 +37,32 @@
   }
   
   h1, h2, h3, h4, h5, h6 {
-    color: #4bb6ff;
+    color: white;
+    font-family: var(--font-pirata-one), sans-serif;
+    font-weight: normal;
+  }
+  
+  h1 {
+    display: block;
+    font-size: 3.5rem;
+    font-weight: normal;
+    line-height: 1.2;
+    letter-spacing: 0.02em;
+  }
+  
+  h2 {
+    font-size: 3rem;
+    margin-bottom: 2rem;
+    line-height: 1.2;
+    font-weight: normal;
   }
   
   .text-primary {
-    color: #4bb6ff;
+    color: #002bcb;
   }
   
   .bg-primary {
-    background-color: #4bb6ff;
+    background-color: #002bcb;
   }
   
   .border-border {
@@ -58,6 +75,28 @@
   
   .text-muted-foreground {
     color: rgba(255, 255, 255, 0.6);
+  }
+  
+  /* Remove all border-radius */
+  *, *::before, *::after {
+    border-radius: 0 !important;
+  }
+  
+  /* Button styles */
+  button {
+    letter-spacing: .05em;
+    font-size: .875rem;
+    text-transform: uppercase;
+    padding: 1rem 1.5rem;
+  }
+  
+  /* Links are white by default */
+  a {
+    color: white;
+  }
+  
+  a:hover {
+    opacity: 0.8;
   }
 }
 

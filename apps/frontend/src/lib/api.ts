@@ -19,14 +19,30 @@ export async function fetchSmartWallets(params?: {
   if (params?.sortOrder) searchParams.set('sortOrder', params.sortOrder);
 
   const url = `${API_BASE_URL}/smart-wallets${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
-  const res = await fetch(url);
+  // Přidáme cache-busting pro aktualizaci dat při refreshi
+  const res = await fetch(url, {
+    cache: 'no-store', // Vždy načti aktuální data
+    headers: {
+      'Cache-Control': 'no-cache',
+    },
+  });
   if (!res.ok) throw new Error('Failed to fetch smart wallets');
   return res.json();
 }
 
 export async function fetchSmartWallet(id: string) {
-  const res = await fetch(`${API_BASE_URL}/smart-wallets/${id}`);
-  if (!res.ok) throw new Error('Failed to fetch smart wallet');
+  const res = await fetch(`${API_BASE_URL}/smart-wallets/${id}`, {
+    cache: 'no-store', // Vždy načti aktuální data
+    headers: {
+      'Cache-Control': 'no-cache',
+    },
+  });
+  if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error('Wallet not found');
+    }
+    throw new Error(`Failed to fetch smart wallet: ${res.status} ${res.statusText}`);
+  }
   return res.json();
 }
 
@@ -65,6 +81,42 @@ export async function fetchTokenStats() {
 export async function fetchDexStats() {
   const res = await fetch(`${API_BASE_URL}/stats/dex`);
   if (!res.ok) throw new Error('Failed to fetch DEX stats');
+  return res.json();
+}
+
+export async function fetchWalletPnl(walletId: string) {
+  const res = await fetch(`${API_BASE_URL}/smart-wallets/${walletId}/pnl`);
+  if (!res.ok) throw new Error('Failed to fetch wallet PnL');
+  return res.json();
+}
+
+export async function fetchWalletPortfolio(walletId: string, forceRefresh: boolean = false) {
+  const url = `${API_BASE_URL}/smart-wallets/${walletId}/portfolio${forceRefresh ? '?forceRefresh=true' : ''}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Failed to fetch wallet portfolio');
+  return res.json();
+}
+
+export async function fetchWalletPortfolioRefresh(walletId: string) {
+  const url = `${API_BASE_URL}/smart-wallets/${walletId}/portfolio/refresh`;
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) {
+    let msg = 'Failed to refresh wallet portfolio';
+    try {
+      const body = await res.json();
+      if (body?.message) msg = `Solscan error: ${body.message}`;
+      else if (body?.error) msg = body.error;
+    } catch {
+      try {
+        const text = await res.text();
+        if (text) msg = text;
+      } catch {}
+    }
+    throw new Error(msg);
+  }
   return res.json();
 }
 

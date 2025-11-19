@@ -104,16 +104,39 @@ export class MetricsCalculatorService {
     };
   }
 
+  /**
+   * Build positions from trades (public method for external use)
+   */
+  async buildPositionsFromTrades(walletId: string): Promise<Position[]> {
+    const trades = await this.tradeRepo.findAllForMetrics(walletId);
+    return this.buildPositions(trades);
+  }
+
   private buildPositions(trades: any[]): Position[] {
     const positions: Position[] = [];
     const openPositions = new Map<string, Position>();
+
+    // Minimální hodnota v base měně pro považování za reálný trade (filtruj airdropy/transfery)
+    const MIN_BASE_VALUE = 0.0001; // 0.0001 SOL nebo base token
 
     for (const trade of trades) {
       const tokenId = trade.tokenId;
       const side = trade.side;
       const amount = Number(trade.amountToken);
       const price = Number(trade.priceBasePerToken);
+      const amountBase = Number(trade.amountBase || 0);
       const timestamp = trade.timestamp;
+
+      // Filtruj airdropy/transfery - pokud buy trade má nulovou nebo velmi malou hodnotu v base měně,
+      // je to pravděpodobně airdrop nebo transfer, ne reálný trade
+      if (side === 'buy' && amountBase < MIN_BASE_VALUE) {
+        continue; // Přeskoč tento trade
+      }
+
+      // Pokud je cena nulová nebo velmi malá, také přeskoč (je to pravděpodobně airdrop/transfer)
+      if (price <= 0 || price < MIN_BASE_VALUE / amount) {
+        continue;
+      }
 
       if (side === 'buy') {
         // Check if there's an open position
@@ -168,7 +191,13 @@ export class MetricsCalculatorService {
   }
 
   private calculateWinRate(positions: Position[]): number {
-    const closedPositions = positions.filter(p => p.sellAmount && p.sellPrice);
+    // Filtruj pozice s platnou cenou (vynech airdropy/transfery)
+    const closedPositions = positions.filter(p => 
+      p.sellAmount && 
+      p.sellPrice && 
+      p.buyPrice && 
+      p.buyPrice > 0
+    );
     if (closedPositions.length === 0) return 0;
 
     const wins = closedPositions.filter(p => {
@@ -193,9 +222,10 @@ export class MetricsCalculatorService {
   }
 
   private calculateAvgPnlPercent(positions: Position[]): number {
-    const closedPositions = positions.filter(p => p.sellAmount && p.sellPrice);
+    const closedPositions = positions.filter(p => p.sellAmount && p.sellPrice && p.buyPrice > 0);
     if (closedPositions.length === 0) return 0;
 
+    // Průměr PnL procent z jednotlivých pozic (to je v pořádku, protože je to průměr)
     const pnls = closedPositions.map(p => {
       return ((p.sellPrice! - p.buyPrice) / p.buyPrice) * 100;
     });
@@ -204,7 +234,13 @@ export class MetricsCalculatorService {
   }
 
   private calculateTotalPnl(positions: Position[]): number {
-    const closedPositions = positions.filter(p => p.sellAmount && p.sellPrice);
+    // Filtruj pozice s platnou cenou (vynech airdropy/transfery)
+    const closedPositions = positions.filter(p => 
+      p.sellAmount && 
+      p.sellPrice && 
+      p.buyPrice && 
+      p.buyPrice > 0
+    );
     
     return closedPositions.reduce((sum, p) => {
       const buyValue = p.buyAmount * p.buyPrice;
@@ -260,12 +296,22 @@ export class MetricsCalculatorService {
 
     if (recentPositions.length === 0) return 0;
 
-    const totalPnl = recentPositions.reduce((sum, p) => {
-      const pnl = ((p.sellPrice! - p.buyPrice) / p.buyPrice) * 100;
-      return sum + pnl;
+    // Vypočti celkový ROI správně (celková investice vs celkový výnos), ne sčítání procent
+    const totalBuyValue = recentPositions.reduce((sum, p) => {
+      return sum + Number(p.buyPrice) * Number(p.buyAmount);
     }, 0);
 
-    return totalPnl;
+    const totalSellValue = recentPositions.reduce((sum, p) => {
+      return sum + Number(p.sellPrice!) * Number(p.sellAmount!);
+    }, 0);
+
+    // ROI v procentech
+    if (totalBuyValue <= 0) return 0;
+    
+    const totalPnl = totalSellValue - totalBuyValue;
+    const pnlPercent = (totalPnl / totalBuyValue) * 100;
+
+    return pnlPercent;
   }
 
   private calculateScore(params: {

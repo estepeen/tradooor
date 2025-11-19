@@ -1,4 +1,4 @@
-import { prisma } from '@solbot/db';
+import { supabase, TABLES, generateId } from '../lib/supabase.js';
 
 export class MetricsHistoryRepository {
   async create(data: {
@@ -14,19 +14,50 @@ export class MetricsHistoryRepository {
     maxDrawdownPercent: number;
     recentPnl30dPercent: number;
   }) {
-    return prisma.smartWalletMetricsHistory.create({
-      data,
-    });
+    const { data: result, error } = await supabase
+      .from(TABLES.SMART_WALLET_METRICS_HISTORY)
+      .insert({
+        id: generateId(),
+        walletId: data.walletId,
+        timestamp: data.timestamp.toISOString(),
+        score: data.score,
+        totalTrades: data.totalTrades,
+        winRate: data.winRate,
+        avgRr: data.avgRr,
+        avgPnlPercent: data.avgPnlPercent,
+        pnlTotalBase: data.pnlTotalBase,
+        avgHoldingTimeMin: data.avgHoldingTimeMin,
+        maxDrawdownPercent: data.maxDrawdownPercent,
+        recentPnl30dPercent: data.recentPnl30dPercent,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      throw new Error(`Failed to create metrics history: ${error.message}`);
+    }
+
+    return result;
   }
 
   async findByWalletId(walletId: string, fromDate?: Date) {
-    return prisma.smartWalletMetricsHistory.findMany({
-      where: {
-        walletId,
-        ...(fromDate && { timestamp: { gte: fromDate } }),
-      },
-      orderBy: { timestamp: 'asc' },
-    });
+    let query = supabase
+      .from(TABLES.SMART_WALLET_METRICS_HISTORY)
+      .select('*')
+      .eq('walletId', walletId);
+
+    if (fromDate) {
+      query = query.gte('timestamp', fromDate.toISOString());
+    }
+
+    query = query.order('timestamp', { ascending: true });
+
+    const { data: history, error } = await query;
+
+    if (error) {
+      throw new Error(`Failed to fetch metrics history: ${error.message}`);
+    }
+
+    return history ?? [];
   }
 }
-

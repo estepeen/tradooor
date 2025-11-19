@@ -4,18 +4,18 @@
 
 1. Otevři Supabase Dashboard: https://supabase.com
 2. Vytvoř projekt (nebo použij existující)
-3. Zkopíruj **Connection pooling** string z Project Settings > Database
+3. V **Project Settings > API** zkopíruj:
+   - **Project URL** (např. `https://xxxxx.supabase.co`)
+   - **service_role key** (v sekci Project API keys)
 4. Vytvoř soubor `apps/backend/.env`:
-   ```bash
-   DATABASE_URL="postgresql://postgres.myiqdbvtmzpboegzteua:[PASSWORD]@aws-1-eu-north-1.pooler.supabase.com:6543/postgres"
+   ```env
+   SUPABASE_URL="https://xxxxx.supabase.co"
+   SUPABASE_SERVICE_ROLE_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
    SOLANA_RPC_URL="https://api.mainnet-beta.solana.com"
    PORT=3001
    NODE_ENV=development
    ```
-5. Spusť migrace:
-   ```bash
-   pnpm db:migrate
-   ```
+5. Vytvoř databázové schéma - viz [SUPABASE_SETUP.md](./SUPABASE_SETUP.md) Krok 4
 
 ## Krok 2: Spuštění aplikace
 
@@ -65,13 +65,11 @@ curl -X POST http://localhost:3001/api/smart-wallets \
   }'
 ```
 
-### Metoda 3: Přes Prisma Studio (GUI)
+### Metoda 3: Přes Supabase Dashboard
 
-```bash
-pnpm db:studio
-```
-
-Otevře se na http://localhost:5555 - můžeš přidat wallet přímo v databázi.
+1. Otevři Supabase Dashboard > Table Editor
+2. Vyber tabulku `SmartWallet`
+3. Klikni "Insert row" a vyplň data
 
 ## Krok 4: Zobrazení wallet
 
@@ -103,13 +101,14 @@ pnpm --filter backend metrics:cron
 
 - **Backend API:** http://localhost:3001
 - **Frontend Dashboard:** http://localhost:3000
-- **Prisma Studio:** http://localhost:5555 (po spuštění `pnpm db:studio`)
+- **Supabase Dashboard:** https://supabase.com/dashboard
 
 ## ❓ Troubleshooting
 
 **Backend neběží?**
-- Zkontroluj `.env` v `apps/backend/` s `DATABASE_URL`
-- Zkontroluj, že databáze běží (Supabase)
+- Zkontroluj `.env` v `apps/backend/` s `SUPABASE_URL` a `SUPABASE_SERVICE_ROLE_KEY`
+- Zkontroluj, že databáze běží (Supabase Dashboard)
+- Zkontroluj, že máš vytvořené všechny tabulky (viz SUPABASE_SETUP.md)
 
 **Frontend neběží?**
 - Zkontroluj, že backend běží na portu 3001
@@ -118,4 +117,4 @@ pnpm --filter backend metrics:cron
 **Chyba při přidání wallet?**
 - Zkontroluj, že adresa je validní Solana address (44 znaků)
 - Zkontroluj, že wallet ještě není v databázi
-
+- Zkontroluj Supabase Dashboard > Logs pro detaily chyb

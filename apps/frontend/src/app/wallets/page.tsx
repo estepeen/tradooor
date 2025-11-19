@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { fetchSmartWallets } from '@/lib/api';
-import { formatAddress, formatPercent, formatNumber, copyToClipboard } from '@/lib/utils';
+import { formatAddress, formatPercent, formatNumber, formatLastTrade } from '@/lib/utils';
 import type { SmartWalletListResponse } from '@solbot/shared';
 
 export default function WalletsPage() {
+  const router = useRouter();
   const [data, setData] = useState<SmartWalletListResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -15,10 +17,30 @@ export default function WalletsPage() {
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<'score' | 'winRate' | 'recentPnl30dPercent'>('score');
-  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncSuccess, setSyncSuccess] = useState<{ created: number; errors: number; removed?: number } | null>(null);
+  const [refreshTradesLoading, setRefreshTradesLoading] = useState(false);
+  const [refreshTradesError, setRefreshTradesError] = useState<string | null>(null);
+  const [refreshTradesSuccess, setRefreshTradesSuccess] = useState<{ totalTrades: number; totalWallets: number; errors?: number } | null>(null);
+  const [showRefreshModal, setShowRefreshModal] = useState(false);
+  const [selectedWallets, setSelectedWallets] = useState<Set<string>>(new Set());
+  const [allWallets, setAllWallets] = useState<any[]>([]);
+  const [loadingAllWallets, setLoadingAllWallets] = useState(false);
+  const [txLimit, setTxLimit] = useState<number | ''>(20);
+  const [refreshingWallets, setRefreshingWallets] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadWallets();
+  }, [page, search, minScore, sortBy, selectedTags]);
+
+  // Auto-refresh every 30 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadWallets();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
   }, [page, search, minScore, sortBy, selectedTags]);
 
   useEffect(() => {
@@ -37,7 +59,7 @@ export default function WalletsPage() {
     try {
       const result = await fetchSmartWallets({
         page,
-        pageSize: 50,
+        pageSize: 20,
         search: search || undefined,
         minScore,
         tags: selectedTags.length > 0 ? selectedTags : undefined,
@@ -69,20 +91,112 @@ export default function WalletsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-8">
+    <div className={`min-h-screen bg-background p-8 ${(syncError || syncSuccess || refreshTradesError || refreshTradesSuccess) ? 'pt-20' : ''}`}>
       <div className="container mx-auto">
         <div className="mb-8 flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold mb-2">Smart Wallets</h1>
+            <h1 className="mb-2">Smart Wallets</h1>
             <p className="text-muted-foreground">Track and analyze smart wallet performance</p>
           </div>
           <div className="flex gap-2">
+            <button
+              onClick={async () => {
+                // Load all wallets for selection
+                setShowRefreshModal(true);
+                setLoadingAllWallets(true);
+                try {
+                  // Load all wallets (use large pageSize to get all)
+                  const allWalletsData = await fetchSmartWallets({
+                    page: 1,
+                    pageSize: 10000,
+                  });
+                  setAllWallets(allWalletsData.wallets || []);
+                  // Pre-select all wallets
+                  if (allWalletsData.wallets) {
+                    setSelectedWallets(new Set(allWalletsData.wallets.map((w: any) => w.address)));
+                  }
+                } catch (error) {
+                  console.error('Error loading all wallets:', error);
+                  // Fallback to current page wallets
+                  if (data?.wallets) {
+                    setAllWallets(data.wallets);
+                    setSelectedWallets(new Set(data.wallets.map(w => w.address)));
+                  }
+                } finally {
+                  setLoadingAllWallets(false);
+                }
+              }}
+              disabled={loading}
+              className="px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted/80 transition-colors disabled:opacity-50"
+              title="Refresh trades from blockchain"
+            >
+              Refresh Trades
+            </button>
             <Link
               href="/wallets/add"
               className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
             >
-              + Add Wallet
+              Add Wallet
             </Link>
+            <button
+              onClick={async () => {
+                setSyncLoading(true);
+                setSyncError(null);
+                setSyncSuccess(null);
+
+                try {
+                  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+                  const response = await fetch(`${API_BASE_URL}/smart-wallets/sync`, {
+                    method: 'POST',
+                  });
+
+                  const result = await response.json();
+
+                  if (!response.ok) {
+                    if (result.validationErrors && result.validationErrors.length > 0) {
+                      const errorDetails = result.validationErrors
+                        .map((e: any) => `Row ${e.row}: ${e.error} (${e.address || 'no address'})`)
+                        .join('\n');
+                      throw new Error(`Validation errors:\n${errorDetails}`);
+                    }
+                    throw new Error(result.error || 'Sync failed');
+                  }
+
+                  let validationErrorMsg = null;
+                  if (result.validationErrors && result.validationErrors.length > 0) {
+                    const errorDetails = result.validationErrors
+                      .map((e: any) => `Row ${e.row}: ${e.error} (${e.address || 'no address'})`)
+                      .join('\n');
+                    validationErrorMsg = `Validation errors:\n${errorDetails}`;
+                  }
+
+                  // result.errors může být pole objektů nebo číslo - normalizujme to
+                  const errorCount = Array.isArray(result.errors) 
+                    ? result.errors.length 
+                    : (typeof result.errors === 'number' ? result.errors : 0);
+                  
+                  setSyncSuccess({
+                    created: Array.isArray(result.created) ? result.created.length : (result.created || 0),
+                    errors: errorCount,
+                  });
+
+                  if (validationErrorMsg) {
+                    setSyncError(validationErrorMsg);
+                  }
+
+                  // Reload wallets after successful sync
+                  await loadWallets();
+                } catch (err: any) {
+                  setSyncError(err.message || 'Failed to synchronize wallets');
+                } finally {
+                  setSyncLoading(false);
+                }
+              }}
+              disabled={syncLoading}
+              className="px-4 py-2 border border-border rounded-md hover:bg-muted transition-colors disabled:opacity-50"
+            >
+              {syncLoading ? 'Syncing...' : 'Synchronize Wallets'}
+            </button>
             <Link
               href="/stats"
               className="px-4 py-2 border border-border rounded-md hover:bg-muted transition-colors"
@@ -169,48 +283,55 @@ export default function WalletsPage() {
             <table className="w-full">
               <thead className="bg-muted">
                 <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium">Address</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">Label</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Trader</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Wallet</th>
                   <th className="px-4 py-3 text-right text-sm font-medium">Score</th>
                   <th className="px-4 py-3 text-right text-sm font-medium">Trades</th>
                   <th className="px-4 py-3 text-right text-sm font-medium">Win Rate</th>
                   <th className="px-4 py-3 text-right text-sm font-medium">Recent PnL (30d)</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Avg Hold Time</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium">Last Trade</th>
                 </tr>
               </thead>
               <tbody>
                 {data?.wallets.map((wallet) => (
                   <tr
                     key={wallet.id}
+                    onClick={() => {
+                      router.push(`/wallet/${wallet.address}`);
+                    }}
                     className="border-t border-border hover:bg-muted/50 cursor-pointer"
                   >
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <Link
-                          href={`/wallets/${wallet.id}`}
-                          className="font-mono text-sm text-primary hover:underline"
-                        >
-                          {formatAddress(wallet.address)}
-                        </Link>
-                        <button
-                          onClick={async (e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            const success = await copyToClipboard(wallet.address);
-                            if (success) {
-                              setCopiedAddress(wallet.id);
-                              setTimeout(() => setCopiedAddress(null), 2000);
-                            }
-                          }}
-                          className="text-muted-foreground hover:text-foreground text-xs"
-                          title="Copy address"
-                        >
-                          {copiedAddress === wallet.id ? '✓' : '📋'}
-                        </button>
-                      </div>
-                    </td>
                     <td className="px-4 py-3 text-sm">
-                      {wallet.label || '-'}
+                      <span className="underline flex items-center gap-2">
+                        {refreshingWallets.has(wallet.address) && (
+                          <svg
+                            className="animate-spin h-4 w-4 text-primary"
+                            xmlns="http://www.w3.org/2000/svg"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                          >
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                            ></circle>
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                            ></path>
+                          </svg>
+                        )}
+                        {wallet.label || '-'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-mono text-sm">
+                        {formatAddress(wallet.address)}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-right text-sm font-medium">
                       {formatNumber(wallet.score, 1)}
@@ -224,11 +345,18 @@ export default function WalletsPage() {
                     <td className={`px-4 py-3 text-right text-sm font-medium ${
                       wallet.recentPnl30dPercent >= 0 ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {wallet.recentPnl30dPercent >= 0 ? '+' : ''}
-                      {formatPercent(wallet.recentPnl30dPercent / 100)}
+                      {wallet.recentPnl30dUsd !== undefined && wallet.recentPnl30dUsd !== null
+                        ? (
+                          <>
+                            ${formatNumber(Math.abs(wallet.recentPnl30dUsd), 2)}{' '}
+                            ({wallet.recentPnl30dPercent >= 0 ? '+' : ''}{formatPercent(wallet.recentPnl30dPercent / 100)})
+                          </>
+                        )
+                        : `${wallet.recentPnl30dPercent >= 0 ? '+' : ''}${formatPercent(wallet.recentPnl30dPercent / 100)}`
+                      }
                     </td>
-                    <td className="px-4 py-3 text-right text-sm">
-                      {formatNumber(wallet.avgHoldingTimeMin, 0)} min
+                    <td className="px-4 py-3 text-right text-sm text-muted-foreground">
+                      {formatLastTrade(wallet.lastTradeTimestamp)}
                     </td>
                   </tr>
                 ))}
@@ -265,6 +393,274 @@ export default function WalletsPage() {
             No wallets found. Add some wallets to start tracking.
           </div>
         )}
+
+        {/* Sync Status Messages - Fixed at top */}
+        {syncError && (
+          <div className={`fixed top-0 left-0 right-0 z-50 p-3 rounded-b text-sm ${
+            syncError.includes('Validation errors') 
+              ? 'bg-yellow-950/95 border-b border-yellow-500/50 text-yellow-400'
+              : 'bg-red-950/95 border-b border-red-500/50 text-red-400'
+          }`}>
+            <div className="container mx-auto max-w-7xl flex items-start justify-between gap-4">
+              <div className="flex-1">
+                {syncError.includes('Validation errors') ? (
+                  <>
+                    <p className="font-semibold mb-2">Some rows had validation errors:</p>
+                    <pre className="text-xs whitespace-pre-wrap max-h-40 overflow-y-auto">
+                      {syncError}
+                    </pre>
+                    <p className="mt-2 text-xs">Valid wallets were still imported.</p>
+                  </>
+                ) : (
+                  syncError
+                )}
+              </div>
+              <button
+                onClick={() => setSyncError(null)}
+                className="text-current opacity-70 hover:opacity-100"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
+        {syncSuccess && (
+          <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-green-950/95 border-b border-green-500/50 text-green-400 rounded-b text-sm">
+            <div className="container mx-auto max-w-7xl flex items-center justify-between gap-4">
+              <div>
+                Synchronization successful! 
+                {syncSuccess.created > 0 && ` Created: ${syncSuccess.created}`}
+                {syncSuccess.errors > 0 && ` Errors: ${syncSuccess.errors}`}
+                {syncSuccess.removed && syncSuccess.removed > 0 && ` Removed: ${syncSuccess.removed}`}
+              </div>
+              <button
+                onClick={() => setSyncSuccess(null)}
+                className="text-current opacity-70 hover:opacity-100"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Refresh Trades Status Messages - Fixed at top */}
+        {refreshTradesError && (
+          <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-red-950/95 border-b border-red-500/50 text-red-400 rounded-b text-sm">
+            <div className="container mx-auto max-w-7xl flex items-center justify-between gap-4">
+              <div>Error: {refreshTradesError}</div>
+              <button
+                onClick={() => setRefreshTradesError(null)}
+                className="text-current opacity-70 hover:opacity-100"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
+        {refreshTradesSuccess && (
+          <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-green-950/95 border-b border-green-500/50 text-green-400 rounded-b text-sm">
+            <div className="container mx-auto max-w-7xl flex items-center justify-between gap-4">
+              <div>
+                Trades refreshed successfully!
+                {refreshTradesSuccess.totalTrades > 0 && (
+                  <> Found {refreshTradesSuccess.totalTrades} new trade{refreshTradesSuccess.totalTrades !== 1 ? 's' : ''} across {refreshTradesSuccess.totalWallets} wallet{refreshTradesSuccess.totalWallets !== 1 ? 's' : ''}</>
+                )}
+                {refreshTradesSuccess.totalTrades === 0 && (
+                  <> No new trades found for {refreshTradesSuccess.totalWallets} wallet{refreshTradesSuccess.totalWallets !== 1 ? 's' : ''}</>
+                )}
+                {refreshTradesSuccess.errors !== undefined && refreshTradesSuccess.errors > 0 && (
+                  <> ({refreshTradesSuccess.errors} error{refreshTradesSuccess.errors !== 1 ? 's' : ''})</>
+                )}
+              </div>
+              <button
+                onClick={() => setRefreshTradesSuccess(null)}
+                className="text-current opacity-70 hover:opacity-100"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Refresh Trades Modal */}
+        {showRefreshModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-background border border-border rounded-lg p-6 max-w-2xl w-full max-h-[80vh] flex flex-col">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold">Select Wallets to Refresh</h2>
+                <button
+                  onClick={() => {
+                    setShowRefreshModal(false);
+                    setSelectedWallets(new Set());
+                  }}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <div className="mb-4 space-y-3">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      // Select all wallets
+                      if (allWallets.length > 0) {
+                        setSelectedWallets(new Set(allWallets.map((w: any) => w.address)));
+                      }
+                    }}
+                    className="px-3 py-1 text-sm border border-border rounded hover:bg-muted"
+                  >
+                    Select All
+                  </button>
+                  <button
+                    onClick={() => setSelectedWallets(new Set())}
+                    className="px-3 py-1 text-sm border border-border rounded hover:bg-muted"
+                  >
+                    Deselect All
+                  </button>
+                  <div className="flex-1 text-right text-sm text-muted-foreground flex items-center justify-end">
+                    {selectedWallets.size} of {allWallets.length} selected
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-sm text-muted-foreground">
+                    Transactions limit per wallet (optional):
+                  </label>
+                  <input
+                    type="number"
+                    min="10"
+                    max="1000"
+                    value={txLimit}
+                    onChange={(e) => setTxLimit(e.target.value === '' ? '' : parseInt(e.target.value))}
+                    placeholder="auto"
+                    className="px-3 py-1 text-sm border border-border rounded bg-background w-24"
+                  />
+                  <span className="text-xs text-muted-foreground">
+                    (empty = auto: fetch all new trades from last trade)
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto mb-4 border border-border rounded p-4">
+                {loadingAllWallets ? (
+                  <div className="text-center text-muted-foreground py-8">
+                    Loading wallets...
+                  </div>
+                ) : allWallets.length > 0 ? (
+                  <div className="space-y-2">
+                    {allWallets.map((wallet: any) => (
+                      <label
+                        key={wallet.id}
+                        className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedWallets.has(wallet.address)}
+                          onChange={(e) => {
+                            const newSelected = new Set(selectedWallets);
+                            if (e.target.checked) {
+                              newSelected.add(wallet.address);
+                            } else {
+                              newSelected.delete(wallet.address);
+                            }
+                            setSelectedWallets(newSelected);
+                          }}
+                          className="w-4 h-4"
+                        />
+                        <span className="flex-1">
+                          <span className="font-medium">{wallet.label || '-'}</span>
+                          <span className="text-muted-foreground ml-2 font-mono text-sm">
+                            {formatAddress(wallet.address)}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center text-muted-foreground py-8">
+                    No wallets found
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    setShowRefreshModal(false);
+                    setSelectedWallets(new Set());
+                  }}
+                  className="px-4 py-2 border border-border rounded hover:bg-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    if (selectedWallets.size === 0) {
+                      alert('Please select at least one wallet');
+                      return;
+                    }
+
+                    setShowRefreshModal(false);
+                    setRefreshTradesLoading(true);
+                    setRefreshTradesError(null);
+                    setRefreshTradesSuccess(null);
+                    setSyncSuccess(null);
+                    setSyncError(null);
+                    
+                    // Nastavíme, které wallet se právě aktualizují
+                    setRefreshingWallets(new Set(selectedWallets));
+
+                    try {
+                      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+                      const response = await fetch(`${API_BASE_URL}/smart-wallets/refresh-trades`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                          walletAddresses: Array.from(selectedWallets),
+                          limit: txLimit !== '' ? txLimit : undefined,
+                        }),
+                      });
+
+                      const result = await response.json();
+
+                      if (!response.ok) {
+                        throw new Error(result.error || result.message || 'Failed to refresh trades');
+                      }
+
+                      // Count errors from results
+                      const errors = result.results?.filter((r: any) => r.error)?.length || 0;
+
+                      setRefreshTradesSuccess({
+                        totalTrades: result.totalTrades || 0,
+                        totalWallets: result.totalWallets || 0,
+                        errors: errors,
+                      });
+
+                      // Reload wallets after successful refresh to show updated data
+                      await loadWallets();
+                      setSelectedWallets(new Set());
+                    } catch (err: any) {
+                      setRefreshTradesError(err.message || 'Failed to refresh trades');
+                    } finally {
+                      setRefreshTradesLoading(false);
+                      // Odstraníme wallet z refreshingWallets po dokončení
+                      setRefreshingWallets(new Set());
+                    }
+                  }}
+                  disabled={selectedWallets.size === 0 || refreshTradesLoading}
+                  className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {refreshTradesLoading ? 'Refreshing...' : `Refresh ${selectedWallets.size} Wallet${selectedWallets.size !== 1 ? 's' : ''}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   );

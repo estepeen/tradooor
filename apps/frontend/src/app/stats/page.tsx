@@ -48,9 +48,9 @@ export default function StatsPage() {
       <div className="container mx-auto">
         <div className="mb-8">
           <Link href="/wallets" className="text-primary hover:underline mb-4 inline-block">
-            ← Back to Wallets
+            Back to Wallets
           </Link>
-          <h1 className="text-3xl font-bold mb-2">Global Statistics</h1>
+          <h1 className="mb-2">Global Statistics</h1>
           <p className="text-muted-foreground">Overview across all tracked wallets</p>
         </div>
 
@@ -90,7 +90,7 @@ export default function StatsPage() {
                 {overview.topPerformers.byScore.map((wallet: any, idx: number) => (
                   <Link
                     key={wallet.id}
-                    href={`/wallets/${wallet.id}`}
+                    href={`/wallet/${wallet.address}`}
                     className="flex justify-between items-center p-2 hover:bg-muted rounded"
                   >
                     <div>
@@ -111,7 +111,7 @@ export default function StatsPage() {
                 {overview.topPerformers.byPnl.map((wallet: any, idx: number) => (
                   <Link
                     key={wallet.id}
-                    href={`/wallets/${wallet.id}`}
+                    href={`/wallet/${wallet.address}`}
                     className="flex justify-between items-center p-2 hover:bg-muted rounded"
                   >
                     <div>
@@ -135,7 +135,7 @@ export default function StatsPage() {
                 {overview.topPerformers.byRecentPnl.map((wallet: any, idx: number) => (
                   <Link
                     key={wallet.id}
-                    href={`/wallets/${wallet.id}`}
+                    href={`/wallet/${wallet.address}`}
                     className="flex justify-between items-center p-2 hover:bg-muted rounded"
                   >
                     <div>
@@ -145,8 +145,20 @@ export default function StatsPage() {
                     <div className={`text-right font-bold ${
                       wallet.recentPnl30dPercent >= 0 ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {wallet.recentPnl30dPercent >= 0 ? '+' : ''}
-                      {formatPercent(wallet.recentPnl30dPercent / 100)}
+                      {wallet.recentPnl30dUsd !== undefined && wallet.recentPnl30dUsd !== null
+                        ? (
+                          <>
+                            <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                              ${formatNumber(Math.abs(wallet.recentPnl30dUsd), 2)}
+                            </span>
+                            {' '}
+                            <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                              ({wallet.recentPnl30dPercent >= 0 ? '+' : ''}{formatPercent(wallet.recentPnl30dPercent / 100)})
+                            </span>
+                          </>
+                        )
+                        : `${wallet.recentPnl30dPercent >= 0 ? '+' : ''}${formatPercent(wallet.recentPnl30dPercent / 100)}`
+                      }
                     </div>
                   </Link>
                 ))}

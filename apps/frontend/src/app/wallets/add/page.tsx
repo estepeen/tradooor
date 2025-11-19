@@ -49,7 +49,7 @@ export default function AddWalletPage() {
       
       // Redirect to wallet detail after 1 second
       setTimeout(() => {
-        router.push(`/wallets/${wallet.id}`);
+        router.push(`/wallet/${wallet.address}`);
       }, 1000);
     } catch (err: any) {
       setError(err.message || 'An error occurred');
@@ -59,24 +59,40 @@ export default function AddWalletPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-8">
+    <div className={`min-h-screen bg-background p-8 ${(error || success) ? 'pt-20' : ''}`}>
       <div className="container mx-auto max-w-2xl">
         <Link href="/wallets" className="text-primary hover:underline mb-4 inline-block">
-          ← Back to Wallets
+          Back to Wallets
         </Link>
 
         <div className="border border-border rounded-lg p-6">
-          <h1 className="text-2xl font-bold mb-4">Add Smart Wallet</h1>
+          <h1 className="mb-4">Add Smart Wallet</h1>
 
           {error && (
-            <div className="mb-4 p-3 bg-red-950/50 border border-red-500/50 text-red-400 rounded">
-              {error}
+            <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-red-950/95 border-b border-red-500/50 text-red-400 rounded-b">
+              <div className="container mx-auto max-w-2xl flex items-center justify-between gap-4">
+                <div>{error}</div>
+                <button
+                  onClick={() => setError(null)}
+                  className="text-current opacity-70 hover:opacity-100"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
           )}
 
           {success && (
-            <div className="mb-4 p-3 bg-green-950/50 border border-green-500/50 text-green-400 rounded">
-              ✅ Wallet added successfully! Redirecting...
+            <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-green-950/95 border-b border-green-500/50 text-green-400 rounded-b">
+              <div className="container mx-auto max-w-2xl flex items-center justify-between gap-4">
+                <div>Wallet added successfully! Redirecting...</div>
+                <button
+                  onClick={() => setSuccess(false)}
+                  className="text-current opacity-70 hover:opacity-100"
+                >
+                  ✕
+                </button>
+              </div>
             </div>
           )}
 

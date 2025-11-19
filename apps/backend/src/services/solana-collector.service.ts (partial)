@@ -1,0 +1,71 @@
+++ Update File: apps/backend/src/services/solana-collector.service.ts
+@@
+ import { Connection, PublicKey } from '@solana/web3.js';
+ import dotenv from 'dotenv';
+ import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
+ import { TradeRepository } from '../repositories/trade.repository.js';
+ import { TokenRepository } from '../repositories/token.repository.js';
+ 
+ dotenv.config();
+ 
++/**
++ * Simple global RPC limiter (Bottleneck‑like)
++ * - maxConcurrent: max number of parallel RPC calls
++ * - minTimeMs: minimal delay between starting two calls
++ */
++class RpcLimiter {
++  private running = 0;
++  private queue: Array<() => void> = [];
++  private lastStart = 0;
++
++  constructor(
++    private readonly maxConcurrent: number,
++    private readonly minTimeMs: number
++  ) {}
++
++  async schedule<T>(fn: () => Promise<T>): Promise<T> {
++    return new Promise<T>((resolve, reject) => {
++      const run = async () => {
++        const now = Date.now();
++        const wait = Math.max(0, this.lastStart + this.minTimeMs - now);
++
++        const start = async () => {
++          this.running++;
++          this.lastStart = Date.now();
++          try {
++            const result = await fn();
++            resolve(result);
++          } catch (err) {
++            reject(err);
++          } finally {
++            this.running--;
++            this.next();
++          }
++        };
++
++        if (wait > 0) {
++          setTimeout(start, wait);
++        } else {
++          start();
++        }
+      };
+
+      if (this.running < this.maxConcurrent) {
+        run();
+      } else {
+        this.queue.push(run);
+      }
+    });
+  }
+
+  private next() {
+    if (this.queue.length === 0) return;
+    if (this.running >= this.maxConcurrent) return;
+    const next = this.queue.shift();
+    if (next) next();
+  }
+}
+
+ /**
+  * Solana Collector Service
+

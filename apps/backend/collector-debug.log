@@ -1,0 +1,5 @@
+[2025-11-14T21:54:44.672Z] 📊 Found 5 transactions for AVAZvHLR2PcWpDf8BXY4rVxNHYRBytycHkcB5z5QNXYm
+[2025-11-14T21:54:53.012Z] ❌ Error processing transaction 5ZgWCDnV...: 429 Too Many Requests:  {"jsonrpc":"2.0","error":{"code": 429, "message":"Too many requests for a specific RPC call"}, "id": "ca8c1b1c-94e0-4bc5-ade3-9614b4ad7e0a" } 
+
+[2025-11-14T21:55:01.038Z] ❌ Error processing transaction FQXH81Cr...: 429 Too Many Requests:  {"jsonrpc":"2.0","error":{"code": 429, "message":"Too many requests for a specific RPC call"}, "id": "3693c432-8de8-437f-9057-5a9f8538d35c" } 
+
