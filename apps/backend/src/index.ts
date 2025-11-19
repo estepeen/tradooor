@@ -143,8 +143,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Backend server running on http://localhost:${PORT}`);
+// Naslouchej na 0.0.0.0 (všechny interface, IPv4 i IPv6) pro dostupnost zvenčí
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`🚀 Backend server running on http://0.0.0.0:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`📋 API endpoints:`);
   console.log(`   GET  /api/smart-wallets`);
