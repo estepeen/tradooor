@@ -23,30 +23,46 @@ const collectorService = new SolanaCollectorService(
  */
 router.post('/helius', async (req, res) => {
   try {
-    // Helius webhook payload může mít různé formáty
-    // Enhanced webhook: { accountData: [...], transactions: [...] }
-    // Nebo: { webhookType: 'enhanced', data: [...] }
-    const { transactions, accountData, data, webhookType } = req.body;
+    // Helius enhanced webhook posílá data v tomto formátu:
+    // { accountData: [{ account: "wallet_address", ... }], transactions: [{ type: "SWAP", ... }] }
+    console.log('📨 Received Helius webhook payload');
+    console.log('   Payload keys:', Object.keys(req.body));
+    console.log('   Payload sample:', JSON.stringify(req.body).substring(0, 500));
 
-    // Normalizuj formát - Helius může poslat data v různých formátech
+    const { transactions, accountData } = req.body;
+
+    // Normalizuj formát - Helius enhanced webhook posílá { accountData: [...], transactions: [...] }
     let txList: any[] = [];
     if (transactions && Array.isArray(transactions)) {
       txList = transactions;
-    } else if (data && Array.isArray(data)) {
-      txList = data;
     } else if (Array.isArray(req.body)) {
-      // Někdy Helius posílá přímo pole transakcí
+      // Fallback: někdy Helius posílá přímo pole transakcí
       txList = req.body;
     }
 
     if (txList.length === 0) {
       console.warn('⚠️  Invalid webhook payload - no transactions found');
-      console.log('   Payload keys:', Object.keys(req.body));
+      console.log('   Full payload:', JSON.stringify(req.body, null, 2).substring(0, 1000));
       // Vrať 200, aby Helius neopakoval request
       return res.status(200).json({ success: false, error: 'No transactions in payload' });
     }
 
-    console.log(`📨 Received Helius webhook: ${txList.length} transaction(s)`);
+    console.log(`📨 Received Helius webhook: ${txList.length} transaction(s), ${accountData?.length || 0} account(s)`);
+
+    // Vytvoř mapu account addresses -> wallet (pro rychlé vyhledávání)
+    const accountMap = new Map<string, string>();
+    if (accountData && Array.isArray(accountData)) {
+      for (const account of accountData) {
+        const accountAddr = account.account || account;
+        if (accountAddr && typeof accountAddr === 'string') {
+          accountMap.set(accountAddr, accountAddr);
+        }
+      }
+    }
+
+    // Získej všechny trackované wallet adresy z DB (pro rychlé vyhledávání)
+    const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
+    const trackedAddresses = new Set(allWallets.wallets.map(w => w.address.toLowerCase()));
 
     let processed = 0;
     let saved = 0;
@@ -62,59 +78,15 @@ router.post('/helius', async (req, res) => {
         }
 
         // Najdi wallet podle adresy z transakce
-        // Helius posílá accountData s informacemi o účtech zapojených do transakce
+        // Helius enhanced webhook posílá accountData s adresami účastníků
         let walletAddress: string | null = null;
 
-        // Zkus najít wallet adresu z accountData (pokud je v payload)
+        // 1. Zkus najít z accountData v payload
         if (accountData && Array.isArray(accountData)) {
           for (const account of accountData) {
             const accountAddr = account.account || account;
-            const wallet = await smartWalletRepo.findByAddress(accountAddr);
-            if (wallet) {
-              walletAddress = accountAddr;
-              break;
-            }
-          }
-        }
-
-        // Pokud jsme nenašli wallet z accountData, zkus najít z nativeTransfers nebo tokenTransfers
-        if (!walletAddress) {
-          if (tx.nativeTransfers && tx.nativeTransfers.length > 0) {
-            for (const transfer of tx.nativeTransfers) {
-              const wallet = await smartWalletRepo.findByAddress(transfer.fromUserAccount);
-              if (wallet) {
-                walletAddress = transfer.fromUserAccount;
-                break;
-              }
-              const wallet2 = await smartWalletRepo.findByAddress(transfer.toUserAccount);
-              if (wallet2) {
-                walletAddress = transfer.toUserAccount;
-                break;
-              }
-            }
-          }
-
-          if (!walletAddress && tx.tokenTransfers && tx.tokenTransfers.length > 0) {
-            for (const transfer of tx.tokenTransfers) {
-              const wallet = await smartWalletRepo.findByAddress(transfer.fromUserAccount);
-              if (wallet) {
-                walletAddress = transfer.fromUserAccount;
-                break;
-              }
-              const wallet2 = await smartWalletRepo.findByAddress(transfer.toUserAccount);
-              if (wallet2) {
-                walletAddress = transfer.toUserAccount;
-                break;
-              }
-            }
-          }
-
-          // Zkus najít z accountData v transakci
-          if (!walletAddress && tx.accountData && Array.isArray(tx.accountData)) {
-            for (const account of tx.accountData) {
-              const accountAddr = account.account || account;
-              const wallet = await smartWalletRepo.findByAddress(accountAddr);
-              if (wallet) {
+            if (accountAddr && typeof accountAddr === 'string') {
+              if (trackedAddresses.has(accountAddr.toLowerCase())) {
                 walletAddress = accountAddr;
                 break;
               }
@@ -122,8 +94,50 @@ router.post('/helius', async (req, res) => {
           }
         }
 
+        // 2. Zkus najít z accountData v transakci
+        if (!walletAddress && tx.accountData && Array.isArray(tx.accountData)) {
+          for (const account of tx.accountData) {
+            const accountAddr = account.account || account;
+            if (accountAddr && typeof accountAddr === 'string') {
+              if (trackedAddresses.has(accountAddr.toLowerCase())) {
+                walletAddress = accountAddr;
+                break;
+              }
+            }
+          }
+        }
+
+        // 3. Zkus najít z nativeTransfers
+        if (!walletAddress && tx.nativeTransfers && Array.isArray(tx.nativeTransfers)) {
+          for (const transfer of tx.nativeTransfers) {
+            if (transfer.fromUserAccount && trackedAddresses.has(transfer.fromUserAccount.toLowerCase())) {
+              walletAddress = transfer.fromUserAccount;
+              break;
+            }
+            if (transfer.toUserAccount && trackedAddresses.has(transfer.toUserAccount.toLowerCase())) {
+              walletAddress = transfer.toUserAccount;
+              break;
+            }
+          }
+        }
+
+        // 4. Zkus najít z tokenTransfers
+        if (!walletAddress && tx.tokenTransfers && Array.isArray(tx.tokenTransfers)) {
+          for (const transfer of tx.tokenTransfers) {
+            if (transfer.fromUserAccount && trackedAddresses.has(transfer.fromUserAccount.toLowerCase())) {
+              walletAddress = transfer.fromUserAccount;
+              break;
+            }
+            if (transfer.toUserAccount && trackedAddresses.has(transfer.toUserAccount.toLowerCase())) {
+              walletAddress = transfer.toUserAccount;
+              break;
+            }
+          }
+        }
+
         if (!walletAddress) {
-          console.warn(`⚠️  Could not find wallet address for transaction ${tx.signature?.substring(0, 16) || 'unknown'}`);
+          console.warn(`⚠️  Could not find tracked wallet address for transaction ${tx.signature?.substring(0, 16) || 'unknown'}`);
+          console.log(`   Transaction accountData:`, tx.accountData?.map((a: any) => a.account || a).join(', ') || 'none');
           skipped++;
           continue;
         }
@@ -142,6 +156,7 @@ router.post('/helius', async (req, res) => {
         processed++;
       } catch (error: any) {
         console.error(`❌ Error processing webhook transaction ${tx.signature?.substring(0, 16) || 'unknown'}:`, error.message);
+        console.error(`   Stack:`, error.stack?.split('\n').slice(0, 3).join('\n'));
         // Pokračuj s další transakcí
       }
     }
@@ -157,6 +172,7 @@ router.post('/helius', async (req, res) => {
     });
   } catch (error: any) {
     console.error('❌ Error processing webhook:', error);
+    console.error('   Stack:', error.stack?.split('\n').slice(0, 5).join('\n'));
     // I při chybě vrať 200, aby Helius neopakoval request
     res.status(200).json({
       success: false,
