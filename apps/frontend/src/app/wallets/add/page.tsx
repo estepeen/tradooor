@@ -4,16 +4,23 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-// Use absolute URL in browser for development
+// Detect VPS vs localhost
 const getApiBaseUrl = () => {
   if (typeof window !== 'undefined') {
+    const hostname = window.location.hostname;
+    const isVPS = hostname !== 'localhost' && hostname !== '127.0.0.1';
+    
     if (process.env.NEXT_PUBLIC_API_URL) {
       return process.env.NEXT_PUBLIC_API_URL;
     }
-    if (process.env.NODE_ENV === 'development') {
-      return 'http://localhost:3001/api';
+    
+    // If on VPS, use same origin (relative URL) - backend should be proxied via Nginx
+    if (isVPS) {
+      return '/api';
     }
-    return '/api';
+    
+    // Local development: use localhost:3001
+    return 'http://localhost:3001/api';
   }
   return process.env.NEXT_PUBLIC_API_URL || '/api';
 };

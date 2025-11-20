@@ -119,10 +119,10 @@ export default function WalletsPage() {
                 setSyncSuccess(null);
 
                 try {
-                  // Use absolute URL in browser for development
-                  const API_BASE_URL = typeof window !== 'undefined' 
-                    ? (process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:3001/api' : '/api'))
-                    : (process.env.NEXT_PUBLIC_API_URL || '/api');
+                  // Detect VPS vs localhost
+                  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+                  const isVPS = hostname !== 'localhost' && hostname !== '127.0.0.1';
+                  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || (isVPS ? '/api' : 'http://localhost:3001/api');
                   console.log('Syncing wallets from CSV...', API_BASE_URL);
                   const response = await fetch(`${API_BASE_URL}/smart-wallets/sync`, {
                     method: 'POST',
@@ -191,10 +191,10 @@ export default function WalletsPage() {
                 setWebhookSuccess(null);
 
                 try {
-                  // Use absolute URL in browser for development
-                  const API_BASE_URL = typeof window !== 'undefined' 
-                    ? (process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:3001/api' : '/api'))
-                    : (process.env.NEXT_PUBLIC_API_URL || '/api');
+                  // Detect VPS vs localhost
+                  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+                  const isVPS = hostname !== 'localhost' && hostname !== '127.0.0.1';
+                  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || (isVPS ? '/api' : 'http://localhost:3001/api');
                   console.log('Setting up webhook...', API_BASE_URL);
                   const response = await fetch(`${API_BASE_URL}/smart-wallets/setup-webhook`, {
                     method: 'POST',

@@ -1,15 +1,22 @@
-// In browser, use absolute URL for development, relative for production
+// In browser, detect if we're on VPS or localhost
 const getApiBaseUrl = () => {
   if (typeof window !== 'undefined') {
-    // Client-side: use environment variable or default to localhost:3001 in development
+    // Client-side: check if we're on VPS or localhost
+    const hostname = window.location.hostname;
+    const isVPS = hostname !== 'localhost' && hostname !== '127.0.0.1';
+    
+    // If environment variable is set, use it
     if (process.env.NEXT_PUBLIC_API_URL) {
       return process.env.NEXT_PUBLIC_API_URL;
     }
-    // Default to localhost:3001 in development (browser can't use Next.js rewrites)
-    if (process.env.NODE_ENV === 'development') {
-      return 'http://localhost:3001/api';
+    
+    // If on VPS, use same origin (relative URL) - backend should be proxied via Nginx
+    if (isVPS) {
+      return '/api';
     }
-    return '/api';
+    
+    // Local development: use localhost:3001
+    return 'http://localhost:3001/api';
   }
   // Server-side: use relative URL (Next.js rewrites will handle it)
   return process.env.NEXT_PUBLIC_API_URL || '/api';
