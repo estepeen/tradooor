@@ -31,17 +31,31 @@ export class HeliusWebhookService {
   constructor() {
     this.apiKey = process.env.HELIUS_API_KEY || '';
     // Webhook URL může být:
-    // 1. Explicitně nastaveno v HELIUS_WEBHOOK_URL
+    // 1. Explicitně nastaveno v HELIUS_WEBHOOK_URL (priorita)
     // 2. Nebo sestaveno z API_URL + /api/webhooks/helius
     // 3. Nebo použijeme localhost pro development
+    const heliusWebhookUrl = process.env.HELIUS_WEBHOOK_URL;
     const apiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-    this.webhookUrl = process.env.HELIUS_WEBHOOK_URL || `${apiUrl}/api/webhooks/helius`;
+    
+    if (heliusWebhookUrl) {
+      // Pokud je HELIUS_WEBHOOK_URL explicitně nastaveno, použij ho
+      this.webhookUrl = heliusWebhookUrl;
+      console.log(`🔧 Using HELIUS_WEBHOOK_URL from .env: ${this.webhookUrl}`);
+    } else {
+      // Jinak sestav z API_URL
+      this.webhookUrl = `${apiUrl}/api/webhooks/helius`;
+      console.log(`🔧 Using API_URL to construct webhook URL: ${this.webhookUrl}`);
+    }
     
     if (!this.apiKey) {
       throw new Error('HELIUS_API_KEY is required for webhook service');
     }
     
-    console.log(`🔧 HeliusWebhookService initialized with webhook URL: ${this.webhookUrl}`);
+    console.log(`✅ HeliusWebhookService initialized with webhook URL: ${this.webhookUrl}`);
+    console.log(`   Environment variables:`);
+    console.log(`   - HELIUS_WEBHOOK_URL: ${heliusWebhookUrl || '(not set)'}`);
+    console.log(`   - API_URL: ${process.env.API_URL || '(not set)'}`);
+    console.log(`   - NEXT_PUBLIC_API_URL: ${process.env.NEXT_PUBLIC_API_URL || '(not set)'}`);
   }
 
   /**
@@ -60,6 +74,8 @@ export class HeliusWebhookService {
     };
 
     console.log(`🔧 Creating webhook with URL: ${this.webhookUrl}`);
+    console.log(`🔧 Using webhook URL from service: ${this.webhookUrl}`);
+    console.log(`🔧 Payload webhookURL: ${payload.webhookURL}`);
     console.log(`🔧 Payload:`, JSON.stringify(payload, null, 2));
 
     const response = await fetch(
@@ -103,15 +119,18 @@ export class HeliusWebhookService {
       console.warn('⚠️  Failed to get existing webhook details, using defaults:', error.message);
     }
     
-    // Pokud nemáme existující webhook, použijeme default hodnoty
+    // VŽDY použij aktuální webhookUrl z .env (ne starou URL z existujícího webhooku)
     const payload = {
-      webhookURL: existingWebhook?.webhookURL || this.webhookUrl, // Musí být stejné jako při vytvoření
+      webhookURL: this.webhookUrl, // Vždy použij aktuální URL z .env
       accountAddresses: walletAddresses,
       transactionTypes: ['SWAP'],
       webhookType: 'enhanced' as const,
     };
 
     console.log(`🔧 Updating webhook ${webhookId} with ${walletAddresses.length} addresses`);
+    console.log(`🔧 Using webhook URL from service: ${this.webhookUrl}`);
+    console.log(`🔧 Old webhook URL was: ${existingWebhook?.webhookURL || '(unknown)'}`);
+    console.log(`🔧 New webhook URL will be: ${payload.webhookURL}`);
     console.log(`🔧 Payload:`, JSON.stringify(payload, null, 2));
 
     const response = await fetch(

@@ -1125,6 +1125,7 @@ router.get('/:id/portfolio', async (req, res) => {
       const baseToken = (trade as any).meta?.baseToken || 'SOL';
       position.baseToken = baseToken;
 
+      // Handle all trade types: buy, sell, add, remove
       if (trade.side === 'buy' || trade.side === 'add') {
         position.totalBought += amount;
         position.balance += amount;
@@ -1145,6 +1146,11 @@ router.get('/:id/portfolio', async (req, res) => {
         if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
           position.lastSellTimestamp = tradeTimestamp;
         }
+      }
+      
+      // Debug logging for balance calculation
+      if (trade.side === 'buy' || trade.side === 'sell' || trade.side === 'add' || trade.side === 'remove') {
+        console.log(`   Trade ${trade.side}: tokenId=${tokenId}, amount=${amount}, balance=${position.balance}, buyCount=${position.buyCount}, sellCount=${position.sellCount}`);
       }
     }
 
@@ -1328,9 +1334,16 @@ router.get('/:id/portfolio', async (req, res) => {
           : 0;
         
         // Calculate hold time for closed positions (from first BUY to last SELL)
-        const holdTimeMinutes = position.firstBuyTimestamp && position.lastSellTimestamp && position.balance <= 0
-          ? Math.round((position.lastSellTimestamp.getTime() - position.firstBuyTimestamp.getTime()) / (1000 * 60))
-          : null;
+        // If BUY and SELL are at the same time, holdTimeMinutes will be 0, which is valid
+        let holdTimeMinutes: number | null = null;
+        if (position.firstBuyTimestamp && position.lastSellTimestamp && position.balance <= 0) {
+          const holdTimeMs = position.lastSellTimestamp.getTime() - position.firstBuyTimestamp.getTime();
+          holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
+          // Allow 0 minutes (same timestamp) - it's still a valid closed position
+          if (holdTimeMinutes < 0) {
+            holdTimeMinutes = null; // Invalid if SELL is before BUY
+          }
+        }
 
         // Calculate PnL for closed positions in BASE currency (proceedsBase - costBase)
         // This is the correct way: PnL = what we got (SELL) - what we paid (BUY) in base currency
@@ -1405,12 +1418,23 @@ router.get('/:id/portfolio', async (req, res) => {
     const openPositions = portfolio
       .filter(p => {
         // Musí mít balance > 0 (neuzavřená pozice - ještě máme tokeny)
-        if (p.balance <= 0) return false;
+        if (p.balance <= 0) {
+          console.log(`   ⏭️  Skipping open position: balance <= 0 (${p.balance})`);
+          return false;
+        }
         // Musí mít alespoň jeden BUY trade
-        if (p.buyCount === 0) return false;
+        if (p.buyCount === 0) {
+          console.log(`   ⏭️  Skipping open position: no BUY trades`);
+          return false;
+        }
         // Filtruj pozice s velmi malou hodnotou (prakticky 0)
         const value = p.currentValue || (p.balance * p.averageBuyPrice);
-        return value > 0.01; // Only positions with value > 0.01 USD
+        if (value <= 0.01) {
+          console.log(`   ⏭️  Skipping open position: value too small (${value})`);
+          return false;
+        }
+        console.log(`   ✅ Open position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, value=${value}`);
+        return true;
       })
       .sort((a, b) => {
         const aValue = a.currentValue || (a.balance * a.averageBuyPrice);
@@ -1422,15 +1446,36 @@ router.get('/:id/portfolio', async (req, res) => {
     const closedPositions = portfolio
       .filter(p => {
         // Musí mít balance <= 0 (uzavřená pozice - všechny tokeny prodány)
-        if (p.balance > 0) return false;
+        if (p.balance > 0) {
+          console.log(`   ⏭️  Skipping closed position: balance > 0 (${p.balance})`);
+          return false;
+        }
         // Musí mít alespoň jeden BUY trade (známe první nákup)
-        if (p.buyCount === 0) return false;
+        if (p.buyCount === 0) {
+          console.log(`   ⏭️  Skipping closed position: no BUY trades`);
+          return false;
+        }
         // Musí mít alespoň jeden SELL trade (známe prodej - pozice je uzavřená)
-        if (p.sellCount === 0) return false;
+        if (p.sellCount === 0) {
+          console.log(`   ⏭️  Skipping closed position: no SELL trades`);
+          return false;
+        }
         // Musí mít firstBuyTimestamp a lastSellTimestamp (pro výpočet HOLD time)
-        if (!p.firstBuyTimestamp || !p.lastSellTimestamp) return false;
-        // Musí mít platný holdTimeMinutes (bylo vypočítáno výše)
-        if (!p.holdTimeMinutes || p.holdTimeMinutes <= 0) return false;
+        if (!p.firstBuyTimestamp || !p.lastSellTimestamp) {
+          console.log(`   ⏭️  Skipping closed position: missing timestamps (firstBuy: ${p.firstBuyTimestamp}, lastSell: ${p.lastSellTimestamp})`);
+          return false;
+        }
+        // Musí mít platný holdTimeMinutes (bylo vypočítáno výše) - povolujeme i 0 (stejný timestamp)
+        if (p.holdTimeMinutes === null || p.holdTimeMinutes < 0) {
+          console.log(`   ⏭️  Skipping closed position: invalid holdTimeMinutes (${p.holdTimeMinutes})`);
+          return false;
+        }
+        // Musí mít alespoň nějaký PnL data (cost nebo proceeds)
+        if (!p.totalCostBase && !p.totalProceedsBase && !p.totalInvested && !p.totalSoldValue) {
+          console.log(`   ⏭️  Skipping closed position: no PnL data`);
+          return false;
+        }
+        console.log(`   ✅ Closed position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, holdTime=${p.holdTimeMinutes}min, closedPnl=${p.closedPnl}`);
         return true;
       })
       .map(p => ({
@@ -1441,7 +1486,7 @@ router.get('/:id/portfolio', async (req, res) => {
         closedPnlPercent: p.closedPnlPercent ?? null,
         holdTimeMinutes: p.holdTimeMinutes ?? null,
       }))
-      .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes > 0) // Finální kontrola
+      .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes >= 0) // Finální kontrola - povolujeme i 0 (stejný timestamp)
       .sort((a, b) => {
         // Seřaď podle lastSellTimestamp (nejnovější uzavřené pozice nahoře)
         const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
