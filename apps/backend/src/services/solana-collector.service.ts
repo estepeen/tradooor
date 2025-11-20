@@ -662,7 +662,7 @@ export class SolanaCollectorService {
         console.log(`   📡 Will fetch all new swaps (no limit on pages, will stop when hitting existing trade)`);
       } else {
         // Automatický refresh s limitem: použijeme limit (pro rychlejší skenování)
-        const defaultTotalTarget = pageSize * DEFAULT_HELIUS_MAX_PAGES;
+      const defaultTotalTarget = pageSize * DEFAULT_HELIUS_MAX_PAGES;
         const requestedTotal = Math.max(limit, defaultTotalTarget);
         maxPages = Math.ceil(requestedTotal / pageSize);
         console.log(`   📡 Fetching with limit: ${pageSize} tx per page (max ${maxPages} pages ≈ ${pageSize * maxPages} tx)`);
@@ -829,10 +829,10 @@ export class SolanaCollectorService {
         console.log(`   🔄 Manual refresh: filtering swaps by duplicates only (ignoring timestamp)...`);
         
         // Zkontroluj všechny existující signature pro kontrolu duplikátů
-        const allExistingTrades = await this.tradeRepo.findByWalletId(wallet.id, {
-          page: 1,
-          pageSize: 10000, // Získej všechny trady pro kontrolu duplikátů
-        });
+          const allExistingTrades = await this.tradeRepo.findByWalletId(wallet.id, {
+            page: 1,
+            pageSize: 10000, // Získej všechny trady pro kontrolu duplikátů
+          });
         
         const existingSignatures = new Set<string>();
         allExistingTrades.trades.forEach(t => {
@@ -840,24 +840,24 @@ export class SolanaCollectorService {
             existingSignatures.add(t.txSignature);
           }
         });
-        
-        console.log(`   🔄 Manual refresh: found ${allExistingTrades.trades.length} existing trades in DB`);
-        console.log(`   🔄 Manual refresh: checking ${swapTransactions.length} swap candidates against ${existingSignatures.size} existing signatures...`);
-        
+          
+          console.log(`   🔄 Manual refresh: found ${allExistingTrades.trades.length} existing trades in DB`);
+          console.log(`   🔄 Manual refresh: checking ${swapTransactions.length} swap candidates against ${existingSignatures.size} existing signatures...`);
+          
         // Filtruj: jen duplikáty (NE podle timestampu - chceme všechny nové swapy)
-        const duplicateSignatures: string[] = [];
-        newTransactions = swapTransactions.filter(tx => {
+          const duplicateSignatures: string[] = [];
+          newTransactions = swapTransactions.filter(tx => {
           // Filtruj jen duplikáty - pokud už máme tento swap v DB, přeskočíme ho
-          if (existingSignatures.has(tx.signature)) {
-            duplicateSignatures.push(tx.signature.substring(0, 16) + '...');
-            return false;
+            if (existingSignatures.has(tx.signature)) {
+              duplicateSignatures.push(tx.signature.substring(0, 16) + '...');
+              return false;
+            }
+            return true;
+          });
+          
+          if (duplicateSignatures.length > 0) {
+            console.log(`   ⏭️  Filtered out ${duplicateSignatures.length} duplicates: ${duplicateSignatures.slice(0, 5).join(', ')}${duplicateSignatures.length > 5 ? '...' : ''}`);
           }
-          return true;
-        });
-        
-        if (duplicateSignatures.length > 0) {
-          console.log(`   ⏭️  Filtered out ${duplicateSignatures.length} duplicates: ${duplicateSignatures.slice(0, 5).join(', ')}${duplicateSignatures.length > 5 ? '...' : ''}`);
-        }
         console.log(`   ✅ Manual refresh: found ${newTransactions.length} new swaps (${swapTransactions.length - newTransactions.length} filtered out)`);
       } else if (lastTradeTimestamp === undefined) {
         // Nemáme žádný trade v DB - vezmeme všechny swapy (kromě duplikátů)
@@ -1089,7 +1089,7 @@ export class SolanaCollectorService {
       let skipped = 0;
       
       console.log(`   📊 Starting to process ${newTransactions.length} new swap transactions...`);
-      
+
       // 4. Seřaď swapy chronologicky podle timestamp (důležité pro správný výpočet currentPosition)
       swaps.sort((a, b) => {
         const timeA = a.swap.timestamp.getTime();
@@ -1310,7 +1310,7 @@ export class SolanaCollectorService {
                 const baseToken = swap.baseToken || 'SOL';
                 if (baseToken === 'USDC' || baseToken === 'USDT') {
                   pnlUsd = realizedPnlBase; // 1:1 s USD
-                } else {
+            } else {
                   pnlUsd = realizedPnlBase * currentSolPrice; // SOL → USD
                 }
                 pnlPercent = realizedPnlPercentBase; // Procento je stejné v base i USD
@@ -1355,49 +1355,49 @@ export class SolanaCollectorService {
 
         // Ulož trade
         try {
-          console.log(`   💾 Saving trade to DB: ${swap.txSignature.substring(0, 16)}...`);
+        console.log(`   💾 Saving trade to DB: ${swap.txSignature.substring(0, 16)}...`);
           console.log(`      - side: ${tradeType}, token: ${swap.tokenMint.substring(0, 16)}..., amount: ${swap.amountToken.toFixed(4)}, base: ${swap.amountBase.toFixed(6)} SOL`);
           console.log(`      - valueUsd: ${valueUsd.toFixed(2)}, priceUsd: ${priceUsd?.toFixed(6) || 'N/A'}, timestamp: ${swap.timestamp.toISOString()}`);
-          
-          const createdTrade = await this.tradeRepo.create({
-            txSignature: swap.txSignature,
-            walletId: wallet.id,
-            tokenId: token.id,
+        
+        const createdTrade = await this.tradeRepo.create({
+          txSignature: swap.txSignature,
+          walletId: wallet.id,
+          tokenId: token.id,
             side: tradeType, // Použij určený typ (buy/add/remove/sell)
-            amountToken: swap.amountToken,
-            amountBase: swap.amountBase,
-            priceBasePerToken: swap.priceBasePerToken,
-            timestamp: swap.timestamp,
-            dex: swap.dex,
-            valueUsd,
-            pnlUsd,
-            pnlPercent,
-            positionChangePercent,
-            meta: {
-              source: 'helius-enhanced-api',
-              heliusType: tx.type,
-              heliusSource: tx.source,
+          amountToken: swap.amountToken,
+          amountBase: swap.amountBase,
+          priceBasePerToken: swap.priceBasePerToken,
+          timestamp: swap.timestamp,
+          dex: swap.dex,
+          valueUsd,
+          pnlUsd,
+          pnlPercent,
+          positionChangePercent,
+          meta: {
+            source: 'helius-enhanced-api',
+            heliusType: tx.type,
+            heliusSource: tx.source,
               baseToken: swap.baseToken || 'SOL', // Ulož baseToken do meta
               priceUsd, // Ulož vypočítanou cenu v USD
               balanceBefore,
               balanceAfter,
-            },
-          });
-          
-          console.log(`   ✅ Trade saved to DB with ID: ${createdTrade.id}`);
+          },
+        });
+        
+        console.log(`   ✅ Trade saved to DB with ID: ${createdTrade.id}`);
 
-          // Debug: ověř, že positionChangePercent se uložil
-          if (createdTrade && createdTrade.positionChangePercent) {
-            const savedPercent = Number(createdTrade.positionChangePercent);
-            const multiplier = savedPercent / 100;
-            const multiplierStr = `${multiplier >= 0 ? '+' : ''}${multiplier.toFixed(2)}x`;
-            console.log(`   ✅ Position saved: ${savedPercent.toFixed(2)}% (${multiplierStr})`);
-          } else {
-            console.log(`   ⚠️  Position NOT saved in DB for ${swap.txSignature.substring(0, 8)}...`);
-          }
+        // Debug: ověř, že positionChangePercent se uložil
+        if (createdTrade && createdTrade.positionChangePercent) {
+          const savedPercent = Number(createdTrade.positionChangePercent);
+          const multiplier = savedPercent / 100;
+          const multiplierStr = `${multiplier >= 0 ? '+' : ''}${multiplier.toFixed(2)}x`;
+          console.log(`   ✅ Position saved: ${savedPercent.toFixed(2)}% (${multiplierStr})`);
+        } else {
+          console.log(`   ⚠️  Position NOT saved in DB for ${swap.txSignature.substring(0, 8)}...`);
+        }
 
-          newTrades++;
-          console.log(`   ✅ Helius swap: ${swap.txSignature.substring(0, 8)}... - ${swap.side} ${swap.amountToken.toFixed(4)} tokens`);
+        newTrades++;
+        console.log(`   ✅ Helius swap: ${swap.txSignature.substring(0, 8)}... - ${swap.side} ${swap.amountToken.toFixed(4)} tokens`);
         } catch (error: any) {
           // Chyba při ukládání trade - loguj, ale pokračuj s dalšími swapy
           console.error(`   ❌ Error saving trade ${swap.txSignature.substring(0, 16)}... to DB:`, error.message);
@@ -1418,7 +1418,7 @@ export class SolanaCollectorService {
         // Helius Enhanced API má dobré rate limits, delay není potřeba
         // Ukládáme swapy rychle bez zbytečného čekání
       }
-      
+
       // Loguj souhrn po zpracování
       console.log(`   📊 Processing summary:`);
       console.log(`      - Total swap transactions to process: ${swaps.length}`);

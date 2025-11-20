@@ -97,10 +97,9 @@ export function formatDateTimeCZ(date: Date | string | null | undefined): string
 export function formatHoldTime(minutes: number | null | undefined): string {
   if (minutes === null || minutes === undefined || minutes < 0) return '-';
   
-  // If less than 1 minute, show seconds
+  // If less than 1 minute, show "<1m"
   if (minutes < 1) {
-    const seconds = Math.round(minutes * 60);
-    return `${seconds}s`;
+    return '<1m';
   }
   
   // If less than 60 minutes, show minutes

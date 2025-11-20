@@ -91,7 +91,7 @@ router.get('/', async (req, res) => {
           // Pro USDC/USDT: 1:1 s USD
           priceUsd = priceBasePerToken;
         }
-        
+
         return {
           ...t,
           token,

@@ -180,19 +180,22 @@ export default function Notifications() {
         <>
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-black/50 z-40"
+            className="fixed inset-0 bg-black/50"
+            style={{ zIndex: 9998 }}
             onClick={() => setIsOpen(false)}
           />
           
           {/* Sidebar */}
           <div
             ref={sidebarRef}
-            className="w-96 bg-background border-l border-border z-50 flex flex-col shadow-xl"
+            className="w-96 bg-background border-l border-border flex flex-col shadow-xl"
             style={{ 
               position: 'fixed',
               right: 0,
               top: 0,
-              height: '100vh'
+              height: '100vh',
+              zIndex: 9999,
+              overflow: 'hidden'
             }}
           >
             {/* Header */}
@@ -221,7 +224,7 @@ export default function Notifications() {
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden">
               {loading && trades.length === 0 ? (
                 <div className="p-4 text-center text-muted-foreground">
                   Loading...
@@ -253,12 +256,28 @@ export default function Notifications() {
                             >
                               {trade.side === 'add' ? 'ADD' : trade.side === 'remove' ? 'REM' : trade.side.toUpperCase()}
                             </span>
-                            <span className="text-sm font-medium text-foreground truncate">
+                            <Link
+                              href={`/wallet/${trade.wallet.address}`}
+                              className="text-sm font-medium text-foreground truncate hover:underline"
+                              onClick={(e) => e.stopPropagation()}
+                            >
                               {trade.wallet.label}
-                            </span>
+                            </Link>
                           </div>
                           <div className="text-sm text-muted-foreground">
-                            <span className="font-medium">${trade.token.symbol}</span>
+                            {trade.token.mintAddress ? (
+                              <a
+                                href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium hover:underline"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                ${trade.token.symbol}
+                              </a>
+                            ) : (
+                              <span className="font-medium">${trade.token.symbol}</span>
+                            )}
                             {' • '}
                             <span>{formatAmount(trade.amountToken)} tokens</span>
                             {' • '}

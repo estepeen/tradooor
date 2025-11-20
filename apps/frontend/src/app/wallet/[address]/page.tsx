@@ -133,8 +133,8 @@ function calculatePositionsFromTrades(trades: Trade[]) {
       openPositions.push(positionData);
     } else if (position.balance <= 0 && position.sellCount > 0) {
       // Closed position - DŮLEŽITÉ: Zobrazujeme pouze pozice s platným HOLD time (známe BUY i SELL)
-      // Musí mít alespoň jeden BUY a jeden SELL, a platný holdTimeMinutes
-      if (position.buyCount > 0 && position.sellCount > 0 && holdTimeMinutes !== null && holdTimeMinutes > 0) {
+      // Musí mít alespoň jeden BUY a jeden SELL, a platný holdTimeMinutes (povolujeme i 0)
+      if (position.buyCount > 0 && position.sellCount > 0 && holdTimeMinutes !== null && holdTimeMinutes >= 0) {
         closedPositions.push(positionData);
       }
     }
@@ -185,15 +185,16 @@ export default function WalletDetailPage() {
     setRecentTradesPage(1);
   }, [tokenFilter, timeframeFilter]);
 
-  // Automatic portfolio update every 10 minutes
+  // Automatic portfolio update every 1 minute (to catch new closed positions from recent trades)
   useEffect(() => {
     if (!walletAddress) return;
     
-    const refreshPortfolio = async () => {
+    const refreshPortfolio = async (forceRefresh: boolean = false) => {
       try {
         const walletData = await fetchSmartWallet(walletAddress);
         const actualWalletId = walletData?.id || walletAddress;
-        const portfolioData = await fetchWalletPortfolio(actualWalletId, false); // Use cache if valid
+        // Force refresh to get latest closed positions from new trades
+        const portfolioData = await fetchWalletPortfolio(actualWalletId, forceRefresh);
         setPortfolio(portfolioData);
         if (portfolioData.lastUpdated) {
           setPortfolioLastUpdated(new Date(portfolioData.lastUpdated));
@@ -203,11 +204,11 @@ export default function WalletDetailPage() {
       }
     };
 
-    // First load (will use cache if valid)
-    refreshPortfolio();
+    // First load (force refresh to get latest data)
+    refreshPortfolio(true);
 
-    // Set interval for automatic update every 10 minutes
-    const interval = setInterval(refreshPortfolio, 10 * 60 * 1000);
+    // Set interval for automatic update every 1 minute (to catch new closed positions)
+    const interval = setInterval(() => refreshPortfolio(true), 60 * 1000); // 1 minute
 
     return () => clearInterval(interval);
   }, [walletAddress]);
@@ -219,7 +220,7 @@ export default function WalletDetailPage() {
     const updateCountdown = () => {
       const now = Date.now();
       const lastUpdate = portfolioLastUpdated.getTime();
-      const nextUpdate = lastUpdate + 10 * 60 * 1000; // 10 minutes
+      const nextUpdate = lastUpdate + 60 * 1000; // 1 minute
       const remaining = Math.max(0, Math.floor((nextUpdate - now) / 1000));
       setCountdown(remaining);
     };
@@ -272,7 +273,7 @@ export default function WalletDetailPage() {
           return { trades: [], total: 0 };
         }),
         fetchWalletPnl(walletAddress).catch(() => null), // PnL data is optional
-        fetchWalletPortfolio(actualWalletId).catch(() => null), // Portfolio data is optional
+        fetchWalletPortfolio(actualWalletId, true).catch(() => null), // Force refresh portfolio to get latest closed positions
       ]);
       
       setWallet(walletData);
@@ -307,9 +308,9 @@ export default function WalletDetailPage() {
   // calculatedPortfolio použijeme pouze jako poslední fallback, pokud API vůbec nevrátilo closed positions
   const calculatedClosedPositions = calculatedPortfolio.closedPositions || [];
   
-  // Filtruj calculated closed positions - pouze ty s platným HOLD time
+  // Filtruj calculated closed positions - pouze ty s platným HOLD time (povolujeme i 0)
   const filteredCalculatedClosed = calculatedClosedPositions.filter((p: any) => {
-    return p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes > 0 &&
+    return p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes >= 0 &&
            p.buyCount > 0 && p.sellCount > 0;
   });
   
@@ -646,10 +647,11 @@ export default function WalletDetailPage() {
                     <tbody>
                       {(() => {
                         // Filtruj pouze pozice s platným HOLD time (známe BUY i SELL)
+                        // Povolujeme i holdTimeMinutes = 0 (stejný timestamp BUY/SELL)
                         const closedPositions = (finalPortfolio.closedPositions || [])
                           .filter((p: any) => {
-                            // Musí mít platný holdTimeMinutes (známe BUY i SELL)
-                            const hasValidHoldTime = p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes > 0;
+                            // Musí mít platný holdTimeMinutes (známe BUY i SELL) - povolujeme i 0
+                            const hasValidHoldTime = p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes >= 0;
                             // Musí mít také buyCount a sellCount > 0
                             const hasBuyAndSell = p.buyCount > 0 && p.sellCount > 0;
                             if (!hasValidHoldTime || !hasBuyAndSell) {

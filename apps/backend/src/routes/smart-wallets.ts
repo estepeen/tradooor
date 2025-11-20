@@ -414,7 +414,7 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
         }
         
         return {
-          ...p,
+        ...p,
           totalCost: totalCostUsd, // Total cost v USD
           livePnl, // Live PnL (unrealized) v USD
           livePnlPercent, // Live PnL v %
@@ -1120,7 +1120,7 @@ router.get('/:id/portfolio', async (req, res) => {
       const price = Number(trade.priceBasePerToken);
       const amountBase = Number(trade.amountBase || 0);
       const value = amount * price;
-      
+
       // Get base token from trade meta
       const baseToken = (trade as any).meta?.baseToken || 'SOL';
       position.baseToken = baseToken;
@@ -1286,7 +1286,7 @@ router.get('/:id/portfolio', async (req, res) => {
     const { BinancePriceService } = await import('../services/binance-price.service.js');
     const binancePriceService = new BinancePriceService();
     const currentSolPrice = await binancePriceService.getCurrentSolPrice().catch(() => null);
-    
+
     // Calculate average buy price and finalize positions with current token data and prices
     const portfolio = Array.from(portfolioMap.values())
       .map(position => {
@@ -1335,8 +1335,10 @@ router.get('/:id/portfolio', async (req, res) => {
         
         // Calculate hold time for closed positions (from first BUY to last SELL)
         // If BUY and SELL are at the same time, holdTimeMinutes will be 0, which is valid
+        // Treat small negative balance (rounding errors) as 0 for closed positions
+        const normalizedBalance = position.balance < 0 && Math.abs(position.balance) < 0.0001 ? 0 : position.balance;
         let holdTimeMinutes: number | null = null;
-        if (position.firstBuyTimestamp && position.lastSellTimestamp && position.balance <= 0) {
+        if (position.firstBuyTimestamp && position.lastSellTimestamp && normalizedBalance <= 0) {
           const holdTimeMs = position.lastSellTimestamp.getTime() - position.firstBuyTimestamp.getTime();
           holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
           // Allow 0 minutes (same timestamp) - it's still a valid closed position
@@ -1347,11 +1349,13 @@ router.get('/:id/portfolio', async (req, res) => {
 
         // Calculate PnL for closed positions in BASE currency (proceedsBase - costBase)
         // This is the correct way: PnL = what we got (SELL) - what we paid (BUY) in base currency
+        // Treat small negative balance (rounding errors) as 0 for closed positions
+        const normalizedBalance = position.balance < 0 && Math.abs(position.balance) < 0.0001 ? 0 : position.balance;
         let closedPnlBase: number | null = null;
         let closedPnlUsd: number | null = null;
         let closedPnlPercent: number | null = null;
         
-        if (position.balance <= 0 && position.totalProceedsBase > 0 && position.totalCostBase > 0) {
+        if (normalizedBalance <= 0 && position.totalProceedsBase > 0 && position.totalCostBase > 0) {
           // PnL in base currency
           closedPnlBase = position.totalProceedsBase - position.totalCostBase;
           
@@ -1373,8 +1377,8 @@ router.get('/:id/portfolio', async (req, res) => {
           // Calculate percentage
           closedPnlPercent = position.totalCostBase > 0
             ? (closedPnlBase / position.totalCostBase) * 100
-            : null;
-        } else if (position.balance <= 0 && position.totalSoldValue > 0) {
+          : null;
+        } else if (normalizedBalance <= 0 && position.totalSoldValue > 0) {
           // Fallback to old calculation if we don't have base currency data
           closedPnlUsd = position.totalSoldValue - position.totalInvested;
           closedPnlPercent = position.totalInvested > 0
@@ -1383,11 +1387,14 @@ router.get('/:id/portfolio', async (req, res) => {
         }
 
         // Only include positions with balance > 0 or with trades
-        if (position.balance > 0 || position.buyCount > 0 || position.sellCount > 0) {
+        // For closed positions, allow small negative balance due to rounding errors (treat as 0)
+        const normalizedBalance = position.balance < 0 && Math.abs(position.balance) < 0.0001 ? 0 : position.balance;
+        
+        if (normalizedBalance > 0 || position.buyCount > 0 || position.sellCount > 0) {
           return {
             ...position,
             token: currentToken, // Use current token data
-            balance: Math.max(0, position.balance), // Ensure non-negative
+            balance: Math.max(0, normalizedBalance), // Ensure non-negative (treat small negatives as 0)
             currentPrice: currentPrice || null, // Current market price
             currentValue, // Current value in USD
             totalCost: totalCostUsd, // Total cost v USD (z trades)
@@ -1445,11 +1452,14 @@ router.get('/:id/portfolio', async (req, res) => {
     // Closed positions: BUY tradicional, které jsou uzavřené SELL tradeem
     const closedPositions = portfolio
       .filter(p => {
+        // Treat small negative balance (rounding errors) as 0 for closed positions
+        const normalizedBalance = p.balance < 0 && Math.abs(p.balance) < 0.0001 ? 0 : p.balance;
+        
         // Musí mít balance <= 0 (uzavřená pozice - všechny tokeny prodány)
-        if (p.balance > 0) {
-          console.log(`   ⏭️  Skipping closed position: balance > 0 (${p.balance})`);
+        if (normalizedBalance > 0) {
+          console.log(`   ⏭️  Skipping closed position: balance > 0 (${p.balance}, normalized: ${normalizedBalance})`);
           return false;
-        }
+    }
         // Musí mít alespoň jeden BUY trade (známe první nákup)
         if (p.buyCount === 0) {
           console.log(`   ⏭️  Skipping closed position: no BUY trades`);
@@ -1487,14 +1497,27 @@ router.get('/:id/portfolio', async (req, res) => {
         holdTimeMinutes: p.holdTimeMinutes ?? null,
       }))
       .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes >= 0) // Finální kontrola - povolujeme i 0 (stejný timestamp)
-      .sort((a, b) => {
+        .sort((a, b) => {
         // Seřaď podle lastSellTimestamp (nejnovější uzavřené pozice nahoře)
-        const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
-        const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
-        return bTime - aTime;
-      });
+          const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
+          const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
+          return bTime - aTime;
+        });
 
     console.log(`✅ Portfolio calculated: ${openPositions.length} open positions, ${closedPositions.length} closed positions`);
+    
+    // Debug: Log all positions with balance <= 0 to see why they're not in closed positions
+    const allClosedCandidates = portfolio.filter(p => {
+      const normalizedBalance = p.balance < 0 && Math.abs(p.balance) < 0.0001 ? 0 : p.balance;
+      return normalizedBalance <= 0 && p.buyCount > 0;
+    });
+    if (allClosedCandidates.length > closedPositions.length) {
+      console.log(`⚠️  Found ${allClosedCandidates.length} positions with balance <= 0, but only ${closedPositions.length} passed filters:`);
+      allClosedCandidates.forEach(p => {
+        const normalizedBalance = p.balance < 0 && Math.abs(p.balance) < 0.0001 ? 0 : p.balance;
+        console.log(`   - Token: ${p.token?.symbol || p.tokenId}, balance: ${p.balance} (normalized: ${normalizedBalance}), buyCount: ${p.buyCount}, sellCount: ${p.sellCount}, holdTime: ${p.holdTimeMinutes}, firstBuy: ${p.firstBuyTimestamp}, lastSell: ${p.lastSellTimestamp}`);
+      });
+    }
     
     // Ulož do cache
     const now = new Date().toISOString();
