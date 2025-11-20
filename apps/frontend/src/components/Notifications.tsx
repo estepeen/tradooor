@@ -19,7 +19,7 @@ interface Trade {
     name?: string;
     mintAddress: string;
   };
-  side: 'buy' | 'sell';
+  side: 'buy' | 'sell' | 'add' | 'remove';
   amountToken: number;
   amountBase: number;
   timestamp: string;
@@ -241,10 +241,14 @@ export default function Notifications() {
                               className={`text-xs font-semibold px-2 py-0.5 rounded ${
                                 trade.side === 'buy'
                                   ? 'bg-green-500/20 text-green-400'
-                                  : 'bg-red-500/20 text-red-400'
+                                  : trade.side === 'sell'
+                                  ? 'bg-red-500/20 text-red-400'
+                                  : trade.side === 'add'
+                                  ? 'bg-blue-500/20 text-blue-400'
+                                  : 'bg-orange-500/20 text-orange-400' // remove
                               }`}
                             >
-                              {trade.side.toUpperCase()}
+                              {trade.side === 'add' ? 'ADD' : trade.side === 'remove' ? 'REM' : trade.side.toUpperCase()}
                             </span>
                             <span className="text-sm font-medium text-foreground truncate">
                               {trade.wallet.label}

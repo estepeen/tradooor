@@ -59,7 +59,7 @@ export class TradeRepository {
     txSignature: string;
     walletId: string;
     tokenId: string;
-    side: 'buy' | 'sell';
+    side: 'buy' | 'sell' | 'add' | 'remove';
     amountToken: number;
     amountBase: number;
     priceBasePerToken: number;

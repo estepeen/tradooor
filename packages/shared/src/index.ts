@@ -1,6 +1,6 @@
 // Shared types between backend and frontend
 
-export type TradeSide = 'buy' | 'sell';
+export type TradeSide = 'buy' | 'sell' | 'add' | 'remove';
 
 export interface SmartWallet {
   id: string;
