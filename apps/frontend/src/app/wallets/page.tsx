@@ -119,8 +119,11 @@ export default function WalletsPage() {
                 setSyncSuccess(null);
 
                 try {
-                  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
-                  console.log('Syncing wallets from CSV...');
+                  // Use absolute URL in browser for development
+                  const API_BASE_URL = typeof window !== 'undefined' 
+                    ? (process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:3001/api' : '/api'))
+                    : (process.env.NEXT_PUBLIC_API_URL || '/api');
+                  console.log('Syncing wallets from CSV...', API_BASE_URL);
                   const response = await fetch(`${API_BASE_URL}/smart-wallets/sync`, {
                     method: 'POST',
                     headers: {
@@ -188,7 +191,11 @@ export default function WalletsPage() {
                 setWebhookSuccess(null);
 
                 try {
-                  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+                  // Use absolute URL in browser for development
+                  const API_BASE_URL = typeof window !== 'undefined' 
+                    ? (process.env.NEXT_PUBLIC_API_URL || (process.env.NODE_ENV === 'development' ? 'http://localhost:3001/api' : '/api'))
+                    : (process.env.NEXT_PUBLIC_API_URL || '/api');
+                  console.log('Setting up webhook...', API_BASE_URL);
                   const response = await fetch(`${API_BASE_URL}/smart-wallets/setup-webhook`, {
                     method: 'POST',
                   });

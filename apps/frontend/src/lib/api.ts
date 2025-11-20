@@ -1,4 +1,21 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+// In browser, use absolute URL for development, relative for production
+const getApiBaseUrl = () => {
+  if (typeof window !== 'undefined') {
+    // Client-side: use environment variable or default to localhost:3001 in development
+    if (process.env.NEXT_PUBLIC_API_URL) {
+      return process.env.NEXT_PUBLIC_API_URL;
+    }
+    // Default to localhost:3001 in development (browser can't use Next.js rewrites)
+    if (process.env.NODE_ENV === 'development') {
+      return 'http://localhost:3001/api';
+    }
+    return '/api';
+  }
+  // Server-side: use relative URL (Next.js rewrites will handle it)
+  return process.env.NEXT_PUBLIC_API_URL || '/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export async function fetchSmartWallets(params?: {
   page?: number;

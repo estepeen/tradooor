@@ -4,7 +4,21 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+// Use absolute URL in browser for development
+const getApiBaseUrl = () => {
+  if (typeof window !== 'undefined') {
+    if (process.env.NEXT_PUBLIC_API_URL) {
+      return process.env.NEXT_PUBLIC_API_URL;
+    }
+    if (process.env.NODE_ENV === 'development') {
+      return 'http://localhost:3001/api';
+    }
+    return '/api';
+  }
+  return process.env.NEXT_PUBLIC_API_URL || '/api';
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export default function AddWalletPage() {
   const router = useRouter();
