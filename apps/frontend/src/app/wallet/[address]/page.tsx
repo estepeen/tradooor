@@ -889,8 +889,8 @@ export default function WalletDetailPage() {
                                   : tradeType === 'SELL'
                                   ? 'bg-red-500/20 text-red-400'
                                   : tradeType === 'ADD'
-                                  ? 'bg-transparent text-[rgb(75,222,127)] border border-[#22c55e]'
-                                  : 'bg-transparent text-[rgb(248,113,112)] border border-[#ef4444]'
+                                  ? 'bg-transparent text-[rgb(75,222,127)] border border-[rgb(29,56,35)]'
+                                  : 'bg-transparent text-[rgb(248,113,112)] border border-[rgb(65,30,30)]'
                               }`}>
                                 {tradeType}
                               </span>
