@@ -571,24 +571,9 @@ router.get('/recent', async (req, res) => {
 
     // Format trades for notifications
     const formattedTrades = await Promise.all((trades || []).map(async (trade: any) => {
-      // Determine trade type (BUY/SELL/ADD/REM) from positionChangePercent
-      // ADD = buy with small position change (< 20%)
-      // REM = sell with small position change (> -20%)
-      let tradeType = trade.side; // Default to buy/sell
-      if (trade.positionChangePercent !== null && trade.positionChangePercent !== undefined) {
-        const positionChange = Number(trade.positionChangePercent);
-        if (trade.side === 'buy') {
-          // If position change is small (< 20%), it's likely an ADD (adding to existing position)
-          if (positionChange > 0 && positionChange < 20) {
-            tradeType = 'add';
-          }
-        } else if (trade.side === 'sell') {
-          // If position change is small (> -20%), it's likely a REM (partial sell)
-          if (positionChange < 0 && positionChange > -20) {
-            tradeType = 'remove';
-          }
-        }
-      }
+      // Trade type is already determined in the database (buy/add/sell/remove)
+      // Just use it directly
+      const tradeType = trade.side; // Already set correctly in DB
       
       // Calculate price USD from priceBasePerToken and historical SOL price
       let priceUsd: number | null = null;

@@ -1179,82 +1179,102 @@ export class SolanaCollectorService {
           .filter(t => t.tokenId === token.id)
           .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()); // Seřaď chronologicky
         
-        // Vypočti aktuální pozici před tímto trade
-        let currentPosition = 0;
+        // Calculate balance BEFORE this trade
+        let balanceBefore = 0;
         for (const prevTrade of tokenTrades) {
           if (prevTrade.txSignature === swap.txSignature) {
-            break; // Zastav před aktuálním trade
+            break; // Stop before current trade
           }
-          if (prevTrade.side === 'buy') {
-            currentPosition += Number(prevTrade.amountToken);
-          } else if (prevTrade.side === 'sell') {
-            currentPosition -= Number(prevTrade.amountToken);
+          // Count all buy/add trades and subtract all sell/remove trades
+          if (prevTrade.side === 'buy' || prevTrade.side === 'add') {
+            balanceBefore += Number(prevTrade.amountToken);
+          } else if (prevTrade.side === 'sell' || prevTrade.side === 'remove') {
+            balanceBefore -= Number(prevTrade.amountToken);
           }
         }
         
-        // Vypočti % změnu pozice
-        // Omezení: pokud je currentPosition velmi malé (méně než 1% z amountToken),
-        // považujeme to za novou pozici (100%) nebo prodej celé pozice (-100%)
-        const MIN_POSITION_THRESHOLD = swap.amountToken * 0.01; // 1% z amountToken
+        // Determine trade type based on balance
+        // BUY = first purchase (balance before = 0)
+        // ADD = additional purchase (balance before > 0)
+        // SELL = full sell (balance after = 0)
+        // REM = partial sell (balance after > 0)
+        let tradeSide: 'buy' | 'sell' | 'add' | 'remove' = swap.side;
         
         if (swap.side === 'buy') {
-          // Koupil tokeny - přidal k pozici
-          if (currentPosition > MIN_POSITION_THRESHOLD) {
-            // Normální výpočet
-            positionChangePercent = (swap.amountToken / currentPosition) * 100;
-            // Omez na maximálně 1000% (10x) - pokud je více, je to pravděpodobně chyba
+          // If balance before is 0, it's a BUY (first purchase)
+          // If balance before > 0, it's an ADD (additional purchase)
+          tradeSide = balanceBefore === 0 ? 'buy' : 'add';
+        } else if (swap.side === 'sell') {
+          // Calculate balance after this trade
+          const balanceAfter = balanceBefore - swap.amountToken;
+          // If balance after is 0 (or very close to 0), it's a SELL (full sell)
+          // If balance after > 0, it's a REM (partial sell)
+          tradeSide = balanceAfter <= 0.000001 ? 'sell' : 'remove'; // Use small threshold for floating point
+        }
+        
+        // Calculate position change percent
+        // Restriction: if currentPosition is very small (less than 1% of amountToken),
+        // consider it as new position (100%) or full position sell (-100%)
+        const MIN_POSITION_THRESHOLD = swap.amountToken * 0.01; // 1% of amountToken
+        
+        if (tradeSide === 'buy' || tradeSide === 'add') {
+          // Bought tokens - added to position
+          if (balanceBefore > MIN_POSITION_THRESHOLD) {
+            // Normal calculation
+            positionChangePercent = (swap.amountToken / balanceBefore) * 100;
+            // Limit to max 1000% (10x) - if more, it's probably an error
             if (positionChangePercent > 1000) {
-              positionChangePercent = 100; // Považuj za novou pozici
+              positionChangePercent = 100; // Consider as new position
             }
           } else {
-            // První koupě nebo velmi malá pozice - 100% nová pozice
+            // First purchase or very small position - 100% new position
             positionChangePercent = 100;
           }
-        } else if (swap.side === 'sell') {
-          // Prodal tokeny - odebral z pozice
-          if (currentPosition > MIN_POSITION_THRESHOLD) {
-            // Normální výpočet
-            positionChangePercent = -(swap.amountToken / currentPosition) * 100;
-            // Omez na maximálně -100% (celý prodej pozice)
+        } else if (tradeSide === 'sell' || tradeSide === 'remove') {
+          // Sold tokens - removed from position
+          if (balanceBefore > MIN_POSITION_THRESHOLD) {
+            // Normal calculation
+            positionChangePercent = -(swap.amountToken / balanceBefore) * 100;
+            // Limit to max -100% (full position sell)
             if (positionChangePercent < -100) {
-              positionChangePercent = -100; // Považuj za prodej celé pozice
+              positionChangePercent = -100; // Consider as full position sell
             }
-            // Pokud je abs(positionChangePercent) velmi velké (více než 1000%), je to pravděpodobně chyba
+            // If abs(positionChangePercent) is very large (more than 1000%), it's probably an error
             if (Math.abs(positionChangePercent) > 1000) {
-              positionChangePercent = -100; // Považuj za prodej celé pozice
+              positionChangePercent = -100; // Consider as full position sell
             }
           } else {
-            // Prodal, ale neměl pozici nebo velmi malou pozici
-            // Pokud prodává víc, než má, je to chyba - označíme jako -100%
-            if (swap.amountToken > currentPosition) {
-              positionChangePercent = -100; // Prodej celé (malé) pozice
+            // Sold, but had no position or very small position
+            // If selling more than had, it's an error - mark as -100%
+            if (swap.amountToken > balanceBefore) {
+              positionChangePercent = -100; // Full (small) position sell
             } else {
-              positionChangePercent = currentPosition > 0 
-                ? -(swap.amountToken / currentPosition) * 100 
+              positionChangePercent = balanceBefore > 0 
+                ? -(swap.amountToken / balanceBefore) * 100 
                 : 0;
             }
           }
         }
 
-        // Výpočet PnL pro uzavřené pozice (sell)
+        // Calculate PnL for closed positions (sell/remove)
         let pnlUsd: number | undefined = undefined;
         let pnlPercent: number | undefined = undefined;
 
-        if (swap.side === 'sell') {
-          // Najdi nejnovější buy trade, který ještě není uzavřený
+        if (tradeSide === 'sell' || tradeSide === 'remove') {
+          // Find latest buy/add trade that is not yet closed
           const openBuys = tokenTrades
-            .filter(t => t.side === 'buy' && t.txSignature !== swap.txSignature)
+            .filter(t => (t.side === 'buy' || t.side === 'add') && t.txSignature !== swap.txSignature)
             .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
           
-          // Najdi odpovídající buy (FIFO - první koupený, první prodaný)
+          // Find matching buy (FIFO - first bought, first sold)
           const matchingBuy = openBuys.find(buy => {
-            // Zkontroluj, jestli už není tento buy uzavřený jiným sell
+            // Check if this buy is not already closed by another sell
             const sellsAfterBuy = tokenTrades.filter(t => 
-              t.side === 'sell' && 
+              (t.side === 'sell' || t.side === 'remove') && 
               new Date(t.timestamp) > new Date(buy.timestamp) &&
-              t.txSignature !== swap.txSignature // Neaktuální sell
+              t.txSignature !== swap.txSignature // Not current sell
             );
-            return sellsAfterBuy.length === 0; // Buy není uzavřený
+            return sellsAfterBuy.length === 0; // Buy is not closed
           });
 
           if (matchingBuy) {
@@ -1291,28 +1311,28 @@ export class SolanaCollectorService {
           }
         }
 
-        // Debug: log positionChangePercent před uložením
+        // Debug: log positionChangePercent before saving
         if (positionChangePercent !== undefined) {
           const multiplier = positionChangePercent / 100;
           const multiplierStr = `${multiplier >= 0 ? '+' : ''}${multiplier.toFixed(2)}x`;
           console.log(`   📊 Position change calculated: ${positionChangePercent.toFixed(2)}% (${multiplierStr})`);
-          console.log(`      - currentPosition: ${currentPosition.toFixed(6)}`);
+          console.log(`      - balanceBefore: ${balanceBefore.toFixed(6)}`);
           console.log(`      - amountToken: ${swap.amountToken.toFixed(6)}`);
         } else {
           console.log(`   ⚠️  Position change NOT calculated for ${swap.txSignature.substring(0, 8)}...`);
         }
 
-        // Ulož trade
+        // Save trade
         try {
           console.log(`   💾 Saving trade to DB: ${swap.txSignature.substring(0, 16)}...`);
-          console.log(`      - side: ${swap.side}, token: ${swap.tokenMint.substring(0, 16)}..., amount: ${swap.amountToken.toFixed(4)}, base: ${swap.amountBase.toFixed(6)} SOL`);
+          console.log(`      - side: ${tradeSide} (original: ${swap.side}), token: ${swap.tokenMint.substring(0, 16)}..., amount: ${swap.amountToken.toFixed(4)}, base: ${swap.amountBase.toFixed(6)} SOL`);
           console.log(`      - valueUsd: ${valueUsd.toFixed(2)}, timestamp: ${swap.timestamp.toISOString()}`);
           
           const createdTrade = await this.tradeRepo.create({
             txSignature: swap.txSignature,
             walletId: wallet.id,
             tokenId: token.id,
-            side: swap.side,
+            side: tradeSide, // Use determined type (buy/add/sell/remove)
             amountToken: swap.amountToken,
             amountBase: swap.amountBase,
             priceBasePerToken: swap.priceBasePerToken,
@@ -1662,70 +1682,90 @@ export class SolanaCollectorService {
         .filter(t => t.tokenId === token.id)
         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()); // Seřaď chronologicky
       
-      // Vypočti aktuální pozici před tímto trade
-      let currentPosition = 0;
+      // Calculate balance BEFORE this trade
+      let balanceBefore = 0;
       for (const prevTrade of tokenTrades) {
         if (prevTrade.txSignature === signature) {
-          break; // Zastav před aktuálním trade
+          break; // Stop before current trade
         }
-        if (prevTrade.side === 'buy') {
-          currentPosition += Number(prevTrade.amountToken);
-        } else if (prevTrade.side === 'sell') {
-          currentPosition -= Number(prevTrade.amountToken);
+        // Count all buy/add trades and subtract all sell/remove trades
+        if (prevTrade.side === 'buy' || prevTrade.side === 'add') {
+          balanceBefore += Number(prevTrade.amountToken);
+        } else if (prevTrade.side === 'sell' || prevTrade.side === 'remove') {
+          balanceBefore -= Number(prevTrade.amountToken);
         }
       }
       
-      // Vypočti % změnu pozice
-      // Omezení: pokud je currentPosition velmi malé (méně než 1% z amountToken),
-      // považujeme to za novou pozici (100%) nebo prodej celé pozice (-100%)
-      const MIN_POSITION_THRESHOLD = swapData.amountToken * 0.01; // 1% z amountToken
+      // Determine trade type based on balance
+      // BUY = first purchase (balance before = 0)
+      // ADD = additional purchase (balance before > 0)
+      // SELL = full sell (balance after = 0)
+      // REM = partial sell (balance after > 0)
+      let tradeSide: 'buy' | 'sell' | 'add' | 'remove' = swapData.side;
       
       if (swapData.side === 'buy') {
-        // Koupil tokeny - přidal k pozici
-        if (currentPosition > MIN_POSITION_THRESHOLD) {
-          // Normální výpočet
-          positionChangePercent = (swapData.amountToken / currentPosition) * 100;
-          // Omez na maximálně 1000% (10x) - pokud je více, je to pravděpodobně chyba
+        // If balance before is 0, it's a BUY (first purchase)
+        // If balance before > 0, it's an ADD (additional purchase)
+        tradeSide = balanceBefore === 0 ? 'buy' : 'add';
+      } else if (swapData.side === 'sell') {
+        // Calculate balance after this trade
+        const balanceAfter = balanceBefore - swapData.amountToken;
+        // If balance after is 0 (or very close to 0), it's a SELL (full sell)
+        // If balance after > 0, it's a REM (partial sell)
+        tradeSide = balanceAfter <= 0.000001 ? 'sell' : 'remove'; // Use small threshold for floating point
+      }
+      
+      // Calculate position change percent
+      // Restriction: if balanceBefore is very small (less than 1% of amountToken),
+      // consider it as new position (100%) or full position sell (-100%)
+      const MIN_POSITION_THRESHOLD = swapData.amountToken * 0.01; // 1% of amountToken
+      
+      if (tradeSide === 'buy' || tradeSide === 'add') {
+        // Bought tokens - added to position
+        if (balanceBefore > MIN_POSITION_THRESHOLD) {
+          // Normal calculation
+          positionChangePercent = (swapData.amountToken / balanceBefore) * 100;
+          // Limit to max 1000% (10x) - if more, it's probably an error
           if (positionChangePercent > 1000) {
-            positionChangePercent = 100; // Považuj za novou pozici
+            positionChangePercent = 100; // Consider as new position
           }
         } else {
-          // První koupě nebo velmi malá pozice - 100% nová pozice
+          // First purchase or very small position - 100% new position
           positionChangePercent = 100;
         }
-      } else if (swapData.side === 'sell') {
-        // Prodal tokeny - odebral z pozice
-        if (currentPosition > MIN_POSITION_THRESHOLD) {
-          // Normální výpočet
-          positionChangePercent = -(swapData.amountToken / currentPosition) * 100;
-          // Omez na maximálně -100% (celý prodej pozice)
+      } else if (tradeSide === 'sell' || tradeSide === 'remove') {
+        // Sold tokens - removed from position
+        if (balanceBefore > MIN_POSITION_THRESHOLD) {
+          // Normal calculation
+          positionChangePercent = -(swapData.amountToken / balanceBefore) * 100;
+          // Limit to max -100% (full position sell)
           if (positionChangePercent < -100) {
-            positionChangePercent = -100; // Považuj za prodej celé pozice
+            positionChangePercent = -100; // Consider as full position sell
           }
-          // Pokud je abs(positionChangePercent) velmi velké (více než 1000%), je to pravděpodobně chyba
+          // If abs(positionChangePercent) is very large (more than 1000%), it's probably an error
           if (Math.abs(positionChangePercent) > 1000) {
-            positionChangePercent = -100; // Považuj za prodej celé pozice
+            positionChangePercent = -100; // Consider as full position sell
           }
         } else {
-          // Prodal, ale neměl pozici nebo velmi malou pozici
-          // Pokud prodává víc, než má, je to chyba - označíme jako -100%
-          if (swapData.amountToken > currentPosition) {
-            positionChangePercent = -100; // Prodej celé (malé) pozice
+          // Sold, but had no position or very small position
+          // If selling more than had, it's an error - mark as -100%
+          if (swapData.amountToken > balanceBefore) {
+            positionChangePercent = -100; // Full (small) position sell
           } else {
-            positionChangePercent = currentPosition > 0 
-              ? -(swapData.amountToken / currentPosition) * 100 
+            positionChangePercent = balanceBefore > 0 
+              ? -(swapData.amountToken / balanceBefore) * 100 
               : 0;
           }
         }
       }
 
-      console.log(`   💾 Saving trade to DB: ${signature.substring(0, 8)}... (${swapData.side}, ${swapData.amountToken.toFixed(4)} tokens, position change: ${positionChangePercent?.toFixed(2)}%)`);
+      console.log(`   💾 Saving trade to DB: ${signature.substring(0, 8)}... (${tradeSide}, ${swapData.amountToken.toFixed(4)} tokens, position change: ${positionChangePercent?.toFixed(2)}%)`);
       
       const createdTrade = await this.tradeRepo.create({
         txSignature: signature,
         walletId: wallet.id,
         tokenId: token.id,
-        side: swapData.side,
+        side: tradeSide, // Use determined type (buy/add/sell/remove)
         amountToken: swapData.amountToken,
         amountBase: swapData.amountBase,
         priceBasePerToken: swapData.priceBasePerToken,
@@ -2303,22 +2343,75 @@ export class SolanaCollectorService {
         return { saved: false, reason: `Value ${valueUsd.toFixed(2)} USD below threshold $${MIN_NOTIONAL_USD}` };
       }
 
-      // Výpočet % změny pozice
-      let positionChangePercent: number | undefined = undefined;
+      // Calculate current position before this trade
       const allTrades = await this.tradeRepo.findAllForMetrics(wallet.id);
       const tokenTrades = allTrades
         .filter(t => t.tokenId === token.id)
         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-      let currentPosition = 0;
+      // Calculate balance BEFORE this trade
+      let balanceBefore = 0;
       for (const prevTrade of tokenTrades) {
         if (prevTrade.txSignature === swap.txSignature) {
           break;
         }
-        if (prevTrade.side === 'buy') {
-          currentPosition += Number(prevTrade.amountToken);
-        } else if (prevTrade.side === 'sell') {
-          currentPosition -= Number(prevTrade.amountToken);
+        // Count all buy/add trades and subtract all sell/remove trades
+        if (prevTrade.side === 'buy' || prevTrade.side === 'add') {
+          balanceBefore += Number(prevTrade.amountToken);
+        } else if (prevTrade.side === 'sell' || prevTrade.side === 'remove') {
+          balanceBefore -= Number(prevTrade.amountToken);
+        }
+      }
+
+      // Determine trade type based on balance
+      // BUY = first purchase (balance before = 0)
+      // ADD = additional purchase (balance before > 0)
+      // SELL = full sell (balance after = 0)
+      // REM = partial sell (balance after > 0)
+      let tradeSide: 'buy' | 'sell' | 'add' | 'remove' = swap.side;
+      
+      if (swap.side === 'buy') {
+        // If balance before is 0, it's a BUY (first purchase)
+        // If balance before > 0, it's an ADD (additional purchase)
+        tradeSide = balanceBefore === 0 ? 'buy' : 'add';
+      } else if (swap.side === 'sell') {
+        // Calculate balance after this trade
+        const balanceAfter = balanceBefore - swap.amountToken;
+        // If balance after is 0 (or very close to 0), it's a SELL (full sell)
+        // If balance after > 0, it's a REM (partial sell)
+        tradeSide = balanceAfter <= 0.000001 ? 'sell' : 'remove'; // Use small threshold for floating point
+      }
+
+      // Calculate position change percent
+      let positionChangePercent: number | undefined = undefined;
+      const MIN_POSITION_THRESHOLD = swap.amountToken * 0.01;
+
+      if (tradeSide === 'buy' || tradeSide === 'add') {
+        if (balanceBefore > MIN_POSITION_THRESHOLD) {
+          positionChangePercent = (swap.amountToken / balanceBefore) * 100;
+          if (positionChangePercent > 1000) {
+            positionChangePercent = 100;
+          }
+        } else {
+          positionChangePercent = 100;
+        }
+      } else if (tradeSide === 'sell' || tradeSide === 'remove') {
+        if (balanceBefore > MIN_POSITION_THRESHOLD) {
+          positionChangePercent = -(swap.amountToken / balanceBefore) * 100;
+          if (positionChangePercent < -100) {
+            positionChangePercent = -100;
+          }
+          if (Math.abs(positionChangePercent) > 1000) {
+            positionChangePercent = -100;
+          }
+        } else {
+          if (swap.amountToken > balanceBefore) {
+            positionChangePercent = -100;
+          } else {
+            positionChangePercent = balanceBefore > 0 
+              ? -(swap.amountToken / balanceBefore) * 100 
+              : 0;
+          }
         }
       }
 
@@ -2353,18 +2446,18 @@ export class SolanaCollectorService {
         }
       }
 
-      // Výpočet PnL pro uzavřené pozice (sell)
+      // Calculate PnL for closed positions (sell/remove)
       let pnlUsd: number | undefined = undefined;
       let pnlPercent: number | undefined = undefined;
 
-      if (swap.side === 'sell') {
+      if (tradeSide === 'sell' || tradeSide === 'remove') {
         const openBuys = tokenTrades
-          .filter(t => t.side === 'buy' && t.txSignature !== swap.txSignature)
+          .filter(t => (t.side === 'buy' || t.side === 'add') && t.txSignature !== swap.txSignature)
           .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
         const matchingBuy = openBuys.find(buy => {
           const sellsAfterBuy = tokenTrades.filter(t => 
-            t.side === 'sell' && 
+            (t.side === 'sell' || t.side === 'remove') && 
             new Date(t.timestamp) > new Date(buy.timestamp) &&
             t.txSignature !== swap.txSignature
           );
@@ -2394,12 +2487,12 @@ export class SolanaCollectorService {
         }
       }
 
-      // Ulož trade
+      // Save trade with correct side (buy/add/sell/remove)
       await this.tradeRepo.create({
         txSignature: swap.txSignature,
         walletId: wallet.id,
         tokenId: token.id,
-        side: swap.side,
+        side: tradeSide, // Use determined type (buy/add/sell/remove)
         amountToken: swap.amountToken,
         amountBase: swap.amountBase,
         priceBasePerToken: swap.priceBasePerToken,
