@@ -69,9 +69,11 @@ export default function WalletsPage() {
         sortBy,
         sortOrder: 'desc',
       });
+      console.log('Loaded wallets:', result);
       setData(result);
     } catch (error: any) {
       console.error('Error loading wallets:', error);
+      console.error('Error details:', error.message, error.stack);
       // Set empty data on error to show error message
       setData({ wallets: [], total: 0, page: 1, pageSize: 20 });
     } finally {
@@ -118,11 +120,21 @@ export default function WalletsPage() {
 
                 try {
                   const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+                  console.log('Syncing wallets from CSV...');
                   const response = await fetch(`${API_BASE_URL}/smart-wallets/sync`, {
                     method: 'POST',
+                    headers: {
+                      'Content-Type': 'application/json',
+                    },
                   });
 
+                  if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                    throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+                  }
+
                   const result = await response.json();
+                  console.log('Sync result:', result);
 
                   if (!response.ok) {
                     if (result.validationErrors && result.validationErrors.length > 0) {
