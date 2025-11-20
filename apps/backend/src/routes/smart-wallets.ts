@@ -1333,10 +1333,12 @@ router.get('/:id/portfolio', async (req, res) => {
           ? (pnl / position.totalInvested) * 100
           : 0;
         
+        // Treat small negative balance (rounding errors) as 0 for closed positions
+        // Declare once at the beginning and use everywhere
+        const normalizedBalance = position.balance < 0 && Math.abs(position.balance) < 0.0001 ? 0 : position.balance;
+        
         // Calculate hold time for closed positions (from first BUY to last SELL)
         // If BUY and SELL are at the same time, holdTimeMinutes will be 0, which is valid
-        // Treat small negative balance (rounding errors) as 0 for closed positions
-        const normalizedBalance = position.balance < 0 && Math.abs(position.balance) < 0.0001 ? 0 : position.balance;
         let holdTimeMinutes: number | null = null;
         if (position.firstBuyTimestamp && position.lastSellTimestamp && normalizedBalance <= 0) {
           const holdTimeMs = position.lastSellTimestamp.getTime() - position.firstBuyTimestamp.getTime();
@@ -1349,8 +1351,6 @@ router.get('/:id/portfolio', async (req, res) => {
 
         // Calculate PnL for closed positions in BASE currency (proceedsBase - costBase)
         // This is the correct way: PnL = what we got (SELL) - what we paid (BUY) in base currency
-        // Treat small negative balance (rounding errors) as 0 for closed positions
-        const normalizedBalance = position.balance < 0 && Math.abs(position.balance) < 0.0001 ? 0 : position.balance;
         let closedPnlBase: number | null = null;
         let closedPnlUsd: number | null = null;
         let closedPnlPercent: number | null = null;
@@ -1387,8 +1387,7 @@ router.get('/:id/portfolio', async (req, res) => {
         }
 
         // Only include positions with balance > 0 or with trades
-        // For closed positions, allow small negative balance due to rounding errors (treat as 0)
-        const normalizedBalance = position.balance < 0 && Math.abs(position.balance) < 0.0001 ? 0 : position.balance;
+        // normalizedBalance is already declared above
         
         if (normalizedBalance > 0 || position.buyCount > 0 || position.sellCount > 0) {
           return {

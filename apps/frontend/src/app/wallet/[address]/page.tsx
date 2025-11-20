@@ -135,7 +135,7 @@ function calculatePositionsFromTrades(trades: Trade[]) {
       // Closed position - DŮLEŽITÉ: Zobrazujeme pouze pozice s platným HOLD time (známe BUY i SELL)
       // Musí mít alespoň jeden BUY a jeden SELL, a platný holdTimeMinutes (povolujeme i 0)
       if (position.buyCount > 0 && position.sellCount > 0 && holdTimeMinutes !== null && holdTimeMinutes >= 0) {
-        closedPositions.push(positionData);
+      closedPositions.push(positionData);
       }
     }
   }
@@ -927,27 +927,27 @@ export default function WalletDetailPage() {
                             <td className={`px-4 py-3 text-right text-sm font-mono ${
                               tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
                             }`}>
-                              {trade.token?.mintAddress ? (
-                                <a
+                            {trade.token?.mintAddress ? (
+                              <a
                                   href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
+                                target="_blank"
+                                rel="noopener noreferrer"
                                   className="hover:underline cursor-pointer"
-                                >
+                              >
                                   {priceUsd !== null && priceUsd !== undefined && priceUsd > 0
                                     ? `$${formatNumber(priceUsd, 6)}`
                                     : entryPrice > 0
                                     ? `${formatNumber(entryPrice, 6)} ${baseToken}`
                                     : '-'}
-                                </a>
-                              ) : (
+                              </a>
+                            ) : (
                                 priceUsd !== null && priceUsd !== undefined && priceUsd > 0
                                   ? `$${formatNumber(priceUsd, 6)}`
                                   : entryPrice > 0
                                   ? `${formatNumber(entryPrice, 6)} ${baseToken}`
                                   : '-'
-                              )}
-                            </td>
+                            )}
+                          </td>
                             <td className={`px-4 py-3 text-right text-sm font-mono ${
                               tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
                             }`}>
