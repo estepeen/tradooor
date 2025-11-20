@@ -180,12 +180,12 @@ export default function WalletDetailPage() {
     }
   }, [walletAddress, tokenFilter, timeframeFilter]);
 
-  // Resetuj stránku při změně filtru
+  // Reset page when filter changes
   useEffect(() => {
     setRecentTradesPage(1);
   }, [tokenFilter, timeframeFilter]);
 
-  // Automatická aktualizace portfolio každých 10 minut
+  // Automatic portfolio update every 10 minutes
   useEffect(() => {
     if (!walletAddress) return;
     
@@ -193,7 +193,7 @@ export default function WalletDetailPage() {
       try {
         const walletData = await fetchSmartWallet(walletAddress);
         const actualWalletId = walletData?.id || walletAddress;
-        const portfolioData = await fetchWalletPortfolio(actualWalletId, false); // Použij cache pokud je platný
+        const portfolioData = await fetchWalletPortfolio(actualWalletId, false); // Use cache if valid
         setPortfolio(portfolioData);
         if (portfolioData.lastUpdated) {
           setPortfolioLastUpdated(new Date(portfolioData.lastUpdated));
@@ -203,23 +203,23 @@ export default function WalletDetailPage() {
       }
     };
 
-    // První načtení (použije cache pokud je platný)
+    // First load (will use cache if valid)
     refreshPortfolio();
 
-    // Nastav interval pro automatickou aktualizaci každých 10 minut
+    // Set interval for automatic update every 10 minutes
     const interval = setInterval(refreshPortfolio, 10 * 60 * 1000);
 
     return () => clearInterval(interval);
   }, [walletAddress]);
 
-  // Countdown timer pro zobrazení do další aktualizace
+  // Countdown timer to show until next update
   useEffect(() => {
     if (!portfolioLastUpdated) return;
 
     const updateCountdown = () => {
       const now = Date.now();
       const lastUpdate = portfolioLastUpdated.getTime();
-      const nextUpdate = lastUpdate + 10 * 60 * 1000; // 10 minut
+      const nextUpdate = lastUpdate + 10 * 60 * 1000; // 10 minutes
       const remaining = Math.max(0, Math.floor((nextUpdate - now) / 1000));
       setCountdown(remaining);
     };
@@ -530,7 +530,7 @@ export default function WalletDetailPage() {
                     disabled={portfolioRefreshing}
                     className="px-3 py-1.5 text-sm bg-muted text-foreground rounded-md hover:bg-muted/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    {portfolioRefreshing ? 'Aktualizuji...' : 'Aktualizovat'}
+                    {portfolioRefreshing ? 'Updating...' : 'Update'}
                   </button>
                 </div>
                 <div className="overflow-x-auto">
@@ -561,7 +561,7 @@ export default function WalletDetailPage() {
                           const token = position.token;
                           const balance = position.balance || 0;
                           const value = position.currentValue || (balance * (position.averageBuyPrice || 0));
-                          // Použij livePnl z API (pokud existuje), jinak fallback na pnl
+                          // Use livePnl from API (if exists), otherwise fallback to pnl
                           const pnl = position.livePnl !== undefined ? position.livePnl : (position.pnl || 0);
                           const pnlPercent = position.livePnlPercent !== undefined ? position.livePnlPercent : (position.pnlPercent || 0);
 
@@ -620,10 +620,10 @@ export default function WalletDetailPage() {
                 {/* Last update info */}
                 {portfolioLastUpdated && (
                   <div className="mt-3 text-xs text-muted-foreground text-center">
-                    Naposledy aktualizováno: {portfolioLastUpdated.toLocaleTimeString('cs-CZ')}
+                    Last updated: {portfolioLastUpdated.toLocaleTimeString('en-US')}
                     {countdown > 0 && (
                       <span className="ml-2">
-                        • Další aktualizace za: {Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, '0')}
+                        • Next update in: {Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, '0')}
                       </span>
                     )}
                   </div>
@@ -850,9 +850,9 @@ export default function WalletDetailPage() {
                           const priceBasePerToken = Number(trade.priceBasePerToken);
                           const baseToken = (trade as any).baseToken || 'SOL'; // SOL, USDC, USDT
                           
-                          // Použij base měnu místo USD
-                          // entryPrice = priceBasePerToken (cena v base měně za 1 token)
-                          // entryCost/proceedsBase = amountBase (v base měně)
+                          // Use base currency instead of USD
+                          // entryPrice = priceBasePerToken (price in base currency per 1 token)
+                          // entryCost/proceedsBase = amountBase (in base currency)
                           const entryPrice = priceBasePerToken;
                           const entryCost = (trade as any).entryCost || (trade.side === 'buy' ? amountBase : null);
                           const proceedsBase = (trade as any).proceedsBase || (trade.side === 'sell' ? amountBase : null);
