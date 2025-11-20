@@ -30,13 +30,13 @@ export function formatNumber(value: number, decimals = 2): string {
 
 export function formatDate(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
-  return d.toLocaleString('en-US', {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  if (isNaN(d.getTime())) return '';
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = String(d.getFullYear()).slice(-2);
+  const hours = String(d.getHours()).padStart(2, '0');
+  const minutes = String(d.getMinutes()).padStart(2, '0');
+  return `${day}/${month}/${year}, ${hours}:${minutes}`;
 }
 
 export async function copyToClipboard(text: string): Promise<boolean> {
@@ -88,10 +88,7 @@ export function formatLastTrade(date: Date | string | null | undefined): string 
 
 export function formatDateTimeCZ(date: Date | string | null | undefined): string {
   if (!date) return 'Never';
-  
-  const d = typeof date === 'string' ? new Date(date) : date;
-  // Formát: dd.mm.yyyy, HH:MM (stejný jako u obchodů)
-  return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}, ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return formatDate(date);
 }
 
 export function formatHoldTime(minutes: number | null | undefined): string {

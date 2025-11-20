@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { fetchRecentTrades } from '@/lib/api';
 import Link from 'next/link';
-import { formatDistanceToNow, format } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
+import { formatDate } from '@/lib/utils';
 
 interface Trade {
   id: string;
@@ -69,14 +70,6 @@ export default function TradesPage() {
     }
   };
 
-  const formatDateTime = (timestamp: string) => {
-    try {
-      return format(new Date(timestamp), 'PPp');
-    } catch {
-      return timestamp;
-    }
-  };
-
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="container mx-auto max-w-7xl">
@@ -120,7 +113,7 @@ export default function TradesPage() {
                               {formatTimeAgo(trade.timestamp)}
                             </span>
                             <span className="text-xs text-muted-foreground/70">
-                              {formatDateTime(trade.timestamp)}
+                              {formatDate(trade.timestamp)}
                             </span>
                           </div>
                         </td>

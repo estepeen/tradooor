@@ -115,75 +115,70 @@ router.get('/', async (req, res) => {
       })
     );
 
-    const shouldEnrichMetadata = req.query.enrichMetadata === 'true';
+    // Always ensure token metadata is available so UI can render tickers/names
+    const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
+    const tokensToEnrich = new Map<string, { token: any }>();
 
-    if (shouldEnrichMetadata) {
-      // Enrich tokens that are missing symbol/name or have contract-address-like symbols
-      // DŮLEŽITÉ: Fetchujeme metadata POUZE pro tokeny, které:
-      // 1. Nemají symbol ani name, NEBO
-      // 2. Mají symbol/name, které vypadá jako contract adresa
-      // Pokud token už má validní symbol/name v DB, NEFETCHUJEME znovu!
-      const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
-      const tokensToEnrich = new Map<string, { mintAddress: string }>();
+    for (const trade of tradesWithBaseCurrency as any[]) {
+      const token = trade.token || trade.Token;
+      if (!token || !token.mintAddress) continue;
 
-      for (const t of result.trades as any[]) {
-        const token = t.Token || t.token;
-        if (!token || !token.mintAddress) continue;
+      const symbol = (token.symbol || '').trim();
+      const name = (token.name || '').trim();
+      const looksLikeAddress = symbol.length > 15 && base58Regex.test(symbol);
+      const looksLikeTruncated = symbol.includes('...');
 
-        const symbol = (token.symbol || '').trim();
-        const name = (token.name || '').trim();
-
-        // Pokud má token validní symbol/name, NEFETCHUJEME znovu
-        if (symbol && name && !symbol.includes('...') && !(symbol.length > 15 && base58Regex.test(symbol))) {
-          continue; // Token už má validní metadata, přeskočíme
-        }
-
-        const looksLikeAddress =
-          symbol.length > 15 && base58Regex.test(symbol);
-        const looksLikeTruncated =
-          symbol.includes('...');
-
-        if (!symbol && !name) {
-          tokensToEnrich.set(token.mintAddress, { mintAddress: token.mintAddress });
-        } else if (looksLikeAddress || looksLikeTruncated) {
-          tokensToEnrich.set(token.mintAddress, { mintAddress: token.mintAddress });
-        }
+      if (!symbol && !name) {
+        tokensToEnrich.set(token.mintAddress, { token });
+      } else if (looksLikeAddress || looksLikeTruncated) {
+        tokensToEnrich.set(token.mintAddress, { token });
       }
+    }
 
-      // Fetchujeme metadata POUZE pro tokeny, které to potřebují
-      if (tokensToEnrich.size > 0) {
-        console.log(`   🔍 Fetching metadata for ${tokensToEnrich.size} tokens that need enrichment...`);
-        try {
-          const metadataMap = await tokenMetadataBatchService.getTokenMetadataBatch(
-            Array.from(tokensToEnrich.keys())
-          );
+    if (tokensToEnrich.size > 0) {
+      console.log(`   🔍 Enriching metadata for ${tokensToEnrich.size} token(s) used in trades...`);
+      try {
+        const metadataMap = await tokenMetadataBatchService.getTokenMetadataBatch(
+          Array.from(tokensToEnrich.keys())
+        );
 
-          // Merge fresh metadata back into trade token objects
-          for (const t of tradesWithBaseCurrency as any[]) {
-            const token = t.Token || t.token;
-            if (!token || !token.mintAddress) continue;
+        await Promise.all(
+          Array.from(tokensToEnrich.entries()).map(async ([mintAddress, { token }]) => {
+            const metadata = metadataMap.get(mintAddress);
+            if (!metadata) return;
 
-            const metadata = metadataMap.get(token.mintAddress);
-            if (metadata) {
-              token.symbol = metadata.symbol ?? token.symbol ?? null;
-              token.name = metadata.name ?? token.name ?? null;
-              if (metadata.decimals !== undefined && metadata.decimals !== null) {
-                token.decimals = metadata.decimals;
+            const nextSymbol = metadata.symbol ?? token.symbol ?? null;
+            const nextName = metadata.name ?? token.name ?? null;
+            const nextDecimals =
+              metadata.decimals !== undefined && metadata.decimals !== null
+                ? metadata.decimals
+                : token.decimals;
+
+            token.symbol = nextSymbol;
+            token.name = nextName;
+            token.decimals = nextDecimals;
+
+            if (token.id) {
+              try {
+                await tokenRepo.update(token.id, {
+                  symbol: nextSymbol,
+                  name: nextName,
+                  decimals: nextDecimals,
+                });
+              } catch (updateError: any) {
+                console.warn(
+                  `   ⚠️  Failed to persist metadata for token ${mintAddress}:`,
+                  updateError?.message || updateError
+                );
               }
             }
-          }
-          console.log(`   ✅ Enriched ${metadataMap.size} tokens`);
-        } catch (e: any) {
-          console.warn(
-            '⚠️  Failed to enrich token metadata for trades:',
-            e?.message || e
-          );
-        }
-      } else {
-        console.log(`   ✅ All tokens already have valid metadata, skipping fetch`);
+          })
+        );
+
+        console.log(`   ✅ Token metadata enrichment completed (${metadataMap.size} token(s) updated)`);
+      } catch (e: any) {
+        console.warn('⚠️  Failed to enrich token metadata for trades:', e?.message || e);
       }
-    } else {
-      console.log('   ⏭️  Skipping token metadata enrichment (enrichMetadata query not enabled)');
     }
 
     res.json({
@@ -568,8 +563,80 @@ router.get('/recent', async (req, res) => {
       throw new Error(`Failed to fetch recent trades: ${error.message}`);
     }
 
+    const tradesWithTokens = await Promise.all(
+      (trades || []).map(async (trade: any) => {
+        let token = trade.token;
+        if (!token && trade.tokenId) {
+          token = await tokenRepo.findById(trade.tokenId);
+        }
+        return { ...trade, token };
+      })
+    );
+
+    // Ensure token metadata is available (symbol/name) for notifications + tables
+    const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
+    const tokensToEnrich = new Map<string, any>();
+    for (const trade of tradesWithTokens) {
+      const token = trade.token;
+      if (!token || !token.mintAddress) continue;
+
+      const symbol = (token.symbol || '').trim();
+      const name = (token.name || '').trim();
+      const looksLikeAddress = symbol.length > 15 && base58Regex.test(symbol);
+      const looksLikeTruncated = symbol.includes('...');
+
+      if (!symbol && !name) {
+        tokensToEnrich.set(token.mintAddress, token);
+      } else if (looksLikeAddress || looksLikeTruncated) {
+        tokensToEnrich.set(token.mintAddress, token);
+      }
+    }
+
+    if (tokensToEnrich.size > 0) {
+      try {
+        const metadataMap = await tokenMetadataBatchService.getTokenMetadataBatch(
+          Array.from(tokensToEnrich.keys())
+        );
+
+        await Promise.all(
+          Array.from(tokensToEnrich.entries()).map(async ([mint, token]) => {
+            const metadata = metadataMap.get(mint);
+            if (!metadata) return;
+
+            const nextSymbol = metadata.symbol ?? token.symbol ?? null;
+            const nextName = metadata.name ?? token.name ?? null;
+            const nextDecimals =
+              metadata.decimals !== undefined && metadata.decimals !== null
+                ? metadata.decimals
+                : token.decimals;
+
+            token.symbol = nextSymbol;
+            token.name = nextName;
+            token.decimals = nextDecimals;
+
+            if (token.id) {
+              try {
+                await tokenRepo.update(token.id, {
+                  symbol: nextSymbol,
+                  name: nextName,
+                  decimals: nextDecimals,
+                });
+              } catch (updateError: any) {
+                console.warn(
+                  `⚠️  Failed to persist metadata for token ${mint}:`,
+                  updateError?.message || updateError
+                );
+              }
+            }
+          })
+        );
+      } catch (metadataError: any) {
+        console.warn('⚠️  Failed to enrich token metadata for recent trades:', metadataError?.message || metadataError);
+      }
+    }
+
     // Format trades for notifications
-    const formattedTrades = (trades || []).map((trade: any) => {
+    const formattedTrades = tradesWithTokens.map((trade: any) => {
       // Získej priceUsd z meta nebo vypočítej z priceBasePerToken
       let priceUsd: number | null = null;
       if (trade.meta?.priceUsd) {
@@ -590,7 +657,7 @@ router.get('/recent', async (req, res) => {
         },
         token: {
           id: trade.token?.id,
-          symbol: trade.token?.symbol || 'UNKNOWN',
+          symbol: trade.token?.symbol || trade.token?.name || 'UNKNOWN',
           name: trade.token?.name,
           mintAddress: trade.token?.mintAddress,
         },

@@ -243,19 +243,19 @@ export default function Notifications() {
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <span
-                              className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                                trade.side === 'buy'
-                                  ? 'bg-green-500/20 text-green-400'
-                                  : trade.side === 'sell'
-                                  ? 'bg-red-500/20 text-red-400'
-                                  : trade.side === 'add'
-                                  ? 'bg-blue-500/20 text-blue-400'
-                                  : 'bg-orange-500/20 text-orange-400' // remove
-                              }`}
-                            >
-                              {trade.side === 'add' ? 'ADD' : trade.side === 'remove' ? 'REM' : trade.side.toUpperCase()}
-                            </span>
+                                   <span
+                                     className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                                       trade.side === 'buy'
+                                         ? 'bg-green-500/20 text-green-400'
+                                         : trade.side === 'sell'
+                                         ? 'bg-red-500/20 text-red-400'
+                                         : trade.side === 'add'
+                                         ? 'bg-transparent text-[rgb(75,222,127)] border border-[#22c55e]'
+                                         : 'bg-transparent text-[rgb(248,113,112)] border border-[#ef4444]'
+                                     }`}
+                                   >
+                                     {trade.side === 'add' ? 'ADD' : trade.side === 'remove' ? 'REM' : trade.side.toUpperCase()}
+                                   </span>
                             <Link
                               href={`/wallet/${trade.wallet.address}`}
                               className="text-sm font-medium text-foreground truncate hover:underline"

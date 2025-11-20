@@ -632,16 +632,16 @@ export default function WalletDetailPage() {
                         
                         return (
                           <tr key={trade.id} className="border-t border-border hover:bg-muted/50">
-                            <td className="px-4 py-3 text-sm">
-                              <a
-                                href={`https://solscan.io/tx/${trade.txSignature}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-400 hover:text-blue-300 hover:underline text-muted-foreground"
-                              >
-                                {`${String(tradeDate.getDate()).padStart(2, '0')}.${String(tradeDate.getMonth() + 1).padStart(2, '0')}.${tradeDate.getFullYear()}, ${String(tradeDate.getHours()).padStart(2, '0')}:${String(tradeDate.getMinutes()).padStart(2, '0')}`}
-                              </a>
-                            </td>
+                              <td className="px-4 py-3 text-sm">
+                                <a
+                                  href={`https://solscan.io/tx/${trade.txSignature}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-400 hover:text-blue-300 hover:underline text-muted-foreground"
+                                >
+                                  {formatDate(trade.timestamp)}
+                                </a>
+                              </td>
                             <td className="px-4 py-3 text-center">
                               <span className={`px-2 py-1 rounded text-xs font-medium ${
                                 tradeType === 'BUY' || tradeType === 'ADD'

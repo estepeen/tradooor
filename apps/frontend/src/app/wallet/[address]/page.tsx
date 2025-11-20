@@ -638,8 +638,8 @@ export default function WalletDetailPage() {
                   <table className="w-full">
                     <thead className="bg-muted/30">
                       <tr>
+                        <th className="px-4 py-3 text-left text-sm font-medium">DATE</th>
                         <th className="px-4 py-3 text-left text-sm font-medium">TOKEN</th>
-                        <th className="px-4 py-3 text-right text-sm font-medium">SOLD</th>
                         <th className="px-4 py-3 text-right text-sm font-medium">PnL</th>
                         <th className="px-4 py-3 text-right text-sm font-medium">HOLD TIME</th>
                       </tr>
@@ -673,13 +673,18 @@ export default function WalletDetailPage() {
                         const items = closedPositions.slice(0, showAllClosedPositions ? closedPositions.length : 10);
                         return items.map((position: any) => {
                           const token = position.token;
-                          const totalSold = position.totalSold || 0;
                           const closedPnl = position.closedPnl ?? 0;
                           const closedPnlPercent = position.closedPnlPercent ?? 0;
                           const holdTimeMinutes = position.holdTimeMinutes ?? null;
+                          const sellDate = position.lastSellTimestamp
+                            ? formatDate(new Date(position.lastSellTimestamp))
+                            : '-';
 
                           return (
                             <tr key={position.tokenId} className="border-t border-border hover:bg-muted/50">
+                              <td className="px-4 py-3 text-sm text-muted-foreground">
+                                {sellDate}
+                              </td>
                               <td className="px-4 py-3 text-sm">
                                 {token?.mintAddress ? (
                                   <a
@@ -697,9 +702,6 @@ export default function WalletDetailPage() {
                                 ) : (
                                   <span className="text-muted-foreground">-</span>
                                 )}
-                              </td>
-                              <td className="px-4 py-3 text-right text-sm font-mono">
-                                {formatNumber(totalSold, 2)}
                               </td>
                               <td className={`px-4 py-3 text-right text-sm font-mono ${
                                 closedPnl >= 0 ? 'text-green-400' : 'text-red-400'
@@ -877,16 +879,18 @@ export default function WalletDetailPage() {
                                 rel="noopener noreferrer"
                                 className="text-blue-400 hover:text-blue-300 hover:underline text-muted-foreground"
                               >
-                                {`${String(tradeDate.getDate()).padStart(2, '0')}.${String(tradeDate.getMonth() + 1).padStart(2, '0')}.${tradeDate.getFullYear()}, ${String(tradeDate.getHours()).padStart(2, '0')}:${String(tradeDate.getMinutes()).padStart(2, '0')}`}
+                                {formatDate(trade.timestamp)}
                               </a>
                             </td>
                             <td className="px-4 py-3 text-center">
                               <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                tradeType === 'BUY' || tradeType === 'ADD'
+                                tradeType === 'BUY'
                                   ? 'bg-green-500/20 text-green-400'
-                                  : tradeType === 'REM'
-                                  ? 'bg-orange-500/20 text-orange-400'
-                                  : 'bg-red-500/20 text-red-400'
+                                  : tradeType === 'SELL'
+                                  ? 'bg-red-500/20 text-red-400'
+                                  : tradeType === 'ADD'
+                                  ? 'bg-transparent text-[rgb(75,222,127)] border border-[#22c55e]'
+                                  : 'bg-transparent text-[rgb(248,113,112)] border border-[#ef4444]'
                               }`}>
                                 {tradeType}
                               </span>
