@@ -553,7 +553,8 @@ router.get('/recent', async (req, res) => {
       .select(`
         *,
         token:${TABLES.TOKEN}(*),
-        wallet:${TABLES.SMART_WALLET}(id, address, label)
+        wallet:${TABLES.SMART_WALLET}(id, address, label),
+        meta
       `)
       .order('timestamp', { ascending: false })
       .limit(limit);
@@ -569,25 +570,69 @@ router.get('/recent', async (req, res) => {
     }
 
     // Format trades for notifications
-    const formattedTrades = (trades || []).map((trade: any) => ({
-      id: trade.id,
-      txSignature: trade.txSignature,
-      wallet: {
-        id: trade.wallet?.id,
-        address: trade.wallet?.address,
-        label: trade.wallet?.label || trade.wallet?.address?.substring(0, 8) + '...',
-      },
-      token: {
-        id: trade.token?.id,
-        symbol: trade.token?.symbol || 'UNKNOWN',
-        name: trade.token?.name,
-        mintAddress: trade.token?.mintAddress,
-      },
-      side: trade.side,
-      amountToken: parseFloat(trade.amountToken || '0'),
-      amountBase: parseFloat(trade.amountBase || '0'),
-      timestamp: trade.timestamp,
-      dex: trade.dex,
+    const formattedTrades = await Promise.all((trades || []).map(async (trade: any) => {
+      // Determine trade type (BUY/SELL/ADD/REM) from positionChangePercent
+      // ADD = buy with small position change (< 20%)
+      // REM = sell with small position change (> -20%)
+      let tradeType = trade.side; // Default to buy/sell
+      if (trade.positionChangePercent !== null && trade.positionChangePercent !== undefined) {
+        const positionChange = Number(trade.positionChangePercent);
+        if (trade.side === 'buy') {
+          // If position change is small (< 20%), it's likely an ADD (adding to existing position)
+          if (positionChange > 0 && positionChange < 20) {
+            tradeType = 'add';
+          }
+        } else if (trade.side === 'sell') {
+          // If position change is small (> -20%), it's likely a REM (partial sell)
+          if (positionChange < 0 && positionChange > -20) {
+            tradeType = 'remove';
+          }
+        }
+      }
+      
+      // Calculate price USD from priceBasePerToken and historical SOL price
+      let priceUsd: number | null = null;
+      if (trade.valueUsd && trade.amountToken) {
+        // Use valueUsd from DB if available (calculated during trade creation)
+        priceUsd = parseFloat(trade.valueUsd) / parseFloat(trade.amountToken || '1');
+      } else if (trade.priceBasePerToken) {
+        // Fallback: calculate from priceBasePerToken * historical SOL price
+        try {
+          const priceBasePerToken = Number(trade.priceBasePerToken);
+          const tradeDate = new Date(trade.timestamp);
+          const solPrice = await binancePriceService.getSolPriceAtDate(tradeDate);
+          if (solPrice && solPrice > 0) {
+            priceUsd = priceBasePerToken * solPrice;
+          }
+        } catch (error) {
+          // If historical price lookup fails, leave priceUsd as null
+          console.warn(`Failed to get historical SOL price for trade ${trade.id}:`, error);
+        }
+      }
+      
+      return {
+        id: trade.id,
+        txSignature: trade.txSignature,
+        wallet: {
+          id: trade.wallet?.id,
+          address: trade.wallet?.address,
+          label: trade.wallet?.label || trade.wallet?.address?.substring(0, 8) + '...',
+        },
+        token: {
+          id: trade.token?.id,
+          symbol: trade.token?.symbol || 'UNKNOWN',
+          name: trade.token?.name,
+          mintAddress: trade.token?.mintAddress,
+        },
+        side: tradeType, // Use determined type (buy/sell/add/remove)
+        amountToken: parseFloat(trade.amountToken || '0'),
+        amountBase: parseFloat(trade.amountBase || '0'),
+        priceBasePerToken: parseFloat(trade.priceBasePerToken || '0'),
+        priceUsd,
+        timestamp: trade.timestamp,
+        dex: trade.dex,
+        baseToken: trade.meta?.baseToken || 'SOL',
+      };
     }));
 
     res.json({

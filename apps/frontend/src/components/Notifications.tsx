@@ -20,6 +20,9 @@ interface Trade {
     mintAddress: string;
   };
   side: 'buy' | 'sell' | 'add' | 'remove';
+  priceBasePerToken?: number;
+  priceUsd?: number | null;
+  baseToken?: string;
   amountToken: number;
   amountBase: number;
   timestamp: string;
@@ -84,16 +87,16 @@ export default function Notifications() {
 
   // Poll for new trades every 10 seconds
   useEffect(() => {
+    // Always poll, even when sidebar is open (to update badge)
     const interval = setInterval(() => {
-      if (lastFetchTime && !isOpen) {
-        // Only poll when sidebar is closed (to avoid unnecessary requests)
+      if (lastFetchTime) {
         loadTrades(lastFetchTime);
       }
     }, 10000); // 10 seconds
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastFetchTime, isOpen]);
+  }, [lastFetchTime]);
 
   // Reset new trades count when sidebar opens
   useEffect(() => {

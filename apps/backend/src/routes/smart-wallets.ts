@@ -851,7 +851,7 @@ router.post('/setup-webhook', async (req, res) => {
 
     console.log('📥 POST /api/smart-wallets/setup-webhook - Setting up webhook for all wallets');
 
-    // Získej všechny wallet adresy
+    // Get all wallet addresses from database
     const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
     const allAddresses = allWallets.wallets.map(w => w.address);
 
@@ -859,9 +859,12 @@ router.post('/setup-webhook', async (req, res) => {
       return res.status(400).json({ error: 'No wallets found to setup webhook for' });
     }
 
-    console.log(`🔧 Setting up webhook for ${allAddresses.length} wallets...`);
+    console.log(`🔧 Found ${allWallets.total} total wallets in database`);
+    console.log(`🔧 Setting up webhook for ${allAddresses.length} wallet addresses...`);
+    console.log(`🔧 First 5 addresses: ${allAddresses.slice(0, 5).join(', ')}`);
+    console.log(`🔧 Last 5 addresses: ${allAddresses.slice(-5).join(', ')}`);
 
-    // Vytvoř nebo aktualizuj webhook - nahradit všechny existující adresy všemi adresami z DB
+    // Create or update webhook - replace all existing addresses with all addresses from DB
     const webhookId = await heliusWebhookService.ensureWebhookForAllWallets(allAddresses, true);
 
     res.status(200).json({
