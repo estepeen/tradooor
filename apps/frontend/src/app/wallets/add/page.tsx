@@ -164,15 +164,6 @@ export default function AddWalletPage() {
           </form>
         </div>
 
-        <div className="mt-6 p-4 bg-muted rounded-lg">
-          <h2 className="font-semibold mb-2">💡 Tip</h2>
-          <p className="text-sm text-muted-foreground">
-            Po přidání wallet můžeš spustit backfill historických transakcí:
-          </p>
-          <code className="block mt-2 p-2 bg-background rounded text-xs">
-            pnpm --filter backend collector:backfill WALLET_ADDRESS 100
-          </code>
-        </div>
       </div>
     </div>
   );

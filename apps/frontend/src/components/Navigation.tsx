@@ -54,7 +54,7 @@ export default function Navigation() {
                     : 'hover:bg-muted'
                 }`}
               >
-                Statistics
+                Global Stats
               </Link>
             </div>
           </div>

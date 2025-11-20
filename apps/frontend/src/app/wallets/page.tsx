@@ -104,39 +104,6 @@ export default function WalletsPage() {
             <p className="text-muted-foreground">Track and analyze smart wallet performance</p>
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={async () => {
-                // Load all wallets for selection
-                setShowRefreshModal(true);
-                setLoadingAllWallets(true);
-                try {
-                  // Load all wallets (use large pageSize to get all)
-                  const allWalletsData = await fetchSmartWallets({
-                    page: 1,
-                    pageSize: 10000,
-                  });
-                  setAllWallets(allWalletsData.wallets || []);
-                  // Pre-select all wallets
-                  if (allWalletsData.wallets) {
-                    setSelectedWallets(new Set(allWalletsData.wallets.map((w: any) => w.address)));
-                  }
-                } catch (error) {
-                  console.error('Error loading all wallets:', error);
-                  // Fallback to current page wallets
-                  if (data?.wallets) {
-                    setAllWallets(data.wallets);
-                    setSelectedWallets(new Set(data.wallets.map(w => w.address)));
-                  }
-                } finally {
-                  setLoadingAllWallets(false);
-                }
-              }}
-              disabled={loading}
-              className="px-4 py-2 bg-muted text-foreground rounded-md hover:bg-muted/80 transition-colors disabled:opacity-50"
-              title="Refresh trades from blockchain"
-            >
-              Refresh Trades
-            </button>
             <Link
               href="/wallets/add"
               className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
@@ -233,12 +200,6 @@ export default function WalletsPage() {
             >
               {webhookLoading ? 'Updating...' : 'Setup Webhook'}
             </button>
-            <Link
-              href="/stats"
-              className="px-4 py-2 border border-border rounded-md hover:bg-muted transition-colors"
-            >
-              Global Stats
-            </Link>
           </div>
         </div>
 

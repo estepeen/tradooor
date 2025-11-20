@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { parse } from 'csv-parse/sync';
-import { readFileSync } from 'fs';
+import { readFileSync, appendFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
@@ -591,7 +591,27 @@ router.post('/', async (req, res) => {
 
     console.log(`✅ Wallet created successfully: ${wallet.id}`);
 
-    // Aktualizuj webhook s novou wallet adresou
+    // Add wallet to wallets.csv file
+    try {
+      const csvFilePath = join(PROJECT_ROOT, 'wallets.csv');
+      const tagsStr = tags && tags.length > 0 ? tags.join(',') : '';
+      const labelStr = label || '';
+      
+      // Check if file exists, if not create it with header
+      if (!existsSync(csvFilePath)) {
+        appendFileSync(csvFilePath, 'address,label,tags\n', 'utf-8');
+      }
+      
+      // Append wallet to CSV (format: address,label,tags)
+      const csvLine = `${address},${labelStr},${tagsStr}\n`;
+      appendFileSync(csvFilePath, csvLine, 'utf-8');
+      console.log(`✅ Wallet added to wallets.csv: ${address}`);
+    } catch (csvError: any) {
+      console.warn(`⚠️  Failed to add wallet to wallets.csv: ${csvError.message}`);
+      // Don't want wallet creation to fail due to CSV write error
+    }
+
+    // Update webhook with new wallet address
     if (heliusWebhookService) {
       try {
         const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
