@@ -861,8 +861,8 @@ router.post('/setup-webhook', async (req, res) => {
 
     console.log(`🔧 Setting up webhook for ${allAddresses.length} wallets...`);
 
-    // Vytvoř nebo aktualizuj webhook
-    const webhookId = await heliusWebhookService.ensureWebhookForAllWallets(allAddresses);
+    // Vytvoř nebo aktualizuj webhook - nahradit všechny existující adresy všemi adresami z DB
+    const webhookId = await heliusWebhookService.ensureWebhookForAllWallets(allAddresses, true);
 
     res.status(200).json({
       success: true,

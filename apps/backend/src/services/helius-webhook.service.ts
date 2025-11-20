@@ -190,8 +190,11 @@ export class HeliusWebhookService {
   /**
    * Najde nebo vytvoří webhook pro všechny trackované walletky
    * Helius umožňuje až 100,000 adres v jednom webhooku
+   * 
+   * @param walletAddresses - Seznam wallet adres
+   * @param replaceExisting - Pokud true, nahradí všechny existující adresy. Pokud false, přidá k existujícím (default: false)
    */
-  async ensureWebhookForAllWallets(walletAddresses: string[]): Promise<string> {
+  async ensureWebhookForAllWallets(walletAddresses: string[], replaceExisting: boolean = false): Promise<string> {
     if (walletAddresses.length === 0) {
       throw new Error('At least one wallet address is required');
     }
@@ -210,18 +213,26 @@ export class HeliusWebhookService {
     );
 
     if (existingWebhook) {
-      // Aktualizuj existující webhook s novými adresami
-      // Zkombinuj existující adresy s novými (bez duplikátů)
-      // accountAddresses může být pole nebo undefined
-      const existingAddresses = Array.isArray(existingWebhook.accountAddresses) 
-        ? existingWebhook.accountAddresses 
-        : [];
-      const allAddresses = Array.from(
-        new Set([...existingAddresses, ...walletAddresses])
-      );
+      // Aktualizuj existující webhook
+      let addressesToUse: string[];
+      
+      if (replaceExisting) {
+        // Nahradit všechny existující adresy novými
+        addressesToUse = walletAddresses;
+        console.log(`🔄 Replacing all addresses in webhook (${addressesToUse.length} addresses)`);
+      } else {
+        // Zkombinuj existující adresy s novými (bez duplikátů)
+        const existingAddresses = Array.isArray(existingWebhook.accountAddresses) 
+          ? existingWebhook.accountAddresses 
+          : [];
+        addressesToUse = Array.from(
+          new Set([...existingAddresses, ...walletAddresses])
+        );
+        console.log(`➕ Adding to existing addresses (${existingAddresses.length} existing + ${walletAddresses.length} new = ${addressesToUse.length} total)`);
+      }
       
       try {
-        await this.updateWebhook(existingWebhook.webhookID, allAddresses);
+        await this.updateWebhook(existingWebhook.webhookID, addressesToUse);
         return existingWebhook.webhookID;
       } catch (error: any) {
         console.warn('⚠️  Failed to update webhook, will try to create new one:', error.message);
