@@ -523,6 +523,35 @@ export default function WalletsPage() {
           </div>
         )}
 
+        {/* Webhook Status Messages - Fixed at top */}
+        {webhookError && (
+          <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-red-950/95 border-b border-red-500/50 text-red-400 rounded-b text-sm">
+            <div className="container mx-auto max-w-7xl flex items-center justify-between gap-4">
+              <div>Error: {webhookError}</div>
+              <button
+                onClick={() => setWebhookError(null)}
+                className="text-current opacity-70 hover:opacity-100"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
+        {webhookSuccess && (
+          <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-green-950/95 border-b border-green-500/50 text-green-400 rounded-b text-sm">
+            <div className="container mx-auto max-w-7xl flex items-center justify-between gap-4">
+              <div>{webhookSuccess}</div>
+              <button
+                onClick={() => setWebhookSuccess(null)}
+                className="text-current opacity-70 hover:opacity-100"
+              >
+                ✕
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Refresh Trades Modal */}
         {showRefreshModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
