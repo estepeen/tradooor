@@ -9,7 +9,7 @@ export default function Navigation() {
 
   const isActive = (path: string) => {
     if (path === '/') {
-      return pathname === '/';
+      return pathname === '/' || pathname === '/wallets';
     }
     return pathname?.startsWith(path);
   };
@@ -20,7 +20,7 @@ export default function Navigation() {
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-8">
             <Link
-              href="/"
+              href="/wallets"
               className="text-xl font-bold hover:opacity-80 transition-opacity"
             >
               Tradooor
@@ -29,7 +29,7 @@ export default function Navigation() {
               <Link
                 href="/wallets"
                 className={`px-4 py-2 rounded-md transition-colors ${
-                  isActive('/wallets')
+                  isActive('/wallets') || pathname === '/'
                     ? 'bg-primary text-primary-foreground'
                     : 'hover:bg-muted'
                 }`}
@@ -45,16 +45,6 @@ export default function Navigation() {
                 }`}
               >
                 Add Wallet
-              </Link>
-              <Link
-                href="/stats"
-                className={`px-4 py-2 rounded-md transition-colors ${
-                  isActive('/stats')
-                    ? 'bg-primary text-primary-foreground'
-                    : 'hover:bg-muted'
-                }`}
-              >
-                Global Stats
               </Link>
             </div>
           </div>
