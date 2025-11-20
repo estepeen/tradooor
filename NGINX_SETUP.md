@@ -1,44 +1,44 @@
 # Nginx Reverse Proxy Setup - Tradooor
 
-Návod pro nastavení nginx reverse proxy pro Tradooor backend API.
+Guide for setting up nginx reverse proxy for Tradooor backend API.
 
-## Proč nginx?
+## Why nginx?
 
-- Backend naslouchá na `localhost:3001` (bezpečnější)
-- Nginx naslouchá na portu 80 (HTTP) nebo 443 (HTTPS) a proxyuje na backend
-- Port 80/443 je standardně otevřený ve firewallu
-- Nginx může poskytovat SSL certifikát (HTTPS) pro bezpečnější webhooky
+- Backend listens on `localhost:3001` (more secure)
+- Nginx listens on port 80 (HTTP) or 443 (HTTPS) and proxies to backend
+- Port 80/443 is standardly open in firewall
+- Nginx can provide SSL certificate (HTTPS) for more secure webhooks
 
-## Krok 1: Instalace nginx
+## Step 1: Install nginx
 
 ```bash
-# Na VPS
+# On VPS
 sudo apt update
 sudo apt install nginx -y
 
-# Zkontroluj, jestli nginx běží
+# Check if nginx is running
 sudo systemctl status nginx
 ```
 
-## Krok 2: Nastavení nginx konfigurace
+## Step 2: Configure nginx
 
 ```bash
-# Vytvoř nginx konfiguraci
+# Create nginx configuration
 sudo nano /etc/nginx/sites-available/tradooor
 ```
 
-Vlož následující konfiguraci:
+Insert the following configuration:
 
 ```nginx
 server {
     listen 80;
-    server_name 157.180.41.49;  # Nebo tvoje doména, pokud máš
+    server_name 157.180.41.49;  # Or your domain, if you have one
 
     # Logging
     access_log /var/log/nginx/tradooor-access.log;
     error_log /var/log/nginx/tradooor-error.log;
 
-    # Proxy na backend
+    # Proxy to backend
     location / {
         proxy_pass http://localhost:3001;
         proxy_http_version 1.1;
@@ -50,13 +50,13 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_cache_bypass $http_upgrade;
         
-        # Timeout pro webhooky (Helius má timeout ~5-10 sekund)
+        # Timeout for webhooks (Helius has timeout ~5-10 seconds)
         proxy_connect_timeout 60s;
         proxy_send_timeout 60s;
         proxy_read_timeout 60s;
     }
 
-    # Speciální handling pro webhook endpoint - rychlejší timeout
+    # Special handling for webhook endpoint - faster timeout
     location /api/webhooks/helius {
         proxy_pass http://localhost:3001;
         proxy_http_version 1.1;
@@ -65,105 +65,104 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         
-        # Rychlejší timeout pro webhooky (Helius má timeout ~2-3 sekundy)
+        # Faster timeout for webhooks (Helius has timeout ~2-3 seconds)
         proxy_connect_timeout 2s;
         proxy_send_timeout 2s;
         proxy_read_timeout 2s;
         
-        # Odpověz okamžitě - žádné buffering
+        # Respond immediately - no buffering
         proxy_buffering off;
         proxy_request_buffering off;
         
-        # Zvyš limit pro velké requesty
+        # Increase limit for large requests
         client_max_body_size 10M;
     }
 }
 ```
 
-## Krok 3: Aktivace konfigurace
+## Step 3: Activate configuration
 
 ```bash
-# Vytvoř symlink
+# Create symlink
 sudo ln -s /etc/nginx/sites-available/tradooor /etc/nginx/sites-enabled/
 
-# Odeber default konfiguraci (pokud existuje)
+# Remove default configuration (if exists)
 sudo rm /etc/nginx/sites-enabled/default
 
-# Test nginx konfigurace
+# Test nginx configuration
 sudo nginx -t
 
 # Restart nginx
 sudo systemctl restart nginx
 
-# Zkontroluj status
+# Check status
 sudo systemctl status nginx
 ```
 
-## Krok 4: Otevření portu 80 ve firewallu
+## Step 4: Open port 80 in firewall
 
 ```bash
-# Otevři port 80 (HTTP)
+# Open port 80 (HTTP)
 sudo ufw allow 80/tcp
 sudo ufw reload
 
-# Zkontroluj status
+# Check status
 sudo ufw status
 ```
 
-## Krok 5: Testování
+## Step 5: Testing
 
 ```bash
-# Z VPS zkus testovat
+# Test from VPS
 curl http://localhost/api/webhooks/helius/test
 
-# Zvenčí (z jiného počítače nebo online nástroje)
+# From outside (from another computer or online tool)
 curl http://157.180.41.49/api/webhooks/helius/test
 ```
 
-## Krok 6: Aktualizace Helius webhook URL
+## Step 6: Update Helius webhook URL
 
-V Helius Dashboard změň webhook URL na:
+In Helius Dashboard, change webhook URL to:
 ```
 http://157.180.41.49/api/webhooks/helius
 ```
 
-## Volitelné: SSL certifikát (HTTPS)
+## Optional: SSL certificate (HTTPS)
 
-Pokud chceš použít HTTPS (doporučeno pro produkci):
+If you want to use HTTPS (recommended for production):
 
 ```bash
-# Nainstaluj certbot
+# Install certbot
 sudo apt install certbot python3-certbot-nginx -y
 
-# Získej SSL certifikát (potřebuješ doménu)
-sudo certbot --nginx -d tvoje-domena.com
+# Get SSL certificate (you need a domain)
+sudo certbot --nginx -d your-domain.com
 
-# Nebo pokud nemáš doménu, použij HTTP (port 80)
+# Or if you don't have a domain, use HTTP (port 80)
 ```
 
 ## Troubleshooting
 
-### Nginx neběží
+### Nginx is not running
 ```bash
 sudo systemctl status nginx
 sudo journalctl -u nginx -n 50
 ```
 
-### Port 80 není dostupný
+### Port 80 is not available
 ```bash
-# Zkontroluj firewall
+# Check firewall
 sudo ufw status
 
-# Zkontroluj, jestli nginx naslouchá
+# Check if nginx is listening
 sudo netstat -tuln | grep 80
 ```
 
-### Backend není dostupný
+### Backend is not available
 ```bash
-# Zkontroluj, jestli backend běží
+# Check if backend is running
 pm2 list
 
-# Zkontroluj logy
+# Check logs
 pm2 logs tradooor-backend
 ```
-

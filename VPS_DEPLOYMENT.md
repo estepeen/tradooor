@@ -1,198 +1,198 @@
 # VPS Deployment Guide - Tradooor
 
-Návod pro nasazení Tradooor bota na Hetzner VPS.
+Guide for deploying Tradooor bot on Hetzner VPS.
 
-## Předpoklady
+## Prerequisites
 
-- Hetzner VPS s Ubuntu/Debian
-- SSH přístup k VPS
+- Hetzner VPS with Ubuntu/Debian
+- SSH access to VPS
 - Git repo: https://github.com/estepeen/tradooor
 
-## Krok 1: Prvotní nastavení na VPS
+## Step 1: Initial Setup on VPS
 
-### Připojení k VPS
+### Connect to VPS
 
 ```bash
 ssh root@157.180.41.49
-# nebo pokud máš jiného uživatele:
+# or if you have another user:
 ssh vps
 ```
 
-### Instalace Node.js a závislostí
+### Install Node.js and Dependencies
 
 ```bash
-# Aktualizuj systém
+# Update system
 apt update && apt upgrade -y
 
-# Nainstaluj Node.js pomocí nvm
+# Install Node.js using nvm
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
 source ~/.bashrc
 nvm install 20
 nvm use 20
 
-# Nainstaluj pnpm
+# Install pnpm
 npm install -g pnpm
 
-# Nainstaluj PM2 (pro správu procesů)
+# Install PM2 (for process management)
 npm install -g pm2
 ```
 
-### Vytvoření složky a klonování repo
+### Create Folder and Clone Repo
 
 ```bash
-# Vytvoř složku
+# Create folder
 mkdir -p /opt/tradooor
 cd /opt/tradooor
 
-# Klonuj repo
+# Clone repo
 git clone https://github.com/estepeen/tradooor.git .
 
-# Nebo pokud už existuje:
+# Or if it already exists:
 cd /opt/tradooor
 git pull origin master
 ```
 
-## Krok 2: Nastavení Environment Variables
+## Step 2: Environment Variables Setup
 
 ```bash
 cd /opt/tradooor/apps/backend
 nano .env
 ```
 
-Přidej do `.env`:
+Add to `.env`:
 
 ```env
 # Database (Supabase)
-DATABASE_URL=tvoje_supabase_connection_string
-DIRECT_URL=tvoje_supabase_direct_connection_string
+DATABASE_URL=your_supabase_connection_string
+DIRECT_URL=your_supabase_direct_connection_string
 
 # Helius
-HELIUS_API_KEY=tvůj_helius_api_key
+HELIUS_API_KEY=your_helius_api_key
 
-# Webhook URL - použij IP adresu VPS
+# Webhook URL - use VPS IP address
 HELIUS_WEBHOOK_URL=http://157.180.41.49:3001/api/webhooks/helius
 
 # Port
 PORT=3001
 NODE_ENV=production
 
-# Ostatní proměnné (pokud máš)
+# Other variables (if you have)
 # BINANCE_API_KEY=...
 # BINANCE_API_SECRET=...
 ```
 
-**Důležité:** Získej IP adresu VPS:
+**Important:** Get VPS IP address:
 ```bash
 curl ifconfig.me
 ```
 
-## Krok 3: Instalace závislostí a build
+## Step 3: Install Dependencies and Build
 
 ```bash
 cd /opt/tradooor
 
-# Instalace závislostí
+# Install dependencies
 pnpm install
 
-# Build backendu
+# Build backend
 pnpm --filter backend build
 ```
 
-## Krok 4: Nastavení PM2
+## Step 4: PM2 Setup
 
 ```bash
 cd /opt/tradooor
 
-# Spusť backend jako službu
+# Start backend as service
 pm2 start "pnpm --filter backend start" --name tradooor-backend
 
-# Ulož PM2 konfiguraci
+# Save PM2 configuration
 pm2 save
 
-# Nastav automatický start po restartu VPS
+# Set automatic start after VPS restart
 pm2 startup
-# Zkopíruj a spusť příkaz, který PM2 vypíše
+# Copy and run the command that PM2 outputs
 ```
 
-## Krok 5: Nastavení Firewallu
+## Step 5: Firewall Setup
 
 ```bash
-# Otevři port 3001
+# Open port 3001
 ufw allow 3001/tcp
 ufw enable
 ```
 
-## Krok 6: Vytvoření Webhooku
+## Step 6: Create Webhook
 
 ```bash
-# Zkontroluj, že backend běží
+# Check that backend is running
 pm2 status
 pm2 logs tradooor-backend
 
-# Vytvoř webhook pro všechny walletky
+# Create webhook for all wallets
 curl -X POST http://localhost:3001/api/smart-wallets/setup-webhook
 ```
 
-## Krok 7: Ověření
+## Step 7: Verification
 
 ```bash
-# Zkontroluj status
+# Check status
 pm2 status
 
-# Zkontroluj logy
+# Check logs
 pm2 logs tradooor-backend
 
-# Zkontroluj, že API funguje
+# Check that API works
 curl http://localhost:3001/health
 ```
 
-## Workflow pro updaty
+## Workflow for Updates
 
-### Na lokálním počítači (MacBook):
+### On Local Computer (MacBook):
 
 ```bash
 cd ~/Desktop/Coding/Bots/tradooor
 
-# Udělej změny v kódu...
+# Make code changes...
 
-# Commit a push
+# Commit and push
 git add .
-git commit -m "Popis změn"
+git commit -m "Description of changes"
 git push origin master
 ```
 
-### Na VPS:
+### On VPS:
 
 ```bash
 ssh root@157.180.41.49
-# nebo
+# or
 ssh vps
 
 cd /opt/tradooor
 
-# Pull nejnovější změny
+# Pull latest changes
 git pull origin master
 
-# Instalace nových závislostí (pokud byly přidány)
+# Install new dependencies (if any were added)
 pnpm install
 
-# Build (pokud se změnil backend)
+# Build (if backend changed)
 pnpm --filter backend build
 
-# Restart backendu
+# Restart backend
 pm2 restart tradooor-backend
 
-# Zkontroluj logy
+# Check logs
 pm2 logs tradooor-backend --lines 50
 ```
 
-## Užitečné PM2 příkazy
+## Useful PM2 Commands
 
 ```bash
-# Status všech procesů
+# Status of all processes
 pm2 status
 
-# Logy
+# Logs
 pm2 logs tradooor-backend
 
 # Restart
@@ -204,7 +204,7 @@ pm2 stop tradooor-backend
 # Start
 pm2 start tradooor-backend
 
-# Smaž z PM2
+# Delete from PM2
 pm2 delete tradooor-backend
 
 # Monitor (real-time)
@@ -213,62 +213,61 @@ pm2 monit
 
 ## Troubleshooting
 
-### Backend neběží
+### Backend is not running
 
 ```bash
-# Zkontroluj logy
+# Check logs
 pm2 logs tradooor-backend
 
-# Zkontroluj, jestli port není obsazený
+# Check if port is not occupied
 lsof -i :3001
 
-# Zkontroluj environment variables
+# Check environment variables
 cd /opt/tradooor/apps/backend
 cat .env
 ```
 
-### Webhook nefunguje
+### Webhook is not working
 
-1. Zkontroluj, že backend běží: `pm2 status`
-2. Zkontroluj webhook URL v `.env`: `HELIUS_WEBHOOK_URL`
-3. Zkontroluj, že port 3001 je otevřený: `ufw status`
-4. Zkontroluj Helius dashboard: https://dashboard.helius.dev/
+1. Check that backend is running: `pm2 status`
+2. Check webhook URL in `.env`: `HELIUS_WEBHOOK_URL`
+3. Check that port 3001 is open: `ufw status`
+4. Check Helius dashboard: https://dashboard.helius.dev/
 
-### Port je obsazený
+### Port is occupied
 
 ```bash
-# Najdi proces na portu 3001
+# Find process on port 3001
 lsof -i :3001
 
-# Zastav proces
+# Stop process
 kill -9 PID
 ```
 
-## Nastavení DNS (volitelné - pokud máš doménu)
+## DNS Setup (optional - if you have a domain)
 
-Pokud máš doménu stepanpanek.cz a chceš použít subdoménu:
+If you have domain stepanpanek.cz and want to use subdomain:
 
-1. **DNS záznam:**
-   - Subdoména: `api` (nebo `bot`, `tradooor`)
-   - Typ: A
+1. **DNS record:**
+   - Subdomain: `api` (or `bot`, `tradooor`)
+   - Type: A
    - IP: `157.180.41.49`
    - TTL: 3600
 
 2. **Nginx + HTTPS:**
-   - Viz sekce "Nastavení Nginx + HTTPS" v hlavním návodu
+   - See "Nginx + HTTPS Setup" section in main guide
 
-3. **Aktualizuj `.env`:**
+3. **Update `.env`:**
    ```env
    HELIUS_WEBHOOK_URL=https://api.stepanpanek.cz/api/webhooks/helius
    ```
 
-4. **Restart backendu:**
+4. **Restart backend:**
    ```bash
    pm2 restart tradooor-backend
    ```
 
-5. **Aktualizuj webhook:**
+5. **Update webhook:**
    ```bash
    curl -X POST http://localhost:3001/api/smart-wallets/setup-webhook
    ```
-

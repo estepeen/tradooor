@@ -1,128 +1,127 @@
 # Helius Webhooks Setup
 
-Tento dokument popisuje, jak nastavit Helius webhooks pro real-time sledování transakcí.
+This document describes how to set up Helius webhooks for real-time transaction tracking.
 
-## Přehled
+## Overview
 
-Helius webhooks umožňují real-time notifikace o transakcích pro sledované wallet adresy. Místo pollingu každou minutu dostáváme notifikaci okamžitě, když wallet provede swap.
+Helius webhooks enable real-time notifications about transactions for tracked wallet addresses. Instead of polling every minute, we receive a notification immediately when a wallet performs a swap.
 
-## Výhody
+## Benefits
 
-- ✅ **Real-time aktualizace** - obchody se ukládají okamžitě po provedení
-- ✅ **Méně API volání** - jen když je nová transakce (ne každou minutu)
-- ✅ **Efektivnější** - pro 50 wallets s průměrně 100 swapy měsíčně = 5,000 kreditů (v free plánu)
-- ✅ **Automatické** - žádný manuální refresh potřebný
+- ✅ **Real-time updates** - trades are saved immediately after execution
+- ✅ **Fewer API calls** - only when there's a new transaction (not every minute)
+- ✅ **More efficient** - for 50 wallets with average 100 swaps per month = 5,000 credits (in free plan)
+- ✅ **Automatic** - no manual refresh needed
 
-## Nastavení
+## Setup
 
 ### 1. Environment Variables
 
-Přidej do `.env` souboru:
+Add to `.env` file:
 
 ```env
-# Helius API Key (povinné)
+# Helius API Key (required)
 HELIUS_API_KEY=your_helius_api_key
 
-# Webhook URL (volitelné - pokud není nastaveno, použije se API_URL + /api/webhooks/helius)
+# Webhook URL (optional - if not set, uses API_URL + /api/webhooks/helius)
 HELIUS_WEBHOOK_URL=https://your-domain.com/api/webhooks/helius
 
-# Nebo použij API_URL (pokud není HELIUS_WEBHOOK_URL)
+# Or use API_URL (if HELIUS_WEBHOOK_URL is not set)
 API_URL=https://your-domain.com
 ```
 
-**Důležité pro production:**
-- Webhook URL musí být veřejně dostupná (Helius musí být schopen poslat POST request)
-- Pro localhost development použij nástroj jako [ngrok](https://ngrok.com/) nebo [localtunnel](https://localtunnel.github.io/www/)
+**Important for production:**
+- Webhook URL must be publicly accessible (Helius must be able to send POST request)
+- For localhost development, use a tool like [ngrok](https://ngrok.com/) or [localtunnel](https://localtunnel.github.io/www/)
 
-### 2. Inicializace Webhooku
+### 2. Webhook Initialization
 
-Po nastavení environment variables:
+After setting environment variables:
 
-1. **Spusť backend server:**
+1. **Start backend server:**
 ```bash
 pnpm --filter backend dev
 ```
 
-2. **Nastav webhook pro všechny existující walletky:**
+2. **Set up webhook for all existing wallets:**
 ```bash
 curl -X POST http://localhost:3001/api/smart-wallets/setup-webhook
 ```
 
-Nebo použij frontend - přidá se tlačítko pro setup webhooku.
+Or use frontend - a button for webhook setup will be added.
 
-### 3. Automatické vytváření webhooku
+### 3. Automatic Webhook Creation
 
-Webhook se automaticky vytvoří/aktualizuje při:
-- Přidání nové wallet (POST `/api/smart-wallets`)
-- Synchronizaci walletek (POST `/api/smart-wallets/sync`)
+Webhook is automatically created/updated when:
+- Adding new wallet (POST `/api/smart-wallets`)
+- Synchronizing wallets (POST `/api/smart-wallets/sync`)
 
-## Jak to funguje
+## How It Works
 
-1. **Webhook vytvoření:**
-   - Při přidání wallet se vytvoří/aktualizuje Helius webhook
-   - Webhook sleduje všechny trackované wallet adresy
-   - Helius umožňuje až 100,000 adres v jednom webhooku
+1. **Webhook creation:**
+   - When adding a wallet, Helius webhook is created/updated
+   - Webhook tracks all tracked wallet addresses
+   - Helius allows up to 100,000 addresses in one webhook
 
-2. **Příjem notifikací:**
-   - Když wallet provede swap, Helius pošle POST request na `/api/webhooks/helius`
-   - Backend zpracuje transakci a uloží ji do DB
-   - Automaticky se přepočítají metriky
+2. **Receiving notifications:**
+   - When a wallet performs a swap, Helius sends POST request to `/api/webhooks/helius`
+   - Backend processes transaction and saves it to DB
+   - Metrics are automatically recalculated
 
-3. **Zpracování transakce:**
-   - Normalizace swapu (stejná logika jako při pollingu)
-   - Uložení do DB
-   - Výpočet PnL (pro SELL trades)
-   - Přepočet metrik
+3. **Transaction processing:**
+   - Swap normalization (same logic as polling)
+   - Save to DB
+   - PnL calculation (for SELL trades)
+   - Metrics recalculation
 
 ## Open/Closed Positions
 
-Open a Closed positions se počítají z recent trades:
+Open and Closed positions are calculated from recent trades:
 
-- **Open Positions**: BUY trades, které ještě nejsou uzavřené SELL tradeem (balance > 0)
-- **Closed Positions**: BUY trades, které jsou uzavřené SELL tradeem (balance <= 0)
-- **PnL**: Počítá se z rozdílu SOL (base currency) - `proceedsBase - costBase`
+- **Open Positions**: BUY trades that are not yet closed by SELL trade (balance > 0)
+- **Closed Positions**: BUY trades that are closed by SELL trade (balance <= 0)
+- **PnL**: Calculated from SOL difference (base currency) - `proceedsBase - costBase`
 
 ## Monitoring
 
-Webhook endpoint loguje:
-- Počet přijatých transakcí
-- Počet uložených swapů
-- Počet přeskočených (duplikáty, non-swapy)
-- Chyby při zpracování
+Webhook endpoint logs:
+- Number of received transactions
+- Number of saved swaps
+- Number of skipped (duplicates, non-swaps)
+- Processing errors
 
 ## Troubleshooting
 
-### Webhook nefunguje
+### Webhook is not working
 
-1. **Zkontroluj, že webhook URL je veřejně dostupná:**
+1. **Check that webhook URL is publicly accessible:**
    ```bash
    curl -X POST https://your-domain.com/api/webhooks/helius
    ```
 
-2. **Zkontroluj Helius dashboard:**
-   - Jdi na https://dashboard.helius.dev/
-   - Zkontroluj, že webhook existuje a má správné URL
+2. **Check Helius dashboard:**
+   - Go to https://dashboard.helius.dev/
+   - Check that webhook exists and has correct URL
 
-3. **Zkontroluj backend logy:**
-   - Měly by se zobrazit logy při příjmu webhook notifikací
+3. **Check backend logs:**
+   - Should show logs when receiving webhook notifications
 
-### Webhook přijímá notifikace, ale neukládá trades
+### Webhook receives notifications but doesn't save trades
 
-1. **Zkontroluj, že wallet adresa je v DB:**
-   - Webhook hledá wallet podle adresy z transakce
-   - Pokud wallet není v DB, transakce se přeskočí
+1. **Check that wallet address is in DB:**
+   - Webhook searches for wallet by address from transaction
+   - If wallet is not in DB, transaction is skipped
 
-2. **Zkontroluj logy:**
-   - Měly by se zobrazit důvody, proč se trade nepřidal (duplikát, non-swap, atd.)
+2. **Check logs:**
+   - Should show reasons why trade wasn't added (duplicate, non-swap, etc.)
 
-## Cena
+## Cost
 
-- **Free plán**: 1 milion kreditů měsíčně
-- **Každá webhook notifikace**: 1 kredit
-- **Pro 50 wallets s průměrně 100 swapy měsíčně**: 5,000 kreditů → ✅ V free plánu
+- **Free plan**: 1 million credits per month
+- **Each webhook notification**: 1 credit
+- **For 50 wallets with average 100 swaps per month**: 5,000 credits → ✅ In free plan
 
 ## API Endpoints
 
-- `POST /api/webhooks/helius` - Příjem webhook notifikací (voláno Helius)
-- `POST /api/smart-wallets/setup-webhook` - Nastavení webhooku pro všechny walletky
-
+- `POST /api/webhooks/helius` - Receive webhook notifications (called by Helius)
+- `POST /api/smart-wallets/setup-webhook` - Set up webhook for all wallets

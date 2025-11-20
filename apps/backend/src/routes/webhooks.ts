@@ -16,8 +16,8 @@ const collectorService = new SolanaCollectorService(
 );
 
 /**
- * Funkce pro zpracování Helius webhook payloadu
- * Může být volána jak z routeru, tak z index.ts
+ * Function to process Helius webhook payload
+ * Can be called from both router and index.ts
  */
 export async function processHeliusWebhook(body: any) {
   try {
@@ -25,16 +25,16 @@ export async function processHeliusWebhook(body: any) {
     console.log(`   Time: ${new Date().toISOString()}`);
     console.log('   Body keys:', Object.keys(body || {}));
 
-    // Helius enhanced webhook posílá data v tomto formátu:
+    // Helius enhanced webhook sends data in this format:
     // { accountData: [{ account: "wallet_address", ... }], transactions: [{ type: "SWAP", ... }] }
     const { transactions, accountData } = body;
 
-    // Normalizuj formát - Helius enhanced webhook posílá { accountData: [...], transactions: [...] }
+    // Normalize format - Helius enhanced webhook sends { accountData: [...], transactions: [...] }
     let txList: any[] = [];
     if (transactions && Array.isArray(transactions)) {
       txList = transactions;
     } else if (Array.isArray(body)) {
-      // Fallback: někdy Helius posílá přímo pole transakcí
+      // Fallback: sometimes Helius sends array of transactions directly
       txList = body;
     }
 
@@ -48,7 +48,7 @@ export async function processHeliusWebhook(body: any) {
 
     const backgroundStartTime = Date.now();
     
-    // Získej všechny trackované wallet adresy z DB (pro rychlé vyhledávání)
+    // Get all tracked wallet addresses from DB (for fast lookup)
     const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
     const trackedAddresses = new Set(allWallets.wallets.map(w => w.address.toLowerCase()));
 
@@ -56,20 +56,20 @@ export async function processHeliusWebhook(body: any) {
     let saved = 0;
     let skipped = 0;
 
-    // Zpracuj každou transakci
+    // Process each transaction
     for (const tx of txList) {
       try {
-        // Zkontroluj, jestli je to swap
+        // Check if it's a swap
         if (tx.type !== 'SWAP') {
           skipped++;
           continue;
         }
 
-        // Najdi wallet podle adresy z transakce
-        // Helius enhanced webhook posílá accountData s adresami účastníků
+        // Find wallet by address from transaction
+        // Helius enhanced webhook sends accountData with participant addresses
         let walletAddress: string | null = null;
 
-        // 1. Zkus najít z accountData v payload
+        // 1. Try to find from accountData in payload
         if (accountData && Array.isArray(accountData)) {
           for (const account of accountData) {
             const accountAddr = account.account || account;
@@ -82,7 +82,7 @@ export async function processHeliusWebhook(body: any) {
           }
         }
 
-        // 2. Zkus najít z accountData v transakci
+        // 2. Try to find from accountData in transaction
         if (!walletAddress && tx.accountData && Array.isArray(tx.accountData)) {
           for (const account of tx.accountData) {
             const accountAddr = account.account || account;
@@ -95,7 +95,7 @@ export async function processHeliusWebhook(body: any) {
           }
         }
 
-        // 3. Zkus najít z nativeTransfers
+        // 3. Try to find from nativeTransfers
         if (!walletAddress && tx.nativeTransfers && Array.isArray(tx.nativeTransfers)) {
           for (const transfer of tx.nativeTransfers) {
             if (transfer.fromUserAccount && trackedAddresses.has(transfer.fromUserAccount.toLowerCase())) {
@@ -109,7 +109,7 @@ export async function processHeliusWebhook(body: any) {
           }
         }
 
-        // 4. Zkus najít z tokenTransfers
+        // 4. Try to find from tokenTransfers
         if (!walletAddress && tx.tokenTransfers && Array.isArray(tx.tokenTransfers)) {
           for (const transfer of tx.tokenTransfers) {
             if (transfer.fromUserAccount && trackedAddresses.has(transfer.fromUserAccount.toLowerCase())) {
@@ -130,7 +130,7 @@ export async function processHeliusWebhook(body: any) {
           continue;
         }
 
-        // Zpracuj transakci pomocí collector service
+        // Process transaction using collector service
         const result = await collectorService.processWebhookTransaction(tx, walletAddress);
         
         if (result.saved) {
@@ -143,12 +143,12 @@ export async function processHeliusWebhook(body: any) {
 
         processed++;
       } catch (error: any) {
-        // Změňme na warn - některé chyby (např. nekompletní data) nejsou kritické
+        // Change to warn - some errors (e.g. incomplete data) are not critical
         console.warn(`⚠️  Error processing webhook transaction ${tx.signature?.substring(0, 16) || 'unknown'}:`, error.message);
         if (error.stack) {
           console.warn(`   Stack:`, error.stack.split('\n').slice(0, 3).join('\n'));
         }
-        // Pokračuj s další transakcí
+        // Continue with next transaction
       }
     }
 
@@ -167,7 +167,7 @@ export async function processHeliusWebhook(body: any) {
 
 /**
  * GET /api/webhooks/helius/test
- * Test endpoint - zkontroluje, jestli webhook endpoint funguje
+ * Test endpoint - checks if webhook endpoint is working
  */
 router.get('/helius/test', (req, res) => {
   res.json({
@@ -179,43 +179,43 @@ router.get('/helius/test', (req, res) => {
 
 /**
  * POST /api/webhooks/helius/test-minimal
- * Minimální testovací endpoint - odpovídá okamžitě bez jakéhokoliv zpracování
- * Použij pro debugging timeoutů
+ * Minimal test endpoint - responds immediately without any processing
+ * Use for debugging timeouts
  */
 router.post('/helius/test-minimal', (req, res) => {
   console.log('📨 MINIMAL TEST WEBHOOK HIT at', new Date().toISOString());
   console.log('   IP:', req.ip || req.headers['x-forwarded-for']);
   console.log('   Headers:', JSON.stringify(req.headers).substring(0, 200));
   
-  // Odpověz okamžitě - žádné zpracování
+  // Respond immediately - no processing
   res.status(200).json({ ok: true, message: 'minimal test ok' });
 });
 
 /**
  * POST /api/webhooks/helius
  * 
- * Endpoint pro příjem webhook notifikací od Helius
- * Helius posílá POST request s transakcemi, když sledovaná wallet provede swap
+ * Endpoint to receive webhook notifications from Helius
+ * Helius sends POST request with transactions when tracked wallet performs a swap
  * 
- * DŮLEŽITÉ: Odpovídá okamžitě (200 OK) a zpracování provádí asynchronně na pozadí,
- * aby se vyhnul timeoutům od Helius (Helius má timeout ~5-10 sekund)
+ * IMPORTANT: Responds immediately (200 OK) and processes asynchronously in background,
+ * to avoid timeouts from Helius (Helius has timeout ~5-10 seconds)
  */
 router.post('/helius', (req, res) => {
-  // DŮLEŽITÉ: Odpověz Helius okamžitě (200 OK) PŘED jakýmkoliv zpracováním
-  // Helius má timeout ~5-10 sekund, takže musíme odpovědět co nejrychleji
+  // IMPORTANT: Respond to Helius immediately (200 OK) BEFORE any processing
+  // Helius has timeout ~5-10 seconds, so we must respond as quickly as possible
   const startTime = Date.now();
   
-  // Logování pro debugging - IP adresa, headers, atd.
+  // Logging for debugging - IP address, headers, etc.
   const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
   
-  // Odpověz okamžitě - před jakýmkoliv zpracováním
+  // Respond immediately - before any processing
   res.status(200).json({
     success: true,
     message: 'Webhook received, processing in background',
     responseTimeMs: Date.now() - startTime,
   });
 
-  // Zpracování provede asynchronně na pozadí (neblokuje odpověď)
+  // Processing happens asynchronously in background (doesn't block response)
   setImmediate(async () => {
     try {
       console.log('📨 ===== WEBHOOK REQUEST RECEIVED (FROM ROUTER) =====');

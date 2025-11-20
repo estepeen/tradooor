@@ -7,10 +7,10 @@ import { statsRouter } from './routes/stats.js';
 import { tokensRouter } from './routes/tokens.js';
 import webhookRouter, { processHeliusWebhook } from './routes/webhooks.js';
 
-// Zkontroluj, jestli nemáme chybu při načítání dotenv.
+// Check if there's an error loading dotenv
 const dotenvResult = dotenv.config();
 if (dotenvResult.error) {
-  console.error('❌ Chyba při načítání .env souboru:', dotenvResult.error);
+  console.error('❌ Error loading .env file:', dotenvResult.error);
   process.exit(1);
 }
 
@@ -19,16 +19,16 @@ const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 
-// MINIMÁLNÍ handler pro webhook endpoint - odpovídá okamžitě bez jakéhokoliv zpracování
-// Musí být PŘED JSON parserem, aby se vyhnul parsování body
+// MINIMAL handler for webhook endpoint - responds immediately without any processing
+// Must be BEFORE JSON parser to avoid body parsing
 app.post('/api/webhooks/helius', express.raw({ type: 'application/json', limit: '10mb' }), (req, res) => {
   const startTime = Date.now();
   const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
   
-  // Odpověz okamžitě PŘED jakýmkoliv zpracováním (i před logováním)
+  // Respond immediately BEFORE any processing (even before logging)
   res.status(200).json({ ok: true, message: 'webhook received' });
   
-  // Logování až po odeslání odpovědi
+  // Log after sending response
   const responseTime = Date.now() - startTime;
   console.log('📨 ===== WEBHOOK REQUEST RECEIVED (IMMEDIATE) =====');
   console.log(`   Time: ${new Date().toISOString()}`);
@@ -36,17 +36,17 @@ app.post('/api/webhooks/helius', express.raw({ type: 'application/json', limit: 
   console.log(`   Response time: ${responseTime}ms`);
   console.log(`   Content-Length: ${req.headers['content-length'] || 'unknown'}`);
 
-  // Zpracuj asynchronně na pozadí
+  // Process asynchronously in background
   setImmediate(async () => {
     const backgroundStartTime = Date.now();
     try {
       console.log('🔄 ===== BACKGROUND PROCESSING STARTED (FROM INDEX.TS) =====');
       
-      // Parse JSON z raw body
+      // Parse JSON from raw body
       const body = JSON.parse(req.body.toString());
       console.log('   Parsed body keys:', Object.keys(body || {}));
       
-      // Zavolej webhook processing funkci
+      // Call webhook processing function
       console.log('   Calling processHeliusWebhook...');
       await processHeliusWebhook(body);
       
@@ -65,11 +65,11 @@ app.post('/api/webhooks/helius', express.raw({ type: 'application/json', limit: 
   });
 });
 
-// Ostatní routes používají JSON parser
+// Other routes use JSON parser
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Webhook routes (pro ostatní endpointy jako /test)
+// Webhook routes (for other endpoints like /test)
 app.use('/api/webhooks', webhookRouter);
 
 // Debug middleware (after JSON/body parsing to avoid undefined body)
@@ -121,24 +121,24 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// API routes (webhook router už je zaregistrovaný výše)
+// API routes (webhook router is already registered above)
 app.use('/api/smart-wallets', smartWalletRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/stats', statsRouter);
 app.use('/api/tokens', tokensRouter);
 
-// Ošetření chyb "route not found"
+// Handle "route not found" errors
 app.use((req, res, next) => {
   res.status(404).json({ error: 'Route not found', path: req.originalUrl });
 });
 
-// Ošetření ostatních chyb Expressu
+// Handle other Express errors
 app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('❌ Neočekávaná chyba:', err);
+  console.error('❌ Unexpected error:', err);
   res.status(500).json({ error: 'Internal Server Error' });
 });
 
-// Naslouchej na 0.0.0.0 (všechny interface, IPv4 i IPv6) pro dostupnost zvenčí
+// Listen on 0.0.0.0 (all interfaces, IPv4 and IPv6) for external access
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Backend server running on http://0.0.0.0:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);

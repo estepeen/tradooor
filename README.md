@@ -1,71 +1,71 @@
 # SolBot - Smart Wallet Tracking & Analytics Platform
 
-Backend + dashboard pro sledování a vyhodnocování smart wallets na Solaně.
+Backend + dashboard for tracking and analyzing smart wallets on Solana.
 
-## Struktura projektu
+## Project Structure
 
-- `apps/backend` - Node.js + TypeScript backend s API a workers
+- `apps/backend` - Node.js + TypeScript backend with API and workers
 - `apps/frontend` - Next.js dashboard
-- `packages/shared` - Sdílené typy a utility
-- `packages/db` - Prisma schéma a databázové utility
+- `packages/shared` - Shared types and utilities
+- `packages/db` - Prisma schema and database utilities
 
 ## Setup
 
-### Požadavky
+### Requirements
 
 - Node.js >= 18.0.0
 - pnpm >= 8.0.0
-- Supabase účet (nebo PostgreSQL databáze)
+- Supabase account (or PostgreSQL database)
 
-### Instalace
+### Installation
 
-1. Instalace závislostí:
+1. Install dependencies:
 ```bash
 pnpm install
 ```
 
-2. Nastavení databáze (Supabase):
+2. Database setup (Supabase):
 ```bash
-# Vytvoř účet na https://supabase.com a nový projekt
-# V Project Settings > Database najdeš Connection String
-# Použij "Connection pooling" nebo "Direct connection" string
+# Create account at https://supabase.com and new project
+# In Project Settings > Database you'll find Connection String
+# Use "Connection pooling" or "Direct connection" string
 
-# Vytvoř .env soubor v apps/backend:
+# Create .env file in apps/backend:
 # DATABASE_URL="postgresql://postgres:[PASSWORD]@db.[PROJECT_REF].supabase.co:5432/postgres"
 # SOLANA_RPC_URL="https://api.mainnet-beta.solana.com"
 # PORT=3001
 # NODE_ENV=development
 
-# Vygeneruj Prisma client
+# Generate Prisma client
 pnpm db:generate
 
-# Spusť migrace
+# Run migrations
 pnpm db:migrate
 ```
 
-**Poznámka:** Supabase používá standardní PostgreSQL, takže Prisma funguje bez změn. Connection string najdeš v Supabase Dashboard > Project Settings > Database.
+**Note:** Supabase uses standard PostgreSQL, so Prisma works without changes. Connection string can be found in Supabase Dashboard > Project Settings > Database.
 
-3. Nastavení frontendu:
+3. Frontend setup:
 ```bash
-# Vytvoř .env.local v apps/frontend
+# Create .env.local in apps/frontend
 # NEXT_PUBLIC_API_URL=http://localhost:3001/api
 ```
 
-4. Spuštění vývoje:
+4. Start development:
 ```bash
-# Spustí backend i frontend současně
+# Starts both backend and frontend simultaneously
 pnpm dev
 
-# Nebo samostatně:
+# Or separately:
 pnpm --filter backend dev
 pnpm --filter frontend dev
 ```
 
-### Použití
+### Usage
 
-#### Přidání smart wallet
+#### Adding smart wallet
 
-Přidej wallet přes API:
+Add wallet via API:
 ```bash
 curl -X POST http://localhost:3001/api/smart-wallets \
   -H "Content-Type: application/json" \
@@ -76,49 +76,49 @@ curl -X POST http://localhost:3001/api/smart-wallets \
   }'
 ```
 
-#### Přepočet metrik
+#### Recalculate metrics
 
 ```bash
-# Jednorázový přepočet pro všechny walletky
+# One-time recalculation for all wallets
 pnpm --filter backend calculate-metrics
 
-# Pro konkrétní wallet
+# For specific wallet
 pnpm --filter backend calculate-metrics WALLET_ID
 
-# Periodický cron job (každých 6 hodin, lze změnit přes CRON_SCHEDULE)
+# Periodic cron job (every 6 hours, can be changed via CRON_SCHEDULE)
 pnpm --filter backend metrics:cron
 ```
 
-#### Solana Collector (sledování transakcí)
+#### Solana Collector (transaction tracking)
 
 ```bash
-# Spustit collector pro sledování transakcí
+# Start collector for tracking transactions
 pnpm --filter backend collector:start
 
-# Backfill historických transakcí pro wallet
+# Backfill historical transactions for wallet
 pnpm --filter backend collector:backfill WALLET_ADDRESS [LIMIT]
 ```
 
-#### Prisma Studio (databázový GUI)
+#### Prisma Studio (database GUI)
 
 ```bash
 pnpm db:studio
 ```
 
-## Databázové schéma
+## Database Schema
 
-- **smart_wallets** - Trackované peněženky s metrikami
-- **tokens** - Informace o tokenech
-- **trades** - Jednotlivé obchody
-- **token_market_snapshots** - Snapshoty trhu (volitelné)
-- **smart_wallet_metrics_history** - Historie metrik v čase
+- **smart_wallets** - Tracked wallets with metrics
+- **tokens** - Token information
+- **trades** - Individual trades
+- **token_market_snapshots** - Market snapshots (optional)
+- **smart_wallet_metrics_history** - Metrics history over time
 
 ## API Endpoints
 
-- `GET /api/smart-wallets` - Seznam wallet (s paginací a filtry)
-- `GET /api/smart-wallets/:id` - Detail wallet
-- `POST /api/smart-wallets` - Vytvoření nové wallet
-- `GET /api/trades?walletId=xxx` - Seznam tradeů pro wallet
+- `GET /api/smart-wallets` - List wallets (with pagination and filters)
+- `GET /api/smart-wallets/:id` - Wallet details
+- `POST /api/smart-wallets` - Create new wallet
+- `GET /api/trades?walletId=xxx` - List trades for wallet
 
 ## Tech Stack
 
@@ -128,21 +128,20 @@ pnpm db:studio
 - **Solana**: @solana/web3.js
 - **Charts**: Recharts
 
-### Proč Supabase?
+### Why Supabase?
 
-- ✅ Bezplatná tier s generosními limity
-- ✅ Snadný setup - žádná lokální instalace PostgreSQL
-- ✅ Web dashboard pro správu databáze
-- ✅ Automatické zálohy
-- ✅ Možnost rozšíření o Auth, Storage, Realtime (v budoucnu)
-- ✅ Standardní PostgreSQL - funguje s Prisma bez změn
+- ✅ Free tier with generous limits
+- ✅ Easy setup - no local PostgreSQL installation
+- ✅ Web dashboard for database management
+- ✅ Automatic backups
+- ✅ Option to extend with Auth, Storage, Realtime (in future)
+- ✅ Standard PostgreSQL - works with Prisma without changes
 
-## TODO / Budoucí rozšíření
+## TODO / Future Extensions
 
-- [ ] Implementovat plnou logiku Solana collectoru (parsing swap transakcí)
-- [ ] Přidat cron job pro automatický přepočet metrik
-- [ ] Implementovat token market snapshots
-- [ ] Přidat více filtrů a statistik do dashboardu
-- [ ] Export dat do CSV/JSON
-- [ ] Alerting systém
-
+- [ ] Implement full Solana collector logic (parsing swap transactions)
+- [ ] Add cron job for automatic metrics recalculation
+- [ ] Implement token market snapshots
+- [ ] Add more filters and statistics to dashboard
+- [ ] Export data to CSV/JSON
+- [ ] Alerting system

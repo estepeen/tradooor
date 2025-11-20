@@ -19,7 +19,7 @@ export async function fetchSmartWallets(params?: {
   if (params?.sortOrder) searchParams.set('sortOrder', params.sortOrder);
 
   const url = `${API_BASE_URL}/smart-wallets${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
-  // Přidáme cache-busting pro aktualizaci dat při refreshi
+  // Add cache-busting for data update on refresh
   const res = await fetch(url, {
     cache: 'no-store', // Vždy načti aktuální data
     headers: {

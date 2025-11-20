@@ -54,7 +54,7 @@ const heliusClient = new HeliusClient();
 const tokenMetadataBatchService = new TokenMetadataBatchService(heliusClient, tokenRepo);
 let heliusWebhookService: HeliusWebhookService | null = null;
 
-// Inicializuj webhook service (pokud je Helius API key dostupný)
+// Initialize webhook service (if Helius API key is available)
 try {
   heliusWebhookService = new HeliusWebhookService();
 } catch (error: any) {
@@ -202,12 +202,12 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
     const mintSet = new Set<string>();
     const tokenRows: Array<{ mint: string; uiAmount: number; decimals: number }> = [];
     for (const acc of accounts) {
-      // getParsedTokenAccountsByOwner už filtruje podle ownera, takže všechny accounts patří walletu
+      // getParsedTokenAccountsByOwner already filters by owner, so all accounts belong to wallet
       const info: any = acc.account?.data?.parsed?.info;
       const mint = info?.mint as string;
       const amount = info?.tokenAmount;
       
-      // uiAmount může být number nebo string, normalizujme na number
+      // uiAmount can be number or string, normalize to number
       let uiAmount = 0;
       if (amount?.uiAmount !== undefined && amount?.uiAmount !== null) {
         uiAmount = typeof amount.uiAmount === 'string' ? parseFloat(amount.uiAmount) : Number(amount.uiAmount);
@@ -221,8 +221,8 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
         console.log(`  🔍 Processing token account: mint=${mint.substring(0, 16)}..., owner=${owner?.substring(0, 16)}..., uiAmount=${uiAmount}, decimals=${decimals}, rawAmount=${JSON.stringify(amount)}`);
       }
       
-      // getParsedTokenAccountsByOwner už filtruje podle ownera, takže všechny accounts patří walletu
-      // Stačí zkontrolovat, že máme mint a nenulový balance
+      // getParsedTokenAccountsByOwner already filters by owner, so all accounts belong to wallet
+      // Just check that we have mint and non-zero balance
       
       // DEBUG: Specific logging for TRUMP and TNSR
       const isTRUMP = mint === '6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN';
@@ -360,8 +360,8 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
     
     console.log(`📊 Total positions after processing: ${positions.length}`);
 
-    // NOVÝ PŘÍSTUP: Vypočítej totalCost z trades a Live PnL
-    // 1. Získej všechny buy trades pro každý token
+    // NEW APPROACH: Calculate totalCost from trades and Live PnL
+    // 1. Get all buy trades for each token
     const { data: allTrades } = await supabase
       .from(TABLES.TRADE)
       .select('tokenId, side, amountToken, amountBase, priceBasePerToken, meta')
@@ -379,10 +379,10 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
       }
     }
     
-    // 2. Pro každou pozici vypočítej Live PnL
-    // Live PnL = currentValue - totalCost (v USD)
-    // currentValue = balance * currentPrice (z Birdeye)
-    // totalCost = součet všech buy trades v base měně, převedený na USD pomocí historické SOL ceny
+    // 2. For each position calculate Live PnL
+    // Live PnL = currentValue - totalCost (in USD)
+    // currentValue = balance * currentPrice (from Birdeye)
+    // totalCost = sum of all buy trades in base currency, converted to USD using historical SOL price
     const portfolio = await Promise.all(
       positions.map(async (p) => {
         const totalCostBase = totalCostMap.get(p.tokenId) || 0;
@@ -390,17 +390,17 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
         let livePnl = 0;
         let livePnlPercent = 0;
         
-        // Pokud máme totalCost v base měně, převeď na USD pomocí Binance API (historická cena SOL)
+        // If we have totalCost in base currency, convert to USD using Binance API (historical SOL price)
         if (totalCostBase > 0 && p.token?.mintAddress) {
           try {
-            // Získej průměrnou historickou cenu SOL z buy trades
-            // Pro jednoduchost použijeme aktuální SOL cenu z Binance (můžeme vylepšit později)
+            // Get average historical SOL price from buy trades
+            // For simplicity, use current SOL price from Binance (can improve later)
             const { BinancePriceService } = await import('../services/binance-price.service.js');
             const binancePriceService = new BinancePriceService();
             const currentSolPrice = await binancePriceService.getCurrentSolPrice();
             
-            // Předpokládáme, že totalCost je v SOL (pro většinu tokenů)
-            // TODO: Detekovat baseToken z trades a použít správnou konverzi
+            // Assume totalCost is in SOL (for most tokens)
+            // TODO: Detect baseToken from trades and use correct conversion
             totalCostUsd = totalCostBase * currentSolPrice;
           } catch (error: any) {
             console.warn(`Failed to convert totalCost to USD for token ${p.tokenId}: ${error.message}`);
@@ -600,7 +600,7 @@ router.post('/', async (req, res) => {
         console.log(`✅ Webhook updated with ${allAddresses.length} wallets`);
       } catch (error: any) {
         console.warn(`⚠️  Failed to update webhook: ${error.message}`);
-        // Nechceme, aby selhalo vytvoření wallet kvůli webhook chybě
+        // Don't want wallet creation to fail due to webhook error
       }
     }
 
