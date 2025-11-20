@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&family=Stack+Sans+Text:wght@200..700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Stack+Sans+Text:wght@200..700&family=Zalando+Sans+Expanded:ital,wght@0,200..900;1,200..900&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -41,7 +41,7 @@
   
   h1, h2, h3, h4, h5, h6 {
     color: white;
-    font-family: var(--font-pirata-one), sans-serif;
+    font-family: 'Zalando Sans Expanded', sans-serif;
     font-weight: normal;
   }
   

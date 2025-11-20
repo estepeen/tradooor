@@ -29,6 +29,9 @@ export default function WalletsPage() {
   const [loadingAllWallets, setLoadingAllWallets] = useState(false);
   const [txLimit, setTxLimit] = useState<number | ''>(20);
   const [refreshingWallets, setRefreshingWallets] = useState<Set<string>>(new Set());
+  const [webhookLoading, setWebhookLoading] = useState(false);
+  const [webhookError, setWebhookError] = useState<string | null>(null);
+  const [webhookSuccess, setWebhookSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     loadWallets();
@@ -67,8 +70,10 @@ export default function WalletsPage() {
         sortOrder: 'desc',
       });
       setData(result);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error loading wallets:', error);
+      // Set empty data on error to show error message
+      setData({ wallets: [], total: 0, page: 1, pageSize: 20 });
     } finally {
       setLoading(false);
     }
@@ -91,7 +96,7 @@ export default function WalletsPage() {
   }
 
   return (
-    <div className={`min-h-screen bg-background p-8 ${(syncError || syncSuccess || refreshTradesError || refreshTradesSuccess) ? 'pt-20' : ''}`}>
+    <div className={`min-h-screen bg-background p-8 ${(syncError || syncSuccess || refreshTradesError || refreshTradesSuccess || webhookError || webhookSuccess) ? 'pt-20' : ''}`}>
       <div className="container mx-auto">
         <div className="mb-8 flex justify-between items-center">
           <div>
@@ -197,6 +202,37 @@ export default function WalletsPage() {
             >
               {syncLoading ? 'Syncing...' : 'Synchronize Wallets'}
             </button>
+            <button
+              onClick={async () => {
+                setWebhookLoading(true);
+                setWebhookError(null);
+                setWebhookSuccess(null);
+
+                try {
+                  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+                  const response = await fetch(`${API_BASE_URL}/smart-wallets/setup-webhook`, {
+                    method: 'POST',
+                  });
+
+                  const result = await response.json();
+
+                  if (!response.ok) {
+                    throw new Error(result.error || result.message || 'Failed to setup webhook');
+                  }
+
+                  setWebhookSuccess(`Webhook updated successfully for ${result.walletCount || 0} wallets`);
+                } catch (err: any) {
+                  setWebhookError(err.message || 'Failed to setup webhook');
+                } finally {
+                  setWebhookLoading(false);
+                }
+              }}
+              disabled={webhookLoading}
+              className="px-4 py-2 border border-border rounded-md hover:bg-muted transition-colors disabled:opacity-50"
+              title="Update Helius webhook with all tracked wallets"
+            >
+              {webhookLoading ? 'Updating...' : 'Setup Webhook'}
+            </button>
             <Link
               href="/stats"
               className="px-4 py-2 border border-border rounded-md hover:bg-muted transition-colors"
@@ -293,7 +329,14 @@ export default function WalletsPage() {
                 </tr>
               </thead>
               <tbody>
-                {data?.wallets.map((wallet) => (
+                {!data || data.wallets.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                      {loading ? 'Loading wallets...' : 'No wallets found. Add some wallets to start tracking.'}
+                    </td>
+                  </tr>
+                ) : (
+                  data.wallets.map((wallet) => (
                   <tr
                     key={wallet.id}
                     onClick={() => {
@@ -359,7 +402,8 @@ export default function WalletsPage() {
                       {formatLastTrade(wallet.lastTradeTimestamp)}
                     </td>
                   </tr>
-                ))}
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -388,11 +432,6 @@ export default function WalletsPage() {
           </div>
         )}
 
-        {data && data.wallets.length === 0 && (
-          <div className="text-center py-12 text-muted-foreground">
-            No wallets found. Add some wallets to start tracking.
-          </div>
-        )}
 
         {/* Sync Status Messages - Fixed at top */}
         {syncError && (
