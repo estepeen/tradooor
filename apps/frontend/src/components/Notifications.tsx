@@ -48,18 +48,18 @@ export default function Notifications() {
       
       const newTrades = result.trades || [];
       
-      if (since && lastFetchTime) {
-        // Count new trades since last fetch
-        const newCount = newTrades.filter((trade: Trade) => 
-          new Date(trade.timestamp) > lastFetchTime
-        ).length;
-        if (newCount > 0) {
-          setNewTradesCount(prev => prev + newCount);
+      if (since && lastFetchTime && trades.length > 0) {
+        // Count new trades by comparing IDs (more reliable than timestamp)
+        const existingIds = new Set(trades.map(t => t.id));
+        const trulyNew = newTrades.filter((t: Trade) => !existingIds.has(t.id));
+        
+        if (trulyNew.length > 0) {
+          setNewTradesCount(prev => prev + trulyNew.length);
           // Update trades list with new trades at the top
           setTrades(prev => {
-            const existingIds = new Set(prev.map(t => t.id));
-            const trulyNew = newTrades.filter((t: Trade) => !existingIds.has(t.id));
-            return [...trulyNew, ...prev].slice(0, MAX_TRADES);
+            const prevIds = new Set(prev.map(t => t.id));
+            const newOnes = newTrades.filter((t: Trade) => !prevIds.has(t.id));
+            return [...newOnes, ...prev].slice(0, MAX_TRADES);
           });
         }
       } else {
@@ -85,14 +85,15 @@ export default function Notifications() {
   // Poll for new trades every 10 seconds
   useEffect(() => {
     const interval = setInterval(() => {
-      if (lastFetchTime) {
+      if (lastFetchTime && !isOpen) {
+        // Only poll when sidebar is closed (to avoid unnecessary requests)
         loadTrades(lastFetchTime);
       }
     }, 10000); // 10 seconds
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastFetchTime]);
+  }, [lastFetchTime, isOpen]);
 
   // Reset new trades count when sidebar opens
   useEffect(() => {
@@ -183,7 +184,8 @@ export default function Notifications() {
           {/* Sidebar */}
           <div
             ref={sidebarRef}
-            className="fixed right-0 top-0 h-full w-96 bg-background border-l border-border z-50 flex flex-col shadow-xl"
+            className="fixed right-0 top-0 h-screen w-96 bg-background border-l border-border z-50 flex flex-col shadow-xl"
+            style={{ height: '100vh' }}
           >
             {/* Header */}
             <div className="p-4 border-b border-border flex items-center justify-between">
