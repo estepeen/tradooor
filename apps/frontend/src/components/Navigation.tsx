@@ -20,22 +20,12 @@ export default function Navigation() {
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-8">
             <Link
-              href="/wallets"
+              href="/"
               className="text-xl font-bold hover:opacity-80 transition-opacity"
             >
               Tradooor
             </Link>
             <div className="flex items-center gap-4">
-              <Link
-                href="/wallets"
-                className={`px-4 py-2 rounded-md transition-colors ${
-                  isActive('/wallets') || pathname === '/'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'hover:bg-muted'
-                }`}
-              >
-                Wallets
-              </Link>
               <Link
                 href="/wallets/add"
                 className={`px-4 py-2 rounded-md transition-colors ${
@@ -45,6 +35,16 @@ export default function Navigation() {
                 }`}
               >
                 Add Wallet
+              </Link>
+              <Link
+                href="/stats"
+                className={`px-4 py-2 rounded-md transition-colors ${
+                  isActive('/stats')
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted'
+                }`}
+              >
+                Statistics
               </Link>
             </div>
           </div>

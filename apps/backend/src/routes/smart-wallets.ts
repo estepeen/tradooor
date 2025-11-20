@@ -414,7 +414,7 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
         }
         
         return {
-          ...p,
+        ...p,
           totalCost: totalCostUsd, // Total cost v USD
           livePnl, // Live PnL (unrealized) v USD
           livePnlPercent, // Live PnL v %
@@ -1290,7 +1290,7 @@ router.get('/:id/portfolio', async (req, res) => {
     const { BinancePriceService } = await import('../services/binance-price.service.js');
     const binancePriceService = new BinancePriceService();
     const currentSolPrice = await binancePriceService.getCurrentSolPrice().catch(() => null);
-    
+
     // Calculate average buy price and finalize positions with current token data and prices
     const portfolio = Array.from(portfolioMap.values())
       .map(position => {
@@ -1421,12 +1421,12 @@ router.get('/:id/portfolio', async (req, res) => {
         holdTimeMinutes: p.holdTimeMinutes ?? null,
       }))
       .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes > 0) // Finální kontrola
-      .sort((a, b) => {
+        .sort((a, b) => {
         // Seřaď podle lastSellTimestamp (nejnovější uzavřené pozice nahoře)
-        const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
-        const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
-        return bTime - aTime;
-      });
+          const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
+          const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
+          return bTime - aTime;
+        });
 
     console.log(`✅ Portfolio calculated: ${openPositions.length} open positions, ${closedPositions.length} closed positions`);
     
