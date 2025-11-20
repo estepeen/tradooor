@@ -5,7 +5,7 @@ import { smartWalletRouter } from './routes/smart-wallets.js';
 import { tradesRouter } from './routes/trades.js';
 import { statsRouter } from './routes/stats.js';
 import { tokensRouter } from './routes/tokens.js';
-import webhookRouter from './routes/webhooks.js';
+import webhookRouter, { processHeliusWebhook } from './routes/webhooks.js';
 
 // Zkontroluj, jestli nemáme chybu při načítání dotenv.
 const dotenvResult = dotenv.config();
@@ -38,29 +38,26 @@ app.post('/api/webhooks/helius', express.raw({ type: 'application/json', limit: 
 
   // Zpracuj asynchronně na pozadí
   setImmediate(async () => {
+    const backgroundStartTime = Date.now();
     try {
+      console.log('🔄 ===== BACKGROUND PROCESSING STARTED (FROM INDEX.TS) =====');
+      
       // Parse JSON z raw body
       const body = JSON.parse(req.body.toString());
+      console.log('   Parsed body keys:', Object.keys(body || {}));
       
-      // Zavolej webhook handler z routeru
-      const mockReq = {
-        ...req,
-        body,
-        method: 'POST',
-        path: '/helius',
-        originalUrl: '/api/webhooks/helius',
-      } as any;
+      // Zavolej webhook processing funkci
+      console.log('   Calling processHeliusWebhook...');
+      await processHeliusWebhook(body);
       
-      const mockRes = {
-        status: () => mockRes,
-        json: () => {},
-        send: () => {},
-      } as any;
-      
-      // Zavolej webhook handler
-      await (webhookRouter as any).handle(mockReq, mockRes, () => {});
+      const backgroundTime = Date.now() - backgroundStartTime;
+      console.log(`✅ Background processing completed in ${backgroundTime}ms`);
     } catch (error: any) {
-      console.error('❌ Error processing webhook in background:', error);
+      const backgroundTime = Date.now() - backgroundStartTime;
+      console.error(`❌ Error processing webhook in background (after ${backgroundTime}ms):`, error);
+      if (error.message) {
+        console.error('   Error message:', error.message);
+      }
       if (error.stack) {
         console.error('   Stack:', error.stack.split('\n').slice(0, 5).join('\n'));
       }

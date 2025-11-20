@@ -16,6 +16,156 @@ const collectorService = new SolanaCollectorService(
 );
 
 /**
+ * Funkce pro zpracování Helius webhook payloadu
+ * Může být volána jak z routeru, tak z index.ts
+ */
+export async function processHeliusWebhook(body: any) {
+  try {
+    console.log('📨 ===== WEBHOOK PROCESSING STARTED =====');
+    console.log(`   Time: ${new Date().toISOString()}`);
+    console.log('   Body keys:', Object.keys(body || {}));
+
+    // Helius enhanced webhook posílá data v tomto formátu:
+    // { accountData: [{ account: "wallet_address", ... }], transactions: [{ type: "SWAP", ... }] }
+    const { transactions, accountData } = body;
+
+    // Normalizuj formát - Helius enhanced webhook posílá { accountData: [...], transactions: [...] }
+    let txList: any[] = [];
+    if (transactions && Array.isArray(transactions)) {
+      txList = transactions;
+    } else if (Array.isArray(body)) {
+      // Fallback: někdy Helius posílá přímo pole transakcí
+      txList = body;
+    }
+
+    if (txList.length === 0) {
+      console.warn('⚠️  Invalid webhook payload - no transactions found');
+      console.log('   Payload keys:', Object.keys(body || {}));
+      return { processed: 0, saved: 0, skipped: 0 };
+    }
+
+    console.log(`📨 Received Helius webhook: ${txList.length} transaction(s), ${accountData?.length || 0} account(s)`);
+
+    const backgroundStartTime = Date.now();
+    
+    // Získej všechny trackované wallet adresy z DB (pro rychlé vyhledávání)
+    const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
+    const trackedAddresses = new Set(allWallets.wallets.map(w => w.address.toLowerCase()));
+
+    let processed = 0;
+    let saved = 0;
+    let skipped = 0;
+
+    // Zpracuj každou transakci
+    for (const tx of txList) {
+      try {
+        // Zkontroluj, jestli je to swap
+        if (tx.type !== 'SWAP') {
+          skipped++;
+          continue;
+        }
+
+        // Najdi wallet podle adresy z transakce
+        // Helius enhanced webhook posílá accountData s adresami účastníků
+        let walletAddress: string | null = null;
+
+        // 1. Zkus najít z accountData v payload
+        if (accountData && Array.isArray(accountData)) {
+          for (const account of accountData) {
+            const accountAddr = account.account || account;
+            if (accountAddr && typeof accountAddr === 'string') {
+              if (trackedAddresses.has(accountAddr.toLowerCase())) {
+                walletAddress = accountAddr;
+                break;
+              }
+            }
+          }
+        }
+
+        // 2. Zkus najít z accountData v transakci
+        if (!walletAddress && tx.accountData && Array.isArray(tx.accountData)) {
+          for (const account of tx.accountData) {
+            const accountAddr = account.account || account;
+            if (accountAddr && typeof accountAddr === 'string') {
+              if (trackedAddresses.has(accountAddr.toLowerCase())) {
+                walletAddress = accountAddr;
+                break;
+              }
+            }
+          }
+        }
+
+        // 3. Zkus najít z nativeTransfers
+        if (!walletAddress && tx.nativeTransfers && Array.isArray(tx.nativeTransfers)) {
+          for (const transfer of tx.nativeTransfers) {
+            if (transfer.fromUserAccount && trackedAddresses.has(transfer.fromUserAccount.toLowerCase())) {
+              walletAddress = transfer.fromUserAccount;
+              break;
+            }
+            if (transfer.toUserAccount && trackedAddresses.has(transfer.toUserAccount.toLowerCase())) {
+              walletAddress = transfer.toUserAccount;
+              break;
+            }
+          }
+        }
+
+        // 4. Zkus najít z tokenTransfers
+        if (!walletAddress && tx.tokenTransfers && Array.isArray(tx.tokenTransfers)) {
+          for (const transfer of tx.tokenTransfers) {
+            if (transfer.fromUserAccount && trackedAddresses.has(transfer.fromUserAccount.toLowerCase())) {
+              walletAddress = transfer.fromUserAccount;
+              break;
+            }
+            if (transfer.toUserAccount && trackedAddresses.has(transfer.toUserAccount.toLowerCase())) {
+              walletAddress = transfer.toUserAccount;
+              break;
+            }
+          }
+        }
+
+        if (!walletAddress) {
+          console.warn(`⚠️  Could not find tracked wallet address for transaction ${tx.signature?.substring(0, 16) || 'unknown'}`);
+          console.log(`   Transaction accountData:`, tx.accountData?.map((a: any) => a.account || a).join(', ') || 'none');
+          skipped++;
+          continue;
+        }
+
+        // Zpracuj transakci pomocí collector service
+        const result = await collectorService.processWebhookTransaction(tx, walletAddress);
+        
+        if (result.saved) {
+          saved++;
+          console.log(`✅ Saved swap: ${tx.signature?.substring(0, 16) || 'unknown'}... for wallet ${walletAddress.substring(0, 8)}...`);
+        } else {
+          skipped++;
+          console.log(`⏭️  Skipped swap: ${tx.signature?.substring(0, 16) || 'unknown'}... (${result.reason || 'duplicate'})`);
+        }
+
+        processed++;
+      } catch (error: any) {
+        // Změňme na warn - některé chyby (např. nekompletní data) nejsou kritické
+        console.warn(`⚠️  Error processing webhook transaction ${tx.signature?.substring(0, 16) || 'unknown'}:`, error.message);
+        if (error.stack) {
+          console.warn(`   Stack:`, error.stack.split('\n').slice(0, 3).join('\n'));
+        }
+        // Pokračuj s další transakcí
+      }
+    }
+
+    const backgroundTime = Date.now() - backgroundStartTime;
+    console.log(`✅ Webhook processed (background): ${processed} transactions, ${saved} saved, ${skipped} skipped (took ${backgroundTime}ms)`);
+    
+    return { processed, saved, skipped };
+  } catch (error: any) {
+    console.error('❌ Error processing webhook in background:', error);
+    if (error.stack) {
+      console.error('   Stack:', error.stack.split('\n').slice(0, 5).join('\n'));
+    }
+    throw error;
+  }
+}
+
+/**
  * GET /api/webhooks/helius/test
  * Test endpoint - zkontroluje, jestli webhook endpoint funguje
  */
@@ -68,150 +218,12 @@ router.post('/helius', (req, res) => {
   // Zpracování provede asynchronně na pozadí (neblokuje odpověď)
   setImmediate(async () => {
     try {
-      console.log('📨 ===== WEBHOOK REQUEST RECEIVED =====');
+      console.log('📨 ===== WEBHOOK REQUEST RECEIVED (FROM ROUTER) =====');
       console.log(`   Time: ${new Date().toISOString()}`);
       console.log(`   IP: ${clientIp}`);
       console.log(`   User-Agent: ${req.headers['user-agent'] || 'unknown'}`);
-
-      // Helius enhanced webhook posílá data v tomto formátu:
-      // { accountData: [{ account: "wallet_address", ... }], transactions: [{ type: "SWAP", ... }] }
-      const { transactions, accountData } = req.body;
-
-      // Normalizuj formát - Helius enhanced webhook posílá { accountData: [...], transactions: [...] }
-      let txList: any[] = [];
-      if (transactions && Array.isArray(transactions)) {
-        txList = transactions;
-      } else if (Array.isArray(req.body)) {
-        // Fallback: někdy Helius posílá přímo pole transakcí
-        txList = req.body;
-      }
-
-      if (txList.length === 0) {
-        console.warn('⚠️  Invalid webhook payload - no transactions found');
-        console.log('   Payload keys:', Object.keys(req.body || {}));
-        return;
-      }
-
-      console.log(`📨 Received Helius webhook: ${txList.length} transaction(s), ${accountData?.length || 0} account(s)`);
-
-      const backgroundStartTime = Date.now();
-        // Vytvoř mapu account addresses -> wallet (pro rychlé vyhledávání)
-        const accountMap = new Map<string, string>();
-        if (accountData && Array.isArray(accountData)) {
-          for (const account of accountData) {
-            const accountAddr = account.account || account;
-            if (accountAddr && typeof accountAddr === 'string') {
-              accountMap.set(accountAddr, accountAddr);
-            }
-          }
-        }
-
-        // Získej všechny trackované wallet adresy z DB (pro rychlé vyhledávání)
-        const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
-        const trackedAddresses = new Set(allWallets.wallets.map(w => w.address.toLowerCase()));
-
-        let processed = 0;
-        let saved = 0;
-        let skipped = 0;
-
-        // Zpracuj každou transakci
-        for (const tx of txList) {
-          try {
-            // Zkontroluj, jestli je to swap
-            if (tx.type !== 'SWAP') {
-              skipped++;
-              continue;
-            }
-
-            // Najdi wallet podle adresy z transakce
-            // Helius enhanced webhook posílá accountData s adresami účastníků
-            let walletAddress: string | null = null;
-
-            // 1. Zkus najít z accountData v payload
-            if (accountData && Array.isArray(accountData)) {
-              for (const account of accountData) {
-                const accountAddr = account.account || account;
-                if (accountAddr && typeof accountAddr === 'string') {
-                  if (trackedAddresses.has(accountAddr.toLowerCase())) {
-                    walletAddress = accountAddr;
-                    break;
-                  }
-                }
-              }
-            }
-
-            // 2. Zkus najít z accountData v transakci
-            if (!walletAddress && tx.accountData && Array.isArray(tx.accountData)) {
-              for (const account of tx.accountData) {
-                const accountAddr = account.account || account;
-                if (accountAddr && typeof accountAddr === 'string') {
-                  if (trackedAddresses.has(accountAddr.toLowerCase())) {
-                    walletAddress = accountAddr;
-                    break;
-                  }
-                }
-              }
-            }
-
-            // 3. Zkus najít z nativeTransfers
-            if (!walletAddress && tx.nativeTransfers && Array.isArray(tx.nativeTransfers)) {
-              for (const transfer of tx.nativeTransfers) {
-                if (transfer.fromUserAccount && trackedAddresses.has(transfer.fromUserAccount.toLowerCase())) {
-                  walletAddress = transfer.fromUserAccount;
-                  break;
-                }
-                if (transfer.toUserAccount && trackedAddresses.has(transfer.toUserAccount.toLowerCase())) {
-                  walletAddress = transfer.toUserAccount;
-                  break;
-                }
-              }
-            }
-
-            // 4. Zkus najít z tokenTransfers
-            if (!walletAddress && tx.tokenTransfers && Array.isArray(tx.tokenTransfers)) {
-              for (const transfer of tx.tokenTransfers) {
-                if (transfer.fromUserAccount && trackedAddresses.has(transfer.fromUserAccount.toLowerCase())) {
-                  walletAddress = transfer.fromUserAccount;
-                  break;
-                }
-                if (transfer.toUserAccount && trackedAddresses.has(transfer.toUserAccount.toLowerCase())) {
-                  walletAddress = transfer.toUserAccount;
-                  break;
-                }
-              }
-            }
-
-            if (!walletAddress) {
-              console.warn(`⚠️  Could not find tracked wallet address for transaction ${tx.signature?.substring(0, 16) || 'unknown'}`);
-              console.log(`   Transaction accountData:`, tx.accountData?.map((a: any) => a.account || a).join(', ') || 'none');
-              skipped++;
-              continue;
-            }
-
-            // Zpracuj transakci pomocí collector service
-            const result = await collectorService.processWebhookTransaction(tx, walletAddress);
-            
-            if (result.saved) {
-              saved++;
-              console.log(`✅ Saved swap: ${tx.signature?.substring(0, 16) || 'unknown'}... for wallet ${walletAddress.substring(0, 8)}...`);
-            } else {
-              skipped++;
-              console.log(`⏭️  Skipped swap: ${tx.signature?.substring(0, 16) || 'unknown'}... (${result.reason || 'duplicate'})`);
-            }
-
-            processed++;
-          } catch (error: any) {
-            // Změňme na warn - některé chyby (např. nekompletní data) nejsou kritické
-            console.warn(`⚠️  Error processing webhook transaction ${tx.signature?.substring(0, 16) || 'unknown'}:`, error.message);
-            if (error.stack) {
-              console.warn(`   Stack:`, error.stack.split('\n').slice(0, 3).join('\n'));
-            }
-            // Pokračuj s další transakcí
-          }
-        }
-
-      const backgroundTime = Date.now() - backgroundStartTime;
-      console.log(`✅ Webhook processed (background): ${processed} transactions, ${saved} saved, ${skipped} skipped (took ${backgroundTime}ms)`);
+      
+      await processHeliusWebhook(req.body);
     } catch (error: any) {
       console.error('❌ Error processing webhook in background:', error);
       if (error.stack) {
