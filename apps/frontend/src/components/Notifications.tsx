@@ -184,8 +184,13 @@ export default function Notifications() {
           {/* Sidebar */}
           <div
             ref={sidebarRef}
-            className="fixed right-0 top-0 h-screen w-96 bg-background border-l border-border z-50 flex flex-col shadow-xl"
-            style={{ height: '100vh' }}
+            className="w-96 bg-background border-l border-border z-50 flex flex-col shadow-xl"
+            style={{ 
+              position: 'fixed',
+              right: 0,
+              top: 0,
+              height: '100vh'
+            }}
           >
             {/* Header */}
             <div className="p-4 border-b border-border flex items-center justify-between">
