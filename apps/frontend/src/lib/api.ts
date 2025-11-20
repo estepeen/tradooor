@@ -1,28 +1,4 @@
-// In browser, detect if we're on VPS or localhost
-const getApiBaseUrl = () => {
-  if (typeof window !== 'undefined') {
-    // Client-side: check if we're on VPS or localhost
-    const hostname = window.location.hostname;
-    const isVPS = hostname !== 'localhost' && hostname !== '127.0.0.1';
-    
-    // If environment variable is set, use it
-    if (process.env.NEXT_PUBLIC_API_URL) {
-      return process.env.NEXT_PUBLIC_API_URL;
-    }
-    
-    // If on VPS, use same origin (relative URL) - backend should be proxied via Nginx
-    if (isVPS) {
-      return '/api';
-    }
-    
-    // Local development: use localhost:3001
-    return 'http://localhost:3001/api';
-  }
-  // Server-side: use relative URL (Next.js rewrites will handle it)
-  return process.env.NEXT_PUBLIC_API_URL || '/api';
-};
-
-const API_BASE_URL = getApiBaseUrl();
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 export async function fetchSmartWallets(params?: {
   page?: number;

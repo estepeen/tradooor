@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { parse } from 'csv-parse/sync';
-import { readFileSync, appendFileSync, existsSync } from 'fs';
+import { readFileSync } from 'fs';
 import { join } from 'path';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
@@ -414,7 +414,7 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
         }
         
         return {
-        ...p,
+          ...p,
           totalCost: totalCostUsd, // Total cost v USD
           livePnl, // Live PnL (unrealized) v USD
           livePnlPercent, // Live PnL v %
@@ -591,27 +591,7 @@ router.post('/', async (req, res) => {
 
     console.log(`✅ Wallet created successfully: ${wallet.id}`);
 
-    // Add wallet to wallets.csv file
-    try {
-      const csvFilePath = join(PROJECT_ROOT, 'wallets.csv');
-      const tagsStr = tags && tags.length > 0 ? tags.join(',') : '';
-      const labelStr = label || '';
-      
-      // Check if file exists, if not create it with header
-      if (!existsSync(csvFilePath)) {
-        appendFileSync(csvFilePath, 'address,label,tags\n', 'utf-8');
-      }
-      
-      // Append wallet to CSV (format: address,label,tags)
-      const csvLine = `${address},${labelStr},${tagsStr}\n`;
-      appendFileSync(csvFilePath, csvLine, 'utf-8');
-      console.log(`✅ Wallet added to wallets.csv: ${address}`);
-    } catch (csvError: any) {
-      console.warn(`⚠️  Failed to add wallet to wallets.csv: ${csvError.message}`);
-      // Don't want wallet creation to fail due to CSV write error
-    }
-
-    // Update webhook with new wallet address
+    // Aktualizuj webhook s novou wallet adresou
     if (heliusWebhookService) {
       try {
         const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
@@ -871,7 +851,7 @@ router.post('/setup-webhook', async (req, res) => {
 
     console.log('📥 POST /api/smart-wallets/setup-webhook - Setting up webhook for all wallets');
 
-    // Get all wallet addresses from database
+    // Získej všechny wallet adresy
     const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
     const allAddresses = allWallets.wallets.map(w => w.address);
 
@@ -879,12 +859,9 @@ router.post('/setup-webhook', async (req, res) => {
       return res.status(400).json({ error: 'No wallets found to setup webhook for' });
     }
 
-    console.log(`🔧 Found ${allWallets.total} total wallets in database`);
-    console.log(`🔧 Setting up webhook for ${allAddresses.length} wallet addresses...`);
-    console.log(`🔧 First 5 addresses: ${allAddresses.slice(0, 5).join(', ')}`);
-    console.log(`🔧 Last 5 addresses: ${allAddresses.slice(-5).join(', ')}`);
+    console.log(`🔧 Setting up webhook for ${allAddresses.length} wallets...`);
 
-    // Create or update webhook - replace all existing addresses with all addresses from DB
+    // Vytvoř nebo aktualizuj webhook - nahradit všechny existující adresy všemi adresami z DB
     const webhookId = await heliusWebhookService.ensureWebhookForAllWallets(allAddresses, true);
 
     res.status(200).json({
@@ -1095,8 +1072,10 @@ router.get('/:id/portfolio', async (req, res) => {
       totalBought: number;
       totalSold: number;
       balance: number;
-      totalInvested: number;
-      totalSoldValue: number; // Total value of sold tokens in USD
+      totalInvested: number; // Total invested in USD (for backward compatibility)
+      totalSoldValue: number; // Total value of sold tokens in USD (for backward compatibility)
+      totalCostBase: number; // Total cost in base currency (SOL/USDC/USDT) from BUY trades
+      totalProceedsBase: number; // Total proceeds in base currency (SOL/USDC/USDT) from SELL trades
       averageBuyPrice: number;
       buyCount: number;
       sellCount: number;
@@ -1104,6 +1083,7 @@ router.get('/:id/portfolio', async (req, res) => {
       lastSellPrice: number;
       firstBuyTimestamp: Date | null;
       lastSellTimestamp: Date | null;
+      baseToken: string; // Base token used (SOL, USDC, USDT)
     }>();
 
     for (const trade of allTrades.trades) {
@@ -1122,6 +1102,8 @@ router.get('/:id/portfolio', async (req, res) => {
           balance: 0,
           totalInvested: 0,
           totalSoldValue: 0,
+          totalCostBase: 0, // Total cost in base currency
+          totalProceedsBase: 0, // Total proceeds in base currency
           averageBuyPrice: 0,
           buyCount: 0,
           sellCount: 0,
@@ -1129,29 +1111,37 @@ router.get('/:id/portfolio', async (req, res) => {
           lastSellPrice: 0,
           firstBuyTimestamp: null,
           lastSellTimestamp: null,
+          baseToken: 'SOL', // Default to SOL
         });
       }
 
       const position = portfolioMap.get(tokenId)!;
       const amount = Number(trade.amountToken);
       const price = Number(trade.priceBasePerToken);
+      const amountBase = Number(trade.amountBase || 0);
       const value = amount * price;
+      
+      // Get base token from trade meta
+      const baseToken = (trade as any).meta?.baseToken || 'SOL';
+      position.baseToken = baseToken;
 
-      if (trade.side === 'buy') {
+      if (trade.side === 'buy' || trade.side === 'add') {
         position.totalBought += amount;
         position.balance += amount;
         position.totalInvested += valueUsd || value;
+        position.totalCostBase += amountBase; // Add to total cost in base currency
         position.buyCount++;
         position.lastBuyPrice = price;
         if (!position.firstBuyTimestamp || tradeTimestamp < position.firstBuyTimestamp) {
           position.firstBuyTimestamp = tradeTimestamp;
         }
-      } else if (trade.side === 'sell') {
+      } else if (trade.side === 'sell' || trade.side === 'remove') {
         position.totalSold += amount;
         position.balance -= amount;
         position.sellCount++;
         position.lastSellPrice = price;
         position.totalSoldValue += valueUsd || value;
+        position.totalProceedsBase += amountBase; // Add to total proceeds in base currency
         if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
           position.lastSellTimestamp = tradeTimestamp;
         }
@@ -1290,7 +1280,7 @@ router.get('/:id/portfolio', async (req, res) => {
     const { BinancePriceService } = await import('../services/binance-price.service.js');
     const binancePriceService = new BinancePriceService();
     const currentSolPrice = await binancePriceService.getCurrentSolPrice().catch(() => null);
-
+    
     // Calculate average buy price and finalize positions with current token data and prices
     const portfolio = Array.from(portfolioMap.values())
       .map(position => {
@@ -1337,18 +1327,47 @@ router.get('/:id/portfolio', async (req, res) => {
           ? (pnl / position.totalInvested) * 100
           : 0;
         
-        // Calculate hold time for closed positions
+        // Calculate hold time for closed positions (from first BUY to last SELL)
         const holdTimeMinutes = position.firstBuyTimestamp && position.lastSellTimestamp && position.balance <= 0
           ? Math.round((position.lastSellTimestamp.getTime() - position.firstBuyTimestamp.getTime()) / (1000 * 60))
           : null;
 
-        // Calculate PnL for closed positions (total sold value - total invested)
-        const closedPnl = position.balance <= 0 && position.totalSoldValue > 0
-          ? position.totalSoldValue - position.totalInvested
-          : null;
-        const closedPnlPercent = closedPnl !== null && position.totalInvested > 0
-          ? (closedPnl / position.totalInvested) * 100
-          : null;
+        // Calculate PnL for closed positions in BASE currency (proceedsBase - costBase)
+        // This is the correct way: PnL = what we got (SELL) - what we paid (BUY) in base currency
+        let closedPnlBase: number | null = null;
+        let closedPnlUsd: number | null = null;
+        let closedPnlPercent: number | null = null;
+        
+        if (position.balance <= 0 && position.totalProceedsBase > 0 && position.totalCostBase > 0) {
+          // PnL in base currency
+          closedPnlBase = position.totalProceedsBase - position.totalCostBase;
+          
+          // Convert to USD for display (using current SOL price for SOL, 1:1 for USDC/USDT)
+          if (currentSolPrice) {
+            if (position.baseToken === 'SOL') {
+              closedPnlUsd = closedPnlBase * currentSolPrice;
+            } else if (position.baseToken === 'USDC' || position.baseToken === 'USDT') {
+              closedPnlUsd = closedPnlBase; // 1:1 with USD
+            } else {
+              // Fallback: use SOL price
+              closedPnlUsd = closedPnlBase * currentSolPrice;
+            }
+          } else {
+            // Fallback to old calculation if no SOL price
+            closedPnlUsd = position.totalSoldValue - position.totalInvested;
+          }
+          
+          // Calculate percentage
+          closedPnlPercent = position.totalCostBase > 0
+            ? (closedPnlBase / position.totalCostBase) * 100
+            : null;
+        } else if (position.balance <= 0 && position.totalSoldValue > 0) {
+          // Fallback to old calculation if we don't have base currency data
+          closedPnlUsd = position.totalSoldValue - position.totalInvested;
+          closedPnlPercent = position.totalInvested > 0
+            ? (closedPnlUsd / position.totalInvested) * 100
+            : null;
+        }
 
         // Only include positions with balance > 0 or with trades
         if (position.balance > 0 || position.buyCount > 0 || position.sellCount > 0) {
@@ -1364,9 +1383,11 @@ router.get('/:id/portfolio', async (req, res) => {
             // Pro kompatibilitu zachováme staré názvy
             pnl: livePnl || pnl, // Profit/Loss in USD (for open positions)
             pnlPercent: livePnlPercent || pnlPercent, // Profit/Loss percentage (for open positions)
-            holdTimeMinutes, // Hold time in minutes (for closed positions)
-            closedPnl, // PnL for closed positions
+            holdTimeMinutes, // Hold time in minutes (for closed positions) - from first BUY to last SELL
+            closedPnl: closedPnlUsd, // PnL for closed positions in USD
+            closedPnlBase, // PnL for closed positions in base currency (SOL/USDC/USDT)
             closedPnlPercent, // PnL percent for closed positions
+            baseToken: position.baseToken, // Base token used (SOL, USDC, USDT)
             firstBuyTimestamp: position.firstBuyTimestamp?.toISOString() || null,
             lastSellTimestamp: position.lastSellTimestamp?.toISOString() || null,
           };
@@ -1421,12 +1442,12 @@ router.get('/:id/portfolio', async (req, res) => {
         holdTimeMinutes: p.holdTimeMinutes ?? null,
       }))
       .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes > 0) // Finální kontrola
-        .sort((a, b) => {
+      .sort((a, b) => {
         // Seřaď podle lastSellTimestamp (nejnovější uzavřené pozice nahoře)
-          const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
-          const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
-          return bTime - aTime;
-        });
+        const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
+        const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
+        return bTime - aTime;
+      });
 
     console.log(`✅ Portfolio calculated: ${openPositions.length} open positions, ${closedPositions.length} closed positions`);
     

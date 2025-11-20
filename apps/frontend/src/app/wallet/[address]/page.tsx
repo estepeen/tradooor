@@ -833,13 +833,19 @@ export default function WalletDetailPage() {
                         <>
                           {recentTrades.map((trade) => {
                         const tradeDate = new Date(trade.timestamp);
-                        const isBuy = trade.side === 'buy';
-                        const metrics = positionMetrics[trade.id];
-                        let tradeType: 'BUY' | 'ADD' | 'SELL' | 'REM' = isBuy ? 'BUY' : 'SELL';
-
-                        if (metrics) {
-                          tradeType = metrics.action === 'NONE' ? tradeType : metrics.action;
+                        // Použij side z backendu (může být 'buy', 'sell', 'add', 'remove')
+                        let tradeType: 'BUY' | 'ADD' | 'SELL' | 'REM' = 'BUY';
+                        if (trade.side === 'buy') {
+                          tradeType = 'BUY';
+                        } else if (trade.side === 'add') {
+                          tradeType = 'ADD';
+                        } else if (trade.side === 'sell') {
+                          tradeType = 'SELL';
+                        } else if (trade.side === 'remove') {
+                          tradeType = 'REM';
                         }
+                        
+                        const metrics = positionMetrics[trade.id];
                         
                         const positionDisplay = metrics
                           ? `${metrics.positionXAfter.toFixed(2)}x (${metrics.deltaX >= 0 ? '+' : ''}${metrics.deltaX.toFixed(2)}x)`
@@ -848,16 +854,14 @@ export default function WalletDetailPage() {
                           const amountToken = Number(trade.amountToken);
                           const amountBase = Number(trade.amountBase);
                           const priceBasePerToken = Number(trade.priceBasePerToken);
-                          const baseToken = (trade as any).baseToken || 'SOL'; // SOL, USDC, USDT
+                          const baseToken = (trade as any).baseToken || (trade as any).meta?.baseToken || 'SOL'; // SOL, USDC, USDT
                           
-                          // Use base currency instead of USD
-                          // entryPrice = priceBasePerToken (price in base currency per 1 token)
-                          // entryCost/proceedsBase = amountBase (in base currency)
+                          // Use priceUsd from meta (calculated in backend: priceBasePerToken * historical SOL price from Binance)
+                          // If not available, use priceBasePerToken as fallback
+                          const priceUsd = (trade as any).priceUsd || (trade as any).meta?.priceUsd || null;
                           const entryPrice = priceBasePerToken;
-                          const entryCost = (trade as any).entryCost || (trade.side === 'buy' ? amountBase : null);
-                          const proceedsBase = (trade as any).proceedsBase || (trade.side === 'sell' ? amountBase : null);
-                          // USD cena z Binance API (historická cena SOL/USDT * priceBasePerToken)
-                          const priceUsd = (trade as any).priceUsd || null;
+                          const entryCost = (trade as any).entryCost || (trade.side === 'buy' || trade.side === 'add' ? amountBase : null);
+                          const proceedsBase = (trade as any).proceedsBase || (trade.side === 'sell' || trade.side === 'remove' ? amountBase : null);
                           const amountDisplay = amountToken && amountToken > 0
                             ? `${formatNumber(amountToken, 2)} $${trade.token?.symbol || trade.token?.name || ''}`.trim()
                             : `${formatNumber(Number(trade.amountBase), 2)} SOL`;
@@ -878,6 +882,8 @@ export default function WalletDetailPage() {
                               <span className={`px-2 py-1 rounded text-xs font-medium ${
                                 tradeType === 'BUY' || tradeType === 'ADD'
                                   ? 'bg-green-500/20 text-green-400'
+                                  : tradeType === 'REM'
+                                  ? 'bg-orange-500/20 text-orange-400'
                                   : 'bg-red-500/20 text-red-400'
                               }`}>
                                 {tradeType}
@@ -926,14 +932,14 @@ export default function WalletDetailPage() {
                                   rel="noopener noreferrer"
                                   className="hover:underline cursor-pointer"
                                 >
-                                  {priceUsd !== null && priceUsd > 0
+                                  {priceUsd !== null && priceUsd !== undefined && priceUsd > 0
                                     ? `$${formatNumber(priceUsd, 6)}`
                                     : entryPrice > 0
                                     ? `${formatNumber(entryPrice, 6)} ${baseToken}`
                                     : '-'}
                                 </a>
                               ) : (
-                                priceUsd !== null && priceUsd > 0
+                                priceUsd !== null && priceUsd !== undefined && priceUsd > 0
                                   ? `$${formatNumber(priceUsd, 6)}`
                                   : entryPrice > 0
                                   ? `${formatNumber(entryPrice, 6)} ${baseToken}`

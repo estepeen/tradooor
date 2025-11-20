@@ -19,10 +19,7 @@ interface Trade {
     name?: string;
     mintAddress: string;
   };
-  side: 'buy' | 'sell' | 'add' | 'remove';
-  priceBasePerToken?: number;
-  priceUsd?: number | null;
-  baseToken?: string;
+  side: 'buy' | 'sell';
   amountToken: number;
   amountBase: number;
   timestamp: string;
@@ -109,7 +106,6 @@ export default function TradesPage() {
                       <th className="px-4 py-3 text-left text-sm font-medium">Wallet</th>
                       <th className="px-4 py-3 text-left text-sm font-medium">Type</th>
                       <th className="px-4 py-3 text-left text-sm font-medium">Token</th>
-                      <th className="px-4 py-3 text-right text-sm font-medium">Price</th>
                       <th className="px-4 py-3 text-right text-sm font-medium">Amount</th>
                       <th className="px-4 py-3 text-right text-sm font-medium">Base</th>
                       <th className="px-4 py-3 text-left text-sm font-medium">DEX</th>
@@ -141,14 +137,10 @@ export default function TradesPage() {
                             className={`text-xs font-semibold px-2 py-1 rounded ${
                               trade.side === 'buy'
                                 ? 'bg-green-500/20 text-green-400'
-                                : trade.side === 'sell'
-                                ? 'bg-red-500/20 text-red-400'
-                                : trade.side === 'add'
-                                ? 'bg-blue-500/20 text-blue-400'
-                                : 'bg-orange-500/20 text-orange-400' // remove
+                                : 'bg-red-500/20 text-red-400'
                             }`}
                           >
-                            {trade.side === 'add' ? 'ADD' : trade.side === 'remove' ? 'REM' : trade.side.toUpperCase()}
+                            {trade.side.toUpperCase()}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-sm">
@@ -160,13 +152,6 @@ export default function TradesPage() {
                               </span>
                             )}
                           </div>
-                        </td>
-                        <td className="px-4 py-3 text-sm text-right font-mono">
-                          {trade.priceUsd !== null && trade.priceUsd !== undefined && trade.priceUsd > 0
-                            ? `$${formatAmount(trade.priceUsd, 6)}`
-                            : trade.priceBasePerToken && trade.priceBasePerToken > 0
-                            ? `${formatAmount(trade.priceBasePerToken, 6)} ${trade.baseToken || 'SOL'}`
-                            : '-'}
                         </td>
                         <td className="px-4 py-3 text-sm text-right">
                           {formatAmount(trade.amountToken)}

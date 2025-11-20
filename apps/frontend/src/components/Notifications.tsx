@@ -20,11 +20,11 @@ interface Trade {
     mintAddress: string;
   };
   side: 'buy' | 'sell' | 'add' | 'remove';
+  amountToken: number;
+  amountBase: number;
   priceBasePerToken?: number;
   priceUsd?: number | null;
   baseToken?: string;
-  amountToken: number;
-  amountBase: number;
   timestamp: string;
   dex: string;
 }
@@ -87,9 +87,9 @@ export default function Notifications() {
 
   // Poll for new trades every 10 seconds
   useEffect(() => {
-    // Always poll, even when sidebar is open (to update badge)
     const interval = setInterval(() => {
       if (lastFetchTime) {
+        // Poll always, even when sidebar is open (to update badge)
         loadTrades(lastFetchTime);
       }
     }, 10000); // 10 seconds

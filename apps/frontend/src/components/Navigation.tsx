@@ -9,7 +9,7 @@ export default function Navigation() {
 
   const isActive = (path: string) => {
     if (path === '/') {
-      return pathname === '/' || pathname === '/wallets';
+      return pathname === '/';
     }
     return pathname?.startsWith(path);
   };
@@ -26,6 +26,16 @@ export default function Navigation() {
               Tradooor
             </Link>
             <div className="flex items-center gap-4">
+              <Link
+                href="/wallets"
+                className={`px-4 py-2 rounded-md transition-colors ${
+                  isActive('/wallets')
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted'
+                }`}
+              >
+                Wallets
+              </Link>
               <Link
                 href="/wallets/add"
                 className={`px-4 py-2 rounded-md transition-colors ${

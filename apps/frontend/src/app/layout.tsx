@@ -1,13 +1,6 @@
 import type { Metadata } from 'next'
-import { Pirata_One } from 'next/font/google'
 import './globals.css'
 import Navigation from '@/components/Navigation'
-
-const pirata_one = Pirata_One({ 
-  subsets: ['latin'],
-  weight: '400',
-  variable: '--font-pirata-one',
-})
 
 export const metadata: Metadata = {
   title: 'Tradooor - Smart Wallet Analytics',
@@ -21,7 +14,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className={`${pirata_one.variable} font-sans`}>
+      <body className="font-sans">
         <Navigation />
         {children}
       </body>

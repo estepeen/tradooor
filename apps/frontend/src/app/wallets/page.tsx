@@ -20,18 +20,6 @@ export default function WalletsPage() {
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncSuccess, setSyncSuccess] = useState<{ created: number; errors: number; removed?: number } | null>(null);
-  const [refreshTradesLoading, setRefreshTradesLoading] = useState(false);
-  const [refreshTradesError, setRefreshTradesError] = useState<string | null>(null);
-  const [refreshTradesSuccess, setRefreshTradesSuccess] = useState<{ totalTrades: number; totalWallets: number; errors?: number } | null>(null);
-  const [showRefreshModal, setShowRefreshModal] = useState(false);
-  const [selectedWallets, setSelectedWallets] = useState<Set<string>>(new Set());
-  const [allWallets, setAllWallets] = useState<any[]>([]);
-  const [loadingAllWallets, setLoadingAllWallets] = useState(false);
-  const [txLimit, setTxLimit] = useState<number | ''>(20);
-  const [refreshingWallets, setRefreshingWallets] = useState<Set<string>>(new Set());
-  const [webhookLoading, setWebhookLoading] = useState(false);
-  const [webhookError, setWebhookError] = useState<string | null>(null);
-  const [webhookSuccess, setWebhookSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     loadWallets();
@@ -69,13 +57,9 @@ export default function WalletsPage() {
         sortBy,
         sortOrder: 'desc',
       });
-      console.log('Loaded wallets:', result);
       setData(result);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error loading wallets:', error);
-      console.error('Error details:', error.message, error.stack);
-      // Set empty data on error to show error message
-      setData({ wallets: [], total: 0, page: 1, pageSize: 20 });
     } finally {
       setLoading(false);
     }
@@ -98,7 +82,7 @@ export default function WalletsPage() {
   }
 
   return (
-    <div className={`min-h-screen bg-background p-8 ${(syncError || syncSuccess || refreshTradesError || refreshTradesSuccess || webhookError || webhookSuccess) ? 'pt-20' : ''}`}>
+    <div className={`min-h-screen bg-background p-8 ${(syncError || syncSuccess) ? 'pt-20' : ''}`}>
       <div className="container mx-auto">
         <div className="mb-8 flex justify-between items-center">
           <div>
@@ -119,25 +103,12 @@ export default function WalletsPage() {
                 setSyncSuccess(null);
 
                 try {
-                  // Detect VPS vs localhost
-                  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-                  const isVPS = hostname !== 'localhost' && hostname !== '127.0.0.1';
-                  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || (isVPS ? '/api' : 'http://localhost:3001/api');
-                  console.log('Syncing wallets from CSV...', API_BASE_URL);
+                  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
                   const response = await fetch(`${API_BASE_URL}/smart-wallets/sync`, {
                     method: 'POST',
-                    headers: {
-                      'Content-Type': 'application/json',
-                    },
                   });
 
-                  if (!response.ok) {
-                    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-                    throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
-                  }
-
                   const result = await response.json();
-                  console.log('Sync result:', result);
 
                   if (!response.ok) {
                     if (result.validationErrors && result.validationErrors.length > 0) {
@@ -183,41 +154,6 @@ export default function WalletsPage() {
               className="px-4 py-2 border border-border rounded-md hover:bg-muted transition-colors disabled:opacity-50"
             >
               {syncLoading ? 'Syncing...' : 'Synchronize Wallets'}
-            </button>
-            <button
-              onClick={async () => {
-                setWebhookLoading(true);
-                setWebhookError(null);
-                setWebhookSuccess(null);
-
-                try {
-                  // Detect VPS vs localhost
-                  const hostname = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-                  const isVPS = hostname !== 'localhost' && hostname !== '127.0.0.1';
-                  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || (isVPS ? '/api' : 'http://localhost:3001/api');
-                  console.log('Setting up webhook...', API_BASE_URL);
-                  const response = await fetch(`${API_BASE_URL}/smart-wallets/setup-webhook`, {
-                    method: 'POST',
-                  });
-
-                  const result = await response.json();
-
-                  if (!response.ok) {
-                    throw new Error(result.error || result.message || 'Failed to setup webhook');
-                  }
-
-                  setWebhookSuccess(`Webhook updated successfully for ${result.walletCount || 0} wallets`);
-                } catch (err: any) {
-                  setWebhookError(err.message || 'Failed to setup webhook');
-                } finally {
-                  setWebhookLoading(false);
-                }
-              }}
-              disabled={webhookLoading}
-              className="px-4 py-2 border border-border rounded-md hover:bg-muted transition-colors disabled:opacity-50"
-              title="Update Helius webhook with all tracked wallets"
-            >
-              {webhookLoading ? 'Updating...' : 'Setup Webhook'}
             </button>
           </div>
         </div>
@@ -309,14 +245,7 @@ export default function WalletsPage() {
                 </tr>
               </thead>
               <tbody>
-                {!data || data.wallets.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
-                      {loading ? 'Loading wallets...' : 'No wallets found. Add some wallets to start tracking.'}
-                    </td>
-                  </tr>
-                ) : (
-                  data.wallets.map((wallet) => (
+                {data?.wallets.map((wallet) => (
                   <tr
                     key={wallet.id}
                     onClick={() => {
@@ -325,29 +254,7 @@ export default function WalletsPage() {
                     className="border-t border-border hover:bg-muted/50 cursor-pointer"
                   >
                     <td className="px-4 py-3 text-sm">
-                      <span className="underline flex items-center gap-2">
-                        {refreshingWallets.has(wallet.address) && (
-                          <svg
-                            className="animate-spin h-4 w-4 text-primary"
-                            xmlns="http://www.w3.org/2000/svg"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                          >
-                            <circle
-                              className="opacity-25"
-                              cx="12"
-                              cy="12"
-                              r="10"
-                              stroke="currentColor"
-                              strokeWidth="4"
-                            ></circle>
-                            <path
-                              className="opacity-75"
-                              fill="currentColor"
-                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                            ></path>
-                          </svg>
-                        )}
+                      <span className="underline">
                         {wallet.label || '-'}
                       </span>
                     </td>
@@ -382,8 +289,7 @@ export default function WalletsPage() {
                       {formatLastTrade(wallet.lastTradeTimestamp)}
                     </td>
                   </tr>
-                  ))
-                )}
+                ))}
               </tbody>
             </table>
           </div>
@@ -412,6 +318,11 @@ export default function WalletsPage() {
           </div>
         )}
 
+        {data && data.wallets.length === 0 && (
+          <div className="text-center py-12 text-muted-foreground">
+            No wallets found. Add some wallets to start tracking.
+          </div>
+        )}
 
         {/* Sync Status Messages - Fixed at top */}
         {syncError && (
@@ -459,252 +370,6 @@ export default function WalletsPage() {
               >
                 ✕
               </button>
-            </div>
-          </div>
-        )}
-
-        {/* Refresh Trades Status Messages - Fixed at top */}
-        {refreshTradesError && (
-          <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-red-950/95 border-b border-red-500/50 text-red-400 rounded-b text-sm">
-            <div className="container mx-auto max-w-7xl flex items-center justify-between gap-4">
-              <div>Error: {refreshTradesError}</div>
-              <button
-                onClick={() => setRefreshTradesError(null)}
-                className="text-current opacity-70 hover:opacity-100"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )}
-
-        {refreshTradesSuccess && (
-          <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-green-950/95 border-b border-green-500/50 text-green-400 rounded-b text-sm">
-            <div className="container mx-auto max-w-7xl flex items-center justify-between gap-4">
-              <div>
-                Trades refreshed successfully!
-                {refreshTradesSuccess.totalTrades > 0 && (
-                  <> Found {refreshTradesSuccess.totalTrades} new trade{refreshTradesSuccess.totalTrades !== 1 ? 's' : ''} across {refreshTradesSuccess.totalWallets} wallet{refreshTradesSuccess.totalWallets !== 1 ? 's' : ''}</>
-                )}
-                {refreshTradesSuccess.totalTrades === 0 && (
-                  <> No new trades found for {refreshTradesSuccess.totalWallets} wallet{refreshTradesSuccess.totalWallets !== 1 ? 's' : ''}</>
-                )}
-                {refreshTradesSuccess.errors !== undefined && refreshTradesSuccess.errors > 0 && (
-                  <> ({refreshTradesSuccess.errors} error{refreshTradesSuccess.errors !== 1 ? 's' : ''})</>
-                )}
-              </div>
-              <button
-                onClick={() => setRefreshTradesSuccess(null)}
-                className="text-current opacity-70 hover:opacity-100"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Webhook Status Messages - Fixed at top */}
-        {webhookError && (
-          <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-red-950/95 border-b border-red-500/50 text-red-400 rounded-b text-sm">
-            <div className="container mx-auto max-w-7xl flex items-center justify-between gap-4">
-              <div>Error: {webhookError}</div>
-              <button
-                onClick={() => setWebhookError(null)}
-                className="text-current opacity-70 hover:opacity-100"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )}
-
-        {webhookSuccess && (
-          <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-green-950/95 border-b border-green-500/50 text-green-400 rounded-b text-sm">
-            <div className="container mx-auto max-w-7xl flex items-center justify-between gap-4">
-              <div>{webhookSuccess}</div>
-              <button
-                onClick={() => setWebhookSuccess(null)}
-                className="text-current opacity-70 hover:opacity-100"
-              >
-                ✕
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Refresh Trades Modal */}
-        {showRefreshModal && (
-          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-            <div className="bg-background border border-border rounded-lg p-6 max-w-2xl w-full max-h-[80vh] flex flex-col">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-semibold">Select Wallets to Refresh</h2>
-                <button
-                  onClick={() => {
-                    setShowRefreshModal(false);
-                    setSelectedWallets(new Set());
-                  }}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  ✕
-                </button>
-              </div>
-              
-              <div className="mb-4 space-y-3">
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      // Select all wallets
-                      if (allWallets.length > 0) {
-                        setSelectedWallets(new Set(allWallets.map((w: any) => w.address)));
-                      }
-                    }}
-                    className="px-3 py-1 text-sm border border-border rounded hover:bg-muted"
-                  >
-                    Select All
-                  </button>
-                  <button
-                    onClick={() => setSelectedWallets(new Set())}
-                    className="px-3 py-1 text-sm border border-border rounded hover:bg-muted"
-                  >
-                    Deselect All
-                  </button>
-                  <div className="flex-1 text-right text-sm text-muted-foreground flex items-center justify-end">
-                    {selectedWallets.size} of {allWallets.length} selected
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <label className="text-sm text-muted-foreground">
-                    Transactions limit per wallet (optional):
-                  </label>
-                  <input
-                    type="number"
-                    min="10"
-                    max="1000"
-                    value={txLimit}
-                    onChange={(e) => setTxLimit(e.target.value === '' ? '' : parseInt(e.target.value))}
-                    placeholder="auto"
-                    className="px-3 py-1 text-sm border border-border rounded bg-background w-24"
-                  />
-                  <span className="text-xs text-muted-foreground">
-                    (empty = auto: fetch all new trades from last trade)
-                  </span>
-                </div>
-              </div>
-
-              <div className="flex-1 overflow-y-auto mb-4 border border-border rounded p-4">
-                {loadingAllWallets ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    Loading wallets...
-                  </div>
-                ) : allWallets.length > 0 ? (
-                  <div className="space-y-2">
-                    {allWallets.map((wallet: any) => (
-                      <label
-                        key={wallet.id}
-                        className="flex items-center gap-2 p-2 hover:bg-muted/50 rounded cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selectedWallets.has(wallet.address)}
-                          onChange={(e) => {
-                            const newSelected = new Set(selectedWallets);
-                            if (e.target.checked) {
-                              newSelected.add(wallet.address);
-                            } else {
-                              newSelected.delete(wallet.address);
-                            }
-                            setSelectedWallets(newSelected);
-                          }}
-                          className="w-4 h-4"
-                        />
-                        <span className="flex-1">
-                          <span className="font-medium">{wallet.label || '-'}</span>
-                          <span className="text-muted-foreground ml-2 font-mono text-sm">
-                            {formatAddress(wallet.address)}
-                          </span>
-                        </span>
-                      </label>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center text-muted-foreground py-8">
-                    No wallets found
-                  </div>
-                )}
-              </div>
-
-              <div className="flex justify-end gap-2">
-                <button
-                  onClick={() => {
-                    setShowRefreshModal(false);
-                    setSelectedWallets(new Set());
-                  }}
-                  className="px-4 py-2 border border-border rounded hover:bg-muted"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={async () => {
-                    if (selectedWallets.size === 0) {
-                      alert('Please select at least one wallet');
-                      return;
-                    }
-
-                    setShowRefreshModal(false);
-                    setRefreshTradesLoading(true);
-                    setRefreshTradesError(null);
-                    setRefreshTradesSuccess(null);
-                    setSyncSuccess(null);
-                    setSyncError(null);
-                    
-                    // Nastavíme, které wallet se právě aktualizují
-                    setRefreshingWallets(new Set(selectedWallets));
-
-                    try {
-                      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
-                      const response = await fetch(`${API_BASE_URL}/smart-wallets/refresh-trades`, {
-                        method: 'POST',
-                        headers: {
-                          'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                          walletAddresses: Array.from(selectedWallets),
-                          limit: txLimit !== '' ? txLimit : undefined,
-                        }),
-                      });
-
-                      const result = await response.json();
-
-                      if (!response.ok) {
-                        throw new Error(result.error || result.message || 'Failed to refresh trades');
-                      }
-
-                      // Count errors from results
-                      const errors = result.results?.filter((r: any) => r.error)?.length || 0;
-
-                      setRefreshTradesSuccess({
-                        totalTrades: result.totalTrades || 0,
-                        totalWallets: result.totalWallets || 0,
-                        errors: errors,
-                      });
-
-                      // Reload wallets after successful refresh to show updated data
-                      await loadWallets();
-                      setSelectedWallets(new Set());
-                    } catch (err: any) {
-                      setRefreshTradesError(err.message || 'Failed to refresh trades');
-                    } finally {
-                      setRefreshTradesLoading(false);
-                      // Odstraníme wallet z refreshingWallets po dokončení
-                      setRefreshingWallets(new Set());
-                    }
-                  }}
-                  disabled={selectedWallets.size === 0 || refreshTradesLoading}
-                  className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50"
-                >
-                  {refreshTradesLoading ? 'Refreshing...' : `Refresh ${selectedWallets.size} Wallet${selectedWallets.size !== 1 ? 's' : ''}`}
-                </button>
-              </div>
             </div>
           </div>
         )}

@@ -4,28 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
-// Detect VPS vs localhost
-const getApiBaseUrl = () => {
-  if (typeof window !== 'undefined') {
-    const hostname = window.location.hostname;
-    const isVPS = hostname !== 'localhost' && hostname !== '127.0.0.1';
-    
-    if (process.env.NEXT_PUBLIC_API_URL) {
-      return process.env.NEXT_PUBLIC_API_URL;
-    }
-    
-    // If on VPS, use same origin (relative URL) - backend should be proxied via Nginx
-    if (isVPS) {
-      return '/api';
-    }
-    
-    // Local development: use localhost:3001
-    return 'http://localhost:3001/api';
-  }
-  return process.env.NEXT_PUBLIC_API_URL || '/api';
-};
-
-const API_BASE_URL = getApiBaseUrl();
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
 
 export default function AddWalletPage() {
   const router = useRouter();
@@ -185,6 +164,15 @@ export default function AddWalletPage() {
           </form>
         </div>
 
+        <div className="mt-6 p-4 bg-muted rounded-lg">
+          <h2 className="font-semibold mb-2">💡 Tip</h2>
+          <p className="text-sm text-muted-foreground">
+            Po přidání wallet můžeš spustit backfill historických transakcí:
+          </p>
+          <code className="block mt-2 p-2 bg-background rounded text-xs">
+            pnpm --filter backend collector:backfill WALLET_ADDRESS 100
+          </code>
+        </div>
       </div>
     </div>
   );
