@@ -87,9 +87,10 @@ export class SmartWalletRepository {
       
       // Get all trades for all wallets (needed to calculate closed positions)
       // IMPORTANT: Include all trade types (buy, sell, add, remove) to match portfolio endpoint logic
+      // IMPORTANT: Fetch ALL trades for ALL wallets on the page, not just the first batch
       const { data: allTrades, error: allTradesError } = await supabase
         .from(TABLES.TRADE)
-        .select('walletId, tokenId, side, amountToken, amountBase, priceBasePerToken, timestamp, meta')
+        .select('walletId, tokenId, side, amountToken, amountBase, priceBasePerToken, timestamp, meta, id, valueUsd')
         .in('walletId', walletIds);
 
       // DEBUG: Log which wallets have trades
@@ -102,6 +103,7 @@ export class SmartWalletRepository {
             return wallet?.address || id;
           }).join(', ')}`);
         }
+        console.log(`   📊 [Repository] Fetched ${allTrades.length} trades for ${walletsWithTrades.size} wallets (total wallets on page: ${walletIds.length})`);
       }
 
       if (!allTradesError && allTrades) {
@@ -145,13 +147,24 @@ export class SmartWalletRepository {
           }>();
           
           // Get valueUsd for trades (needed for totalInvested and totalSoldValue)
-          const tradeIds = walletTrades.map(t => (t as any).id).filter(Boolean);
+          // Use valueUsd from allTrades if available (we already fetched it)
           let valueUsdMap = new Map<string, number>();
-          if (tradeIds.length > 0) {
+          for (const trade of walletTrades) {
+            const tradeId = (trade as any).id;
+            const valueUsd = (trade as any).valueUsd;
+            if (tradeId && valueUsd !== undefined) {
+              valueUsdMap.set(tradeId, Number(valueUsd || 0));
+            }
+          }
+          
+          // Fallback: fetch valueUsd if not in allTrades
+          const tradeIds = walletTrades.map(t => (t as any).id).filter(Boolean);
+          const missingValueUsdIds = tradeIds.filter(id => !valueUsdMap.has(id));
+          if (missingValueUsdIds.length > 0) {
             const { data: tradesWithValue } = await supabase
               .from(TABLES.TRADE)
               .select('id, valueUsd, side')
-              .in('id', tradeIds);
+              .in('id', missingValueUsdIds);
             
             if (tradesWithValue) {
               for (const t of tradesWithValue) {
@@ -333,32 +346,33 @@ export class SmartWalletRepository {
         }
 
         // Add recentPnl30dUsd and recentPnl30dPercent to each wallet
+        // IMPORTANT: Ensure ALL wallets on the page get PnL values, even if 0
         wallets.forEach((wallet: any) => {
           const pnl = walletPnLMap.get(wallet.id);
-          // DEBUG: Log specific wallet for debugging
-          const isDebugWallet = wallet.address === 'EHg5YkU2SZBTvuT87rUsvxArGp3HLeye1fXaSDfuMyaf';
           
           if (pnl) {
             wallet.recentPnl30dUsd = pnl.pnlUsd;
             wallet.recentPnl30dPercent = pnl.pnlPercent;
-            // DEBUG: Log wallets with PnL
-            if (pnl.pnlUsd !== 0 || pnl.pnlPercent !== 0 || isDebugWallet) {
+            // DEBUG: Log all wallets with non-zero PnL
+            if (Math.abs(pnl.pnlUsd) > 0.01 || Math.abs(pnl.pnlPercent) > 0.01) {
               console.log(`   ✅ [Repository] Wallet ${wallet.address}: PnL set to ${pnl.pnlUsd.toFixed(2)} USD (${pnl.pnlPercent.toFixed(2)}%)`);
             }
           } else {
+            // IMPORTANT: Set to 0 (not undefined/null) for wallets without PnL
             wallet.recentPnl30dUsd = 0;
             wallet.recentPnl30dPercent = 0;
-            // DEBUG: Log wallets without PnL (but only if they have trades or is debug wallet)
+            // DEBUG: Log wallets without PnL (but only if they have trades)
             const hasTrades = tradesByWallet.has(wallet.id);
-            if (hasTrades || isDebugWallet) {
+            if (hasTrades) {
               const tradeCount = tradesByWallet.get(wallet.id)?.length || 0;
               console.log(`   ⚠️  [Repository] Wallet ${wallet.address}: No PnL calculated (has ${tradeCount} trades, but no closed positions in last 30 days)`);
-              if (isDebugWallet) {
-                console.log(`   🔍 [Repository] DEBUG: Wallet ${wallet.address} (${wallet.id}) - in walletIds: ${walletIds.includes(wallet.id)}, in tradesByWallet: ${tradesByWallet.has(wallet.id)}, in walletPnLMap: ${walletPnLMap.has(wallet.id)}`);
-              }
             }
           }
         });
+        
+        // DEBUG: Log summary
+        const walletsWithPnL = wallets.filter((w: any) => Math.abs(w.recentPnl30dUsd || 0) > 0.01 || Math.abs(w.recentPnl30dPercent || 0) > 0.01);
+        console.log(`   📊 [Repository] Summary: ${walletsWithPnL.length}/${wallets.length} wallets have non-zero PnL`);
       }
     }
 
