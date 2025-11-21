@@ -1697,12 +1697,12 @@ export class SolanaCollectorService {
       // IMPORTANT: First purchase (balance from 0 to x) is ALWAYS BUY!
       let tradeType: 'buy' | 'sell' | 'add' | 'remove' = swapData.side;
       if (swapData.side === 'buy') {
-        // Pokud je to první trade pro token nebo balanceBefore je 0, je to BUY
+        // If it's first trade for token or balanceBefore is 0, it's BUY
         if (isFirstTradeForToken || !hasPreviousTrades || normalizedBalanceBefore === 0) {
-          // První nákup - BUY
+          // First purchase - BUY
           tradeType = 'buy';
         } else {
-          // Další nákup - ADD
+          // Additional purchase - ADD
           tradeType = 'add';
         }
       } else if (swapData.side === 'sell') {
@@ -1738,36 +1738,36 @@ export class SolanaCollectorService {
       const MIN_POSITION_THRESHOLD = swapData.amountToken * 0.01; // 1% z amountToken
       
       if (swapData.side === 'buy') {
-        // Koupil tokeny - přidal k pozici
+        // Bought tokens - added to position
         if (currentPosition > MIN_POSITION_THRESHOLD) {
-          // Normální výpočet
+          // Normal calculation
           positionChangePercent = (swapData.amountToken / currentPosition) * 100;
-          // Omez na maximálně 1000% (10x) - pokud je více, je to pravděpodobně chyba
+          // Limit to maximum 1000% (10x) - if more, it's probably an error
           if (positionChangePercent > 1000) {
-            positionChangePercent = 100; // Považuj za novou pozici
+            positionChangePercent = 100; // Consider as new position
           }
         } else {
-          // První koupě nebo velmi malá pozice - 100% nová pozice
+          // First purchase or very small position - 100% new position
           positionChangePercent = 100;
         }
       } else if (swapData.side === 'sell') {
-        // Prodal tokeny - odebral z pozice
+        // Sold tokens - removed from position
         if (currentPosition > MIN_POSITION_THRESHOLD) {
-          // Normální výpočet
+          // Normal calculation
           positionChangePercent = -(swapData.amountToken / currentPosition) * 100;
-          // Omez na maximálně -100% (celý prodej pozice)
+          // Limit to maximum -100% (entire position sale)
           if (positionChangePercent < -100) {
-            positionChangePercent = -100; // Považuj za prodej celé pozice
+            positionChangePercent = -100; // Consider as entire position sale
           }
-          // Pokud je abs(positionChangePercent) velmi velké (více než 1000%), je to pravděpodobně chyba
+          // If abs(positionChangePercent) is very large (more than 1000%), it's probably an error
           if (Math.abs(positionChangePercent) > 1000) {
-            positionChangePercent = -100; // Považuj za prodej celé pozice
+            positionChangePercent = -100; // Consider as entire position sale
           }
         } else {
-          // Prodal, ale neměl pozici nebo velmi malou pozici
-          // Pokud prodává víc, než má, je to chyba - označíme jako -100%
+          // Sold, but didn't have position or very small position
+          // If selling more than has, it's an error - mark as -100%
           if (swapData.amountToken > currentPosition) {
-            positionChangePercent = -100; // Prodej celé (malé) pozice
+            positionChangePercent = -100; // Sale of entire (small) position
           } else {
             positionChangePercent = currentPosition > 0 
               ? -(swapData.amountToken / currentPosition) * 100 
@@ -1787,10 +1787,10 @@ export class SolanaCollectorService {
         if (baseToken === 'SOL') {
           priceUsd = swapData.priceBasePerToken * solPriceAtTimestamp;
         } else if (baseToken === 'USDC' || baseToken === 'USDT') {
-          // Pokud je base token USDC/USDT, cena je už v USD
+          // If base token is USDC/USDT, price is already in USD
           priceUsd = swapData.priceBasePerToken;
         } else {
-          // Pro jiné base tokeny použij SOL cenu jako fallback
+          // For other base tokens use SOL price as fallback
           priceUsd = swapData.priceBasePerToken * solPriceAtTimestamp;
         }
       } catch (error: any) {
@@ -1832,16 +1832,16 @@ export class SolanaCollectorService {
   }
 
   /**
-   * Extrakce swap dat z transakce pomocí jednoduché heuristiky
+   * Extract swap data from transaction using simple heuristic
    *
-   * V1.5: Konzervativní detektor swapů:
-   *  - Sleduje jen token balances, kde owner === walletAddress
-   *  - Primárně řeší swapy se SOL jako base assetem
-   *  - Navíc umí použít USDC/USDT jako base, pokud se SOL nemění
-   *  - Detekuje swapy, kde se base (SOL/USDC/USDT) a SPL token mění opačným směrem
+   * V1.5: Conservative swap detector:
+   *  - Tracks only token balances where owner === walletAddress
+   *  - Primarily handles swaps with SOL as base asset
+   *  - Additionally can use USDC/USDT as base if SOL doesn't change
+   *  - Detects swaps where base (SOL/USDC/USDT) and SPL token change in opposite directions
    *
-   * Edge cases jako čistý token→token swap nebo komplexní Jupiter routy
-   * tady zatím nejsou – ty budeme řešit v další iteraci.
+   * Edge cases like pure token→token swap or complex Jupiter routes
+   * are not here yet – we'll handle those in next iteration.
    */
   private extractSwapData(transaction: any, walletAddress: string): {
     tokenMint: string;
@@ -1985,9 +1985,9 @@ export class SolanaCollectorService {
       baseDelta = solDelta;
     }
 
-    // 5b) Pokud není SOL změna, zkus USDC/USDT změnu pro wallet
+    // 5b) If no SOL change, try USDC/USDT change for wallet
     if (Math.abs(baseDelta) <= EPS && baseTokenChanges.length > 0) {
-      // Vezmi base token s největší absolutní změnou
+      // Take base token with largest absolute change
       baseTokenChanges.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
       baseDelta = baseTokenChanges[0].delta;
     }
@@ -2029,8 +2029,8 @@ export class SolanaCollectorService {
   }
 
   /**
-   * Extrakce swap dat z innerInstructions (token transfers)
-   * Fallback metoda, když token balances nejsou dostupné
+   * Extract swap data from innerInstructions (token transfers)
+   * Fallback method when token balances are not available
    */
   private extractSwapFromInstructions(
     transaction: any,
@@ -2048,7 +2048,7 @@ export class SolanaCollectorService {
       return null;
     }
 
-    // Najdi token transfers v innerInstructions
+    // Find token transfers in innerInstructions
     const tokenTransfers: Array<{
       mint: string;
       from: string;
@@ -2060,13 +2060,13 @@ export class SolanaCollectorService {
       if (!innerIx.instructions) continue;
       
       for (const ix of innerIx.instructions) {
-        // Parsed instruction pro token transfer
+        // Parsed instruction for token transfer
         if (ix.parsed?.type === 'transfer' || ix.parsed?.type === 'transferChecked') {
           const parsed = ix.parsed;
           const info = parsed.info;
           
           if (info.authority === walletAddress || info.source === walletAddress || info.destination === walletAddress) {
-            // Najdi mint z account keys nebo z parsed info
+            // Find mint from account keys or from parsed info
             let mint: string | null = null;
             let amount = 0;
             
@@ -2113,9 +2113,9 @@ export class SolanaCollectorService {
     // If main transfer is base token, use next one
     if (baseTokens.has(mainTransfer.mint)) {
       if (tokenTransfers.length < 2) {
-        return null; // Potřebujeme alespoň 2 tokeny pro swap
+        return null; // We need at least 2 tokens for swap
       }
-      // Použij druhý token jako hlavní
+      // Use second token as main
       const tokenTransfer = tokenTransfers[1];
       const baseTransfer = mainTransfer;
       
@@ -2132,9 +2132,9 @@ export class SolanaCollectorService {
         priceBasePerToken,
       };
     } else {
-      // Hlavní transfer je token, použij SOL balance change jako base
+      // Main transfer is token, use SOL balance change as base
       if (Math.abs(solBalanceChange) < 0.000001) {
-        return null; // Nemáme base change
+        return null; // We don't have base change
       }
 
       const amountToken = Math.abs(mainTransfer.amount);
@@ -2142,12 +2142,12 @@ export class SolanaCollectorService {
       const side: 'buy' | 'sell' = mainTransfer.amount > 0 ? 'buy' : 'sell';
       const priceBasePerToken = amountBase / amountToken;
 
-      // Kontrola: token a base by měly jít opačným směrem
+      // Check: token and base should go in opposite directions
       const tokenPositive = mainTransfer.amount > 0;
       const basePositive = solBalanceChange > 0;
       
       if (tokenPositive === basePositive) {
-        return null; // Nejsou opačného směru
+        return null; // Not in opposite directions
       }
 
       return {
@@ -2161,7 +2161,7 @@ export class SolanaCollectorService {
   }
 
   /**
-   * Zastavení collectoru
+   * Stop collector
    */
   stop(): void {
     if (!this.isRunning) {
@@ -2235,13 +2235,13 @@ export class SolanaCollectorService {
   }
 
   /**
-   * Získání token info z Jupiter Token List API
-   * Používá endpoint se seznamem všech tokenů: https://token.jup.ag/all
-   * Cache pro zlepšení výkonu - načteme seznam jednou a použijeme ho pro všechny tokeny
+   * Get token info from Jupiter Token List API
+   * Uses endpoint with list of all tokens: https://token.jup.ag/all
+   * Cache for performance improvement - load list once and use it for all tokens
    */
   private jupiterTokenListCache: Array<{ address: string; symbol: string; name: string; decimals?: number }> | null = null;
   private jupiterTokenListCacheTime: number = 0;
-  private readonly JUPITER_CACHE_TTL = 60 * 60 * 1000; // 1 hodina
+  private readonly JUPITER_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
   private async getTokenFromJupiterList(mintAddress: string): Promise<{ symbol: string; name: string; decimals?: number } | null> {
     try {
@@ -2301,7 +2301,7 @@ export class SolanaCollectorService {
       this.jupiterTokenListCache = tokenList;
       this.jupiterTokenListCacheTime = now;
 
-      // Najdi token
+      // Find token
       const token = tokenList.find(t => t.address === mintAddress);
       
       if (token) {
@@ -2320,13 +2320,13 @@ export class SolanaCollectorService {
   }
 
   /**
-   * Zpracování transakce z webhook notifikace
+   * Process transaction from webhook notification
    * 
-   * Tato metoda se volá, když přijde webhook notifikace od Helius
-   * o nové transakci pro sledovanou wallet adresu.
+   * This method is called when webhook notification arrives from Helius
+   * about new transaction for tracked wallet address.
    * 
-   * @param tx Helius transakce (už rozparsovaná)
-   * @param walletAddress Adresa walletky, která provedla transakci
+   * @param tx Helius transaction (already parsed)
+   * @param walletAddress Address of wallet that performed the transaction
    * @returns { saved: boolean, reason?: string }
    */
   async processWebhookTransaction(tx: any, walletAddress: string): Promise<{ saved: boolean; reason?: string }> {
@@ -2343,7 +2343,7 @@ export class SolanaCollectorService {
         return { saved: false, reason: 'Trade already exists' };
       }
 
-      // Normalizuj swap
+      // Normalize swap
       const swap = this.heliusClient.normalizeSwap(tx, walletAddress);
       if (!swap) {
         return { saved: false, reason: 'Failed to normalize swap' };
@@ -2426,12 +2426,12 @@ export class SolanaCollectorService {
       // Determine trade type based on balance before and after
       // IMPORTANT: First purchase (balance from 0 to x) is ALWAYS BUY!
       if (swap.side === 'buy') {
-        // Pokud je to první trade pro token nebo balanceBefore je 0, je to BUY
+        // If it's first trade for token or balanceBefore is 0, it's BUY
         if (isFirstTradeForToken || !hasPreviousTrades || normalizedBalanceBefore === 0) {
-          // První nákup - BUY
+          // First purchase - BUY
           tradeType = 'buy';
         } else {
-          // Další nákup - ADD
+          // Additional purchase - ADD
           tradeType = 'add';
         }
       } else if (swap.side === 'sell') {
