@@ -386,57 +386,64 @@ export default function WalletsPage() {
                     // when switching between client-side and server-side sorting
                     return 0;
                   })
-                  .map((wallet) => (
-                  <tr
-                    key={wallet.id}
-                    onClick={() => {
-                      router.push(`/wallet/${wallet.address}`);
-                    }}
-                    className="border-t border-border hover:bg-muted/50 cursor-pointer"
-                  >
-                    <td className="px-4 py-3 text-sm">
-                      <span className="underline">
-                        {wallet.label || '-'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="font-mono text-sm">
-                        {formatAddress(wallet.address)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm font-medium">
-                      {formatNumber(wallet.score, 1)}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm">
-                      {wallet.totalTrades}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm">
-                      {formatPercent(wallet.winRate)}
-                    </td>
-                    <td className={`px-4 py-3 text-right text-sm font-medium ${
-                      wallet.recentPnl30dPercent >= 0 ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {wallet.recentPnl30dUsd !== undefined && wallet.recentPnl30dUsd !== null
-                        ? (
-                          <>
-                            ${formatNumber(Math.abs(wallet.recentPnl30dUsd), 2)}{' '}
-                            ({wallet.recentPnl30dPercent >= 0 ? '+' : ''}{formatPercent(wallet.recentPnl30dPercent / 100)})
-                          </>
-                        )
-                        : `${wallet.recentPnl30dPercent >= 0 ? '+' : ''}${formatPercent(wallet.recentPnl30dPercent / 100)}`
-                      }
-                      {/* DEBUG: Log PnL values for homepage */}
-                      {process.env.NODE_ENV === 'development' && (
-                        <span className="text-xs text-gray-500 ml-2" title={`Debug: recentPnl30dUsd=${wallet.recentPnl30dUsd}, recentPnl30dPercent=${wallet.recentPnl30dPercent}`}>
-                          [D]
+                  .map((wallet) => {
+                    // DEBUG: Log values during render
+                    if (process.env.NODE_ENV === 'development' && wallet.address === '4BdKaxN8G6ka4GYtQQWk4G4dZRUTX2vQH9GcXdBREFUk') {
+                      console.log(`🎨 [Render] jijo_exe: recentPnl30dUsd=${wallet.recentPnl30dUsd}, recentPnl30dPercent=${wallet.recentPnl30dPercent}, formatted=${formatNumber(Math.abs(wallet.recentPnl30dUsd || 0), 2)}, percentFormatted=${formatPercent((wallet.recentPnl30dPercent || 0) / 100)}`);
+                    }
+                    
+                    return (
+                    <tr
+                      key={wallet.id}
+                      onClick={() => {
+                        router.push(`/wallet/${wallet.address}`);
+                      }}
+                      className="border-t border-border hover:bg-muted/50 cursor-pointer"
+                    >
+                      <td className="px-4 py-3 text-sm">
+                        <span className="underline">
+                          {wallet.label || '-'}
                         </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right text-sm text-muted-foreground">
-                      {formatLastTrade(wallet.lastTradeTimestamp)}
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="font-mono text-sm">
+                          {formatAddress(wallet.address)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-medium">
+                        {formatNumber(wallet.score, 1)}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm">
+                        {wallet.totalTrades}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm">
+                        {formatPercent(wallet.winRate)}
+                      </td>
+                      <td className={`px-4 py-3 text-right text-sm font-medium ${
+                        (wallet.recentPnl30dPercent ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                      }`}>
+                        {wallet.recentPnl30dUsd !== undefined && wallet.recentPnl30dUsd !== null
+                          ? (
+                            <>
+                              ${formatNumber(Math.abs(wallet.recentPnl30dUsd), 2)}{' '}
+                              ({(wallet.recentPnl30dPercent ?? 0) >= 0 ? '+' : ''}{formatPercent((wallet.recentPnl30dPercent ?? 0) / 100)})
+                            </>
+                          )
+                          : `${(wallet.recentPnl30dPercent ?? 0) >= 0 ? '+' : ''}${formatPercent((wallet.recentPnl30dPercent ?? 0) / 100)}`
+                        }
+                        {/* DEBUG: Log PnL values for homepage */}
+                        {process.env.NODE_ENV === 'development' && (
+                          <span className="text-xs text-gray-500 ml-2" title={`Debug: recentPnl30dUsd=${wallet.recentPnl30dUsd}, recentPnl30dPercent=${wallet.recentPnl30dPercent}`}>
+                            [D]
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm text-muted-foreground">
+                        {formatLastTrade(wallet.lastTradeTimestamp)}
+                      </td>
+                    </tr>
+                    );
+                  })}
               </tbody>
             </table>
           </div>
