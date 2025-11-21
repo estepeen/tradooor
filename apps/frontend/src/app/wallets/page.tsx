@@ -59,12 +59,11 @@ export default function WalletsPage() {
         sortOrder,
       });
       
-      // DEBUG: Log PnL values from API
-      if (process.env.NODE_ENV === 'development' && result.wallets) {
+      // DEBUG: Log PnL values from API (always log for debugging)
+      if (result.wallets) {
+        console.log(`📊 [Homepage] Received ${result.wallets.length} wallets from API`);
         result.wallets.forEach((wallet: any) => {
-          if (wallet.recentPnl30dUsd !== undefined || wallet.recentPnl30dPercent !== undefined) {
-            console.log(`   📊 [Homepage] Wallet ${wallet.address}: recentPnl30dUsd=${wallet.recentPnl30dUsd}, recentPnl30dPercent=${wallet.recentPnl30dPercent}`);
-          }
+          console.log(`   💰 Wallet ${wallet.address}: recentPnl30dUsd=${wallet.recentPnl30dUsd}, recentPnl30dPercent=${wallet.recentPnl30dPercent}, hasValue=${wallet.recentPnl30dUsd !== undefined && wallet.recentPnl30dUsd !== null}`);
         });
       }
       

@@ -88,6 +88,15 @@ router.get('/', async (req, res) => {
     });
 
     console.log(`✅ Found ${result.wallets.length} wallets (total: ${result.total})`);
+    
+    // DEBUG: Log PnL values for first few wallets
+    if (result.wallets && result.wallets.length > 0) {
+      console.log(`📊 [Endpoint] Sample PnL values from repository:`);
+      result.wallets.slice(0, 5).forEach((wallet: any) => {
+        console.log(`   💰 Wallet ${wallet.address}: recentPnl30dUsd=${wallet.recentPnl30dUsd}, recentPnl30dPercent=${wallet.recentPnl30dPercent}`);
+      });
+    }
+    
     res.json(result);
   } catch (error: any) {
     console.error('❌ Error fetching smart wallets:');
@@ -1378,7 +1387,7 @@ router.get('/:id/portfolio', async (req, res) => {
           closedPnlPercent = position.totalCostBase > 0
             ? (closedPnlBase / position.totalCostBase) * 100
           : null;
-          
+
           // DEBUG: Log PnL calculation for portfolio endpoint
           if (wallet.id) {
             console.log(`   💰 [Portfolio] Position: tokenId=${position.tokenId}, closedPnlUsd=${closedPnlUsd.toFixed(2)}, closedPnlBase=${closedPnlBase.toFixed(6)}, costBase=${position.totalCostBase.toFixed(6)}, proceedsBase=${position.totalProceedsBase.toFixed(6)}, baseToken=${position.baseToken}`);
