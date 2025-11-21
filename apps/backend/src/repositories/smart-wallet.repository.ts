@@ -288,19 +288,17 @@ export class SmartWalletRepository {
             console.log(`   📊 [Repository] Wallet ${walletId}: Found ${closedPositions.length} total closed positions, ${recentClosedPositions.length} in last 30 days`);
           }
           
-          // Calculate total PnL from closed positions (same logic as portfolio endpoint)
-          let totalPnlUsd = 0;
-          let totalClosedPnlBase = 0;
-          let totalCostBase = 0;
+          // Calculate total PnL from closed positions (EXACT same logic as portfolio endpoint)
+          // Portfolio endpoint logic: sum closedPnl, calculate totalCost from closedPnl and closedPnlPercent, then pnlPercent = (totalPnl / totalCost) * 100
           
-          for (const position of recentClosedPositions) {
+          // First, calculate closedPnl and closedPnlPercent for each position (same as portfolio endpoint does)
+          const positionsWithPnL = recentClosedPositions.map((position: any) => {
             let closedPnlUsd = 0;
-            let closedPnlBase: number | null = null;
             let closedPnlPercent: number | null = null;
             
             // Calculate PnL in base currency (same as portfolio endpoint)
             if (position.totalProceedsBase > 0 && position.totalCostBase > 0) {
-              closedPnlBase = position.totalProceedsBase - position.totalCostBase;
+              const closedPnlBase = position.totalProceedsBase - position.totalCostBase;
               
               // Convert to USD using current SOL price (same as portfolio endpoint)
               if (currentSolPrice) {
@@ -326,34 +324,39 @@ export class SmartWalletRepository {
                 : null;
             }
             
-            if (closedPnlUsd !== 0 || closedPnlBase !== null) {
-              totalPnlUsd += closedPnlUsd;
-              if (closedPnlBase !== null) {
-                totalClosedPnlBase += closedPnlBase;
-                totalCostBase += position.totalCostBase;
-              }
-              
-              // DEBUG: Log individual position PnL
-              if (walletId) {
-                console.log(`   💰 [Repository] Position: tokenId=${position.tokenId}, closedPnlUsd=${closedPnlUsd.toFixed(2)}, closedPnlBase=${closedPnlBase?.toFixed(6) || 'null'}, costBase=${position.totalCostBase.toFixed(6)}, proceedsBase=${position.totalProceedsBase.toFixed(6)}, baseToken=${position.baseToken}`);
-              }
-            }
-          }
+            return {
+              ...position,
+              closedPnl: closedPnlUsd,
+              closedPnlPercent,
+            };
+          });
           
-          // Calculate percentage from base currency (same as portfolio endpoint)
-          // closedPnlPercent = (closedPnlBase / totalCostBase) * 100
-          const pnlPercent = totalCostBase > 0 
-            ? (totalClosedPnlBase / totalCostBase) * 100 
-            : 0;
+          // Now use EXACT same logic as portfolio endpoint (lines 1532-1542)
+          const totalPnl30d = positionsWithPnL.reduce((sum: number, p: any) => sum + (p.closedPnl ?? 0), 0);
+          const totalCost30d = positionsWithPnL.reduce((sum: number, p: any) => {
+            const pnl = p.closedPnl ?? 0;
+            const pnlPercent = p.closedPnlPercent ?? 0;
+            if (pnlPercent !== 0 && typeof pnl === 'number' && typeof pnlPercent === 'number') {
+              const cost = pnl / (pnlPercent / 100);
+              return sum + Math.abs(cost);
+            }
+            return sum;
+          }, 0);
+          const pnlPercent30d = totalCost30d > 0 ? (totalPnl30d / totalCost30d) * 100 : 0;
           
           // DEBUG: Log final PnL calculation
           if (walletId) {
-            console.log(`   ✅ [Repository] Wallet ${walletId}: totalPnlUsd=${totalPnlUsd.toFixed(2)}, totalClosedPnlBase=${totalClosedPnlBase.toFixed(6)}, totalCostBase=${totalCostBase.toFixed(6)}, pnlPercent=${pnlPercent.toFixed(2)}%`);
+            console.log(`   ✅ [Repository] Wallet ${walletId}: totalPnl30d=${totalPnl30d.toFixed(2)}, totalCost30d=${totalCost30d.toFixed(2)}, pnlPercent30d=${pnlPercent30d.toFixed(2)}%`);
+            if (isDebugWallet) {
+              positionsWithPnL.forEach((p: any, idx: number) => {
+                console.log(`      ${idx + 1}. tokenId=${p.tokenId}, closedPnl=${p.closedPnl?.toFixed(2) || 'null'}, closedPnlPercent=${p.closedPnlPercent?.toFixed(2) || 'null'}%`);
+              });
+            }
           }
           
           walletPnLMap.set(walletId, {
-            pnlUsd: totalPnlUsd,
-            pnlPercent,
+            pnlUsd: totalPnl30d,
+            pnlPercent: pnlPercent30d,
           });
         }
 
