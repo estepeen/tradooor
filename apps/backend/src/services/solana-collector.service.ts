@@ -447,99 +447,21 @@ export class SolanaCollectorService {
   /**
    * Spuštění periodického sběru
    * 
-   * Podle zadání: spuštění periodického sběru pomocí setInterval
+   * ⚠️ VYPNUTO: Automatický collector je vypnutý, protože používáme webhook pro real-time notifikace.
+   * Webhook je efektivnější a nepotřebuje periodické polling, což šetří API kredity.
+   * 
+   * Pro manuální refresh použij:
+   * - Backfill: `collector:backfill WALLET_ADDRESS [LIMIT]`
+   * - Process all: `collector:process-all`
    */
   start(): void {
-    if (this.isRunning) {
-      console.log('⚠️  Collector is already running');
-      return;
-    }
-
-    this.isRunning = true;
-    console.log(`🚀 Starting Solana Collector...`);
-    console.log(`📊 Config: interval=${this.intervalSeconds}s, maxTxPerWallet=${this.maxTransactionsPerWallet}`);
-
-    // Spusť první kolo hned
-    this.collectOnce().catch(error => {
-      console.error('❌ Error in initial collection:', error);
-    });
-
-    // Pak periodicky
-    this.intervalId = setInterval(async () => {
-      if (!this.isRunning) {
-        if (this.intervalId) {
-          clearInterval(this.intervalId);
-          this.intervalId = null;
-        }
-        return;
-      }
-      await this.collectOnce();
-    }, this.intervalSeconds * 1000);
-
-    console.log(`✅ Collector started with ${this.intervalSeconds}s interval`);
-  }
-
-  /**
-   * Interně – jedno kolo sběru
-   * 
-   * Podle zadání: projde všechny walletky a zpracuje jejich transakce
-   */
-  private async collectOnce(): Promise<void> {
-    try {
-    // 1. Načti seznam sledovaných adres z databáze
-    const addresses = await this.smartWalletRepo.getAllAddresses();
-      
-    if (addresses.length === 0) {
-      console.log('⚠️  No wallets to track. Add wallets first via API.');
-      return;
-    }
-
-      console.log(`📊 Starting collection round for ${addresses.length} wallets...`);
-
-      let totalProcessed = 0;
-      let totalTrades = 0;
-      let totalSkipped = 0;
-      let totalErrors = 0;
-
-      // 2. Pro každou adresu zpracuj transakce
-    for (const address of addresses) {
-      try {
-          const result = await this.processWallet(address);
-          totalProcessed += result.processed;
-          totalTrades += result.trades;
-          totalSkipped += result.skipped;
-          
-          // Delay between wallets to avoid rate limiting
-          // Helius Enhanced API má dobré rate limits, ale stále potřebujeme delay
-          const delayMs = this.useHelius ? 2000 : 5000; // 2s pro Helius, 5s pro RPC
-          await new Promise(resolve => setTimeout(resolve, delayMs));
-        } catch (error: any) {
-          // Speciální handling pro Helius rate limit - ukonči run a dej pauzu
-          if (error instanceof HeliusRateLimitError) {
-            console.warn(`⚠️  Helius rate limited - sleeping for ${error.retryAfterMs}ms and ending this run.`);
-            console.warn(`   Processed ${totalProcessed} wallets before rate limit.`);
-            await new Promise(resolve => setTimeout(resolve, error.retryAfterMs));
-            break; // Ukonči aktuální run collectoru
-          }
-          
-          totalErrors++;
-          console.error(`❌ Error processing wallet ${address}:`, error.message);
-          
-          // Delay even on error (ale ne pro rate limit - ten už máme ošetřený výše)
-          const delayMs = this.useHelius ? 2000 : 5000;
-          await new Promise(resolve => setTimeout(resolve, delayMs));
-        }
-      }
-
-      console.log(`✅ Collection round completed:`);
-      console.log(`   - Wallets: ${addresses.length}`);
-      console.log(`   - Transactions processed: ${totalProcessed}`);
-      console.log(`   - New trades: ${totalTrades}`);
-      console.log(`   - Skipped (duplicates/non-swaps): ${totalSkipped}`);
-      console.log(`   - Errors: ${totalErrors}`);
-    } catch (error: any) {
-      console.error(`❌ Error in collectOnce:`, error.message);
-    }
+    console.warn('⚠️  Automatic collector is DISABLED. We use webhook for real-time notifications.');
+    console.warn('   This saves API credits and is more efficient.');
+    console.warn('   For manual refresh, use:');
+    console.warn('   - Backfill: pnpm --filter backend collector:backfill WALLET_ADDRESS [LIMIT]');
+    console.warn('   - Process all: pnpm --filter backend collector:process-all');
+    console.warn('   - Or use the API endpoint: POST /api/smart-wallets/backfill');
+    return;
   }
 
   /**
@@ -610,7 +532,7 @@ export class SolanaCollectorService {
       console.log(`   ✅ Wallet found in DB: ${wallet.id}`);
 
       // Získej všechny existující signature z DB pro kontrolu duplikátů a zastavení paginace
-      // Tato logika funguje pro manual refresh i automatický refresh:
+      // POZNÁMKA: Automatický refresh je vypnutý - používáme webhook
       // - Načteme všechny nové trades (které ještě nejsou v DB)
       // - Zastavíme paginaci, když narazíme na první trade, který už je v DB
       // - Tím pádem nenačteme žádné starší trades než ty, které už máme
@@ -648,21 +570,22 @@ export class SolanaCollectorService {
       }
 
       // Robustní stránkování: projíždíme dozadu po stránkách a bereme jen swapové transakce
-      // UNIVERZÁLNÍ LOGIKA: Pro manual refresh i automatický refresh používáme stejnou logiku:
+      // POZNÁMKA: Automatický refresh je vypnutý - používáme webhook. Tato metoda se používá jen pro:
+      // - Manual refresh (backfill)
+      // - Webhook processing (když potřebujeme zpracovat konkrétní transakci)
       // - Načteme všechny nové trades (které ještě nejsou v DB)
       // - Zastavíme paginaci, když narazíme na první trade, který už je v DB
-      // - Tím pádem nenačteme žádné starší trades než ty, které už máme
       const pageSize = Math.min(Math.max(limit ?? DEFAULT_HELIUS_PAGE_SIZE, 20), 200);
       
       let maxPages: number;
       if (ignoreLastTradeTimestamp || !limit) {
-        // Manual refresh nebo automatický refresh bez limitu: načteme všechny swapy (bez limitu na počet stránek)
+        // Manual refresh bez limitu: načteme všechny swapy (bez limitu na počet stránek)
         // Zastavíme, když narazíme na trade, který už je v DB
         maxPages = 9999; // Velké číslo, aby se načetly všechny nové swapy
         console.log(`   📡 Will fetch all new swaps (no limit on pages, will stop when hitting existing trade)`);
       } else {
-        // Automatický refresh s limitem: použijeme limit (pro rychlejší skenování)
-      const defaultTotalTarget = pageSize * DEFAULT_HELIUS_MAX_PAGES;
+        // Manual refresh s limitem: použijeme limit (pro rychlejší skenování)
+        const defaultTotalTarget = pageSize * DEFAULT_HELIUS_MAX_PAGES;
         const requestedTotal = Math.max(limit, defaultTotalTarget);
         maxPages = Math.ceil(requestedTotal / pageSize);
         console.log(`   📡 Fetching with limit: ${pageSize} tx per page (max ${maxPages} pages ≈ ${pageSize * maxPages} tx)`);
@@ -693,8 +616,8 @@ export class SolanaCollectorService {
         inspectedTransactions.push(...pageTxs);
 
         for (const tx of pageTxs) {
-          // UNIVERZÁLNÍ LOGIKA: Zastav paginaci, když narazíme na jakýkoliv trade, který už je v DB
-          // Tato logika funguje pro manual refresh i automatický refresh:
+          // Zastav paginaci, když narazíme na jakýkoliv trade, který už je v DB
+          // POZNÁMKA: Automatický refresh je vypnutý - používáme webhook
           // - Helius vrací transakce od nejnovějších k nejstarším
           // - Nejdřív načteme všechny nové trades (které ještě nejsou v DB) → ty se uloží
           // - Pak narazíme na trade, který už je v DB (duplikát) → zastavíme paginaci
@@ -818,9 +741,9 @@ export class SolanaCollectorService {
       console.log(`      - By type: ${Array.from(typeBreakdown.entries()).map(([type, count]) => `${type}: ${count}`).join(', ')}`);
 
       // Filtrování podle lastTradeTimestamp
+      // POZNÁMKA: Automatický refresh je vypnutý - používáme webhook
       // Pro manual refresh bez limitu: načteme všechny nové swapy od posledního trade (filtrujeme podle timestampu i duplikátů)
       // Pro manual refresh s limitem: načteme swapy podle limitu (filtrujeme jen duplikáty)
-      // Pro automatický refresh: filtrujeme jen novější než lastTradeTimestamp
       let newTransactions: any[];
       
       if (ignoreLastTradeTimestamp) {
@@ -868,7 +791,7 @@ export class SolanaCollectorService {
         newTransactions = swapTransactions.filter(tx => !existingSignatures.has(tx.signature));
         console.log(`   ⚠️  No lastTradeTimestamp - taking ALL ${newTransactions.length} swaps (${swapTransactions.length - newTransactions.length} duplicates skipped)`);
       } else {
-        // Máme poslední trade a NENÍ to manual refresh - filtrujeme podle signature a timestampu
+        // Máme poslední trade - filtrujeme podle signature a timestampu (jen novější trades)
         newTransactions = swapTransactions.filter(tx => {
           // Filtruj podle signature - nesmí být stejná jako poslední trade
           if (tx.signature === lastSignature) {

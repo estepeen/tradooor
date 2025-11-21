@@ -54,20 +54,15 @@ async function main() {
 
   try {
     if (command === 'start') {
-      console.log('🚀 Starting Solana Collector...');
-      collector.start();
+      // ⚠️ AUTOMATICKÝ COLLECTOR JE VYPNUTÝ - používáme webhook!
+      console.warn('⚠️  Automatic collector is DISABLED. We use webhook for real-time notifications.');
+      console.warn('   This saves API credits and is more efficient.');
+      console.warn('   The start() method will only show this warning and exit.');
+      collector.start(); // This will just show warning and return
       
-      // Keep process running
-      process.on('SIGINT', async () => {
-        console.log('\n🛑 Shutting down collector...');
-        collector.stop();
-        process.exit(0);
-      });
-
-      // Keep alive
-      setInterval(() => {
-        // Heartbeat
-      }, 60000);
+      // Exit immediately - no need to keep process running
+      console.log('   Exiting...');
+      process.exit(0);
       
     } else if (command === 'test-tx') {
       // Test konkrétní transakce
@@ -142,6 +137,15 @@ async function main() {
         });
       }
     } else if (command === 'process-all') {
+      // ⚠️ VAROVÁNÍ: Tento command spotřebovává Helius API kredity!
+      console.warn('⚠️  WARNING: This command will consume Helius API credits!');
+      console.warn('   We recommend using webhook for real-time notifications instead.');
+      console.warn('   This is useful only for manual refresh or when webhook is not working.');
+      console.warn('   Press Ctrl+C within 5 seconds to cancel...');
+      
+      // Wait 5 seconds before proceeding
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
       // Process all wallets once (check for new trades)
       console.log(`🔄 Processing all wallets to check for new trades...`);
       
