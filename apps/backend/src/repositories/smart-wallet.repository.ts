@@ -92,6 +92,18 @@ export class SmartWalletRepository {
         .select('walletId, tokenId, side, amountToken, amountBase, priceBasePerToken, timestamp, meta')
         .in('walletId', walletIds);
 
+      // DEBUG: Log which wallets have trades
+      if (allTrades) {
+        const walletsWithTrades = new Set(allTrades.map((t: any) => t.walletId));
+        const walletsWithoutTrades = walletIds.filter(id => !walletsWithTrades.has(id));
+        if (walletsWithoutTrades.length > 0) {
+          console.log(`   ⚠️  [Repository] Wallets without trades: ${walletsWithoutTrades.map(id => {
+            const wallet = wallets.find((w: any) => w.id === id);
+            return wallet?.address || id;
+          }).join(', ')}`);
+        }
+      }
+
       if (!allTradesError && allTrades) {
         // Calculate closed positions and PnL for each wallet
         const walletPnLMap = new Map<string, { pnlUsd: number; pnlPercent: number }>();
@@ -323,20 +335,27 @@ export class SmartWalletRepository {
         // Add recentPnl30dUsd and recentPnl30dPercent to each wallet
         wallets.forEach((wallet: any) => {
           const pnl = walletPnLMap.get(wallet.id);
+          // DEBUG: Log specific wallet for debugging
+          const isDebugWallet = wallet.address === 'EHg5YkU2SZBTvuT87rUsvxArGp3HLeye1fXaSDfuMyaf';
+          
           if (pnl) {
             wallet.recentPnl30dUsd = pnl.pnlUsd;
             wallet.recentPnl30dPercent = pnl.pnlPercent;
             // DEBUG: Log wallets with PnL
-            if (pnl.pnlUsd !== 0 || pnl.pnlPercent !== 0) {
+            if (pnl.pnlUsd !== 0 || pnl.pnlPercent !== 0 || isDebugWallet) {
               console.log(`   ✅ [Repository] Wallet ${wallet.address}: PnL set to ${pnl.pnlUsd.toFixed(2)} USD (${pnl.pnlPercent.toFixed(2)}%)`);
             }
           } else {
             wallet.recentPnl30dUsd = 0;
             wallet.recentPnl30dPercent = 0;
-            // DEBUG: Log wallets without PnL (but only if they have trades)
+            // DEBUG: Log wallets without PnL (but only if they have trades or is debug wallet)
             const hasTrades = tradesByWallet.has(wallet.id);
-            if (hasTrades) {
-              console.log(`   ⚠️  [Repository] Wallet ${wallet.address}: No PnL calculated (has ${tradesByWallet.get(wallet.id)?.length || 0} trades, but no closed positions in last 30 days)`);
+            if (hasTrades || isDebugWallet) {
+              const tradeCount = tradesByWallet.get(wallet.id)?.length || 0;
+              console.log(`   ⚠️  [Repository] Wallet ${wallet.address}: No PnL calculated (has ${tradeCount} trades, but no closed positions in last 30 days)`);
+              if (isDebugWallet) {
+                console.log(`   🔍 [Repository] DEBUG: Wallet ${wallet.address} (${wallet.id}) - in walletIds: ${walletIds.includes(wallet.id)}, in tradesByWallet: ${tradesByWallet.has(wallet.id)}, in walletPnLMap: ${walletPnLMap.has(wallet.id)}`);
+              }
             }
           }
         });
