@@ -127,7 +127,12 @@ export class SmartWalletRepository {
         for (const [walletId, walletTrades] of tradesByWallet.entries()) {
           // DEBUG: Log wallet being processed
           const walletAddress = wallets.find((w: any) => w.id === walletId)?.address || 'unknown';
-          console.log(`   🔍 [Repository] Processing wallet ${walletAddress} (${walletId}): ${walletTrades.length} trades`);
+          const isDebugWallet = walletAddress === 'EHg5YkU2SZBTvuT87rUsvxArGp3HLeye1fXaSDfuMyaf';
+          if (isDebugWallet) {
+            console.log(`   🔍 [Repository] DEBUG: Processing wallet ${walletAddress} (${walletId}): ${walletTrades.length} trades`);
+          } else {
+            console.log(`   🔍 [Repository] Processing wallet ${walletAddress} (${walletId}): ${walletTrades.length} trades`);
+          }
           
           // Calculate positions from trades (same as portfolio endpoint)
           const positionMap = new Map<string, {
@@ -272,7 +277,14 @@ export class SmartWalletRepository {
           });
           
           // DEBUG: Log closed positions calculation
-          if (walletId && recentClosedPositions.length > 0) {
+          if (isDebugWallet) {
+            console.log(`   📊 [Repository] DEBUG: Wallet ${walletAddress} (${walletId}): Found ${closedPositions.length} total closed positions, ${recentClosedPositions.length} in last 30 days`);
+            console.log(`   📊 [Repository] DEBUG: Closed positions details:`);
+            closedPositions.forEach((p, idx) => {
+              const isRecent = p.lastSellTimestamp && new Date(p.lastSellTimestamp) >= thirtyDaysAgo;
+              console.log(`      ${idx + 1}. tokenId=${p.tokenId}, balance=${p.normalizedBalance}, buyCount=${p.buyCount}, sellCount=${p.sellCount}, holdTime=${p.holdTimeMinutes}, lastSell=${p.lastSellTimestamp}, isRecent=${isRecent}`);
+            });
+          } else if (walletId && recentClosedPositions.length > 0) {
             console.log(`   📊 [Repository] Wallet ${walletId}: Found ${closedPositions.length} total closed positions, ${recentClosedPositions.length} in last 30 days`);
           }
           
