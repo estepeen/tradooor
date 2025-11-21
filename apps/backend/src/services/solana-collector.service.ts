@@ -1179,12 +1179,19 @@ export class SolanaCollectorService {
           .filter(t => t.tokenId === token.id)
           .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()); // Seřaď chronologicky
         
+        // Zkontroluj, jestli je tento trade chronologicky první pro daný token
+        const isFirstTradeForToken = tokenTrades.length === 0 || 
+          (tokenTrades.length === 1 && tokenTrades[0].txSignature === swap.txSignature) ||
+          (tokenTrades.length > 0 && tokenTrades[0].txSignature === swap.txSignature);
+        
         // Vypočti aktuální pozici před tímto trade
         let balanceBefore = 0;
+        let hasPreviousTrades = false;
         for (const prevTrade of tokenTrades) {
           if (prevTrade.txSignature === swap.txSignature) {
             break; // Zastav před aktuálním trade
           }
+          hasPreviousTrades = true;
           if (prevTrade.side === 'buy' || prevTrade.side === 'add') {
             balanceBefore += Number(prevTrade.amountToken);
           } else if (prevTrade.side === 'sell' || prevTrade.side === 'remove') {
@@ -1197,10 +1204,16 @@ export class SolanaCollectorService {
           ? balanceBefore + swap.amountToken 
           : balanceBefore - swap.amountToken;
 
+        // Normalize balance for floating-point comparison
+        const normalizedBalanceBefore = Math.abs(balanceBefore) < 0.000001 ? 0 : balanceBefore;
+        const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
+
         // Urči typ trade na základě balance před a po
+        // DŮLEŽITÉ: První nákup (balance z 0 na x) je VŽDY BUY!
         let tradeType: 'buy' | 'sell' | 'add' | 'remove' = swap.side;
         if (swap.side === 'buy') {
-          if (balanceBefore === 0) {
+          // Pokud je to první trade pro token nebo balanceBefore je 0, je to BUY
+          if (isFirstTradeForToken || !hasPreviousTrades || normalizedBalanceBefore === 0) {
             // První nákup - BUY
             tradeType = 'buy';
           } else {
@@ -1208,16 +1221,28 @@ export class SolanaCollectorService {
             tradeType = 'add';
           }
         } else if (swap.side === 'sell') {
-          if (balanceAfter === 0) {
-            // Finální prodej - SELL
+          if (normalizedBalanceAfter === 0 || normalizedBalanceAfter < 0) {
+            // Finální prodej - SELL (balance je 0 nebo negativní kvůli floating-point chybám)
             tradeType = 'sell';
-          } else if (balanceAfter > 0) {
+          } else if (normalizedBalanceAfter > 0) {
             // Částečný prodej - REM
             tradeType = 'remove';
           } else {
             // Edge case: prodáno více než bylo (nemělo by se stát, ale pro jistotu)
             tradeType = 'sell';
           }
+        }
+
+        // Debug logging for trade type determination
+        if (swap.tokenMint && (swap.tokenMint.includes('PorkAI') || swap.tokenMint.includes('pork'))) {
+          console.log(`   🔍 Trade type determination for ${swap.tokenMint.substring(0, 16)}...:`);
+          console.log(`      - swap.side: ${swap.side}`);
+          console.log(`      - isFirstTradeForToken: ${isFirstTradeForToken}`);
+          console.log(`      - hasPreviousTrades: ${hasPreviousTrades}`);
+          console.log(`      - balanceBefore: ${balanceBefore.toFixed(6)} (normalized: ${normalizedBalanceBefore})`);
+          console.log(`      - balanceAfter: ${balanceAfter.toFixed(6)} (normalized: ${normalizedBalanceAfter})`);
+          console.log(`      - tradeType: ${tradeType}`);
+          console.log(`      - amountToken: ${swap.amountToken.toFixed(6)}`);
         }
 
         let currentPosition = balanceBefore;
@@ -1716,12 +1741,19 @@ export class SolanaCollectorService {
         .filter(t => t.tokenId === token.id)
         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()); // Seřaď chronologicky
       
+      // Zkontroluj, jestli je tento trade chronologicky první pro daný token
+      const isFirstTradeForToken = tokenTrades.length === 0 || 
+        (tokenTrades.length === 1 && tokenTrades[0].txSignature === signature) ||
+        (tokenTrades.length > 0 && tokenTrades[0].txSignature === signature);
+      
       // Vypočti aktuální pozici před tímto trade
       let balanceBefore = 0;
+      let hasPreviousTrades = false;
       for (const prevTrade of tokenTrades) {
         if (prevTrade.txSignature === signature) {
           break; // Zastav před aktuálním trade
         }
+        hasPreviousTrades = true;
         if (prevTrade.side === 'buy' || prevTrade.side === 'add') {
           balanceBefore += Number(prevTrade.amountToken);
         } else if (prevTrade.side === 'sell' || prevTrade.side === 'remove') {
@@ -1734,10 +1766,16 @@ export class SolanaCollectorService {
         ? balanceBefore + swapData.amountToken 
         : balanceBefore - swapData.amountToken;
 
+      // Normalize balance for floating-point comparison
+      const normalizedBalanceBefore = Math.abs(balanceBefore) < 0.000001 ? 0 : balanceBefore;
+      const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
+
       // Urči typ trade na základě balance před a po
+      // DŮLEŽITÉ: První nákup (balance z 0 na x) je VŽDY BUY!
       let tradeType: 'buy' | 'sell' | 'add' | 'remove' = swapData.side;
       if (swapData.side === 'buy') {
-        if (balanceBefore === 0) {
+        // Pokud je to první trade pro token nebo balanceBefore je 0, je to BUY
+        if (isFirstTradeForToken || !hasPreviousTrades || normalizedBalanceBefore === 0) {
           // První nákup - BUY
           tradeType = 'buy';
         } else {
@@ -1745,16 +1783,28 @@ export class SolanaCollectorService {
           tradeType = 'add';
         }
       } else if (swapData.side === 'sell') {
-        if (balanceAfter === 0) {
-          // Finální prodej - SELL
+        if (normalizedBalanceAfter === 0 || normalizedBalanceAfter < 0) {
+          // Finální prodej - SELL (balance je 0 nebo negativní kvůli floating-point chybám)
           tradeType = 'sell';
-        } else if (balanceAfter > 0) {
+        } else if (normalizedBalanceAfter > 0) {
           // Částečný prodej - REM
           tradeType = 'remove';
         } else {
           // Edge case: prodáno více než bylo (nemělo by se stát, ale pro jistotu)
           tradeType = 'sell';
         }
+      }
+
+      // Debug logging for trade type determination
+      if (swapData.tokenMint && (swapData.tokenMint.includes('PorkAI') || swapData.tokenMint.includes('pork'))) {
+        console.log(`   🔍 Trade type determination (webhook) for ${swapData.tokenMint.substring(0, 16)}...:`);
+        console.log(`      - swap.side: ${swapData.side}`);
+        console.log(`      - isFirstTradeForToken: ${isFirstTradeForToken}`);
+        console.log(`      - hasPreviousTrades: ${hasPreviousTrades}`);
+        console.log(`      - balanceBefore: ${balanceBefore.toFixed(6)} (normalized: ${normalizedBalanceBefore})`);
+        console.log(`      - balanceAfter: ${balanceAfter.toFixed(6)} (normalized: ${normalizedBalanceAfter})`);
+        console.log(`      - tradeType: ${tradeType}`);
+        console.log(`      - amountToken: ${swapData.amountToken.toFixed(6)}`);
       }
 
       let currentPosition = balanceBefore;
@@ -2421,12 +2471,19 @@ export class SolanaCollectorService {
         .filter(t => t.tokenId === token.id)
         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
+      // Zkontroluj, jestli je tento trade chronologicky první pro daný token
+      const isFirstTradeForToken = tokenTrades.length === 0 || 
+        (tokenTrades.length === 1 && tokenTrades[0].txSignature === swap.txSignature) ||
+        (tokenTrades.length > 0 && tokenTrades[0].txSignature === swap.txSignature);
+
       // Vypočítej balance PŘED tímto trade
       let balanceBefore = 0;
+      let hasPreviousTrades = false;
       for (const prevTrade of tokenTrades) {
         if (prevTrade.txSignature === swap.txSignature) {
           break;
         }
+        hasPreviousTrades = true;
         if (prevTrade.side === 'buy' || prevTrade.side === 'add') {
           balanceBefore += Number(prevTrade.amountToken);
         } else if (prevTrade.side === 'sell' || prevTrade.side === 'remove') {
@@ -2439,9 +2496,15 @@ export class SolanaCollectorService {
         ? balanceBefore + swap.amountToken 
         : balanceBefore - swap.amountToken;
 
+      // Normalize balance for floating-point comparison
+      const normalizedBalanceBefore = Math.abs(balanceBefore) < 0.000001 ? 0 : balanceBefore;
+      const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
+
       // Urči typ trade na základě balance před a po
+      // DŮLEŽITÉ: První nákup (balance z 0 na x) je VŽDY BUY!
       if (swap.side === 'buy') {
-        if (balanceBefore === 0) {
+        // Pokud je to první trade pro token nebo balanceBefore je 0, je to BUY
+        if (isFirstTradeForToken || !hasPreviousTrades || normalizedBalanceBefore === 0) {
           // První nákup - BUY
           tradeType = 'buy';
         } else {
@@ -2449,16 +2512,28 @@ export class SolanaCollectorService {
           tradeType = 'add';
         }
       } else if (swap.side === 'sell') {
-        if (balanceAfter === 0) {
-          // Finální prodej - SELL
+        if (normalizedBalanceAfter === 0 || normalizedBalanceAfter < 0) {
+          // Finální prodej - SELL (balance je 0 nebo negativní kvůli floating-point chybám)
           tradeType = 'sell';
-        } else if (balanceAfter > 0) {
+        } else if (normalizedBalanceAfter > 0) {
           // Částečný prodej - REM
           tradeType = 'remove';
         } else {
           // Edge case: prodáno více než bylo (nemělo by se stát, ale pro jistotu)
           tradeType = 'sell';
         }
+      }
+
+      // Debug logging for trade type determination
+      if (swap.tokenMint && (swap.tokenMint.includes('PorkAI') || swap.tokenMint.includes('pork'))) {
+        console.log(`   🔍 Trade type determination (processWallet) for ${swap.tokenMint.substring(0, 16)}...:`);
+        console.log(`      - swap.side: ${swap.side}`);
+        console.log(`      - isFirstTradeForToken: ${isFirstTradeForToken}`);
+        console.log(`      - hasPreviousTrades: ${hasPreviousTrades}`);
+        console.log(`      - balanceBefore: ${balanceBefore.toFixed(6)} (normalized: ${normalizedBalanceBefore})`);
+        console.log(`      - balanceAfter: ${balanceAfter.toFixed(6)} (normalized: ${normalizedBalanceAfter})`);
+        console.log(`      - tradeType: ${tradeType}`);
+        console.log(`      - amountToken: ${swap.amountToken.toFixed(6)}`);
       }
 
       let currentPosition = balanceBefore;

@@ -700,15 +700,15 @@ export class HeliusClient {
       // Tato kontrola se aplikuje i na potvrzené swapy, protože Helius může označit i transfer jako SWAP
       
       // 1. Pokud máme jen token input nebo jen token output (ne oba), a žádný native/base transfer, je to transfer
-      if ((tokenIn && !tokenOut && nativeIn === 0 && nativeOut === 0) || 
-          (!tokenIn && tokenOut && nativeIn === 0 && nativeOut === 0)) {
+        if ((tokenIn && !tokenOut && nativeIn === 0 && nativeOut === 0) || 
+            (!tokenIn && tokenOut && nativeIn === 0 && nativeOut === 0)) {
         // Jen jeden token transfer bez native/base transferu - je to čistý transfer, ne swap
         console.log(`   ⚠️  Transfer (not swap) ${heliusTx.signature.substring(0, 8)}... - only one token transfer, no native/base transfer`);
-        return null;
-      }
-      
+          return null;
+        }
+        
       // 2. Pokud máme token input a output, ale jsou to stejné tokeny (a žádný base transfer), je to transfer
-      if (tokenIn && tokenOut && tokenIn.mint === tokenOut.mint && nativeIn === 0 && nativeOut === 0) {
+        if (tokenIn && tokenOut && tokenIn.mint === tokenOut.mint && nativeIn === 0 && nativeOut === 0) {
         console.log(`   ⚠️  Transfer (not swap) ${heliusTx.signature.substring(0, 8)}... - same token in and out, no base transfer`);
         return null;
       }

@@ -466,41 +466,91 @@ export default function WalletDetailPage() {
           </div>
         </div>
 
-        {/* PnL Periods Overview */}
-        {pnlData && pnlData.periods && (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-            {(['1d', '7d', '14d', '30d'] as const).map((period) => {
-              const data = pnlData.periods[period];
-              if (!data) return null;
-              return (
-                <div key={period} style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
-                  <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">PnL ({period})</div>
-                  <div className={`${
-                    data.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'
-                  }`}>
-                    {data.pnlUsd !== undefined && data.pnlUsd !== null
-                      ? (
-                        <>
-                          <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            ${formatNumber(Math.abs(data.pnlUsd), 2)}
-                          </span>
-                          {' '}
-                          <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            ({data.pnlPercent >= 0 ? '+' : ''}{formatPercent(data.pnlPercent / 100)})
-                          </span>
-                        </>
-                      )
-                      : `${data.pnlPercent >= 0 ? '+' : ''}${formatPercent(data.pnlPercent / 100)}`
-                    }
+        {/* PnL Periods Overview - Calculated from Closed Positions */}
+        {(() => {
+          // Calculate PnL from closed positions for each period
+          const calculatePnLForPeriod = (days: number) => {
+            const now = new Date();
+            const fromDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+            
+            // Filter closed positions by lastSellTimestamp within the period
+            const closedPositions = (finalPortfolio.closedPositions || [])
+              .filter((p: any) => {
+                // Must have valid holdTimeMinutes and buyCount/sellCount
+                const hasValidHoldTime = p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes >= 0;
+                const hasBuyAndSell = p.buyCount > 0 && p.sellCount > 0;
+                if (!hasValidHoldTime || !hasBuyAndSell) return false;
+                
+                // Filter by lastSellTimestamp (when position was closed)
+                if (!p.lastSellTimestamp) return false;
+                const sellDate = new Date(p.lastSellTimestamp);
+                return sellDate >= fromDate && sellDate <= now;
+              });
+            
+            // Sum up PnL from closed positions
+            const totalPnl = closedPositions.reduce((sum: number, p: any) => {
+              const pnl = p.closedPnl ?? 0;
+              return sum + (typeof pnl === 'number' ? pnl : 0);
+            }, 0);
+            
+            // Calculate total cost for percentage calculation
+            // Use closedPnl and closedPnlPercent to calculate totalCost for each position
+            const totalCost = closedPositions.reduce((sum: number, p: any) => {
+              const pnl = p.closedPnl ?? 0;
+              const pnlPercent = p.closedPnlPercent ?? 0;
+              
+              // Calculate cost from PnL and PnL percent: cost = pnl / (pnlPercent / 100)
+              if (pnlPercent !== 0 && typeof pnl === 'number' && typeof pnlPercent === 'number') {
+                const cost = pnl / (pnlPercent / 100);
+                return sum + Math.abs(cost);
+              }
+              return sum;
+            }, 0);
+            
+            // Calculate overall PnL percentage
+            const pnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+            
+            return {
+              pnlUsd: totalPnl,
+              pnlPercent,
+              trades: closedPositions.length,
+            };
+          };
+          
+          const periods = [
+            { key: '1d', days: 1 },
+            { key: '7d', days: 7 },
+            { key: '14d', days: 14 },
+            { key: '30d', days: 30 },
+          ];
+          
+          return (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              {periods.map(({ key, days }) => {
+                const data = calculatePnLForPeriod(days);
+                return (
+                  <div key={key} style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
+                    <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">PnL ({key})</div>
+                    <div className={`${
+                      data.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'
+                    }`}>
+                      <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                        ${formatNumber(Math.abs(data.pnlUsd), 2)}
+                      </span>
+                      {' '}
+                      <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                        ({data.pnlPercent >= 0 ? '+' : ''}{formatPercent(data.pnlPercent / 100)})
+                      </span>
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {data.trades} trades
+                    </div>
                   </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {data.trades} trades
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {/* Open & Closed Positions */}
         <div className="mb-10">

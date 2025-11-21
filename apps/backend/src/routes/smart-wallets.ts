@@ -1383,7 +1383,7 @@ router.get('/:id/portfolio', async (req, res) => {
           closedPnlUsd = position.totalSoldValue - position.totalInvested;
           closedPnlPercent = position.totalInvested > 0
             ? (closedPnlUsd / position.totalInvested) * 100
-            : null;
+          : null;
         }
 
         // Only include positions with balance > 0 or with trades

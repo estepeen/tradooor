@@ -116,31 +116,31 @@ router.get('/', async (req, res) => {
     );
 
     // Always ensure token metadata is available so UI can render tickers/names
-    const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
+      const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
     const tokensToEnrich = new Map<string, { token: any }>();
 
     for (const trade of tradesWithBaseCurrency as any[]) {
       const token = trade.token || trade.Token;
-      if (!token || !token.mintAddress) continue;
+        if (!token || !token.mintAddress) continue;
 
-      const symbol = (token.symbol || '').trim();
-      const name = (token.name || '').trim();
+        const symbol = (token.symbol || '').trim();
+        const name = (token.name || '').trim();
       const looksLikeAddress = symbol.length > 15 && base58Regex.test(symbol);
       const looksLikeTruncated = symbol.includes('...');
 
-      if (!symbol && !name) {
+        if (!symbol && !name) {
         tokensToEnrich.set(token.mintAddress, { token });
-      } else if (looksLikeAddress || looksLikeTruncated) {
+        } else if (looksLikeAddress || looksLikeTruncated) {
         tokensToEnrich.set(token.mintAddress, { token });
+        }
       }
-    }
 
-    if (tokensToEnrich.size > 0) {
+      if (tokensToEnrich.size > 0) {
       console.log(`   🔍 Enriching metadata for ${tokensToEnrich.size} token(s) used in trades...`);
-      try {
-        const metadataMap = await tokenMetadataBatchService.getTokenMetadataBatch(
-          Array.from(tokensToEnrich.keys())
-        );
+        try {
+          const metadataMap = await tokenMetadataBatchService.getTokenMetadataBatch(
+            Array.from(tokensToEnrich.keys())
+          );
 
         await Promise.all(
           Array.from(tokensToEnrich.entries()).map(async ([mintAddress, { token }]) => {
@@ -176,7 +176,7 @@ router.get('/', async (req, res) => {
         );
 
         console.log(`   ✅ Token metadata enrichment completed (${metadataMap.size} token(s) updated)`);
-      } catch (e: any) {
+        } catch (e: any) {
         console.warn('⚠️  Failed to enrich token metadata for trades:', e?.message || e);
       }
     }

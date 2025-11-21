@@ -1,4 +1,5 @@
 import { supabase, TABLES, generateId } from '../lib/supabase.js';
+import { BinancePriceService } from '../services/binance-price.service.js';
 
 export class SmartWalletRepository {
   async findAll(params?: {
@@ -74,42 +75,234 @@ export class SmartWalletRepository {
         });
       }
 
-      // Calculate recent PnL in USD (last 30 days) for each wallet
+      // Calculate recent PnL in USD (last 30 days) from Closed Positions for each wallet
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       
-      const { data: recentTrades, error: recentTradesError } = await supabase
+      // Get all trades for all wallets (needed to calculate closed positions)
+      const { data: allTrades, error: allTradesError } = await supabase
         .from(TABLES.TRADE)
-        .select('walletId, side, valueUsd, pnlUsd, timestamp')
-        .in('walletId', walletIds)
-        .gte('timestamp', thirtyDaysAgo.toISOString());
+        .select('walletId, tokenId, side, amountToken, amountBase, priceBasePerToken, timestamp, meta')
+        .in('walletId', walletIds);
 
-      if (!recentTradesError && recentTrades) {
-        // Calculate PnL in USD for each wallet
-        const walletPnLMap = new Map<string, { buyValue: number; sellValue: number }>();
+      if (!allTradesError && allTrades) {
+        // Calculate closed positions and PnL for each wallet
+        const walletPnLMap = new Map<string, { pnlUsd: number; pnlPercent: number }>();
         
-        for (const trade of recentTrades) {
-          if (!walletPnLMap.has(trade.walletId)) {
-            walletPnLMap.set(trade.walletId, { buyValue: 0, sellValue: 0 });
+        // Group trades by wallet
+        const tradesByWallet = new Map<string, typeof allTrades>();
+        for (const trade of allTrades) {
+          if (!tradesByWallet.has(trade.walletId)) {
+            tradesByWallet.set(trade.walletId, []);
+          }
+          tradesByWallet.get(trade.walletId)!.push(trade);
+        }
+        
+        // Get current SOL price for USD conversion (once for all wallets)
+        const binancePriceService = new BinancePriceService();
+        const currentSolPrice = await binancePriceService.getCurrentSolPrice().catch(() => 150); // Fallback to $150 if API fails
+        
+        // Calculate closed positions for each wallet
+        for (const [walletId, walletTrades] of tradesByWallet.entries()) {
+          // Calculate positions from trades (same as portfolio endpoint)
+          const positionMap = new Map<string, {
+            tokenId: string;
+            totalBought: number;
+            totalSold: number;
+            balance: number;
+            totalInvested: number; // For backward compatibility (USD)
+            totalSoldValue: number; // For backward compatibility (USD)
+            totalCostBase: number;
+            totalProceedsBase: number;
+            buyCount: number;
+            sellCount: number;
+            firstBuyTimestamp: Date | null;
+            lastSellTimestamp: Date | null;
+            baseToken: string;
+          }>();
+          
+          // Get valueUsd for trades (needed for totalInvested and totalSoldValue)
+          const tradeIds = walletTrades.map(t => (t as any).id).filter(Boolean);
+          let valueUsdMap = new Map<string, number>();
+          if (tradeIds.length > 0) {
+            const { data: tradesWithValue } = await supabase
+              .from(TABLES.TRADE)
+              .select('id, valueUsd, side')
+              .in('id', tradeIds);
+            
+            if (tradesWithValue) {
+              for (const t of tradesWithValue) {
+                valueUsdMap.set(t.id, Number(t.valueUsd || 0));
+              }
+            }
           }
           
-          const pnl = walletPnLMap.get(trade.walletId)!;
-          const valueUsd = Number(trade.valueUsd || 0);
+          // Sort trades chronologically
+          const sortedTrades = [...walletTrades].sort((a, b) => 
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+          );
           
-          if (trade.side === 'buy') {
-            pnl.buyValue += valueUsd;
-          } else if (trade.side === 'sell') {
-            pnl.sellValue += valueUsd;
+          for (const trade of sortedTrades) {
+            const tokenId = trade.tokenId;
+            const amount = Number(trade.amountToken || 0);
+            const amountBase = Number(trade.amountBase || 0);
+            const baseToken = (trade.meta as any)?.baseToken || 'SOL';
+            const tradeTimestamp = new Date(trade.timestamp);
+            const valueUsd = valueUsdMap.get((trade as any).id) || 0;
+            const price = Number(trade.priceBasePerToken || 0);
+            const value = amount * price; // Fallback if valueUsd is not available
+            
+            if (!positionMap.has(tokenId)) {
+              positionMap.set(tokenId, {
+                tokenId,
+                totalBought: 0,
+                totalSold: 0,
+                balance: 0,
+                totalInvested: 0,
+                totalSoldValue: 0,
+                totalCostBase: 0,
+                totalProceedsBase: 0,
+                buyCount: 0,
+                sellCount: 0,
+                firstBuyTimestamp: null,
+                lastSellTimestamp: null,
+                baseToken,
+              });
+            }
+            
+            const position = positionMap.get(tokenId)!;
+            
+            if (trade.side === 'buy' || trade.side === 'add') {
+              position.totalBought += amount;
+              position.balance += amount;
+              position.totalCostBase += amountBase;
+              position.totalInvested += valueUsd || value;
+              position.buyCount++;
+              if (!position.firstBuyTimestamp || tradeTimestamp < position.firstBuyTimestamp) {
+                position.firstBuyTimestamp = tradeTimestamp;
+              }
+            } else if (trade.side === 'sell' || trade.side === 'remove') {
+              position.totalSold += amount;
+              position.balance -= amount;
+              position.totalProceedsBase += amountBase;
+              position.totalSoldValue += valueUsd || value;
+              position.sellCount++;
+              if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
+                position.lastSellTimestamp = tradeTimestamp;
+              }
+            }
           }
+          
+          // Calculate closed positions with holdTimeMinutes (same as portfolio endpoint)
+          const closedPositions = Array.from(positionMap.values())
+            .map(p => {
+              // Treat small negative balance (rounding errors) as 0
+              const normalizedBalance = p.balance < 0 && Math.abs(p.balance) < 0.0001 ? 0 : p.balance;
+              
+              // Calculate hold time for closed positions (from first BUY to last SELL)
+              let holdTimeMinutes: number | null = null;
+              if (p.firstBuyTimestamp && p.lastSellTimestamp && normalizedBalance <= 0) {
+                const holdTimeMs = p.lastSellTimestamp.getTime() - p.firstBuyTimestamp.getTime();
+                holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
+                // Allow 0 minutes (same timestamp) - it's still a valid closed position
+                if (holdTimeMinutes < 0) {
+                  holdTimeMinutes = null; // Invalid if SELL is before BUY
+                }
+              }
+              
+              return {
+                ...p,
+                normalizedBalance,
+                holdTimeMinutes,
+              };
+            })
+            .filter(p => {
+              // Same filters as portfolio endpoint
+              if (p.normalizedBalance > 0) return false;
+              if (p.buyCount === 0) return false;
+              if (p.sellCount === 0) return false;
+              if (!p.firstBuyTimestamp || !p.lastSellTimestamp) return false;
+              if (p.holdTimeMinutes === null || p.holdTimeMinutes < 0) return false;
+              // Must have some PnL data
+              if (!p.totalCostBase && !p.totalProceedsBase) return false;
+              return true;
+            });
+          
+          // Filter closed positions by lastSellTimestamp (last 30 days)
+          const recentClosedPositions = closedPositions.filter(p => {
+            if (!p.lastSellTimestamp) return false;
+            const sellDate = new Date(p.lastSellTimestamp);
+            return sellDate >= thirtyDaysAgo && sellDate <= new Date();
+          });
+          
+          // Calculate total PnL from closed positions (same logic as portfolio endpoint)
+          let totalPnlUsd = 0;
+          let totalClosedPnlBase = 0;
+          let totalCostBase = 0;
+          
+          for (const position of recentClosedPositions) {
+            let closedPnlUsd = 0;
+            let closedPnlBase: number | null = null;
+            let closedPnlPercent: number | null = null;
+            
+            // Calculate PnL in base currency (same as portfolio endpoint)
+            if (position.totalProceedsBase > 0 && position.totalCostBase > 0) {
+              closedPnlBase = position.totalProceedsBase - position.totalCostBase;
+              
+              // Convert to USD using current SOL price (same as portfolio endpoint)
+              if (currentSolPrice) {
+                if (position.baseToken === 'SOL') {
+                  closedPnlUsd = closedPnlBase * currentSolPrice;
+                } else if (position.baseToken === 'USDC' || position.baseToken === 'USDT') {
+                  closedPnlUsd = closedPnlBase; // 1:1 with USD
+                } else {
+                  // Fallback: use SOL price
+                  closedPnlUsd = closedPnlBase * currentSolPrice;
+                }
+              }
+              
+              // Calculate percentage
+              closedPnlPercent = position.totalCostBase > 0
+                ? (closedPnlBase / position.totalCostBase) * 100
+                : null;
+            } else if (position.totalSoldValue > 0) {
+              // Fallback to old calculation if we don't have base currency data (same as portfolio endpoint)
+              closedPnlUsd = position.totalSoldValue - position.totalInvested;
+              closedPnlPercent = position.totalInvested > 0
+                ? (closedPnlUsd / position.totalInvested) * 100
+                : null;
+            }
+            
+            if (closedPnlUsd !== 0 || closedPnlBase !== null) {
+              totalPnlUsd += closedPnlUsd;
+              if (closedPnlBase !== null) {
+                totalClosedPnlBase += closedPnlBase;
+                totalCostBase += position.totalCostBase;
+              }
+            }
+          }
+          
+          // Calculate percentage from base currency (same as portfolio endpoint)
+          // closedPnlPercent = (closedPnlBase / totalCostBase) * 100
+          const pnlPercent = totalCostBase > 0 
+            ? (totalClosedPnlBase / totalCostBase) * 100 
+            : 0;
+          
+          walletPnLMap.set(walletId, {
+            pnlUsd: totalPnlUsd,
+            pnlPercent,
+          });
         }
 
-        // Add recentPnl30dUsd to each wallet
+        // Add recentPnl30dUsd and recentPnl30dPercent to each wallet
         wallets.forEach((wallet: any) => {
           const pnl = walletPnLMap.get(wallet.id);
           if (pnl) {
-            wallet.recentPnl30dUsd = pnl.sellValue - pnl.buyValue;
+            wallet.recentPnl30dUsd = pnl.pnlUsd;
+            wallet.recentPnl30dPercent = pnl.pnlPercent;
           } else {
             wallet.recentPnl30dUsd = 0;
+            wallet.recentPnl30dPercent = 0;
           }
         });
       }
