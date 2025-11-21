@@ -485,9 +485,9 @@ export class SolanaCollectorService {
       try {
         return await this.processWalletWithHelius(address, limit, ignoreLastTradeTimestamp);
       } catch (error: any) {
-        // Pokud je to 429 rate limit, propaguj chybu nahoru (NEPOUŽÍVÁME RPC fallback!)
+        // If it's 429 rate limit, propagate error up (WE DON'T USE RPC fallback!)
         if (error instanceof HeliusRateLimitError) {
-          throw error; // Propaguj nahoru - hlavní loop to ošetří
+          throw error; // Propagate up - main loop will handle it
         }
         
         // If it's 401 (invalid API key), disable Helius for future calls
@@ -642,13 +642,13 @@ export class SolanaCollectorService {
             continue;
           }
 
-          // DŮLEŽITÉ: Zkusme nejdřív isWalletSwap (rychlé)
+          // IMPORTANT: Try isWalletSwap first (fast)
           let isSwap = isWalletSwap(tx, address);
-          let normalizedSwap: any = null; // Cache pro normalizeSwap výsledek
+          let normalizedSwap: any = null; // Cache for normalizeSwap result
           
-          // Pokud isWalletSwap vrátí false, ale transakce vypadá jako swap kandidát
-          // (má token transfers + native transfers a peněženka je účastník),
-          // zkusme zavolat normalizeSwap - pokud vrátí swap, považujme to za swap
+          // If isWalletSwap returns false, but transaction looks like swap candidate
+          // (has token transfers + native transfers and wallet is participant),
+          // try calling normalizeSwap - if it returns swap, consider it a swap
           if (!isSwap) {
             const tokenTransfers = tx.tokenTransfers ?? [];
             const nativeTransfers = tx.nativeTransfers ?? [];
@@ -747,11 +747,11 @@ export class SolanaCollectorService {
       let newTransactions: any[];
       
       if (ignoreLastTradeTimestamp) {
-        // Manual refresh: načteme všechny swapy a filtrujeme jen podle duplikátů (NE podle timestampu)
-        // Důvod: chceme načíst všechny nové swapy, které ještě nejsou v DB, bez ohledu na timestamp
+        // Manual refresh: load all swaps and filter only by duplicates (NOT by timestamp)
+        // Reason: we want to load all new swaps that aren't in DB yet, regardless of timestamp
         console.log(`   🔄 Manual refresh: filtering swaps by duplicates only (ignoring timestamp)...`);
         
-        // Zkontroluj všechny existující signature pro kontrolu duplikátů
+        // Check all existing signatures for duplicate check
           const allExistingTrades = await this.tradeRepo.findByWalletId(wallet.id, {
             page: 1,
             pageSize: 10000, // Get all trades for duplicate check
@@ -858,7 +858,7 @@ export class SolanaCollectorService {
 
       console.log(`   📊 Wallet ${address.substring(0, 8)}...: Found ${newTransactions.length} new swaps (from ${inspectedTransactions.length} total${lastTradeTimestamp !== undefined ? `, last trade: ${new Date(lastTradeTimestamp * 1000).toISOString()}` : ''})`);
 
-      // OPTIMALIZACE: Batch token info fetching
+      // OPTIMIZATION: Batch token info fetching
       // 1. Get all unique token mints from new swaps
       const uniqueTokenMints = new Set<string>();
       const swaps: Array<{ tx: any; swap: any }> = [];
@@ -1257,7 +1257,7 @@ export class SolanaCollectorService {
                 // If baseToken is USDC/USDT, pnlUsd = realizedPnlBase (1:1 with USD)
                 const baseToken = swap.baseToken || 'SOL';
                 if (baseToken === 'USDC' || baseToken === 'USDT') {
-                  pnlUsd = realizedPnlBase; // 1:1 s USD
+                  pnlUsd = realizedPnlBase; // 1:1 with USD
             } else {
                   pnlUsd = realizedPnlBase * currentSolPrice; // SOL → USD
                 }
@@ -1414,7 +1414,7 @@ export class SolanaCollectorService {
           console.log(`   ✅ Metrics recalculated successfully`);
         } catch (error: any) {
           console.error(`   ⚠️  Failed to recalculate metrics/closed lots: ${error.message}`);
-          // Nechceme, aby selhal celý proces kvůli chybě v metrikách
+          // We don't want entire process to fail due to metrics error
         }
       }
 
@@ -1469,7 +1469,7 @@ export class SolanaCollectorService {
 
       for (const sigInfo of signatures) {
         try {
-          // Zkontroluj, jestli už není v DB
+          // Check if it's not already in DB
           const existingTrade = await this.tradeRepo.findBySignature(sigInfo.signature);
           if (existingTrade) {
             duplicateCount++;
@@ -1519,7 +1519,7 @@ export class SolanaCollectorService {
           }
         } catch (error: any) {
           console.error(`   ⚠️  Failed to recalculate metrics: ${error.message}`);
-          // Nechceme, aby selhal celý proces kvůli chybě v metrikách
+          // We don't want entire process to fail due to metrics error
         }
       }
       
@@ -1642,39 +1642,39 @@ export class SolanaCollectorService {
             decimals: tokenDecimals,
           });
 
-      // Zajisti, aby tx_signature + wallet_id + token_id + side kombinace nebyla uložena dvakrát
-      // (ochrana proti duplicitám - už kontrolujeme podle signature, ale pro jistotu)
+      // Ensure tx_signature + wallet_id + token_id + side combination is not saved twice
+      // (duplicate protection - we already check by signature, but just in case)
       const existingTrade = await this.tradeRepo.findBySignature(signature);
       if (existingTrade) {
         console.log(`   ℹ️  Trade already exists in DB: ${signature.substring(0, 8)}...`);
-        return true; // Už existuje
+        return true; // Already exists
       }
 
-      // Vytvoř záznam v trades
+      // Create record in trades
       const timestamp = tx.blockTime 
         ? new Date(tx.blockTime * 1000)
         : new Date();
 
-      // Výpočet % změny pozice (kolik % tokenů přidal/odebral)
+      // Calculate % position change (how many % tokens added/removed)
       let positionChangePercent: number | undefined = undefined;
       
-      // Najdi všechny předchozí trady pro tento token od této walletky (před aktuálním trade)
+      // Find all previous trades for this token from this wallet (before current trade)
       const allTrades = await this.tradeRepo.findAllForMetrics(wallet.id);
       const tokenTrades = allTrades
         .filter(t => t.tokenId === token.id)
-        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()); // Seřaď chronologicky
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()); // Sort chronologically
       
-      // Zkontroluj, jestli je tento trade chronologicky první pro daný token
+      // Check if this trade is chronologically first for given token
       const isFirstTradeForToken = tokenTrades.length === 0 || 
         (tokenTrades.length === 1 && tokenTrades[0].txSignature === signature) ||
         (tokenTrades.length > 0 && tokenTrades[0].txSignature === signature);
       
-      // Vypočti aktuální pozici před tímto trade
+      // Calculate current position before this trade
       let balanceBefore = 0;
       let hasPreviousTrades = false;
       for (const prevTrade of tokenTrades) {
         if (prevTrade.txSignature === signature) {
-          break; // Zastav před aktuálním trade
+          break; // Stop before current trade
         }
         hasPreviousTrades = true;
         if (prevTrade.side === 'buy' || prevTrade.side === 'add') {
@@ -1684,7 +1684,7 @@ export class SolanaCollectorService {
         }
       }
 
-      // Vypočítej balance PO tomto trade
+      // Calculate balance AFTER this trade
       const balanceAfter = swapData.side === 'buy' 
         ? balanceBefore + swapData.amountToken 
         : balanceBefore - swapData.amountToken;
@@ -1693,8 +1693,8 @@ export class SolanaCollectorService {
       const normalizedBalanceBefore = Math.abs(balanceBefore) < 0.000001 ? 0 : balanceBefore;
       const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
 
-      // Urči typ trade na základě balance před a po
-      // DŮLEŽITÉ: První nákup (balance z 0 na x) je VŽDY BUY!
+      // Determine trade type based on balance before and after
+      // IMPORTANT: First purchase (balance from 0 to x) is ALWAYS BUY!
       let tradeType: 'buy' | 'sell' | 'add' | 'remove' = swapData.side;
       if (swapData.side === 'buy') {
         // Pokud je to první trade pro token nebo balanceBefore je 0, je to BUY
@@ -1707,13 +1707,13 @@ export class SolanaCollectorService {
         }
       } else if (swapData.side === 'sell') {
         if (normalizedBalanceAfter === 0 || normalizedBalanceAfter < 0) {
-          // Finální prodej - SELL (balance je 0 nebo negativní kvůli floating-point chybám)
-          tradeType = 'sell';
-        } else if (normalizedBalanceAfter > 0) {
-          // Částečný prodej - REM
+          // Final sale - SELL (balance is 0 or negative due to floating-point errors)
+            tradeType = 'sell';
+          } else if (normalizedBalanceAfter > 0) {
+            // Partial sale - REM
           tradeType = 'remove';
         } else {
-          // Edge case: prodáno více než bylo (nemělo by se stát, ale pro jistotu)
+          // Edge case: sold more than had (shouldn't happen, but just in case)
           tradeType = 'sell';
         }
       }
@@ -1732,9 +1732,9 @@ export class SolanaCollectorService {
 
       let currentPosition = balanceBefore;
       
-      // Vypočti % změnu pozice
-      // Omezení: pokud je currentPosition velmi malé (méně než 1% z amountToken),
-      // považujeme to za novou pozici (100%) nebo prodej celé pozice (-100%)
+      // Calculate % position change
+      // Limitation: if currentPosition is very small (less than 1% of amountToken),
+      // consider it new position (100%) or sale of entire position (-100%)
       const MIN_POSITION_THRESHOLD = swapData.amountToken * 0.01; // 1% z amountToken
       
       if (swapData.side === 'buy') {
@@ -1776,7 +1776,7 @@ export class SolanaCollectorService {
         }
       }
 
-      // Vypočítej priceUsd: priceBasePerToken * historická cena SOL z Binance
+      // Calculate priceUsd: priceBasePerToken * historical SOL price from Binance
       let priceUsd: number | null = null;
       try {
         const { BinancePriceService } = await import('./binance-price.service.js');
@@ -1803,29 +1803,29 @@ export class SolanaCollectorService {
         txSignature: signature,
         walletId: wallet.id,
         tokenId: token.id,
-        side: tradeType, // Použij určený typ (buy/add/remove/sell)
+        side: tradeType, // Use determined type (buy/add/remove/sell)
         amountToken: swapData.amountToken,
         amountBase: swapData.amountBase,
         priceBasePerToken: swapData.priceBasePerToken,
         timestamp,
-        dex: 'unknown', // Zatím "unknown" (DEX detekci doděláme později)
+        dex: 'unknown', // For now "unknown" (DEX detection will be added later)
         positionChangePercent,
         meta: {
           baseToken: swapData.baseToken || 'SOL',
-          priceUsd, // Ulož vypočítanou cenu v USD
+          priceUsd, // Save calculated price in USD
           balanceBefore,
           balanceAfter,
           slot: tx.slot,
           fee: tx.meta.fee,
-          baseToken: (swapData as any).baseToken || 'SOL', // Ulož baseToken do meta
+          baseToken: (swapData as any).baseToken || 'SOL', // Save baseToken to meta
         },
       });
 
       console.log(`   ✅ Trade saved successfully: ${createdTrade.id}`);
 
-      return true; // Trade uložen
+      return true; // Trade saved
     } catch (error: any) {
-      // Nechytáme chyby - radši log a continue
+      // Don't catch errors - prefer log and continue
       console.error(`❌ Error in processTransaction ${signature.substring(0, 8)}...:`, error.message);
       return false;
     }
@@ -1858,7 +1858,7 @@ export class SolanaCollectorService {
     const preBalances = meta.preBalances || [];
     const postBalances = meta.postBalances || [];
 
-    // --- 1) Najdi index walletky v accountKeys (kvůli SOL změně) ---
+    // --- 1) Find wallet index in accountKeys (for SOL change) ---
     let accountKeys: string[] = [];
     if (transaction.transaction?.message?.accountKeys) {
       accountKeys = transaction.transaction.message.accountKeys.map((key: any) => {
@@ -1885,7 +1885,7 @@ export class SolanaCollectorService {
       solDelta = (postBalances[walletIndex] - preBalances[walletIndex]) / 1e9; // lamports -> SOL
     }
 
-    // --- 2) Spočítej změny SPL tokenů pro tuhle walletku ---
+    // --- 2) Calculate SPL token changes for this wallet ---
     type TokenChange = { mint: string; delta: number };
 
     const tokenMap = new Map<string, { pre: number; post: number }>();
@@ -1894,7 +1894,7 @@ export class SolanaCollectorService {
     for (const b of preTokenBalances) {
       const mint = b.mint;
       const owner = b.owner;
-      if (owner !== walletAddress) continue; // trackujeme jen tokeny, které fakt patří té walletce
+      if (owner !== walletAddress) continue; // track only tokens that actually belong to this wallet
 
       const ui = b.uiTokenAmount;
       const pre =
@@ -1941,12 +1941,12 @@ export class SolanaCollectorService {
       }
     }
 
-    // žádná změna tokenu → nebude to swap tokenu
+    // no token change → won't be token swap
     if (tokenChanges.length === 0) {
       return null;
     }
 
-    // --- 3) Rozděl tokeny na base (USDC/USDT) a ostatní ---
+    // --- 3) Split tokens into base (USDC/USDT) and others ---
     const BASE_TOKEN_MINTS = new Set<string>([
       // USDC
       'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
@@ -1965,22 +1965,22 @@ export class SolanaCollectorService {
       }
     }
 
-    // Potřebujeme aspoň jeden „non-base“ token – čisté USDC/USDT pohyby nás nezajímají
+    // We need at least one "non-base" token – pure USDC/USDT movements don't interest us
     if (nonBaseTokenChanges.length === 0) {
       return null;
     }
 
-    // --- 4) Vyber hlavní token (největší absolutní změna mezi non-base tokeny) ---
+    // --- 4) Select main token (largest absolute change among non-base tokens) ---
     nonBaseTokenChanges.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
     const main = nonBaseTokenChanges[0];
     const tokenMint = main.mint;
     const tokenDelta = main.delta;
 
-    // --- 5) Najdi base změnu: nejprve SOL, pak případně USDC/USDT ---
+    // --- 5) Find base change: first SOL, then possibly USDC/USDT ---
     const EPS = 1e-6;
     let baseDelta = 0;
 
-    // 5a) Primárně SOL (native)
+    // 5a) Primarily SOL (native)
     if (Math.abs(solDelta) > EPS) {
       baseDelta = solDelta;
     }
@@ -1992,12 +1992,12 @@ export class SolanaCollectorService {
       baseDelta = baseTokenChanges[0].delta;
     }
 
-    // Pořád žádná rozumná base změna → nechceme to
+    // Still no reasonable base change → we don't want it
     if (Math.abs(baseDelta) <= EPS) {
       return null;
     }
 
-    // Token a base by se měly hýbat opačným směrem:
+    // Token and base should move in opposite directions:
     // - tokenDelta > 0 a baseDelta < 0 => BUY
     // - tokenDelta < 0 a baseDelta > 0 => SELL
     if (tokenDelta === 0 || baseDelta === 0) {
@@ -2074,8 +2074,8 @@ export class SolanaCollectorService {
               mint = info.mint;
               amount = parseFloat(info.tokenAmount?.uiAmountString || info.tokenAmount?.amount || '0');
             } else if (parsed.type === 'transfer') {
-              // Pro transfer musíme najít mint z account keys
-              // Zatím přeskočíme, protože nemáme mint
+              // For transfer we need to find mint from account keys
+              // Skip for now because we don't have mint
               continue;
             }
             
@@ -2087,7 +2087,7 @@ export class SolanaCollectorService {
                 mint,
                 from,
                 to,
-                amount: from === walletAddress ? -amount : amount, // Negativní pokud odchází z wallet
+                amount: from === walletAddress ? -amount : amount, // Negative if leaving wallet
               });
             }
           }
@@ -2099,7 +2099,7 @@ export class SolanaCollectorService {
     return null;
     }
 
-    // Najdi hlavní token transfer (největší změna)
+    // Find main token transfer (largest change)
     tokenTransfers.sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
     const mainTransfer = tokenTransfers[0];
     
@@ -2110,7 +2110,7 @@ export class SolanaCollectorService {
       'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
     ]);
 
-    // Pokud je hlavní transfer base token, použij další
+    // If main transfer is base token, use next one
     if (baseTokens.has(mainTransfer.mint)) {
       if (tokenTransfers.length < 2) {
         return null; // Potřebujeme alespoň 2 tokeny pro swap
@@ -2200,7 +2200,7 @@ export class SolanaCollectorService {
 
       for (const sigInfo of orderedSignatures) {
         try {
-          // Zkontroluj, jestli už není v DB
+          // Check if it's not already in DB
           const existingTrade = await this.tradeRepo.findBySignature(sigInfo.signature);
           if (existingTrade) {
             skipped++;
@@ -2216,7 +2216,7 @@ export class SolanaCollectorService {
           }
           processed++;
 
-          // Malý bezpečnostní delay mezi transakcemi
+          // Small safety delay between transactions
         await new Promise(resolve => setTimeout(resolve, 100));
         } catch (error: any) {
           console.error(`❌ Error processing transaction ${sigInfo.signature.substring(0, 8)}...:`, error.message);
@@ -2247,7 +2247,7 @@ export class SolanaCollectorService {
     try {
       const now = Date.now();
       
-      // Zkus použít cache, pokud je ještě platný
+      // Try to use cache if still valid
       if (this.jupiterTokenListCache && (now - this.jupiterTokenListCacheTime) < this.JUPITER_CACHE_TTL) {
         const token = this.jupiterTokenListCache.find(t => t.address === mintAddress);
         if (token) {
@@ -2260,14 +2260,14 @@ export class SolanaCollectorService {
         return null;
       }
 
-      // Načti seznam všech tokenů z Jupiter API
-      // Zkus různé endpointy
+      // Load list of all tokens from Jupiter API
+      // Try different endpoints
       let response = await fetch('https://token.jup.ag/all', {
         headers: { 'Accept': 'application/json' }
       });
       
       if (!response.ok) {
-        // Fallback na jiný endpoint
+        // Fallback to different endpoint
         response = await fetch('https://api.jup.ag/tokens/v1', {
           headers: { 'Accept': 'application/json' }
         });
@@ -2280,7 +2280,7 @@ export class SolanaCollectorService {
 
       let tokens = await response.json();
       
-      // Jupiter může vrátit objekt s tokens array nebo přímo array
+      // Jupiter may return object with tokens array or directly array
       if (tokens && !Array.isArray(tokens)) {
         tokens = (tokens as any).tokens || (tokens as any).data || [];
       }
@@ -2297,7 +2297,7 @@ export class SolanaCollectorService {
         decimals?: number;
       }>;
 
-      // Ulož do cache
+      // Save to cache
       this.jupiterTokenListCache = tokenList;
       this.jupiterTokenListCacheTime = now;
 
@@ -2337,7 +2337,7 @@ export class SolanaCollectorService {
         return { saved: false, reason: 'Wallet not found in DB' };
       }
 
-      // Zkontroluj, jestli už máme tento trade v DB
+      // Check if we already have this trade in DB
       const existing = await this.tradeRepo.findBySignature(tx.signature);
       if (existing) {
         return { saved: false, reason: 'Trade already exists' };
@@ -2349,14 +2349,14 @@ export class SolanaCollectorService {
         return { saved: false, reason: 'Failed to normalize swap' };
       }
 
-      // Získej nebo vytvoř token
+      // Get or create token
       const { TokenMetadataBatchService } = await import('./token-metadata-batch.service.js');
       const tokenMetadataBatchService = new TokenMetadataBatchService(
         this.heliusClient,
         this.tokenRepo
       );
 
-      // Získej token metadata
+      // Get token metadata
       const tokenMetadata = await tokenMetadataBatchService.getTokenMetadataBatch([swap.tokenMint]);
       const metadata = tokenMetadata.get(swap.tokenMint) || {};
 
@@ -2367,7 +2367,7 @@ export class SolanaCollectorService {
         decimals: metadata.decimals,
       });
 
-      // Převod hodnoty na USD pomocí ceny tokenu z Birdeye API
+      // Convert value to USD using token price from Birdeye API
       let valueUsd = 0;
       const { TokenPriceService } = await import('./token-price.service.js');
       const tokenPriceService = new TokenPriceService();
@@ -2376,7 +2376,7 @@ export class SolanaCollectorService {
       if (tokenPriceUsd !== null && tokenPriceUsd > 0) {
         valueUsd = swap.amountToken * tokenPriceUsd;
       } else {
-        // Fallback: použij SOL cenu
+        // Fallback: use SOL price
         valueUsd = await this.solPriceService.solToUsdAtDate(swap.amountBase, swap.timestamp);
       }
 
@@ -2385,7 +2385,7 @@ export class SolanaCollectorService {
         return { saved: false, reason: `Value ${valueUsd.toFixed(2)} USD below threshold $${MIN_NOTIONAL_USD}` };
       }
 
-      // Výpočet % změny pozice a určení typu trade (BUY/ADD/REM/SELL)
+      // Calculate % position change and determine trade type (BUY/ADD/REM/SELL)
       let positionChangePercent: number | undefined = undefined;
       let tradeType: 'buy' | 'sell' | 'add' | 'remove' = swap.side;
       
@@ -2394,12 +2394,12 @@ export class SolanaCollectorService {
         .filter(t => t.tokenId === token.id)
         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-      // Zkontroluj, jestli je tento trade chronologicky první pro daný token
+      // Check if this trade is chronologically first for given token
       const isFirstTradeForToken = tokenTrades.length === 0 || 
         (tokenTrades.length === 1 && tokenTrades[0].txSignature === swap.txSignature) ||
         (tokenTrades.length > 0 && tokenTrades[0].txSignature === swap.txSignature);
 
-      // Vypočítej balance PŘED tímto trade
+      // Calculate balance BEFORE this trade
       let balanceBefore = 0;
       let hasPreviousTrades = false;
       for (const prevTrade of tokenTrades) {
@@ -2414,7 +2414,7 @@ export class SolanaCollectorService {
         }
       }
 
-      // Vypočítej balance PO tomto trade
+      // Calculate balance AFTER this trade
       const balanceAfter = swap.side === 'buy' 
         ? balanceBefore + swap.amountToken 
         : balanceBefore - swap.amountToken;
@@ -2423,8 +2423,8 @@ export class SolanaCollectorService {
       const normalizedBalanceBefore = Math.abs(balanceBefore) < 0.000001 ? 0 : balanceBefore;
       const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
 
-      // Urči typ trade na základě balance před a po
-      // DŮLEŽITÉ: První nákup (balance z 0 na x) je VŽDY BUY!
+      // Determine trade type based on balance before and after
+      // IMPORTANT: First purchase (balance from 0 to x) is ALWAYS BUY!
       if (swap.side === 'buy') {
         // Pokud je to první trade pro token nebo balanceBefore je 0, je to BUY
         if (isFirstTradeForToken || !hasPreviousTrades || normalizedBalanceBefore === 0) {
@@ -2436,13 +2436,13 @@ export class SolanaCollectorService {
         }
       } else if (swap.side === 'sell') {
         if (normalizedBalanceAfter === 0 || normalizedBalanceAfter < 0) {
-          // Finální prodej - SELL (balance je 0 nebo negativní kvůli floating-point chybám)
-          tradeType = 'sell';
-        } else if (normalizedBalanceAfter > 0) {
-          // Částečný prodej - REM
+          // Final sale - SELL (balance is 0 or negative due to floating-point errors)
+            tradeType = 'sell';
+          } else if (normalizedBalanceAfter > 0) {
+            // Partial sale - REM
           tradeType = 'remove';
         } else {
-          // Edge case: prodáno více než bylo (nemělo by se stát, ale pro jistotu)
+          // Edge case: sold more than had (shouldn't happen, but just in case)
           tradeType = 'sell';
         }
       }
@@ -2492,7 +2492,7 @@ export class SolanaCollectorService {
         }
       }
 
-      // Výpočet PnL pro uzavřené pozice (sell)
+      // Calculate PnL for closed positions (sell)
       let pnlUsd: number | undefined = undefined;
       let pnlPercent: number | undefined = undefined;
 
@@ -2533,7 +2533,7 @@ export class SolanaCollectorService {
         }
       }
 
-      // Vypočítej priceUsd: priceBasePerToken * historická cena SOL z Binance
+      // Calculate priceUsd: priceBasePerToken * historical SOL price from Binance
       let priceUsd: number | null = null;
       try {
         const { BinancePriceService } = await import('./binance-price.service.js');
@@ -2544,22 +2544,22 @@ export class SolanaCollectorService {
         if (baseToken === 'SOL') {
           priceUsd = swap.priceBasePerToken * solPriceAtTimestamp;
         } else if (baseToken === 'USDC' || baseToken === 'USDT') {
-          // Pokud je base token USDC/USDT, cena je už v USD
-          priceUsd = swap.priceBasePerToken;
-        } else {
-          // Pro jiné base tokeny použij SOL cenu jako fallback
+          // If base token is USDC/USDT, price is already in USD
+            priceUsd = swap.priceBasePerToken;
+          } else {
+            // For other base tokens use SOL price as fallback
           priceUsd = swap.priceBasePerToken * solPriceAtTimestamp;
         }
       } catch (error: any) {
         console.warn(`⚠️  Failed to calculate priceUsd for trade ${swap.txSignature}: ${error.message}`);
       }
 
-      // Ulož trade s určeným typem
+      // Save trade with determined type
       await this.tradeRepo.create({
         txSignature: swap.txSignature,
         walletId: wallet.id,
         tokenId: token.id,
-        side: tradeType, // Použij určený typ (buy/add/remove/sell)
+        side: tradeType, // Use determined type (buy/add/remove/sell)
         amountToken: swap.amountToken,
         amountBase: swap.amountBase,
         priceBasePerToken: swap.priceBasePerToken,
@@ -2574,13 +2574,13 @@ export class SolanaCollectorService {
           heliusType: tx.type,
           heliusSource: tx.source,
           baseToken: swap.baseToken || 'SOL',
-          priceUsd, // Ulož vypočítanou cenu v USD
+          priceUsd, // Save calculated price in USD
           balanceBefore,
           balanceAfter,
         },
       });
 
-      // Automaticky přepočítej metriky po přidání nového trade
+      // Automatically recalculate metrics after adding new trade
       try {
         const { MetricsCalculatorService } = await import('./metrics-calculator.service.js');
         const { MetricsHistoryRepository } = await import('../repositories/metrics-history.repository.js');
