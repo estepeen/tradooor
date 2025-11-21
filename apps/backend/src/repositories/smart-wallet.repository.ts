@@ -8,7 +8,7 @@ export class SmartWalletRepository {
     minScore?: number;
     tags?: string[];
     search?: string;
-    sortBy?: 'score' | 'winRate' | 'recentPnl30dPercent';
+    sortBy?: 'score' | 'winRate' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address';
     sortOrder?: 'asc' | 'desc';
   }) {
     const page = params?.page ?? 1;
@@ -36,9 +36,15 @@ export class SmartWalletRepository {
     }
 
     // Apply sorting
+    // Note: lastTradeTimestamp and recentPnl30dUsd are calculated after DB query,
+    // so they need client-side sorting (handled in frontend)
     const sortBy = params?.sortBy ?? 'score';
     const sortOrder = params?.sortOrder ?? 'desc';
+    
+    // Only apply DB sorting for fields that exist in the database
+    if (sortBy !== 'lastTradeTimestamp' && sortBy !== 'recentPnl30dUsd') {
     query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+    }
 
     // Apply pagination
     query = query.range(from, to);
@@ -80,6 +86,7 @@ export class SmartWalletRepository {
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
       
       // Get all trades for all wallets (needed to calculate closed positions)
+      // IMPORTANT: Include all trade types (buy, sell, add, remove) to match portfolio endpoint logic
       const { data: allTrades, error: allTradesError } = await supabase
         .from(TABLES.TRADE)
         .select('walletId, tokenId, side, amountToken, amountBase, priceBasePerToken, timestamp, meta')
@@ -235,6 +242,11 @@ export class SmartWalletRepository {
             return sellDate >= thirtyDaysAgo && sellDate <= new Date();
           });
           
+          // DEBUG: Log closed positions calculation
+          if (walletId && recentClosedPositions.length > 0) {
+            console.log(`   📊 [Repository] Wallet ${walletId}: Found ${closedPositions.length} total closed positions, ${recentClosedPositions.length} in last 30 days`);
+          }
+          
           // Calculate total PnL from closed positions (same logic as portfolio endpoint)
           let totalPnlUsd = 0;
           let totalClosedPnlBase = 0;
@@ -279,6 +291,11 @@ export class SmartWalletRepository {
                 totalClosedPnlBase += closedPnlBase;
                 totalCostBase += position.totalCostBase;
               }
+              
+              // DEBUG: Log individual position PnL
+              if (walletId) {
+                console.log(`   💰 [Repository] Position: tokenId=${position.tokenId}, closedPnlUsd=${closedPnlUsd.toFixed(2)}, closedPnlBase=${closedPnlBase?.toFixed(6) || 'null'}, costBase=${position.totalCostBase.toFixed(6)}, proceedsBase=${position.totalProceedsBase.toFixed(6)}, baseToken=${position.baseToken}`);
+              }
             }
           }
           
@@ -287,6 +304,11 @@ export class SmartWalletRepository {
           const pnlPercent = totalCostBase > 0 
             ? (totalClosedPnlBase / totalCostBase) * 100 
             : 0;
+          
+          // DEBUG: Log final PnL calculation
+          if (walletId) {
+            console.log(`   ✅ [Repository] Wallet ${walletId}: totalPnlUsd=${totalPnlUsd.toFixed(2)}, totalClosedPnlBase=${totalClosedPnlBase.toFixed(6)}, totalCostBase=${totalCostBase.toFixed(6)}, pnlPercent=${pnlPercent.toFixed(2)}%`);
+          }
           
           walletPnLMap.set(walletId, {
             pnlUsd: totalPnlUsd,

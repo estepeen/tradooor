@@ -510,6 +510,17 @@ export default function WalletDetailPage() {
             // Calculate overall PnL percentage
             const pnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
             
+            // DEBUG: Log PnL calculation on frontend
+            if (days === 30 && closedPositions.length > 0) {
+              console.log(`   📊 [Frontend] Wallet ${walletAddress}: Found ${closedPositions.length} closed positions in last ${days} days`);
+              console.log(`   ✅ [Frontend] Wallet ${walletAddress}: totalPnl=${totalPnl.toFixed(2)}, totalCost=${totalCost.toFixed(2)}, pnlPercent=${pnlPercent.toFixed(2)}%`);
+              closedPositions.forEach((p: any, idx: number) => {
+                if (idx < 5) { // Log first 5 positions
+                  console.log(`   💰 [Frontend] Position ${idx + 1}: tokenId=${p.tokenId}, closedPnl=${p.closedPnl?.toFixed(2) || 'null'}, closedPnlPercent=${p.closedPnlPercent?.toFixed(2) || 'null'}%, lastSell=${p.lastSellTimestamp}`);
+                }
+              });
+            }
+            
             return {
               pnlUsd: totalPnl,
               pnlPercent,

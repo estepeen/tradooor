@@ -73,7 +73,7 @@ router.get('/', async (req, res) => {
     const minScore = req.query.minScore ? parseFloat(req.query.minScore as string) : undefined;
     const tags = req.query.tags ? (req.query.tags as string).split(',') : undefined;
     const search = req.query.search as string | undefined;
-    const sortBy = req.query.sortBy as 'score' | 'winRate' | 'recentPnl30dPercent' | undefined;
+    const sortBy = req.query.sortBy as 'score' | 'winRate' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address' | undefined;
     const sortOrder = (req.query.sortOrder as 'asc' | 'desc') || 'desc';
 
     console.log(`🔍 Fetching wallets - page: ${page}, pageSize: ${pageSize}`);
@@ -1378,6 +1378,11 @@ router.get('/:id/portfolio', async (req, res) => {
           closedPnlPercent = position.totalCostBase > 0
             ? (closedPnlBase / position.totalCostBase) * 100
           : null;
+          
+          // DEBUG: Log PnL calculation for portfolio endpoint
+          if (wallet.id) {
+            console.log(`   💰 [Portfolio] Position: tokenId=${position.tokenId}, closedPnlUsd=${closedPnlUsd.toFixed(2)}, closedPnlBase=${closedPnlBase.toFixed(6)}, costBase=${position.totalCostBase.toFixed(6)}, proceedsBase=${position.totalProceedsBase.toFixed(6)}, baseToken=${position.baseToken}`);
+          }
         } else if (normalizedBalance <= 0 && position.totalSoldValue > 0) {
           // Fallback to old calculation if we don't have base currency data
           closedPnlUsd = position.totalSoldValue - position.totalInvested;
@@ -1504,6 +1509,32 @@ router.get('/:id/portfolio', async (req, res) => {
         });
 
     console.log(`✅ Portfolio calculated: ${openPositions.length} open positions, ${closedPositions.length} closed positions`);
+    
+    // DEBUG: Log 30d closed positions for PnL calculation
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const recentClosedPositions30d = closedPositions.filter((p: any) => {
+      if (!p.lastSellTimestamp) return false;
+      const sellDate = new Date(p.lastSellTimestamp);
+      return sellDate >= thirtyDaysAgo && sellDate <= new Date();
+    });
+    
+    if (wallet.id && recentClosedPositions30d.length > 0) {
+      const totalPnl30d = recentClosedPositions30d.reduce((sum: number, p: any) => sum + (p.closedPnl ?? 0), 0);
+      const totalCost30d = recentClosedPositions30d.reduce((sum: number, p: any) => {
+        const pnl = p.closedPnl ?? 0;
+        const pnlPercent = p.closedPnlPercent ?? 0;
+        if (pnlPercent !== 0 && typeof pnl === 'number' && typeof pnlPercent === 'number') {
+          const cost = pnl / (pnlPercent / 100);
+          return sum + Math.abs(cost);
+        }
+        return sum;
+      }, 0);
+      const pnlPercent30d = totalCost30d > 0 ? (totalPnl30d / totalCost30d) * 100 : 0;
+      
+      console.log(`   📊 [Portfolio] Wallet ${wallet.id}: Found ${recentClosedPositions30d.length} closed positions in last 30 days`);
+      console.log(`   ✅ [Portfolio] Wallet ${wallet.id}: totalPnl30d=${totalPnl30d.toFixed(2)}, totalCost30d=${totalCost30d.toFixed(2)}, pnlPercent30d=${pnlPercent30d.toFixed(2)}%`);
+    }
     
     // Debug: Log all positions with balance <= 0 to see why they're not in closed positions
     const allClosedCandidates = portfolio.filter(p => {

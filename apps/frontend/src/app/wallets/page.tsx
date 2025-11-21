@@ -16,14 +16,15 @@ export default function WalletsPage() {
   const [minScore, setMinScore] = useState<number | undefined>();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<'score' | 'winRate' | 'recentPnl30dPercent'>('score');
+  const [sortBy, setSortBy] = useState<'score' | 'winRate' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address'>('score');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [syncSuccess, setSyncSuccess] = useState<{ created: number; errors: number; removed?: number } | null>(null);
 
   useEffect(() => {
     loadWallets();
-  }, [page, search, minScore, sortBy, selectedTags]);
+  }, [page, search, minScore, sortBy, sortOrder, selectedTags]);
 
   // Auto-refresh every 30 seconds
   useEffect(() => {
@@ -32,7 +33,7 @@ export default function WalletsPage() {
     }, 30000); // 30 seconds
 
     return () => clearInterval(interval);
-  }, [page, search, minScore, sortBy, selectedTags]);
+  }, [page, search, minScore, sortBy, sortOrder, selectedTags]);
 
   useEffect(() => {
     // Load available tags from wallets
@@ -55,8 +56,18 @@ export default function WalletsPage() {
         minScore,
         tags: selectedTags.length > 0 ? selectedTags : undefined,
         sortBy,
-        sortOrder: 'desc',
+        sortOrder,
       });
+      
+      // DEBUG: Log PnL values from API
+      if (process.env.NODE_ENV === 'development' && result.wallets) {
+        result.wallets.forEach((wallet: any) => {
+          if (wallet.recentPnl30dUsd !== undefined || wallet.recentPnl30dPercent !== undefined) {
+            console.log(`   📊 [Homepage] Wallet ${wallet.address}: recentPnl30dUsd=${wallet.recentPnl30dUsd}, recentPnl30dPercent=${wallet.recentPnl30dPercent}`);
+          }
+        });
+      }
+      
       setData(result);
     } catch (error) {
       console.error('Error loading wallets:', error);
@@ -177,15 +188,6 @@ export default function WalletsPage() {
               onChange={(e) => setMinScore(e.target.value ? parseFloat(e.target.value) : undefined)}
               className="px-4 py-2 border border-border rounded-md bg-background w-full md:w-32"
             />
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="px-4 py-2 border border-border rounded-md bg-background"
-            >
-              <option value="score">Sort by Score</option>
-              <option value="winRate">Sort by Win Rate</option>
-              <option value="recentPnl30dPercent">Sort by Recent PnL</option>
-            </select>
           </div>
           
           {/* Tags filter */}
@@ -235,17 +237,157 @@ export default function WalletsPage() {
             <table className="w-full">
               <thead className="bg-muted">
                 <tr>
-                  <th className="px-4 py-3 text-left text-sm font-medium">Trader</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">Wallet</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Score</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Trades</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Win Rate</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Recent PnL (30d)</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Last Trade</th>
+                  <th 
+                    className="px-4 py-3 text-left text-sm font-medium cursor-pointer hover:bg-muted/80 select-none"
+                    onClick={() => {
+                      if (sortBy === 'label') {
+                        setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortBy('label');
+                        setSortOrder('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      Trader
+                      {sortBy === 'label' && (
+                        <span className="text-xs">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    className="px-4 py-3 text-left text-sm font-medium cursor-pointer hover:bg-muted/80 select-none"
+                    onClick={() => {
+                      if (sortBy === 'address') {
+                        setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortBy('address');
+                        setSortOrder('asc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      Wallet
+                      {sortBy === 'address' && (
+                        <span className="text-xs">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    className="px-4 py-3 text-right text-sm font-medium cursor-pointer hover:bg-muted/80 select-none"
+                    onClick={() => {
+                      if (sortBy === 'score') {
+                        setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortBy('score');
+                        setSortOrder('desc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-end gap-2">
+                      Score
+                      {sortBy === 'score' && (
+                        <span className="text-xs">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    className="px-4 py-3 text-right text-sm font-medium cursor-pointer hover:bg-muted/80 select-none"
+                    onClick={() => {
+                      if (sortBy === 'totalTrades') {
+                        setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortBy('totalTrades');
+                        setSortOrder('desc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-end gap-2">
+                      Trades
+                      {sortBy === 'totalTrades' && (
+                        <span className="text-xs">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    className="px-4 py-3 text-right text-sm font-medium cursor-pointer hover:bg-muted/80 select-none"
+                    onClick={() => {
+                      if (sortBy === 'winRate') {
+                        setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortBy('winRate');
+                        setSortOrder('desc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-end gap-2">
+                      Win Rate
+                      {sortBy === 'winRate' && (
+                        <span className="text-xs">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    className="px-4 py-3 text-right text-sm font-medium cursor-pointer hover:bg-muted/80 select-none"
+                    onClick={() => {
+                      if (sortBy === 'recentPnl30dPercent') {
+                        setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortBy('recentPnl30dPercent');
+                        setSortOrder('desc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-end gap-2">
+                      Recent PnL (30d)
+                      {sortBy === 'recentPnl30dPercent' && (
+                        <span className="text-xs">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th 
+                    className="px-4 py-3 text-right text-sm font-medium cursor-pointer hover:bg-muted/80 select-none"
+                    onClick={() => {
+                      if (sortBy === 'lastTradeTimestamp') {
+                        setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortBy('lastTradeTimestamp');
+                        setSortOrder('desc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-end gap-2">
+                      Last Trade
+                      {sortBy === 'lastTradeTimestamp' && (
+                        <span className="text-xs">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </div>
+                  </th>
                 </tr>
               </thead>
               <tbody>
-                {data?.wallets.map((wallet) => (
+                {data?.wallets
+                  .sort((a, b) => {
+                    // Client-side sorting for fields that are calculated after DB query
+                    if (sortBy === 'lastTradeTimestamp') {
+                      const aTime = a.lastTradeTimestamp ? new Date(a.lastTradeTimestamp).getTime() : 0;
+                      const bTime = b.lastTradeTimestamp ? new Date(b.lastTradeTimestamp).getTime() : 0;
+                      // Treat null/undefined as 0 (oldest)
+                      const aVal = aTime || 0;
+                      const bVal = bTime || 0;
+                      return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+                    }
+                    if (sortBy === 'recentPnl30dPercent') {
+                      // Handle nulls - treat as 0
+                      const aPnl = a.recentPnl30dPercent ?? 0;
+                      const bPnl = b.recentPnl30dPercent ?? 0;
+                      return sortOrder === 'asc' ? aPnl - bPnl : bPnl - aPnl;
+                    }
+                    // Other fields are sorted by backend, but we still need to maintain order
+                    // when switching between client-side and server-side sorting
+                    return 0;
+                  })
+                  .map((wallet) => (
                   <tr
                     key={wallet.id}
                     onClick={() => {
@@ -284,6 +426,12 @@ export default function WalletsPage() {
                         )
                         : `${wallet.recentPnl30dPercent >= 0 ? '+' : ''}${formatPercent(wallet.recentPnl30dPercent / 100)}`
                       }
+                      {/* DEBUG: Log PnL values for homepage */}
+                      {process.env.NODE_ENV === 'development' && (
+                        <span className="text-xs text-gray-500 ml-2" title={`Debug: recentPnl30dUsd=${wallet.recentPnl30dUsd}, recentPnl30dPercent=${wallet.recentPnl30dPercent}`}>
+                          [D]
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right text-sm text-muted-foreground">
                       {formatLastTrade(wallet.lastTradeTimestamp)}
