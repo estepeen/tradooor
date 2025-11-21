@@ -111,6 +111,10 @@ export class SmartWalletRepository {
         
         // Calculate closed positions for each wallet
         for (const [walletId, walletTrades] of tradesByWallet.entries()) {
+          // DEBUG: Log wallet being processed
+          const walletAddress = wallets.find((w: any) => w.id === walletId)?.address || 'unknown';
+          console.log(`   🔍 [Repository] Processing wallet ${walletAddress} (${walletId}): ${walletTrades.length} trades`);
+          
           // Calculate positions from trades (same as portfolio endpoint)
           const positionMap = new Map<string, {
             tokenId: string;
@@ -322,9 +326,18 @@ export class SmartWalletRepository {
           if (pnl) {
             wallet.recentPnl30dUsd = pnl.pnlUsd;
             wallet.recentPnl30dPercent = pnl.pnlPercent;
+            // DEBUG: Log wallets with PnL
+            if (pnl.pnlUsd !== 0 || pnl.pnlPercent !== 0) {
+              console.log(`   ✅ [Repository] Wallet ${wallet.address}: PnL set to ${pnl.pnlUsd.toFixed(2)} USD (${pnl.pnlPercent.toFixed(2)}%)`);
+            }
           } else {
             wallet.recentPnl30dUsd = 0;
             wallet.recentPnl30dPercent = 0;
+            // DEBUG: Log wallets without PnL (but only if they have trades)
+            const hasTrades = tradesByWallet.has(wallet.id);
+            if (hasTrades) {
+              console.log(`   ⚠️  [Repository] Wallet ${wallet.address}: No PnL calculated (has ${tradesByWallet.get(wallet.id)?.length || 0} trades, but no closed positions in last 30 days)`);
+            }
           }
         });
       }
