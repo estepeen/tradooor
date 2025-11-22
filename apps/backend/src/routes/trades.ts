@@ -8,7 +8,7 @@ import { TokenRepository } from '../repositories/token.repository.js';
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
 import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
 import { supabase, TABLES } from '../lib/supabase.js';
-import { TokenMetadataBatchService } from '../services/token-metadata-batch.service.js';
+// TokenMetadataBatchService removed - metadata se načítá pouze při webhooku, ne při každém requestu
 import { SolscanClient } from '../services/solscan-client.service.js';
 import { BinancePriceService } from '../services/binance-price.service.js';
 
@@ -25,7 +25,7 @@ const metricsCalculator = new MetricsCalculatorService(
   tradeRepo,
   metricsHistoryRepo
 );
-const tokenMetadataBatchService = new TokenMetadataBatchService(heliusClient, tokenRepo);
+// TokenMetadataBatchService removed - metadata se načítá pouze při webhooku
 const solscanClient = new SolscanClient();
 const binancePriceService = new BinancePriceService();
 
@@ -115,71 +115,8 @@ router.get('/', async (req, res) => {
       })
     );
 
-    // Always ensure token metadata is available so UI can render tickers/names
-      const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
-    const tokensToEnrich = new Map<string, { token: any }>();
-
-    for (const trade of tradesWithBaseCurrency as any[]) {
-      const token = trade.token || trade.Token;
-        if (!token || !token.mintAddress) continue;
-
-        const symbol = (token.symbol || '').trim();
-        const name = (token.name || '').trim();
-      const looksLikeAddress = symbol.length > 15 && base58Regex.test(symbol);
-      const looksLikeTruncated = symbol.includes('...');
-
-        if (!symbol && !name) {
-        tokensToEnrich.set(token.mintAddress, { token });
-        } else if (looksLikeAddress || looksLikeTruncated) {
-        tokensToEnrich.set(token.mintAddress, { token });
-        }
-      }
-
-      if (tokensToEnrich.size > 0) {
-      console.log(`   🔍 Enriching metadata for ${tokensToEnrich.size} token(s) used in trades...`);
-        try {
-          const metadataMap = await tokenMetadataBatchService.getTokenMetadataBatch(
-            Array.from(tokensToEnrich.keys())
-          );
-
-        await Promise.all(
-          Array.from(tokensToEnrich.entries()).map(async ([mintAddress, { token }]) => {
-            const metadata = metadataMap.get(mintAddress);
-            if (!metadata) return;
-
-            const nextSymbol = metadata.symbol ?? token.symbol ?? null;
-            const nextName = metadata.name ?? token.name ?? null;
-            const nextDecimals =
-              metadata.decimals !== undefined && metadata.decimals !== null
-                ? metadata.decimals
-                : token.decimals;
-
-            token.symbol = nextSymbol;
-            token.name = nextName;
-            token.decimals = nextDecimals;
-
-            if (token.id) {
-              try {
-                await tokenRepo.update(token.id, {
-                  symbol: nextSymbol,
-                  name: nextName,
-                  decimals: nextDecimals,
-                });
-              } catch (updateError: any) {
-                console.warn(
-                  `   ⚠️  Failed to persist metadata for token ${mintAddress}:`,
-                  updateError?.message || updateError
-                );
-              }
-            }
-          })
-        );
-
-        console.log(`   ✅ Token metadata enrichment completed (${metadataMap.size} token(s) updated)`);
-        } catch (e: any) {
-        console.warn('⚠️  Failed to enrich token metadata for trades:', e?.message || e);
-      }
-    }
+    // Token metadata se načítá pouze při webhooku (nový trade)
+    // Tady jen zobrazujeme data z DB - žádné enrichment, aby se neplýtvalo API kredity
 
     res.json({
       trades: tradesWithBaseCurrency,
@@ -306,67 +243,8 @@ router.get('/recent', async (req, res) => {
       })
     );
 
-    // Ensure token metadata is available (symbol/name) for notifications + tables
-    const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
-    const tokensToEnrich = new Map<string, any>();
-    for (const trade of tradesWithTokens) {
-      const token = trade.token;
-      if (!token || !token.mintAddress) continue;
-
-      const symbol = (token.symbol || '').trim();
-      const name = (token.name || '').trim();
-      const looksLikeAddress = symbol.length > 15 && base58Regex.test(symbol);
-      const looksLikeTruncated = symbol.includes('...');
-
-      if (!symbol && !name) {
-        tokensToEnrich.set(token.mintAddress, token);
-      } else if (looksLikeAddress || looksLikeTruncated) {
-        tokensToEnrich.set(token.mintAddress, token);
-      }
-    }
-
-    if (tokensToEnrich.size > 0) {
-      try {
-        const metadataMap = await tokenMetadataBatchService.getTokenMetadataBatch(
-          Array.from(tokensToEnrich.keys())
-        );
-
-        await Promise.all(
-          Array.from(tokensToEnrich.entries()).map(async ([mint, token]) => {
-            const metadata = metadataMap.get(mint);
-            if (!metadata) return;
-
-            const nextSymbol = metadata.symbol ?? token.symbol ?? null;
-            const nextName = metadata.name ?? token.name ?? null;
-            const nextDecimals =
-              metadata.decimals !== undefined && metadata.decimals !== null
-                ? metadata.decimals
-                : token.decimals;
-
-            token.symbol = nextSymbol;
-            token.name = nextName;
-            token.decimals = nextDecimals;
-
-            if (token.id) {
-              try {
-                await tokenRepo.update(token.id, {
-                  symbol: nextSymbol,
-                  name: nextName,
-                  decimals: nextDecimals,
-                });
-              } catch (updateError: any) {
-                console.warn(
-                  `⚠️  Failed to persist metadata for token ${mint}:`,
-                  updateError?.message || updateError
-                );
-              }
-            }
-          })
-        );
-      } catch (metadataError: any) {
-        console.warn('⚠️  Failed to enrich token metadata for recent trades:', metadataError?.message || metadataError);
-      }
-    }
+    // Token metadata se načítá pouze při webhooku (nový trade)
+    // Tady jen zobrazujeme data z DB - žádné enrichment, aby se neplýtvalo API kredity
 
     // Format trades for notifications
     const formattedTrades = tradesWithTokens.map((trade: any) => {

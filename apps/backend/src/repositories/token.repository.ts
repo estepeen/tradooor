@@ -40,12 +40,21 @@ export class TokenRepository {
     symbol?: string;
     name?: string;
     decimals?: number;
+    forceUpdate?: boolean; // Pokud true, aktualizuj i když už token existuje
   }) {
     const existing = await this.findByMintAddress(data.mintAddress);
     if (existing) {
       // Update if new data provided (symbol, name, nebo decimals)
       // DŮLEŽITÉ: Aktualizuj i když máme prázdný symbol/name - může to být oprava garbage symbolu
-      if (data.symbol !== undefined || data.name !== undefined || data.decimals !== undefined) {
+      // DŮLEŽITÉ: Pokud forceUpdate=true nebo existing nemá symbol/name, vždy zkus aktualizovat
+      const shouldUpdate = data.forceUpdate || 
+        !existing.symbol || 
+        !existing.name || 
+        data.symbol !== undefined || 
+        data.name !== undefined || 
+        data.decimals !== undefined;
+        
+      if (shouldUpdate) {
         const updateData: any = {};
         
         // Aktualizuj symbol pouze pokud:

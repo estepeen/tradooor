@@ -27,13 +27,19 @@ export class SolanaCollectorService {
   }
 
   /**
-   * Persist swap that arrives via Helius webhook.
+   * Process webhook transaction flow:
+   * 1. Helius webhook normalizes swap data
+   * 2. Binance provides SOL price
+   * 3. Birdeye provides token name/symbol
+   * 4. Determine TYPE (buy, sell, add, remove)
+   * 5. Calculate POSITION (positionChangePercent)
    */
   async processWebhookTransaction(
     tx: any,
     walletAddress: string
   ): Promise<{ saved: boolean; reason?: string }> {
     try {
+      // Step 0: Validate wallet and check for duplicates
       const wallet = await this.smartWalletRepo.findByAddress(walletAddress);
       if (!wallet) {
         return { saved: false, reason: 'Wallet not found in DB' };
@@ -44,11 +50,18 @@ export class SolanaCollectorService {
         return { saved: false, reason: 'Trade already exists' };
       }
 
+      // Step 1: Helius webhook normalizes swap data
       const swap = this.heliusClient.normalizeSwap(tx, walletAddress);
       if (!swap) {
         return { saved: false, reason: 'Failed to normalize swap' };
       }
 
+      // Step 2: Binance provides SOL price (for USD calculations)
+      const { BinancePriceService } = await import('./binance-price.service.js');
+      const binancePriceService = new BinancePriceService();
+      const solPriceAtTimestamp = await binancePriceService.getSolPriceAtTimestamp(swap.timestamp);
+
+      // Step 3: Birdeye provides token name/symbol (via TokenMetadataBatchService)
       const { TokenMetadataBatchService } = await import('./token-metadata-batch.service.js');
       const tokenMetadataBatchService = new TokenMetadataBatchService(
         this.heliusClient,
@@ -57,13 +70,16 @@ export class SolanaCollectorService {
       const tokenMetadata = await tokenMetadataBatchService.getTokenMetadataBatch([swap.tokenMint]);
       const metadata = tokenMetadata.get(swap.tokenMint) || {};
 
+      // Save/update token with metadata
       const token = await this.tokenRepo.findOrCreate({
         mintAddress: swap.tokenMint,
         symbol: metadata.symbol,
         name: metadata.name,
         decimals: metadata.decimals,
+        forceUpdate: true, // Always try to update metadata if available
       });
 
+      // Calculate USD value
       const { TokenPriceService } = await import('./token-price.service.js');
       const tokenPriceService = new TokenPriceService();
       
@@ -82,16 +98,13 @@ export class SolanaCollectorService {
         return { saved: false, reason: `Value ${valueUsd.toFixed(2)} USD below threshold $${MIN_NOTIONAL_USD}` };
       }
       
+      // Get all trades for this wallet and token to calculate position
       const allTrades = await this.tradeRepo.findAllForMetrics(wallet.id);
       const tokenTrades = allTrades
         .filter(t => t.tokenId === token.id)
         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-      const isFirstTradeForToken =
-        tokenTrades.length === 0 ||
-        (tokenTrades.length === 1 && tokenTrades[0].txSignature === swap.txSignature) ||
-        (tokenTrades.length > 0 && tokenTrades[0].txSignature === swap.txSignature);
-
+      // Calculate balance before this trade
       let balanceBefore = 0;
       let hasPreviousTrades = false;
       for (const prevTrade of tokenTrades) {
@@ -111,6 +124,12 @@ export class SolanaCollectorService {
       const normalizedBalanceBefore = Math.abs(balanceBefore) < 0.000001 ? 0 : balanceBefore;
       const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
 
+      // Step 4: Determine TYPE (buy, sell, add, remove)
+      const isFirstTradeForToken =
+        tokenTrades.length === 0 ||
+        (tokenTrades.length === 1 && tokenTrades[0].txSignature === swap.txSignature) ||
+        (tokenTrades.length > 0 && tokenTrades[0].txSignature === swap.txSignature);
+
       let tradeType: 'buy' | 'sell' | 'add' | 'remove' = swap.side;
       if (swap.side === 'buy') {
         if (isFirstTradeForToken || !hasPreviousTrades || normalizedBalanceBefore === 0) {
@@ -120,14 +139,15 @@ export class SolanaCollectorService {
         }
       } else if (swap.side === 'sell') {
         if (normalizedBalanceAfter <= 0) {
-            tradeType = 'sell';
-          } else if (normalizedBalanceAfter > 0) {
+          tradeType = 'sell';
+        } else if (normalizedBalanceAfter > 0) {
           tradeType = 'remove';
         } else {
           tradeType = 'sell';
         }
       }
 
+      // Step 5: Calculate POSITION (positionChangePercent)
       let currentPosition = balanceBefore;
       let positionChangePercent: number | undefined = undefined;
       const MIN_POSITION_THRESHOLD = swap.amountToken * 0.01;
@@ -199,17 +219,15 @@ export class SolanaCollectorService {
         }
       }
 
+      // Calculate USD price using Binance SOL price
       let priceUsd: number | null = null;
       try {
-        const { BinancePriceService } = await import('./binance-price.service.js');
-        const binancePriceService = new BinancePriceService();
-        const solPriceAtTimestamp = await binancePriceService.getSolPriceAtTimestamp(swap.timestamp);
         const baseToken = swap.baseToken || 'SOL';
         if (baseToken === 'SOL') {
           priceUsd = swap.priceBasePerToken * solPriceAtTimestamp;
         } else if (baseToken === 'USDC' || baseToken === 'USDT') {
-            priceUsd = swap.priceBasePerToken;
-          } else {
+          priceUsd = swap.priceBasePerToken;
+        } else {
           priceUsd = swap.priceBasePerToken * solPriceAtTimestamp;
         }
       } catch (error: any) {
