@@ -364,51 +364,34 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
     console.log(`📊 Total positions after processing: ${positions.length}`);
 
     // NEW APPROACH: Calculate totalCost from trades and Live PnL
-    // 1. Get all buy trades for each token
+    // 1. Get all buy trades for each token (use valueUsd from trades - already calculated during webhook processing)
     const { data: allTrades } = await supabase
       .from(TABLES.TRADE)
-      .select('tokenId, side, amountToken, amountBase, priceBasePerToken, meta')
+      .select('tokenId, side, amountToken, amountBase, valueUsd, priceBasePerToken, meta')
       .eq('walletId', wallet.id)
       .eq('side', 'buy');
     
-    // Vytvoř mapu tokenId -> totalCost (součet všech buy trades v base měně)
-    const totalCostMap = new Map<string, number>();
+    // Vytvoř mapu tokenId -> totalCostUsd (součet všech buy trades v USD)
+    // Použijeme valueUsd z trades (už máme USD hodnoty z webhook processing)
+    const totalCostUsdMap = new Map<string, number>();
     if (allTrades) {
       for (const trade of allTrades) {
         const tokenId = trade.tokenId;
-        const amountBase = Number(trade.amountBase || 0);
-        const currentCost = totalCostMap.get(tokenId) || 0;
-        totalCostMap.set(tokenId, currentCost + amountBase);
+        const valueUsd = Number(trade.valueUsd || 0);
+        const currentCostUsd = totalCostUsdMap.get(tokenId) || 0;
+        totalCostUsdMap.set(tokenId, currentCostUsd + valueUsd);
       }
     }
     
     // 2. For each position calculate Live PnL
-    // Live PnL = currentValue - totalCost (in USD)
-    // currentValue = balance * currentPrice (from Birdeye)
-    // totalCost = sum of all buy trades in base currency, converted to USD using historical SOL price
+    // Live PnL = currentValue - totalCostUsd (in USD)
+    // currentValue = balance * currentPrice (from Birdeye - already in USD)
+    // totalCostUsd = sum of all buy trades in USD (from webhook processing)
     const portfolio = await Promise.all(
       positions.map(async (p) => {
-        const totalCostBase = totalCostMap.get(p.tokenId) || 0;
-        let totalCostUsd = 0;
+        const totalCostUsd = totalCostUsdMap.get(p.tokenId) || 0;
         let livePnl = 0;
         let livePnlPercent = 0;
-        
-        // If we have totalCost in base currency, convert to USD using Binance API (historical SOL price)
-        if (totalCostBase > 0 && p.token?.mintAddress) {
-          try {
-            // Get average historical SOL price from buy trades
-            // For simplicity, use current SOL price from Binance (can improve later)
-            const { BinancePriceService } = await import('../services/binance-price.service.js');
-            const binancePriceService = new BinancePriceService();
-            const currentSolPrice = await binancePriceService.getCurrentSolPrice();
-            
-            // Assume totalCost is in SOL (for most tokens)
-            // TODO: Detect baseToken from trades and use correct conversion
-            totalCostUsd = totalCostBase * currentSolPrice;
-          } catch (error: any) {
-            console.warn(`Failed to convert totalCost to USD for token ${p.tokenId}: ${error.message}`);
-          }
-        }
         
         // Vypočítej Live PnL
         if (p.currentValue !== null && p.currentValue > 0 && totalCostUsd > 0) {
@@ -1057,61 +1040,11 @@ router.get('/:id/portfolio', async (req, res) => {
     }
 
     // Create a map of tokenId -> current token data
+    // Token metadata are already in DB from webhook processing - no enrichment needed
     const tokenDataMap = new Map<string, any>();
     (tokens || []).forEach((token: any) => {
       tokenDataMap.set(token.id, token);
     });
-    
-    // DŮLEŽITÉ: Enrich token metadata pro tokeny bez symbol/name nebo s garbage symboly
-    const tokensToEnrich: string[] = [];
-    const BASE58_REGEX = /^[1-9A-HJ-NP-Za-km-z]+$/;
-    const isGarbageSymbol = (symbol: string | null | undefined, mintAddress?: string): boolean => {
-      if (!symbol) return false;
-      const sym = symbol.trim();
-      if (!sym) return false;
-      if (sym.length > 15 && BASE58_REGEX.test(sym)) return true;
-      if (sym.includes('...')) return true;
-      if (mintAddress && sym.toLowerCase() === mintAddress.toLowerCase()) return true;
-      return false;
-    };
-    
-    // Najdi tokeny, které potřebují enrich
-    for (const token of (tokens || [])) {
-      const hasValidSymbol = token.symbol && !isGarbageSymbol(token.symbol, token.mintAddress);
-      const hasValidName = !!token.name;
-      if (!hasValidSymbol && !hasValidName && token.mintAddress) {
-        tokensToEnrich.push(token.mintAddress);
-      }
-    }
-    
-    // Enrich tokeny bez symbol/name
-    if (tokensToEnrich.length > 0) {
-      try {
-        console.log(`   🔍 Enriching ${tokensToEnrich.length} tokens with missing/garbage symbols...`);
-        const { TokenMetadataBatchService } = await import('../services/token-metadata-batch.service.js');
-        const tokenMetadataBatchService = new TokenMetadataBatchService(heliusClient, tokenRepo);
-        const enrichedMetadata = await tokenMetadataBatchService.getTokenMetadataBatch(tokensToEnrich);
-        
-        // Aktualizuj tokenDataMap s novými metadaty
-        enrichedMetadata.forEach((metadata, mintAddress) => {
-          const tokenId = Array.from(tokenDataMap.keys()).find(tid => {
-            const t = tokenDataMap.get(tid);
-            return t?.mintAddress?.toLowerCase() === mintAddress.toLowerCase();
-          });
-          if (tokenId) {
-            const token = tokenDataMap.get(tokenId);
-            if (token) {
-              token.symbol = metadata.symbol || token.symbol;
-              token.name = metadata.name || token.name;
-              token.decimals = metadata.decimals ?? token.decimals;
-            }
-          }
-        });
-        console.log(`   ✅ Enriched ${enrichedMetadata.size} tokens`);
-      } catch (error: any) {
-        console.warn(`   ⚠️  Failed to enrich token metadata: ${error.message}`);
-      }
-    }
 
     // Get current prices for all tokens with mint addresses
     const tokensWithMintAddresses = Array.from(portfolioMap.values())
@@ -1158,25 +1091,24 @@ router.get('/:id/portfolio', async (req, res) => {
     // Získej všechny buy trades pro každý token
     const { data: allBuyTrades } = await supabase
       .from(TABLES.TRADE)
-      .select('tokenId, amountBase, meta')
+      .select('tokenId, amountBase, valueUsd, meta')
       .eq('walletId', wallet.id)
       .eq('side', 'buy');
     
-    // Vytvoř mapu tokenId -> totalCost (součet všech buy trades v base měně)
+    // Vytvoř mapu tokenId -> totalCost (součet všech buy trades v base měně a USD)
     const totalCostMap = new Map<string, number>();
+    const totalCostUsdMap = new Map<string, number>();
     if (allBuyTrades) {
       for (const trade of allBuyTrades) {
         const tokenId = trade.tokenId;
         const amountBase = Number(trade.amountBase || 0);
+        const valueUsd = Number(trade.valueUsd || 0);
         const currentCost = totalCostMap.get(tokenId) || 0;
+        const currentCostUsd = totalCostUsdMap.get(tokenId) || 0;
         totalCostMap.set(tokenId, currentCost + amountBase);
+        totalCostUsdMap.set(tokenId, currentCostUsd + valueUsd);
       }
     }
-    
-    // Import BinancePriceService pro konverzi SOL na USD
-    const { BinancePriceService } = await import('../services/binance-price.service.js');
-    const binancePriceService = new BinancePriceService();
-    const currentSolPrice = await binancePriceService.getCurrentSolPrice().catch(() => null);
 
     // Calculate average buy price and finalize positions with current token data and prices
     const portfolio = Array.from(portfolioMap.values())
@@ -1197,20 +1129,10 @@ router.get('/:id/portfolio', async (req, res) => {
           : position.balance * position.averageBuyPrice; // Fallback to average buy price if no current price
         
         // Vypočítej Live PnL pomocí totalCost z trades
-        const totalCostBase = totalCostMap.get(position.tokenId) || 0;
-        let totalCostUsd = 0;
+        // Použijeme totalCostUsd přímo z trades (už máme USD hodnoty z webhook processing)
+        const totalCostUsd = totalCostUsdMap.get(position.tokenId) || position.totalInvested || 0;
         let livePnl = 0;
         let livePnlPercent = 0;
-        
-        // Převod totalCost z base měny na USD
-        if (totalCostBase > 0 && currentSolPrice) {
-          // Předpokládáme, že totalCost je v SOL (pro většinu tokenů)
-          // TODO: Detekovat baseToken z trades a použít správnou konverzi
-          totalCostUsd = totalCostBase * currentSolPrice;
-        } else if (position.totalInvested > 0) {
-          // Fallback na totalInvested, pokud nemáme totalCostBase
-          totalCostUsd = position.totalInvested;
-        }
         
         // Vypočítej Live PnL
         if (currentValue > 0 && totalCostUsd > 0) {
@@ -1250,22 +1172,11 @@ router.get('/:id/portfolio', async (req, res) => {
           // PnL in base currency
           closedPnlBase = position.totalProceedsBase - position.totalCostBase;
           
-          // Convert to USD for display (using current SOL price for SOL, 1:1 for USDC/USDT)
-          if (currentSolPrice) {
-            if (position.baseToken === 'SOL') {
-              closedPnlUsd = closedPnlBase * currentSolPrice;
-            } else if (position.baseToken === 'USDC' || position.baseToken === 'USDT') {
-              closedPnlUsd = closedPnlBase; // 1:1 with USD
-            } else {
-              // Fallback: use SOL price
-              closedPnlUsd = closedPnlBase * currentSolPrice;
-            }
-          } else {
-            // Fallback to old calculation if no SOL price
-            closedPnlUsd = position.totalSoldValue - position.totalInvested;
-          }
+          // Use valueUsd from trades (already calculated during webhook processing)
+          // Fallback to old calculation if we don't have proper USD values
+          closedPnlUsd = position.totalSoldValue - position.totalInvested;
           
-          // Calculate percentage
+          // Calculate percentage based on base currency
           closedPnlPercent = position.totalCostBase > 0
             ? (closedPnlBase / position.totalCostBase) * 100
           : null;

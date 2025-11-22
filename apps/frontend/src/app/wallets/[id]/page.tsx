@@ -35,6 +35,14 @@ export default function WalletDetailPage() {
     }
   }, [walletId, tokenFilter, timeframeFilter]);
 
+  // Load portfolio data lazily (after initial data is loaded)
+  useEffect(() => {
+    if (wallet && !portfolio) {
+      loadPortfolio();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet]);
+
   async function loadData() {
     setLoading(true);
     try {
@@ -55,8 +63,8 @@ export default function WalletDetailPage() {
           fromDate = undefined;
       }
 
-      // Get unique tokens for filter
-      const [walletData, tradesData, pnl, portfolioData] = await Promise.all([
+      // Load core data first (fast) - portfolio will be loaded lazily
+      const [walletData, tradesData, pnl] = await Promise.all([
         fetchSmartWallet(walletId),
         fetchTrades(walletId, { 
           page: 1, 
@@ -65,17 +73,25 @@ export default function WalletDetailPage() {
           fromDate,
         }),
         fetchWalletPnl(walletId).catch(() => null), // PnL data is optional
-        // Portfolio data - still needed for Open/Closed Positions
-        fetchWalletPortfolio(walletId).catch(() => null), // Portfolio data is optional
       ]);
       setWallet(walletData);
       setTrades(tradesData);
       setPnlData(pnl);
-      setPortfolio(portfolioData);
     } catch (error) {
       console.error('Error loading wallet data:', error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadPortfolio() {
+    if (!walletId) return;
+    try {
+      // Load portfolio data in background (lazy loading)
+      const portfolioData = await fetchWalletPortfolio(walletId).catch(() => null);
+      setPortfolio(portfolioData);
+    } catch (error) {
+      console.error('Error loading portfolio data:', error);
     }
   }
 
@@ -692,7 +708,11 @@ export default function WalletDetailPage() {
                           <td className={`px-4 py-3 text-right text-sm font-mono ${
                             tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
                           }`}>
-                            ${formatNumber(Number(trade.priceBasePerToken), 6)}
+                            {trade.meta?.priceUsd 
+                              ? `$${formatNumber(Number(trade.meta.priceUsd), 6)}`
+                              : trade.priceBasePerToken 
+                                ? `$${formatNumber(Number(trade.priceBasePerToken), 6)}` 
+                                : '-'}
                           </td>
                           <td className={`px-4 py-3 text-right text-sm font-mono ${
                             tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
