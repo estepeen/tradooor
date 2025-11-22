@@ -56,16 +56,12 @@ export class SolanaCollectorService {
       }
 
       // Get or create token
-      let token = await this.tokenRepo.findByMintAddress(swap.tokenMint);
-      if (!token) {
-        // Create token with minimal info (metadata will be enriched later if needed)
-        token = await this.tokenRepo.create({
-          mintAddress: swap.tokenMint,
-          symbol: null,
-          name: null,
-          decimals: 9, // Default, will be updated when metadata is fetched
-        });
-      }
+      const token = await this.tokenRepo.findOrCreate({
+        mintAddress: swap.tokenMint,
+        symbol: undefined, // Will be enriched later if needed
+        name: undefined,
+        decimals: 9, // Default, will be updated when metadata is fetched
+      });
 
       // Check if trade already exists (duplicate check)
       const existing = await this.tradeRepo.findBySignature(swap.txSignature);
