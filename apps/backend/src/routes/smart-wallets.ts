@@ -6,7 +6,6 @@ import { SmartWalletRepository } from '../repositories/smart-wallet.repository.j
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
-import { SolanaCollectorService } from '../services/solana-collector.service.js';
 import { TokenRepository } from '../repositories/token.repository.js';
 import { TokenPriceService } from '../services/token-price.service.js';
 import { PublicKey, Connection } from '@solana/web3.js';
@@ -41,11 +40,6 @@ const metricsCalculator = new MetricsCalculatorService(
   smartWalletRepo,
   tradeRepo,
   metricsHistoryRepo
-);
-const collectorService = new SolanaCollectorService(
-  smartWalletRepo,
-  tradeRepo,
-  tokenRepo
 );
 const tokenPriceService = new TokenPriceService();
 const lotMatchingService = new LotMatchingService();
@@ -888,118 +882,6 @@ router.post('/setup-webhook', async (req, res) => {
   }
 });
 
-// POST /api/smart-wallets/refresh-trades - Force refresh trades for selected wallets
-router.post('/refresh-trades', async (req, res) => {
-  try {
-    console.log('📥 POST /api/smart-wallets/refresh-trades - Forcing trade refresh');
-    console.log('📦 Request body:', JSON.stringify(req.body));
-    
-    // Get wallet addresses from request body (optional - if not provided, refresh all)
-    const walletAddresses = req.body.walletAddresses as string[] | undefined;
-    
-    let walletList: Array<{ id: string; address: string }> = [];
-    
-    if (walletAddresses && walletAddresses.length > 0) {
-      // Fetch only selected wallets
-      console.log(`🔄 Fetching ${walletAddresses.length} selected wallets...`);
-      const { data: wallets, error: walletsError } = await supabase
-        .from(TABLES.SMART_WALLET)
-        .select('id, address')
-        .in('address', walletAddresses);
-
-      if (walletsError) {
-        throw new Error(`Failed to fetch selected wallets: ${walletsError.message}`);
-      }
-
-      walletList = wallets ?? [];
-      console.log(`✅ Found ${walletList.length} wallets from ${walletAddresses.length} requested addresses`);
-    } else {
-      // Get all wallets if no selection provided
-      console.log('🔄 Fetching all wallets...');
-      const { data: wallets, error: walletsError } = await supabase
-        .from(TABLES.SMART_WALLET)
-        .select('id, address');
-
-      if (walletsError) {
-        throw new Error(`Failed to fetch wallets: ${walletsError.message}`);
-      }
-
-      walletList = wallets ?? [];
-      console.log(`✅ Found ${walletList.length} wallets (all wallets)`);
-    }
-
-    console.log(`🔄 Processing ${walletList.length} wallets for trade refresh...`);
-
-    let totalProcessed = 0;
-    let totalTrades = 0;
-    let totalSkipped = 0;
-    const results: Array<{ address: string; processed: number; trades: number; skipped: number; error?: string }> = [];
-
-    // Get limit from request body (optional, default 500 for first-time fetch, 100 for updates)
-    const txLimit = req.body.limit ? parseInt(req.body.limit as string) : undefined;
-
-    // Process each wallet (use private method via type casting)
-    for (const wallet of walletList) {
-      try {
-        console.log(`  Processing: ${wallet.address.substring(0, 8)}...`);
-        // Call private method via type casting (not ideal but works for this use case)
-        // Pass limit if provided, otherwise use default (500 for first-time, 100 for updates)
-        // DŮLEŽITÉ: ignoreLastTradeTimestamp=true pro manual refresh - chceme fetchnout všechny swapy, ne jen novější
-        const result = await (collectorService as any).processWallet(wallet.address, txLimit, true);
-        totalProcessed += result.processed;
-        totalTrades += result.trades;
-        totalSkipped += result.skipped;
-        results.push({
-          address: wallet.address,
-          processed: result.processed,
-          trades: result.trades,
-          skipped: result.skipped,
-        });
-        console.log(`  ✅ Completed: ${wallet.address.substring(0, 8)}... - ${result.trades} new trades`);
-      } catch (error: any) {
-        const errorMessage = error?.message || error?.toString() || 'Unknown error';
-        const errorStack = error?.stack ? error.stack.split('\n').slice(0, 3).join('\n') : '';
-        console.error(`  ❌ Error processing ${wallet.address}:`, errorMessage);
-        if (errorStack) {
-          console.error(`     Stack: ${errorStack}`);
-        }
-        // Log specific error types
-        if (error?.code) {
-          console.error(`     Error code: ${error.code}`);
-        }
-        if (error?.status) {
-          console.error(`     HTTP status: ${error.status}`);
-        }
-        results.push({
-          address: wallet.address,
-          processed: 0,
-          trades: 0,
-          skipped: 0,
-          error: errorMessage,
-        });
-      }
-    }
-
-    console.log(`✅ Trade refresh completed: ${totalTrades} total new trades across ${walletList.length} wallets`);
-
-    res.json({
-      success: true,
-      totalWallets: walletList.length,
-      totalProcessed,
-      totalTrades,
-      totalSkipped,
-      results,
-    });
-  } catch (error: any) {
-    console.error('❌ Error refreshing trades:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: error?.message || 'Unknown error',
-      details: process.env.NODE_ENV === 'development' ? error?.stack : undefined,
-    });
-  }
-});
-
 // GET /api/smart-wallets/:id/portfolio - Get portfolio positions for a wallet
 // Supports both ID (database ID) and address (wallet address)
 // Uses cache (10 minutes) - pokud je cache starší než 10 minut, aktualizuje ceny z Birdeye
@@ -1712,78 +1594,6 @@ router.get('/:id/pnl', async (req, res) => {
       message: error?.message || 'Unknown error',
     });
   }
-});
-
-// POST /api/smart-wallets/backfill - Backfill historical transactions for all wallets
-router.post('/backfill', async (req, res) => {
-  // Send response immediately and process in background
-  res.status(202).json({
-    success: true,
-    message: 'Backfill started in background',
-    status: 'processing',
-  });
-
-  // Process in background
-  (async () => {
-    try {
-      console.log('📥 POST /api/smart-wallets/backfill - Starting backfill for all wallets');
-      console.log('📥 Request body:', JSON.stringify(req.body));
-      
-      const limit = parseInt(req.body.limit as string) || 100;
-      const walletAddress = req.body.walletAddress as string | undefined;
-      
-      console.log(`📥 Backfill params: limit=${limit}, walletAddress=${walletAddress || 'all'}`);
-
-      if (walletAddress) {
-        // Backfill single wallet
-        console.log(`📥 Backfilling ${limit} transactions for wallet: ${walletAddress}`);
-        await collectorService.fetchHistoricalTransactions(walletAddress, limit);
-        console.log(`✅ Backfill completed for wallet: ${walletAddress}`);
-        return;
-      }
-
-      // Backfill all wallets - get all without pagination
-      const walletsResult = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
-      const wallets = walletsResult.wallets || [];
-      console.log(`📥 Backfilling ${limit} transactions for ${wallets.length} wallets...`);
-
-      if (wallets.length === 0) {
-        console.log('⚠️  No wallets found for backfill');
-        return;
-      }
-
-      const results = {
-        total: wallets.length,
-        success: 0,
-        failed: 0,
-        errors: [] as Array<{ wallet: string; error: string }>,
-      };
-
-      for (const wallet of wallets) {
-        try {
-          console.log(`📥 Processing wallet ${results.success + results.failed + 1}/${wallets.length}: ${wallet.address} (${wallet.label || 'no label'})`);
-          await collectorService.fetchHistoricalTransactions(wallet.address, limit);
-          results.success++;
-          
-          // Small delay between wallets to avoid rate limiting
-          await new Promise(resolve => setTimeout(resolve, 500));
-        } catch (error: any) {
-          console.error(`❌ Error backfilling wallet ${wallet.address}:`, error.message);
-          results.failed++;
-          results.errors.push({
-            wallet: wallet.address,
-            error: error.message || 'Unknown error',
-          });
-        }
-      }
-
-      console.log(`✅ Backfill completed: ${results.success} success, ${results.failed} failed`);
-    } catch (error: any) {
-      console.error('❌ Error during backfill:');
-      console.error('Error message:', error?.message);
-      console.error('Error stack:', error?.stack);
-    }
-  })();
 });
 
 export { router as smartWalletRouter };

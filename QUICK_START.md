@@ -73,12 +73,10 @@ Po přidání wallet:
 2. Uvidíš seznam všech přidaných wallet
 3. Klikni na wallet pro detail
 
-## 4. Sledování transakcí (volitelné)
+## 4. Sledování transakcí
 
-```bash
-# Spustit Solana Collector (sleduje transakce)
-pnpm --filter backend collector:start
-```
+Není potřeba spouštět žádný collector – Helius webhook pushuje nové swapy automaticky.
+Stačí mít nakonfigurovaný endpoint (`POST /api/webhooks/setup`).
 
 ## 5. Přepočet metrik
 

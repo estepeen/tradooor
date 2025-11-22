@@ -167,11 +167,10 @@ export default function AddWalletPage() {
         <div className="mt-6 p-4 bg-muted rounded-lg">
           <h2 className="font-semibold mb-2">💡 Tip</h2>
           <p className="text-sm text-muted-foreground">
-            Po přidání wallet můžeš spustit backfill historických transakcí:
+            Nové trady se teď ukládají výhradně přes Helius webhook. Jakmile wallet něco
+            nakoupí/prodá, backend obdrží notifikaci a swap se uloží automaticky –
+            žádné manuální backfilly už není potřeba spouštět.
           </p>
-          <code className="block mt-2 p-2 bg-background rounded text-xs">
-            pnpm --filter backend collector:backfill WALLET_ADDRESS 100
-          </code>
         </div>
       </div>
     </div>

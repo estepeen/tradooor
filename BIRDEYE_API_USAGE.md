@@ -118,7 +118,7 @@
 
 1. ✅ Increase cache TTL to 30 minutes
 2. ✅ Increase frontend refresh to 30 minutes
-3. ✅ Reduce collector frequency to 15 minutes
+3. ✅ Remove legacy Solana collector (Helius webhook only, zero polling)
 4. ⚠️ Implement database-backed price cache (critical for 100 wallets)
 5. ⚠️ Consider price update cron job instead of on-demand fetching
 
@@ -132,6 +132,7 @@ With all optimizations:
 **Still exceeds 30,000 limit!** May need:
 - Upgrade Birdeye plan
 - Or implement hybrid approach (Birdeye + DexScreener fallback)
+
 
 
 

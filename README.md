@@ -89,15 +89,10 @@ pnpm --filter backend calculate-metrics WALLET_ID
 pnpm --filter backend metrics:cron
 ```
 
-#### Solana Collector (transaction tracking)
+#### Helius Webhook Ingestion
 
-```bash
-# Start collector for tracking transactions
-pnpm --filter backend collector:start
-
-# Backfill historical transactions for wallet
-pnpm --filter backend collector:backfill WALLET_ADDRESS [LIMIT]
-```
+Všechny nové trady přichází přes Helius webhook (`POST /api/webhooks/helius`). Jakmile webhook jednou nastavíš
+(`POST /api/webhooks/setup`), není potřeba žádný manuální collector ani backfill skripty – data tečou automaticky.
 
 #### Prisma Studio (database GUI)
 
@@ -139,7 +134,7 @@ pnpm db:studio
 
 ## TODO / Future Extensions
 
-- [ ] Implement full Solana collector logic (parsing swap transactions)
+- [ ] Add monitoring/alerts for Helius webhook delivery
 - [ ] Add cron job for automatic metrics recalculation
 - [ ] Implement token market snapshots
 - [ ] Add more filters and statistics to dashboard

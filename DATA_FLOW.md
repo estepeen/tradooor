@@ -4,66 +4,37 @@
 
 Tento dokument popisuje datový tok v SolBot projektu - jak se data sbírají, zpracovávají a ukládají.
 
-## 1. Solana Collector (Sběr dat)
+## 1. Helius Webhook (Realtime ingest)
 
 ### Účel
-Sleduje on-chain transakce pro tracked smart wallets a ukládá swapy do databáze.
+Helius nám pushuje nové swapy pro sledované walletky – žádné periodické pollování ani backfill skripty.
 
 ### Datový tok
 
 ```
-1. Načte seznam sledovaných adres z databáze (smart_wallets.address)
+1. Helius webhook → POST /api/webhooks/helius
    ↓
-2. Napojí se na Solana RPC/WebSocket
+2. Router okamžitě odpoví 200 OK a předá payload do backgroundu
    ↓
-3. Poslouchá odchozí/incoming transakce pro tyto adresy
+3. `processHeliusWebhook` spáruje transakce s našimi smart wallets
    ↓
-4. Detekuje swapy/DEX interakce
-   ↓
-5. Parsuje transakci a extrahuje:
-   - Token address (mint)
-   - Side (buy/sell)
-   - Amount (token + base)
-   - Price per token
-   - DEX identifier
-   ↓
-6. Uloží záznam do trades tabulky
+4. `SolanaCollectorService.processWebhookTransaction`
+   - Normalizuje swap (Helius Enhanced API)
+   - Obohatí token metadata + ceny
+   - Určí typ obchodu (buy/add/remove/sell) + PnL
+   - Uloží trade do DB a přepočítá metriky
 ```
 
 ### Implementace
 
-**Service:** `SolanaCollectorService` (`apps/backend/src/services/solana-collector.service.ts`)
+- **Router:** `apps/backend/src/routes/webhooks.ts`
+- **Service:** `SolanaCollectorService` (`apps/backend/src/services/solana-collector.service.ts`)
+- **Setup:** `POST /api/webhooks/setup` nahraje všechny wallet adresy do jednoho Helius webhooku
 
-**Worker script:** `apps/backend/src/workers/solana-collector.ts`
+### Poznámky
 
-**Použití:**
-```bash
-# Spustit collector
-pnpm --filter backend collector:start
-
-# Backfill historických dat
-pnpm --filter backend collector:backfill WALLET_ADDRESS [LIMIT]
-```
-
-### TODO / Co je potřeba implementovat
-
-1. **Parsování transakcí:**
-   - Identifikace DEXu z program ID
-   - Extrakce swap dat z instructions
-   - Detekce buy vs sell
-   - Výpočet ceny per token
-
-2. **Podporované DEXy:**
-   - Jupiter
-   - Raydium
-   - Pump.fun
-   - Orca
-   - (další podle potřeby)
-
-3. **Optimalizace:**
-   - WebSocket subscription místo polling
-   - Batch processing
-   - Rate limiting handling
+- Webhooky jsou jediný zdroj pravdy – historické backfilly byly odstraněny, aby se předešlo runaway nákladům.
+- Každý trade nese `meta.source = helius-webhook`, takže je jasné odkud data přišla.
 
 ## 2. Metrics Calculator (Přepočet metrik)
 
@@ -140,17 +111,13 @@ Maximálně 100 bodů.
 1. Přidání wallet do systému
    POST /api/smart-wallets
    ↓
-2. Solana Collector začne sledovat transakce
-   collector:start
+2. (Jednorázově) POST /api/webhooks/setup → registrace adres u Heliusu
    ↓
-3. Detekce swapů a uložení do trades
-   (automaticky při nových transakcích)
+3. Helius posílá webhook na každý nový swap
    ↓
-4. Periodický přepočet metrik
-   metrics:cron (každých 6 hodin)
+4. Backend uloží trade + přepočítá metriky
    ↓
-5. Zobrazení v dashboardu
-   Frontend načte data přes API
+5. Frontend načte data přes API
 ```
 
 ### Manuální workflow
@@ -161,14 +128,10 @@ curl -X POST http://localhost:3001/api/smart-wallets \
   -H "Content-Type: application/json" \
   -d '{"address": "WALLET_ADDRESS", "label": "My Trader"}'
 
-# 2. Backfill historických dat (volitelné)
-pnpm --filter backend collector:backfill WALLET_ADDRESS 100
+# 2. Nastavit/refreshnout webhook
+curl -X POST http://localhost:3001/api/webhooks/setup
 
-# 3. Přepočítat metriky
-pnpm --filter backend calculate-metrics
-
-# 4. Zobrazit v dashboardu
-# Otevři http://localhost:3000/wallets
+# 3. Hotovo – čekej na webhooky, žádné backfilly nejsou potřeba
 ```
 
 ## 4. Struktura dat
@@ -190,13 +153,9 @@ Každý přepočet metrik vytvoří nový záznam v `smart_wallet_metrics_histor
 
 ## 5. TODO / Budoucí vylepšení
 
-### Solana Collector
-- [ ] Implementovat parsování pro Jupiter
-- [ ] Implementovat parsování pro Raydium
-- [ ] Implementovat parsování pro Pump.fun
-- [ ] WebSocket subscription místo polling
-- [ ] Batch processing pro efektivitu
-- [ ] Error handling a retry logic
+### Helius Webhook
+- [ ] Alerting, pokud webhook nepřijde X minut
+- [ ] Persist webhook delivery IDs pro audit
 
 ### Metrics Calculator
 - [ ] Vylepšit score formula

@@ -12,3 +12,4 @@ COMMENT ON COLUMN "Trade"."positionChangePercent" IS 'Percentage change in posit
 
 
 
+

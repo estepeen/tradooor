@@ -77,15 +77,15 @@ curl -X POST http://localhost:3001/api/smart-wallets \
 2. Uvidíš seznam všech přidaných wallet
 3. Klikni na wallet pro detail s grafy a tradey
 
-## Volitelné: Sledování transakcí
+## Volitelné: Webhook re-sync
+
+Transakce už sbírá výhradně Helius webhook. Pokud přidáš nové walletky nebo měníš URL backendu, stačí spustit:
 
 ```bash
-# Spustit Solana Collector (sleduje nové transakce)
-pnpm --filter backend collector:start
-
-# Backfill historických transakcí pro wallet
-pnpm --filter backend collector:backfill WALLET_ADDRESS 100
+curl -X POST http://localhost:3001/api/webhooks/setup
 ```
+
+To přeregistruje všechny adresy u Heliusu. Žádný collector ani backfill není potřeba.
 
 ## Volitelné: Přepočet metrik
 

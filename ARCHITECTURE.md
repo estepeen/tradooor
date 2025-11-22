@@ -32,7 +32,7 @@ solbot/
   - `metrics-history.repository.ts` - CRUD pro metrics history
 - `src/services/` - Business logic
   - `metrics-calculator.service.ts` - Výpočet metrik pro walletky
-  - `solana-collector.service.ts` - Skeleton pro Solana transaction collector
+  - `solana-collector.service.ts` - Webhook handler pro nové swapy z Heliusu
 - `src/workers/` - Background jobs
   - `calculate-metrics.ts` - CLI script pro přepočet metrik
 
@@ -118,11 +118,11 @@ Score je počítáno jako kombinace:
 1. POST na `/api/smart-wallets` s adresou
 2. Wallet je přidána do databáze s výchozími metrikami (0)
 
-### Sběr dat (TODO)
+### Sběr dat (Helius webhook)
 
-1. SolanaCollectorService poslouchá transakce pro tracked wallets
-2. Parsuje swap transakce a extrahuje trade data
-3. Ukládá trades do databáze
+1. Helius pošle webhook → `routes/webhooks.ts`
+2. `processHeliusWebhook` zjistí, kterých wallet se transakce týká
+3. `SolanaCollectorService.processWebhookTransaction` normalizuje swap, uloží trade a přepočítá metriky
 
 ### Přepočet metrik
 
@@ -142,16 +142,14 @@ Score je počítáno jako kombinace:
 
 ## TODO / Budoucí rozšíření
 
-### Solana Collector
-- [ ] Implementovat parsing swap transakcí (Jupiter, Raydium, Pump.fun)
-- [ ] Identifikace DEX z transaction instructions
-- [ ] Extrakce token addresses, amounts, prices
-- [ ] Detekce buy vs sell
+### Webhook ingest
+- [ ] Monitorovat výpadky webhooku (alert při absenci requestů)
+- [ ] Idempotentní zpracování (deduplikace podle delivery ID)
+- [ ] Retry queue, pokud uložený trade selže (např. DB outage)
 
 ### Automatizace
 - [ ] Cron job pro automatický přepočet metrik (např. 1x denně)
-- [ ] Background worker pro Solana collector
-- [ ] Queue systém pro zpracování transakcí
+- [ ] Queue systém pro náročné výpočty (např. údržba portfolia)
 
 ### Dashboard
 - [ ] Více filtrů a statistik

@@ -536,30 +536,30 @@ export default function WalletDetailPage() {
           ];
           
           return (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               {periods.map(({ key, days }) => {
                 const data = calculatePnLForPeriod(days);
-                return (
+              return (
                   <div key={key} style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
                     <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">PnL ({key})</div>
-                    <div className={`${
-                      data.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                        ${formatNumber(Math.abs(data.pnlUsd), 2)}
-                      </span>
-                      {' '}
-                      <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                        ({data.pnlPercent >= 0 ? '+' : ''}{formatPercent(data.pnlPercent / 100)})
-                      </span>
-                    </div>
-                    <div className="text-xs text-muted-foreground mt-1">
-                      {data.trades} trades
-                    </div>
+                  <div className={`${
+                    data.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                          <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                            ${formatNumber(Math.abs(data.pnlUsd), 2)}
+                          </span>
+                          {' '}
+                          <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                            ({data.pnlPercent >= 0 ? '+' : ''}{formatPercent(data.pnlPercent / 100)})
+                          </span>
                   </div>
-                );
-              })}
-            </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {data.trades} trades
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           );
         })()}
 
