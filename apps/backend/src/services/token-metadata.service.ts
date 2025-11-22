@@ -210,13 +210,9 @@ export class TokenMetadataService {
       return metaplexData;
     }
 
-    // 4. Zkus Helius API (fallback)
-    if (this.heliusClient.isAvailable()) {
-      const heliusData = await this.heliusClient.getTokenInfo(mintAddress);
-      if (heliusData && (heliusData.symbol || heliusData.name)) {
-        return heliusData;
-      }
-    }
+    // Helius API removed - using webhook-only approach
+    // 4. Helius API fallback was removed to prevent API credit usage
+    // We only use Birdeye, DexScreener, and Metaplex now
 
     return null;
   }
@@ -381,12 +377,9 @@ export class TokenMetadataService {
               return { mintAddress, metadata: metaplexData };
             }
 
-            if (this.heliusClient.isAvailable()) {
-              const heliusData = await this.heliusClient.getTokenInfo(mintAddress);
-              if (heliusData && (heliusData.symbol || heliusData.name)) {
-                return { mintAddress, metadata: heliusData };
-              }
-            }
+            // Helius API removed - using webhook-only approach
+            // Helius API fallback was removed to prevent API credit usage
+            // We only use Birdeye, DexScreener, and Metaplex now
 
             return { mintAddress, metadata: null };
           })

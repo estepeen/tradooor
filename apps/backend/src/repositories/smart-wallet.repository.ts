@@ -60,42 +60,25 @@ export class SmartWalletRepository {
       const walletIds = wallets.map(w => w.id);
       
       // Fetch last trade timestamp for each wallet
-      // Query one trade per wallet (most recent) using limit per walletId
-      // Since Supabase doesn't support DISTINCT ON, we'll query per wallet or use a more efficient approach
-      const lastTradeMap = new Map<string, Date>();
-      
-      // Query most recent trade for each wallet (batch approach for efficiency)
-      // For each wallet, get the most recent trade
-      await Promise.all(
-        walletIds.map(async (walletId) => {
-          try {
-            const { data: lastTrade, error } = await supabase
-              .from(TABLES.TRADE)
-              .select('timestamp')
-              .eq('walletId', walletId)
-              .order('timestamp', { ascending: false })
-              .limit(1)
-              .single();
-            
-            if (!error && lastTrade) {
-              lastTradeMap.set(walletId, new Date(lastTrade.timestamp));
-            }
-          } catch (err: any) {
-            // Ignore errors for single wallet (might not have trades)
-          }
-        })
-      );
+      const { data: lastTrades, error: tradesError } = await supabase
+        .from(TABLES.TRADE)
+        .select('walletId, timestamp')
+        .in('walletId', walletIds)
+        .order('timestamp', { ascending: false });
 
-      // Add lastTradeTimestamp to each wallet
-      wallets.forEach((wallet: any) => {
-        wallet.lastTradeTimestamp = lastTradeMap.get(wallet.id) || null;
-      });
-      
-      // DEBUG: Log wallets without lastTradeTimestamp
-      const walletsWithoutLastTrade = wallets.filter((w: any) => !w.lastTradeTimestamp);
-      if (walletsWithoutLastTrade.length > 0) {
-        const walletAddresses = walletsWithoutLastTrade.map((w: any) => w.address || w.id);
-        console.log(`   ⚠️  [Repository] Wallets without lastTradeTimestamp (${walletsWithoutLastTrade.length}): ${walletAddresses.slice(0, 5).join(', ')}${walletAddresses.length > 5 ? '...' : ''}`);
+      if (!tradesError && lastTrades) {
+        // Create a map of walletId -> lastTradeTimestamp
+        const lastTradeMap = new Map<string, Date>();
+        for (const trade of lastTrades) {
+          if (!lastTradeMap.has(trade.walletId)) {
+            lastTradeMap.set(trade.walletId, new Date(trade.timestamp));
+          }
+        }
+
+        // Add lastTradeTimestamp to each wallet
+        wallets.forEach((wallet: any) => {
+          wallet.lastTradeTimestamp = lastTradeMap.get(wallet.id) || null;
+        });
       }
 
       // Calculate recent PnL in USD (last 30 days) from Closed Positions for each wallet
@@ -136,7 +119,9 @@ export class SmartWalletRepository {
           tradesByWallet.get(trade.walletId)!.push(trade);
         }
         
-        // SOL price conversion removed - use valueUsd from trades (already calculated during webhook processing)
+        // Get current SOL price for USD conversion (once for all wallets)
+        const binancePriceService = new BinancePriceService();
+        const currentSolPrice = await binancePriceService.getCurrentSolPrice().catch(() => 150); // Fallback to $150 if API fails
         
         // Calculate closed positions for each wallet
         for (const [walletId, walletTrades] of tradesByWallet.entries()) {
@@ -315,16 +300,24 @@ export class SmartWalletRepository {
             if (position.totalProceedsBase > 0 && position.totalCostBase > 0) {
               const closedPnlBase = position.totalProceedsBase - position.totalCostBase;
               
-              // Use valueUsd from trades (already calculated during webhook processing)
-              // Fallback to old calculation if we don't have proper USD values
-              closedPnlUsd = position.totalSoldValue - position.totalInvested;
+              // Convert to USD using current SOL price (same as portfolio endpoint)
+              if (currentSolPrice) {
+                if (position.baseToken === 'SOL') {
+                  closedPnlUsd = closedPnlBase * currentSolPrice;
+                } else if (position.baseToken === 'USDC' || position.baseToken === 'USDT') {
+                  closedPnlUsd = closedPnlBase; // 1:1 with USD
+                } else {
+                  // Fallback: use SOL price
+                  closedPnlUsd = closedPnlBase * currentSolPrice;
+                }
+              }
               
-              // Calculate percentage based on base currency
+              // Calculate percentage
               closedPnlPercent = position.totalCostBase > 0
                 ? (closedPnlBase / position.totalCostBase) * 100
                 : null;
             } else if (position.totalSoldValue > 0) {
-              // Fallback to old calculation if we don't have base currency data
+              // Fallback to old calculation if we don't have base currency data (same as portfolio endpoint)
               closedPnlUsd = position.totalSoldValue - position.totalInvested;
               closedPnlPercent = position.totalInvested > 0
                 ? (closedPnlUsd / position.totalInvested) * 100

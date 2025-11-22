@@ -10,8 +10,7 @@
     "build": "pnpm -r build",
     "db:generate": "pnpm --filter @solbot/db db:generate",
     "db:migrate": "pnpm --filter @solbot/db db:migrate",
-    "db:studio": "pnpm --filter @solbot/db db:studio",
-    "clear-cache": "bash clear-cache.sh"
+    "db:studio": "pnpm --filter @solbot/db db:studio"
   },
   "devDependencies": {
     "dotenv-cli": "^11.0.0",

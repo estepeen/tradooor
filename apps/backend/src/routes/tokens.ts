@@ -90,10 +90,41 @@ router.post('/enrich-symbols', async (req, res) => {
         }
       }
 
-      // Token metadata enrichment removed - only webhook processing enriches tokens
-      // All tokens should have metadata from webhook processing already
-      if (otherTokens.length > 0) {
-        console.log(`⚠️  Skipping ${otherTokens.length} tokens - metadata enrichment only via webhook`);
+      // Zpracuj ostatní tokeny pomocí TokenMetadataBatchService (s rate limitingem a cachováním)
+      if (otherTokens.length > 0 && heliusClient.isAvailable()) {
+        try {
+          const mintAddresses = otherTokens.map(t => t.mintAddress);
+          
+          // Použij TokenMetadataBatchService, který už má rate limiting a cachování v DB
+          const batchTokenInfo = await tokenMetadataBatchService.getTokenMetadataBatch(mintAddresses);
+
+          // Aktualizuj tokeny v databázi (TokenMetadataBatchService už ukládá do DB, ale aktualizujeme i zde pro jistotu)
+          for (const token of otherTokens) {
+            try {
+              const info = batchTokenInfo.get(token.mintAddress);
+              if (info && (info.symbol || info.name)) {
+                // TokenMetadataBatchService už uložil do DB, ale zkontrolujme
+                const updatedToken = await tokenRepo.findByMintAddress(token.mintAddress);
+                if (updatedToken && (updatedToken.symbol || updatedToken.name)) {
+                  console.log(`✅ Token ${token.mintAddress.substring(0, 8)}...: ${updatedToken.symbol || updatedToken.name}`);
+                  updated++;
+                } else {
+                  failed++;
+                }
+              } else {
+                failed++;
+              }
+            } catch (error: any) {
+              console.error(`❌ Error processing token ${token.mintAddress.substring(0, 8)}...:`, error.message);
+              failed++;
+            }
+          }
+        } catch (error: any) {
+          console.error(`❌ Error fetching batch from Helius:`, error.message);
+          failed += otherTokens.length;
+        }
+      } else if (otherTokens.length > 0) {
+        // Helius není dostupné - označ jako failed
         failed += otherTokens.length;
       }
 

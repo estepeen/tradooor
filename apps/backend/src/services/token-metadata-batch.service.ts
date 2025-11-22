@@ -219,28 +219,10 @@ export class TokenMetadataBatchService {
           console.warn(`   ⚠️  Error fetching from multiple sources: ${error.message}, falling back to Helius only`);
         }
 
-        // Fallback: Pokud TokenMetadataService nenašel všechny tokeny, zkus Helius API
-        const missingMints = batch.filter(m => !heliusInfoMap.has(m) || (!heliusInfoMap.get(m)?.symbol && !heliusInfoMap.get(m)?.name));
-        if (missingMints.length > 0) {
-          try {
-            console.log(`   🔄 Fetching ${missingMints.length} missing tokens via Helius API...`);
-            const heliusBatchResult = await rateLimiter.add(() => 
-              this.heliusClient.getTokenInfoBatch(missingMints)
-            );
-            
-            heliusBatchResult.forEach((info, mint) => {
-              const existing = heliusInfoMap.get(mint) || {};
-              heliusInfoMap.set(mint, {
-                symbol: info.symbol ?? existing.symbol,
-                name: info.name ?? existing.name,
-                decimals: info.decimals ?? existing.decimals,
-              });
-            });
-            console.log(`   ✅ Helius found ${heliusBatchResult.size} additional tokens`);
-          } catch (error: any) {
-            console.warn(`   ⚠️  Error fetching from Helius: ${error.message}`);
-          }
-        }
+        // Helius API removed - using webhook-only approach
+        // Fallback to Helius API was removed to prevent API credit usage
+        // We only use Birdeye, DexScreener, and Metaplex now
+        // Missing tokens will remain without metadata until webhook provides it
 
         // Zkontroluj garbage symbols a zkus znovu pro ty, které mají garbage
         const extraFetchMints: string[] = [];

@@ -2,22 +2,22 @@
  * Worker to recalculate trade prices using accountData.nativeBalanceChange
  * This fixes trades where amountBase was incorrectly calculated from events.swap
  * 
- * Usage: pnpm fix:trade-prices
+ * DISABLED: This worker was disabled because it uses Helius API directly,
+ * which consumes API credits. We now use webhook-only approach.
+ * 
+ * Usage: pnpm fix:trade-prices (DISABLED)
  */
 
 import 'dotenv/config';
-import { TradeRepository } from '../repositories/trade.repository.js';
-import { HeliusClient } from '../services/helius-client.service.js';
-import { SolPriceService } from '../services/sol-price.service.js';
-import { supabase, TABLES } from '../lib/supabase.js';
-
-const tradeRepo = new TradeRepository();
-const heliusClient = new HeliusClient();
-const solPriceService = new SolPriceService();
 
 async function recalculateTradePrices() {
-  console.log('🔄 Starting trade price recalculation...\n');
+  console.log('❌ This worker has been disabled.');
+  console.log('   Reason: It uses Helius API directly, which consumes API credits.');
+  console.log('   We now use webhook-only approach for all data collection.');
+  console.log('   Historical recalculation is no longer supported.');
+  process.exit(1);
 
+  /* DISABLED CODE - kept for reference
   if (!heliusClient.isAvailable()) {
     console.error('❌ Helius API key not configured');
     process.exit(1);
@@ -195,6 +195,7 @@ async function recalculateTradePrices() {
     console.error(error.stack);
     process.exit(1);
   }
+  */
 }
 
 recalculateTradePrices();

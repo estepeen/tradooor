@@ -115,8 +115,71 @@ router.get('/', async (req, res) => {
       })
     );
 
-    // Token metadata are already in DB from webhook processing - no enrichment needed
-    // UI will use token.symbol and token.name from database
+    // Always ensure token metadata is available so UI can render tickers/names
+      const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
+    const tokensToEnrich = new Map<string, { token: any }>();
+
+    for (const trade of tradesWithBaseCurrency as any[]) {
+      const token = trade.token || trade.Token;
+        if (!token || !token.mintAddress) continue;
+
+        const symbol = (token.symbol || '').trim();
+        const name = (token.name || '').trim();
+      const looksLikeAddress = symbol.length > 15 && base58Regex.test(symbol);
+      const looksLikeTruncated = symbol.includes('...');
+
+        if (!symbol && !name) {
+        tokensToEnrich.set(token.mintAddress, { token });
+        } else if (looksLikeAddress || looksLikeTruncated) {
+        tokensToEnrich.set(token.mintAddress, { token });
+        }
+      }
+
+      if (tokensToEnrich.size > 0) {
+      console.log(`   🔍 Enriching metadata for ${tokensToEnrich.size} token(s) used in trades...`);
+        try {
+          const metadataMap = await tokenMetadataBatchService.getTokenMetadataBatch(
+            Array.from(tokensToEnrich.keys())
+          );
+
+        await Promise.all(
+          Array.from(tokensToEnrich.entries()).map(async ([mintAddress, { token }]) => {
+            const metadata = metadataMap.get(mintAddress);
+            if (!metadata) return;
+
+            const nextSymbol = metadata.symbol ?? token.symbol ?? null;
+            const nextName = metadata.name ?? token.name ?? null;
+            const nextDecimals =
+              metadata.decimals !== undefined && metadata.decimals !== null
+                ? metadata.decimals
+                : token.decimals;
+
+            token.symbol = nextSymbol;
+            token.name = nextName;
+            token.decimals = nextDecimals;
+
+            if (token.id) {
+              try {
+                await tokenRepo.update(token.id, {
+                  symbol: nextSymbol,
+                  name: nextName,
+                  decimals: nextDecimals,
+                });
+              } catch (updateError: any) {
+                console.warn(
+                  `   ⚠️  Failed to persist metadata for token ${mintAddress}:`,
+                  updateError?.message || updateError
+                );
+              }
+            }
+          })
+        );
+
+        console.log(`   ✅ Token metadata enrichment completed (${metadataMap.size} token(s) updated)`);
+        } catch (e: any) {
+        console.warn('⚠️  Failed to enrich token metadata for trades:', e?.message || e);
+      }
+    }
 
     res.json({
       trades: tradesWithBaseCurrency,
@@ -130,107 +193,10 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST /api/trades/recalculate-all - Re-process all trades with fixed logic
-router.post('/recalculate-all', async (req, res) => {
-  try {
-    console.log('🔄 Starting recalculation of all trades...');
-    
-    // Okamžitě vrať odpověď - processing poběží na pozadí
-    res.status(202).json({
-      message: 'Recalculation started in background',
-      status: 'processing',
-    });
-
-    // Spusť processing na pozadí
-    (async () => {
-      try {
-        let processed = 0;
-        let updated = 0;
-        let errors = 0;
-        const BATCH_SIZE = 50;
-        let offset = 0;
-
-        // Cache pro Helius transakce (wallet address -> transactions map)
-        const walletTxCache = new Map<string, Map<string, any>>();
-
-        while (true) {
-          // Načti batch tradeů
-          const result = await tradeRepo.findAll(BATCH_SIZE, offset);
-          const trades = result.trades;
-
-          if (trades.length === 0) {
-            break; // Konec
-          }
-
-          console.log(`📦 Processing batch: ${offset + 1}-${offset + trades.length} of ${result.total}...`);
-
-          // OPTIMALIZACE: Seskup trady podle walletky, abychom načetli transakce jen jednou
-          const tradesByWallet = new Map<string, any[]>();
-          for (const trade of trades) {
-            const walletId = trade.walletId;
-            if (!tradesByWallet.has(walletId)) {
-              tradesByWallet.set(walletId, []);
-            }
-            tradesByWallet.get(walletId)!.push(trade);
-          }
-
-          // Pro každou walletku načti transakce jednou
-          for (const [walletId, walletTrades] of tradesByWallet.entries()) {
-            try {
-              // Získej wallet address
-              const wallet = await smartWalletRepo.findById(walletId);
-              if (!wallet) {
-                console.log(`   ⚠️  Wallet ${walletId} not found, skipping ${walletTrades.length} trades`);
-                errors += walletTrades.length;
-                continue;
-              }
-
-              // Historical transaction fetching removed - only webhook processing uses Helius API
-              // Recalculation endpoint disabled - trades are only processed via webhooks
-              console.log(`   ⚠️  Skipping wallet ${wallet.address.substring(0, 8)}... - recalculation disabled (webhook-only mode)`);
-              errors += walletTrades.length;
-              // Note: All trade processing code below was removed - only webhook processing is enabled
-
-              // Delay mezi walletkami
-              await new Promise(resolve => setTimeout(resolve, 1000));
-            } catch (error: any) {
-              console.error(`   ❌ Error processing wallet ${walletId}:`, error.message);
-              errors += walletTrades.length;
-            }
-          }
-
-          offset += BATCH_SIZE;
-
-          // Delay mezi batchy
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-
-        console.log(`✅ Recalculation completed:`);
-        console.log(`   - Processed: ${processed}`);
-        console.log(`   - Updated: ${updated}`);
-        console.log(`   - Errors: ${errors}`);
-
-        // Po dokončení přepočítej metriky pro všechny walletky
-        console.log('📊 Recalculating metrics for all wallets...');
-        const wallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
-        for (const wallet of wallets.wallets) {
-          try {
-            await metricsCalculator.calculateMetricsForWallet(wallet.id);
-          } catch (error: any) {
-            console.error(`   ❌ Error calculating metrics for wallet ${wallet.id}:`, error.message);
-          }
-        }
-        console.log('✅ Metrics recalculation completed');
-      } catch (error: any) {
-        console.error('❌ Error in background recalculation:', error);
-      }
-    })();
-
-  } catch (error: any) {
-    console.error('Error starting recalculation:', error);
-    res.status(500).json({ error: 'Internal server error', message: error?.message });
-  }
-});
+// POST /api/trades/recalculate-all - REMOVED
+// This endpoint was removed because it used Helius API (getTransactionsForAddress)
+// which consumed too many API credits. We now use webhook-only approach.
+// Historical recalculation is no longer supported.
 
 // POST /api/trades/dedupe - Remove duplicate trades by txSignature (keeping the earliest)
 router.post('/dedupe', async (req, res) => {
@@ -340,8 +306,67 @@ router.get('/recent', async (req, res) => {
       })
     );
 
-    // Token metadata are already in DB from webhook processing - no enrichment needed
-    // UI will use token.symbol and token.name from database
+    // Ensure token metadata is available (symbol/name) for notifications + tables
+    const base58Regex = /^[1-9A-HJ-NP-Za-km-z]+$/;
+    const tokensToEnrich = new Map<string, any>();
+    for (const trade of tradesWithTokens) {
+      const token = trade.token;
+      if (!token || !token.mintAddress) continue;
+
+      const symbol = (token.symbol || '').trim();
+      const name = (token.name || '').trim();
+      const looksLikeAddress = symbol.length > 15 && base58Regex.test(symbol);
+      const looksLikeTruncated = symbol.includes('...');
+
+      if (!symbol && !name) {
+        tokensToEnrich.set(token.mintAddress, token);
+      } else if (looksLikeAddress || looksLikeTruncated) {
+        tokensToEnrich.set(token.mintAddress, token);
+      }
+    }
+
+    if (tokensToEnrich.size > 0) {
+      try {
+        const metadataMap = await tokenMetadataBatchService.getTokenMetadataBatch(
+          Array.from(tokensToEnrich.keys())
+        );
+
+        await Promise.all(
+          Array.from(tokensToEnrich.entries()).map(async ([mint, token]) => {
+            const metadata = metadataMap.get(mint);
+            if (!metadata) return;
+
+            const nextSymbol = metadata.symbol ?? token.symbol ?? null;
+            const nextName = metadata.name ?? token.name ?? null;
+            const nextDecimals =
+              metadata.decimals !== undefined && metadata.decimals !== null
+                ? metadata.decimals
+                : token.decimals;
+
+            token.symbol = nextSymbol;
+            token.name = nextName;
+            token.decimals = nextDecimals;
+
+            if (token.id) {
+              try {
+                await tokenRepo.update(token.id, {
+                  symbol: nextSymbol,
+                  name: nextName,
+                  decimals: nextDecimals,
+                });
+              } catch (updateError: any) {
+                console.warn(
+                  `⚠️  Failed to persist metadata for token ${mint}:`,
+                  updateError?.message || updateError
+                );
+              }
+            }
+          })
+        );
+      } catch (metadataError: any) {
+        console.warn('⚠️  Failed to enrich token metadata for recent trades:', metadataError?.message || metadataError);
+      }
+    }
 
     // Format trades for notifications
     const formattedTrades = tradesWithTokens.map((trade: any) => {

@@ -16,6 +16,8 @@ export default function WalletDetailPage() {
   const [trades, setTrades] = useState<{ trades: Trade[]; total: number } | null>(null);
   const [pnlData, setPnlData] = useState<any>(null);
   const [portfolio, setPortfolio] = useState<any>(null);
+  const [portfolioLoading, setPortfolioLoading] = useState(false);
+  const [portfolioLoaded, setPortfolioLoaded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [tokenFilter, setTokenFilter] = useState<string>('');
   const [timeframeFilter, setTimeframeFilter] = useState<string>('all');
@@ -34,14 +36,6 @@ export default function WalletDetailPage() {
       loadData();
     }
   }, [walletId, tokenFilter, timeframeFilter]);
-
-  // Load portfolio data lazily (after initial data is loaded)
-  useEffect(() => {
-    if (wallet && !portfolio) {
-      loadPortfolio();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wallet]);
 
   async function loadData() {
     setLoading(true);
@@ -63,7 +57,8 @@ export default function WalletDetailPage() {
           fromDate = undefined;
       }
 
-      // Load core data first (fast) - portfolio will be loaded lazily
+      // Get unique tokens for filter
+      // Portfolio is loaded lazily - don't block initial page load
       const [walletData, tradesData, pnl] = await Promise.all([
         fetchSmartWallet(walletId),
         fetchTrades(walletId, { 
@@ -77,6 +72,9 @@ export default function WalletDetailPage() {
       setWallet(walletData);
       setTrades(tradesData);
       setPnlData(pnl);
+      
+      // Load portfolio in background (non-blocking)
+      loadPortfolioLazy();
     } catch (error) {
       console.error('Error loading wallet data:', error);
     } finally {
@@ -84,14 +82,18 @@ export default function WalletDetailPage() {
     }
   }
 
-  async function loadPortfolio() {
-    if (!walletId) return;
+  async function loadPortfolioLazy() {
+    if (portfolioLoaded || portfolioLoading) return;
+    
+    setPortfolioLoading(true);
     try {
-      // Load portfolio data in background (lazy loading)
       const portfolioData = await fetchWalletPortfolio(walletId).catch(() => null);
       setPortfolio(portfolioData);
+      setPortfolioLoaded(true);
     } catch (error) {
-      console.error('Error loading portfolio data:', error);
+      console.error('Error loading portfolio:', error);
+    } finally {
+      setPortfolioLoading(false);
     }
   }
 
@@ -335,6 +337,24 @@ export default function WalletDetailPage() {
             )} */}
 
             {/* Open Positions and Closed Positions - Side by Side */}
+            {portfolioLoading && (
+              <div className="mb-8 text-center text-muted-foreground py-8">
+                Loading positions...
+              </div>
+            )}
+            {!portfolioLoading && !portfolio && !portfolioLoaded && (
+              <div className="mb-8 text-center py-8">
+                <button
+                  onClick={loadPortfolioLazy}
+                  className="px-6 py-3 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+                >
+                  Load Positions
+                </button>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Positions are loaded on-demand to improve page load speed
+                </p>
+              </div>
+            )}
             {portfolio && (
               <div className="grid grid-cols-2 gap-4 mb-8">
                 {/* Open Positions - Left 50% */}
@@ -708,11 +728,7 @@ export default function WalletDetailPage() {
                           <td className={`px-4 py-3 text-right text-sm font-mono ${
                             tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
                           }`}>
-                            {trade.meta?.priceUsd 
-                              ? `$${formatNumber(Number(trade.meta.priceUsd), 6)}`
-                              : trade.priceBasePerToken 
-                                ? `$${formatNumber(Number(trade.priceBasePerToken), 6)}` 
-                                : '-'}
+                            ${formatNumber(Number(trade.priceBasePerToken), 6)}
                           </td>
                           <td className={`px-4 py-3 text-right text-sm font-mono ${
                             tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
