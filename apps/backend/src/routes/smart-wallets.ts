@@ -262,27 +262,34 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
     const mintAddresses = Array.from(mintSet);
     console.log(`🔍 Will fetch metadata for ${mintAddresses.length} unique mints`);
 
-    // Batch token metadata (symbol/name/decimals) and prices
+    // Token metadata are already in DB from webhook processing - fetch from DB instead of Helius API
     let metadataMap = new Map<string, { symbol?: string; name?: string; decimals?: number }>();
     let priceMap = new Map<string, number>();
     try {
       if (mintAddresses.length > 0) {
-        console.log(`📡 Calling tokenMetadataBatchService.getTokenMetadataBatch for ${mintAddresses.length} tokens...`);
-        metadataMap = await tokenMetadataBatchService.getTokenMetadataBatch(mintAddresses);
-        console.log(`✅ Metadata fetch completed: got metadata for ${metadataMap.size}/${mintAddresses.length} tokens`);
-        // DEBUG: Log first few metadata results
-        let logged = 0;
-        for (const [mint, meta] of metadataMap.entries()) {
-          if (logged < 5) {
-            console.log(`  📝 ${mint.substring(0, 16)}...: symbol=${meta.symbol || 'N/A'}, name=${meta.name || 'N/A'}`);
-            logged++;
+        console.log(`📡 Fetching token metadata from database for ${mintAddresses.length} tokens...`);
+        const { data: tokens, error: tokensError } = await supabase
+          .from(TABLES.TOKEN)
+          .select('mintAddress, symbol, name, decimals')
+          .in('mintAddress', mintAddresses);
+        
+        if (!tokensError && tokens) {
+          for (const token of tokens) {
+            metadataMap.set(token.mintAddress, {
+              symbol: token.symbol || undefined,
+              name: token.name || undefined,
+              decimals: token.decimals || undefined,
+            });
           }
+          console.log(`✅ Metadata fetch completed: got metadata for ${metadataMap.size}/${mintAddresses.length} tokens from database`);
+        } else if (tokensError) {
+          console.warn(`⚠️  Failed to fetch token metadata from database: ${tokensError.message}`);
         }
       } else {
         console.log('⚠️  No mint addresses to fetch metadata for');
       }
     } catch (e: any) {
-      console.error('❌ Failed to fetch token metadata for live portfolio:', e?.message || e);
+      console.error('❌ Failed to fetch token metadata from database:', e?.message || e);
       console.error('   Stack:', e?.stack);
     }
 
