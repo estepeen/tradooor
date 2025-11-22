@@ -125,56 +125,67 @@ export class SolanaCollectorService {
       const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
 
       // Step 4: Determine TYPE (buy, sell, add, remove)
-      const isFirstTradeForToken =
-        tokenTrades.length === 0 ||
-        (tokenTrades.length === 1 && tokenTrades[0].txSignature === swap.txSignature) ||
-        (tokenTrades.length > 0 && tokenTrades[0].txSignature === swap.txSignature);
-
+      // BUY = první nákup tokenu, když se balance změní z 0 na >0
+      // ADD = každý další nákup/přikoupení, když už máme balance > 0
+      // REM = odprodej tokenů (ne nikdy 100%), když balance zůstává > 0
+      // SELL = poslední prodej tokenu, kdy balance = 0
       let tradeType: 'buy' | 'sell' | 'add' | 'remove' = swap.side;
+      
       if (swap.side === 'buy') {
-        if (isFirstTradeForToken || !hasPreviousTrades || normalizedBalanceBefore === 0) {
+        // BUY: balanceBefore === 0 a balanceAfter > 0 (první nákup)
+        // ADD: balanceBefore > 0 a balanceAfter > balanceBefore (další nákup)
+        if (normalizedBalanceBefore === 0) {
           tradeType = 'buy';
         } else {
           tradeType = 'add';
         }
       } else if (swap.side === 'sell') {
-        if (normalizedBalanceAfter <= 0) {
+        // SELL: balanceAfter === 0 (poslední prodej, kdy balance klesne na 0)
+        // REM: balanceAfter > 0 (částečný prodej, balance zůstává > 0)
+        if (normalizedBalanceAfter === 0) {
           tradeType = 'sell';
-        } else if (normalizedBalanceAfter > 0) {
-          tradeType = 'remove';
         } else {
-          tradeType = 'sell';
+          tradeType = 'remove';
         }
       }
 
       // Step 5: Calculate POSITION (positionChangePercent)
-      let currentPosition = balanceBefore;
+      // Pro BUY/ADD: % změna pozice = (amountToken / balanceBefore) * 100
+      // Pro REM/SELL: % změna pozice = -(amountToken / balanceBefore) * 100
       let positionChangePercent: number | undefined = undefined;
-      const MIN_POSITION_THRESHOLD = swap.amountToken * 0.01;
+      const MIN_POSITION_THRESHOLD = 0.000001; // Minimální threshold pro považování za nenulovou pozici
 
       if (swap.side === 'buy') {
-        if (currentPosition > MIN_POSITION_THRESHOLD) {
-          positionChangePercent = (swap.amountToken / currentPosition) * 100;
+        // BUY nebo ADD
+        if (normalizedBalanceBefore === 0) {
+          // První nákup (BUY) - pozice se vytváří, takže 100% změna
+          positionChangePercent = 100;
+        } else {
+          // Další nákup (ADD) - počítáme % změnu z existující pozice
+          positionChangePercent = (swap.amountToken / balanceBefore) * 100;
+          // Omezíme na rozumné hodnoty (max 1000%, pak ořízneme na 100%)
           if (positionChangePercent > 1000) {
             positionChangePercent = 100;
           }
-        } else {
-          positionChangePercent = 100;
         }
       } else if (swap.side === 'sell') {
-        if (currentPosition > MIN_POSITION_THRESHOLD) {
-          positionChangePercent = -(swap.amountToken / currentPosition) * 100;
+        // REM nebo SELL
+        if (normalizedBalanceBefore === 0) {
+          // Nemůžeme prodávat, když nemáme pozici
+          positionChangePercent = 0;
+        } else if (normalizedBalanceAfter === 0) {
+          // SELL - prodáváme všechno, takže -100%
+          positionChangePercent = -100;
+        } else {
+          // REM - částečný prodej, počítáme % změnu z existující pozice
+          positionChangePercent = -(swap.amountToken / balanceBefore) * 100;
+          // Omezíme na rozumné hodnoty (min -100%)
           if (positionChangePercent < -100) {
             positionChangePercent = -100;
           }
+          // Pokud je změna větší než 1000%, ořízneme na -100%
           if (Math.abs(positionChangePercent) > 1000) {
             positionChangePercent = -100;
-          }
-        } else {
-          if (swap.amountToken > currentPosition) {
-            positionChangePercent = -100;
-          } else {
-            positionChangePercent = currentPosition > 0 ? -(swap.amountToken / currentPosition) * 100 : 0;
           }
         }
       }

@@ -25,6 +25,7 @@
     "trades:print": "tsx src/scripts/print-wallet-trades.ts",
     "trades:delete-all": "tsx src/scripts/delete-all-trades.ts",
     "trades:delete-wallet": "tsx src/scripts/delete-wallet-trades.ts",
+    "recalculate:types-positions": "tsx src/workers/recalculate-trade-types-and-positions.ts",
     "test:token-metadata": "tsx src/scripts/test-token-metadata.ts",
     "test:recent-trades-metadata": "tsx src/scripts/test-recent-trades-metadata.ts",
     "test:birdeye-api": "tsx src/scripts/test-birdeye-api.ts"

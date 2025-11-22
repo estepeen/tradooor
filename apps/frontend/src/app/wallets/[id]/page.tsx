@@ -598,73 +598,66 @@ export default function WalletDetailPage() {
                   </thead>
                   <tbody>
                     {(() => {
-                      // Calculate position before each trade to determine if it's ADD/REM or BUY/SELL
+                      // Calculate absolute position for each trade
+                      // Position starts at 0, first BUY sets it to 1.0x, then it changes cumulatively
                       const allTrades = [...(trades?.trades || [])].sort((a, b) => 
                         new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
                       );
                       
-                      // Calculate position for each token before each trade
-                      const positionBeforeTrade = new Map<string, number>(); // tradeId -> position before
+                      // Calculate absolute position for each token
+                      // Position starts at 0, first BUY sets it to 1.0x, then it changes cumulatively
+                      const tokenAbsolutePositions = new Map<string, number>(); // tokenId -> current absolute position
+                      const tradeAbsolutePositions = new Map<string, number>(); // tradeId -> absolute position after this trade
                       
-                      const tokenPositions = new Map<string, number>(); // tokenId -> current position
-                      
-                      // First pass: calculate positions for all trades
+                      // First pass: calculate absolute positions for all trades
+                      // Logika: BUY = 1.0x, pak každý trade mění pozici podle positionChangePercent
                       for (const trade of allTrades) {
                         const tokenId = trade.tokenId;
-                        const positionBefore = tokenPositions.get(tokenId) || 0;
+                        const currentAbsolutePosition = tokenAbsolutePositions.get(tokenId) || 0;
+                        const positionChangePercent = trade.positionChangePercent ?? 0;
+                        const changeMultiplier = positionChangePercent / 100; // Convert % to multiplier (e.g., -14% = -0.14)
                         
-                        // Store position before this trade
-                        positionBeforeTrade.set(trade.id, positionBefore);
-                        
-                        // Update position after this trade
-                        const amount = Number(trade.amountToken);
+                        let newAbsolutePosition: number;
                         if (trade.side === 'buy') {
-                          tokenPositions.set(tokenId, positionBefore + amount);
+                          // BUY: always set to 1.0x (first purchase)
+                          newAbsolutePosition = 1.0;
+                        } else if (trade.side === 'add') {
+                          // ADD: increase position by percentage
+                          // Example: 1.0x + 7% = 1.0x * (1 + 0.07) = 1.07x
+                          newAbsolutePosition = currentAbsolutePosition * (1 + changeMultiplier);
                         } else if (trade.side === 'sell') {
-                          tokenPositions.set(tokenId, Math.max(0, positionBefore - amount));
+                          // SELL: always set to 0.00x (complete sale)
+                          newAbsolutePosition = 0.0;
+                        } else if (trade.side === 'remove') {
+                          // REM: decrease position by percentage
+                          // Example: 1.0x - 14% = 1.0x * (1 - 0.14) = 0.86x
+                          // positionChangePercent is negative (e.g., -14), so changeMultiplier is -0.14
+                          // newPosition = oldPosition * (1 + (-0.14)) = oldPosition * 0.86
+                          newAbsolutePosition = currentAbsolutePosition * (1 + changeMultiplier);
+                        } else {
+                          // Fallback: use current position
+                          newAbsolutePosition = currentAbsolutePosition;
                         }
+                        
+                        // Store absolute position after this trade
+                        tradeAbsolutePositions.set(trade.id, newAbsolutePosition);
+                        tokenAbsolutePositions.set(tokenId, newAbsolutePosition);
                       }
                       
-                      // Get last 10 trades (most recent) and calculate positions again for those
-                      const recentTrades = allTrades.slice(-10);
-                      const tokenPositionsForRecent = new Map<string, number>(); // tokenId -> current position before recent trades
+                      // Get last 10 trades (most recent) for display
+                      const recentTrades = allTrades.slice(-10).reverse();
                       
-                      // Calculate positions before recent trades
-                      for (const trade of allTrades) {
-                        if (recentTrades.some(t => t.id === trade.id)) {
-                          break; // We've reached recent trades
-                        }
-                        const tokenId = trade.tokenId;
-                        const amount = Number(trade.amountToken);
-                        const currentPos = tokenPositionsForRecent.get(tokenId) || 0;
-                        if (trade.side === 'buy') {
-                          tokenPositionsForRecent.set(tokenId, currentPos + amount);
-                        } else if (trade.side === 'sell') {
-                          tokenPositionsForRecent.set(tokenId, Math.max(0, currentPos - amount));
-                        }
-                      }
-                      
-                      return recentTrades.reverse().map((trade) => {
-                        const tradeDate = new Date(trade.timestamp);
-                        const isBuy = trade.side === 'buy';
-                        const positionBefore = positionBeforeTrade.get(trade.id) || 0;
-                        const tradeAmount = Number(trade.amountToken);
-                        const positionAfter = isBuy 
-                          ? positionBefore + tradeAmount 
-                          : Math.max(0, positionBefore - tradeAmount);
+                      return recentTrades.map((trade) => {
+                        const absolutePosition = tradeAbsolutePositions.get(trade.id) || 0;
+                        const positionChangePercent = trade.positionChangePercent || 0;
+                        const changeMultiplier = positionChangePercent / 100;
                         
-                        // Determine trade type
-                        // BUY = first purchase (positionBefore === 0)
-                        // ADD = additional purchase (positionBefore > 0)
-                        // SELL = complete sale (positionAfter === 0)
-                        // REM = partial sale (positionAfter > 0)
-                        const MIN_POSITION = 0.000001; // Small threshold to avoid floating point issues
-                        let tradeType: 'BUY' | 'ADD' | 'SELL' | 'REM' = isBuy ? 'BUY' : 'SELL';
-                        if (isBuy && positionBefore > MIN_POSITION) {
-                          tradeType = 'ADD';
-                        } else if (!isBuy && positionAfter > MIN_POSITION) {
-                          tradeType = 'REM';
-                        }
+                        // Determine trade type from side
+                        let tradeType: 'BUY' | 'ADD' | 'SELL' | 'REM' = 'BUY';
+                        if (trade.side === 'buy') tradeType = 'BUY';
+                        else if (trade.side === 'add') tradeType = 'ADD';
+                        else if (trade.side === 'sell') tradeType = 'SELL';
+                        else if (trade.side === 'remove') tradeType = 'REM';
                         
                         return (
                           <tr key={trade.id} className="border-t border-border hover:bg-muted/50">
@@ -675,7 +668,7 @@ export default function WalletDetailPage() {
                                 rel="noopener noreferrer"
                                 className="text-blue-400 hover:text-blue-300 hover:underline text-muted-foreground"
                               >
-                                  {formatDate(trade.timestamp)}
+                                {formatDate(trade.timestamp)}
                               </a>
                             </td>
                             <td className="px-4 py-3 text-center">
@@ -689,14 +682,18 @@ export default function WalletDetailPage() {
                             </td>
                           <td className="px-4 py-3 text-center text-sm font-mono">
                             {trade.positionChangePercent !== null && trade.positionChangePercent !== undefined ? (
-                              <span className={
-                                trade.positionChangePercent > 0
-                                  ? 'text-green-400'
-                                  : trade.positionChangePercent < 0
-                                  ? 'text-red-400'
-                                  : 'text-muted-foreground'
-                              }>
-                                {formatMultiplier(trade.positionChangePercent)}
+                              <span>
+                                <span className="text-foreground">{absolutePosition.toFixed(2)}x</span>
+                                {' '}
+                                <span className={
+                                  changeMultiplier > 0
+                                    ? 'text-green-400'
+                                    : changeMultiplier < 0
+                                    ? 'text-red-400'
+                                    : 'text-muted-foreground'
+                                }>
+                                  ({changeMultiplier >= 0 ? '+' : ''}{changeMultiplier.toFixed(2)}x)
+                                </span>
                               </span>
                             ) : (
                               <span className="text-muted-foreground">-</span>

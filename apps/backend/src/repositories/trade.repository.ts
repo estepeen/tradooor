@@ -195,6 +195,7 @@ export class TradeRepository {
    * Aktualizuje existující trade
    */
   async update(tradeId: string, data: {
+    side?: 'buy' | 'sell' | 'add' | 'remove';
     amountBase?: number;
     priceBasePerToken?: number;
     valueUsd?: number;
@@ -204,6 +205,9 @@ export class TradeRepository {
   }) {
     const updateData: any = {};
     
+    if (data.side !== undefined) {
+      updateData.side = data.side;
+    }
     if (data.amountBase !== undefined) {
       updateData.amountBase = data.amountBase.toString();
     }
