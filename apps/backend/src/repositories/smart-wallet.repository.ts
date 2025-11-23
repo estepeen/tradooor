@@ -44,7 +44,7 @@ export class SmartWalletRepository {
     // Only apply DB sorting for fields that exist in the database
     // Note: lastTradeTimestamp, recentPnl30dUsd, and recentPnl30dPercent are calculated after DB query
     if (sortBy !== 'lastTradeTimestamp' && sortBy !== 'recentPnl30dUsd' && sortBy !== 'recentPnl30dPercent') {
-      query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
     }
 
     // Apply pagination
@@ -173,15 +173,21 @@ export class SmartWalletRepository {
           const pnlPercent = totalBuyValue > 0 ? ((pnl / totalBuyValue) * 100) : 0;
           
           // Calculate PnL in USD from trades (same as PnL endpoint)
-          const { data: periodTrades } = await supabase
-            .from(TABLES.TRADE)
-            .select('side, valueUsd')
-            .eq('walletId', walletId)
-            .gte('timestamp', thirtyDaysAgo.toISOString());
+          // IMPORTANT: Get ALL trades first, then filter by date (same as PnL endpoint)
+          const { data: allTradesForWallet } = await supabase
+              .from(TABLES.TRADE)
+            .select('side, valueUsd, timestamp')
+            .eq('walletId', walletId);
+          
+          // Filter trades by date (same as PnL endpoint)
+          const periodTrades = (allTradesForWallet || []).filter(t => {
+            const tradeDate = new Date(t.timestamp);
+            return tradeDate >= thirtyDaysAgo;
+          });
           
           let buyValueUsd = 0;
           let sellValueUsd = 0;
-          if (periodTrades) {
+          if (periodTrades && periodTrades.length > 0) {
             for (const trade of periodTrades) {
               const valueUsd = Number(trade.valueUsd || 0);
               if (trade.side === 'buy') {
@@ -192,6 +198,21 @@ export class SmartWalletRepository {
             }
           }
           const pnlUsd = sellValueUsd - buyValueUsd;
+          
+          // DEBUG: Log for specific wallet
+          const wallet = wallets.find((w: any) => w.id === walletId);
+          if (wallet && (wallet.address === 'HdxkiXqeN6qpK2YbG51W23QSWj3Yygc1eEk2zwmKJExp' || process.env.NODE_ENV === 'development')) {
+            console.log(`   🔍 [Repository PnL] Wallet ${wallet.address}:`);
+            console.log(`      - Period positions: ${periodPositions.length}`);
+            console.log(`      - Total buy value: ${totalBuyValue.toFixed(2)}`);
+            console.log(`      - Total sell value: ${totalSellValue.toFixed(2)}`);
+            console.log(`      - PnL from positions: ${pnl.toFixed(2)}`);
+            console.log(`      - Period trades: ${periodTrades.length}`);
+            console.log(`      - Buy value USD: ${buyValueUsd.toFixed(2)}`);
+            console.log(`      - Sell value USD: ${sellValueUsd.toFixed(2)}`);
+            console.log(`      - PnL USD: ${pnlUsd.toFixed(2)}`);
+            console.log(`      - PnL percent: ${pnlPercent.toFixed(2)}%`);
+          }
           
           return { walletId, pnlUsd, pnlPercent };
         } catch (error: any) {
