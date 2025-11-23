@@ -194,8 +194,12 @@ export class SmartWalletRepository {
           const pnlUsd = sellValueUsd - buyValueUsd;
           
           return { walletId, pnlUsd, pnlPercent };
-        } catch (error) {
-          console.error(`   ❌ [Repository] Error calculating PnL for wallet ${walletId}:`, error);
+        } catch (error: any) {
+          // Silently handle errors - don't log every wallet that has no trades
+          // Only log if it's a real error (not just missing trades)
+          if (error?.message && !error.message.includes('not found') && !error.message.includes('No trades')) {
+            console.error(`   ❌ [Repository] Error calculating PnL for wallet ${walletId}:`, error.message);
+          }
           return { walletId, pnlUsd: 0, pnlPercent: 0 };
         }
       });
@@ -239,7 +243,7 @@ export class SmartWalletRepository {
           const dbValue = wallet.recentPnl30dPercent || 0;
           if (Math.abs(dbValue) > 0.01) {
             console.log(`   ⚠️  [Repository] Wallet ${wallet.address}: No positions in last 30 days, resetting PnL from DB value ${dbValue.toFixed(2)}% to 0`);
-          }
+            }
           }
         });
         
