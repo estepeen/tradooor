@@ -378,8 +378,12 @@ export default function Home() {
                     }
                     if (sortBy === 'recentPnl30dUsd') {
                       // Handle nulls - treat as 0
-                      const aPnl = a.recentPnl30dUsd ?? 0;
-                      const bPnl = b.recentPnl30dUsd ?? 0;
+                      const aPnl = Number(a.recentPnl30dUsd) || 0;
+                      const bPnl = Number(b.recentPnl30dUsd) || 0;
+                      // DEBUG: Log sorting values
+                      if (process.env.NODE_ENV === 'development' && Math.abs(aPnl) > 100 || Math.abs(bPnl) > 100) {
+                        console.log(`🔍 [Sort] ${a.address}: ${aPnl}, ${b.address}: ${bPnl}, order: ${sortOrder}`);
+                      }
                       return sortOrder === 'asc' ? aPnl - bPnl : bPnl - aPnl;
                     }
                     if (sortBy === 'recentPnl30dPercent') {
