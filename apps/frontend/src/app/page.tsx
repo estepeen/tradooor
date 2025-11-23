@@ -16,7 +16,7 @@ export default function Home() {
   const [minScore, setMinScore] = useState<number | undefined>();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<'score' | 'winRate' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address'>('score');
+  const [sortBy, setSortBy] = useState<'score' | 'winRate' | 'recentPnl30dUsd' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address'>('score');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -329,17 +329,17 @@ export default function Home() {
                   <th 
                     className="px-4 py-3 text-right text-sm font-medium cursor-pointer hover:bg-muted/80 select-none"
                     onClick={() => {
-                      if (sortBy === 'recentPnl30dPercent') {
+                      if (sortBy === 'recentPnl30dUsd') {
                         setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                       } else {
-                        setSortBy('recentPnl30dPercent');
+                        setSortBy('recentPnl30dUsd');
                         setSortOrder('desc');
                       }
                     }}
                   >
                     <div className="flex items-center justify-end gap-2">
                       Recent PnL (30d)
-                      {sortBy === 'recentPnl30dPercent' && (
+                      {sortBy === 'recentPnl30dUsd' && (
                         <span className="text-xs">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                       )}
                     </div>
@@ -375,6 +375,12 @@ export default function Home() {
                       const aVal = aTime || 0;
                       const bVal = bTime || 0;
                       return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
+                    }
+                    if (sortBy === 'recentPnl30dUsd') {
+                      // Handle nulls - treat as 0
+                      const aPnl = a.recentPnl30dUsd ?? 0;
+                      const bPnl = b.recentPnl30dUsd ?? 0;
+                      return sortOrder === 'asc' ? aPnl - bPnl : bPnl - aPnl;
                     }
                     if (sortBy === 'recentPnl30dPercent') {
                       // Handle nulls - treat as 0
