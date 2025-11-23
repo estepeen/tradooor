@@ -8,7 +8,7 @@ export class SmartWalletRepository {
     minScore?: number;
     tags?: string[];
     search?: string;
-    sortBy?: 'score' | 'winRate' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address';
+    sortBy?: 'score' | 'winRate' | 'recentPnl30dUsd' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address';
     sortOrder?: 'asc' | 'desc';
   }) {
     const page = params?.page ?? 1;
@@ -36,15 +36,15 @@ export class SmartWalletRepository {
     }
 
     // Apply sorting
-    // Note: lastTradeTimestamp and recentPnl30dUsd are calculated after DB query,
+    // Note: lastTradeTimestamp, recentPnl30dUsd, and recentPnl30dPercent are calculated after DB query,
     // so they need client-side sorting (handled in frontend)
     const sortBy = params?.sortBy ?? 'score';
     const sortOrder = params?.sortOrder ?? 'desc';
     
     // Only apply DB sorting for fields that exist in the database
-    // Note: lastTradeTimestamp and recentPnl30dPercent are calculated after DB query
-    if (sortBy !== 'lastTradeTimestamp' && sortBy !== 'recentPnl30dPercent') {
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+    // Note: lastTradeTimestamp, recentPnl30dUsd, and recentPnl30dPercent are calculated after DB query
+    if (sortBy !== 'lastTradeTimestamp' && sortBy !== 'recentPnl30dUsd' && sortBy !== 'recentPnl30dPercent') {
+      query = query.order(sortBy, { ascending: sortOrder === 'asc' });
     }
 
     // Apply pagination

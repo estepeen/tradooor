@@ -6,7 +6,7 @@ export async function fetchSmartWallets(params?: {
   minScore?: number;
   tags?: string[];
   search?: string;
-  sortBy?: 'score' | 'winRate' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address';
+  sortBy?: 'score' | 'winRate' | 'recentPnl30dUsd' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address';
   sortOrder?: 'asc' | 'desc';
 }) {
   const searchParams = new URLSearchParams();

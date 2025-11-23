@@ -67,7 +67,7 @@ router.get('/', async (req, res) => {
     const minScore = req.query.minScore ? parseFloat(req.query.minScore as string) : undefined;
     const tags = req.query.tags ? (req.query.tags as string).split(',') : undefined;
     const search = req.query.search as string | undefined;
-    const sortBy = req.query.sortBy as 'score' | 'winRate' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address' | undefined;
+    const sortBy = req.query.sortBy as 'score' | 'winRate' | 'recentPnl30dUsd' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address' | undefined;
     const sortOrder = (req.query.sortOrder as 'asc' | 'desc') || 'desc';
 
     console.log(`🔍 Fetching wallets - page: ${page}, pageSize: ${pageSize}`);
