@@ -60,29 +60,69 @@ export class SmartWalletRepository {
       const walletIds = wallets.map(w => w.id);
       
       // Fetch last trade timestamp for each wallet
-      const { data: lastTrades, error: tradesError } = await supabase
-        .from(TABLES.TRADE)
-        .select('walletId, timestamp')
-        .in('walletId', walletIds)
-        .order('timestamp', { ascending: false });
+      // Use Promise.all to fetch the most recent trade for each wallet in parallel
+      const lastTradePromises = walletIds.map(async (walletId) => {
+        const { data: lastTrade, error } = await supabase
+          .from(TABLES.TRADE)
+          .select('timestamp')
+          .eq('walletId', walletId)
+          .order('timestamp', { ascending: false })
+          .limit(1)
+          .single();
 
-      if (!tradesError && lastTrades) {
-        // Create a map of walletId -> lastTradeTimestamp (as ISO string for proper JSON serialization)
-        const lastTradeMap = new Map<string, string>();
-        for (const trade of lastTrades) {
-          if (!lastTradeMap.has(trade.walletId)) {
+        if (error) {
+          // If no trades found, that's OK - return null
+          if (error.code === 'PGRST116') {
+            return { walletId, timestamp: null };
+          }
+          console.error(`❌ Error fetching last trade for wallet ${walletId}:`, error);
+          return { walletId, timestamp: null };
+        }
+
+        if (lastTrade && lastTrade.timestamp) {
+          try {
             // Convert to ISO string to ensure proper JSON serialization
-            const timestamp = trade.timestamp instanceof Date 
-              ? trade.timestamp.toISOString()
-              : new Date(trade.timestamp).toISOString();
-            lastTradeMap.set(trade.walletId, timestamp);
+            const timestamp = lastTrade.timestamp instanceof Date 
+              ? lastTrade.timestamp.toISOString()
+              : new Date(lastTrade.timestamp).toISOString();
+            
+            // Validate that timestamp is valid
+            if (!isNaN(new Date(timestamp).getTime())) {
+              return { walletId, timestamp };
+            } else {
+              console.warn(`⚠️ Invalid timestamp for wallet ${walletId}:`, lastTrade.timestamp);
+              return { walletId, timestamp: null };
+            }
+          } catch (error) {
+            console.error(`❌ Error parsing timestamp for wallet ${walletId}:`, error, lastTrade.timestamp);
+            return { walletId, timestamp: null };
           }
         }
 
-        // Add lastTradeTimestamp to each wallet (as ISO string)
-        wallets.forEach((wallet: any) => {
-          wallet.lastTradeTimestamp = lastTradeMap.get(wallet.id) || null;
-        });
+        return { walletId, timestamp: null };
+      });
+
+      // Wait for all queries to complete
+      const lastTradeResults = await Promise.all(lastTradePromises);
+
+      // Create a map of walletId -> lastTradeTimestamp (as ISO string)
+      const lastTradeMap = new Map<string, string>();
+      for (const result of lastTradeResults) {
+        if (result.timestamp) {
+          lastTradeMap.set(result.walletId, result.timestamp);
+        }
+      }
+
+      // Add lastTradeTimestamp to each wallet (as ISO string)
+      wallets.forEach((wallet: any) => {
+        wallet.lastTradeTimestamp = lastTradeMap.get(wallet.id) || null;
+      });
+
+      // Debug: Log wallets without lastTradeTimestamp (only if they have trades)
+      const walletsWithoutTimestamp = wallets.filter((w: any) => !w.lastTradeTimestamp && w.totalTrades > 0);
+      if (walletsWithoutTimestamp.length > 0) {
+        console.log(`⚠️ ${walletsWithoutTimestamp.length} wallets with trades but without lastTradeTimestamp:`, 
+          walletsWithoutTimestamp.map((w: any) => ({ id: w.id, address: w.address, totalTrades: w.totalTrades })));
       }
 
       // Calculate recent PnL in USD (last 30 days) from Closed Positions for each wallet
