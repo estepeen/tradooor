@@ -150,10 +150,14 @@ export class SmartWalletRepository {
         console.log(`   📊 [Repository] Fetched ${allTrades.length} trades for ${walletsWithTrades.size} wallets (total wallets on page: ${walletIds.length})`);
       }
 
-      if (!allTradesError && allTrades) {
+      // Initialize PnL map for ALL wallets (even if they have no trades)
+      const walletPnLMap = new Map<string, { pnlUsd: number; pnlPercent: number }>();
+      for (const walletId of walletIds) {
+        walletPnLMap.set(walletId, { pnlUsd: 0, pnlPercent: 0 });
+      }
+      
+      if (!allTradesError && allTrades && allTrades.length > 0) {
         // Calculate closed positions and PnL for each wallet
-        const walletPnLMap = new Map<string, { pnlUsd: number; pnlPercent: number }>();
-        
         // Group trades by wallet
         const tradesByWallet = new Map<string, typeof allTrades>();
         for (const trade of allTrades) {
@@ -405,26 +409,30 @@ export class SmartWalletRepository {
         }
 
         // Add recentPnl30dUsd and recentPnl30dPercent to each wallet
-        // IMPORTANT: Ensure ALL wallets on the page get PnL values, even if 0
+        // IMPORTANT: Always use calculated values (override DB values) to ensure consistency
         wallets.forEach((wallet: any) => {
           const pnl = walletPnLMap.get(wallet.id);
           
+          // Always set calculated values (even if 0) to override potentially stale DB values
           if (pnl) {
             wallet.recentPnl30dUsd = pnl.pnlUsd;
             wallet.recentPnl30dPercent = pnl.pnlPercent;
             // DEBUG: Log all wallets with non-zero PnL
             if (Math.abs(pnl.pnlUsd) > 0.01 || Math.abs(pnl.pnlPercent) > 0.01) {
-              console.log(`   ✅ [Repository] Wallet ${wallet.address}: PnL set to ${pnl.pnlUsd.toFixed(2)} USD (${pnl.pnlPercent.toFixed(2)}%)`);
+              console.log(`   ✅ [Repository] Wallet ${wallet.address}: PnL calculated: ${pnl.pnlUsd.toFixed(2)} USD (${pnl.pnlPercent.toFixed(2)}%), DB had: ${(wallet.recentPnl30dPercent || 0).toFixed(2)}%`);
             }
           } else {
-            // IMPORTANT: Set to 0 (not undefined/null) for wallets without PnL
+            // IMPORTANT: Always set to 0 (not undefined/null) to override stale DB values
             wallet.recentPnl30dUsd = 0;
             wallet.recentPnl30dPercent = 0;
-            // DEBUG: Log wallets without PnL (but only if they have trades)
+            // DEBUG: Log wallets without PnL (but only if they have trades or non-zero DB value)
             const hasTrades = tradesByWallet.has(wallet.id);
+            const dbValue = wallet.recentPnl30dPercent || 0;
             if (hasTrades) {
               const tradeCount = tradesByWallet.get(wallet.id)?.length || 0;
-              console.log(`   ⚠️  [Repository] Wallet ${wallet.address}: No PnL calculated (has ${tradeCount} trades, but no closed positions in last 30 days)`);
+              console.log(`   ⚠️  [Repository] Wallet ${wallet.address}: No PnL calculated (has ${tradeCount} trades, but no closed positions in last 30 days), DB had: ${dbValue.toFixed(2)}%`);
+            } else if (Math.abs(dbValue) > 0.01) {
+              console.log(`   ⚠️  [Repository] Wallet ${wallet.address}: No trades found, resetting PnL from DB value ${dbValue.toFixed(2)}% to 0`);
             }
           }
         });
