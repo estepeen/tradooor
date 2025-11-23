@@ -1508,11 +1508,8 @@ router.get('/:id/pnl', async (req, res) => {
     // Build positions from trades
     const positions = await metricsCalculator.buildPositionsFromTrades(walletId);
     
-    // Get trades for USD calculation
-    const trades = allTrades.trades.filter(t => {
-      const tradeDate = new Date(t.timestamp);
-      return tradeDate >= periods['1d']; // Get trades from at least 1 day ago
-    });
+    // Get ALL trades for USD calculation (don't pre-filter by 1d)
+    const trades = allTrades.trades;
     
     const pnlData: Record<string, { pnl: number; pnlUsd: number; pnlPercent: number; trades: number }> = {};
     
@@ -1537,7 +1534,7 @@ router.get('/:id/pnl', async (req, res) => {
         ? ((pnl / totalBuyValue) * 100)
         : 0;
 
-      // Calculate PnL in USD from trades
+      // Calculate PnL in USD from trades - filter directly by fromDate (same as repository)
       const periodTrades = trades.filter(t => {
         const tradeDate = new Date(t.timestamp);
         return tradeDate >= fromDate;
