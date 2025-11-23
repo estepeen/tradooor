@@ -71,18 +71,42 @@ export function formatTimeAgo(date: Date | string | null | undefined): string {
 export function formatLastTrade(date: Date | string | null | undefined): string {
   if (!date) return 'Never';
   
-  const d = typeof date === 'string' ? new Date(date) : date;
+  let d: Date;
+  if (typeof date === 'string') {
+    d = new Date(date);
+  } else if (date instanceof Date) {
+    d = date;
+  } else {
+    // Fallback for any other type
+    d = new Date(date);
+  }
+  
+  // Check if date is valid
+  if (isNaN(d.getTime())) {
+    console.warn('Invalid date in formatLastTrade:', date);
+    return 'Never';
+  }
+  
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
+  
+  // If date is in the future, something is wrong
+  if (diffMs < 0) {
+    console.warn('Date is in the future:', date, d);
+    return 'Never';
+  }
+  
   const diffMins = Math.floor(diffMs / (1000 * 60));
   const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
   
   // Pokud je to méně než 24 hodin, zobraz relativní čas
   if (diffMins < 1) return 'Just now';
   if (diffMins < 60) return `${diffMins} min ago`;
   if (diffHours < 24) return `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
+  if (diffDays < 7) return `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
   
-  // Pokud je to více než 24 hodin, zobraz český formát (d.m.r, HH:MM)
+  // Pokud je to více než 7 dní, zobraz český formát (d.m.r, HH:MM)
   return formatDateTimeCZ(d);
 }
 

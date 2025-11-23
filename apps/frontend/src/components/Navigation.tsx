@@ -27,9 +27,9 @@ export default function Navigation() {
             </Link>
             <div className="flex items-center gap-4">
               <Link
-                href="/wallets"
+                href="/"
                 className={`px-4 py-2 rounded-md transition-colors ${
-                  isActive('/wallets')
+                  isActive('/') && !isActive('/wallets/add') && !isActive('/wallet/') && !isActive('/stats')
                     ? 'bg-primary text-primary-foreground'
                     : 'hover:bg-muted'
                 }`}

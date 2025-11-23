@@ -67,15 +67,19 @@ export class SmartWalletRepository {
         .order('timestamp', { ascending: false });
 
       if (!tradesError && lastTrades) {
-        // Create a map of walletId -> lastTradeTimestamp
-        const lastTradeMap = new Map<string, Date>();
+        // Create a map of walletId -> lastTradeTimestamp (as ISO string for proper JSON serialization)
+        const lastTradeMap = new Map<string, string>();
         for (const trade of lastTrades) {
           if (!lastTradeMap.has(trade.walletId)) {
-            lastTradeMap.set(trade.walletId, new Date(trade.timestamp));
+            // Convert to ISO string to ensure proper JSON serialization
+            const timestamp = trade.timestamp instanceof Date 
+              ? trade.timestamp.toISOString()
+              : new Date(trade.timestamp).toISOString();
+            lastTradeMap.set(trade.walletId, timestamp);
           }
         }
 
-        // Add lastTradeTimestamp to each wallet
+        // Add lastTradeTimestamp to each wallet (as ISO string)
         wallets.forEach((wallet: any) => {
           wallet.lastTradeTimestamp = lastTradeMap.get(wallet.id) || null;
         });
