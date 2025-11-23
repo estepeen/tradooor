@@ -17,7 +17,19 @@ if (dotenvResult.error) {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+// CORS configuration - allow localhost for development
+app.use(cors({
+  origin: [
+    'http://localhost:3000',
+    'http://localhost:4444',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:4444',
+    process.env.FRONTEND_URL,
+  ].filter(Boolean),
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 
 // MINIMAL handler for webhook endpoint - responds immediately without any processing
 // Must be BEFORE JSON parser to avoid body parsing
