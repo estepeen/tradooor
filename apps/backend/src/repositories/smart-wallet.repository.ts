@@ -44,7 +44,7 @@ export class SmartWalletRepository {
     // Only apply DB sorting for fields that exist in the database
     // Note: lastTradeTimestamp and recentPnl30dPercent are calculated after DB query
     if (sortBy !== 'lastTradeTimestamp' && sortBy !== 'recentPnl30dPercent') {
-      query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
     }
 
     // Apply pagination
@@ -138,7 +138,7 @@ export class SmartWalletRepository {
       
       // Get all trades from last 30 days for all wallets (simple approach - same as wallet detail)
       const { data: recentTrades, error: recentTradesError } = await supabase
-        .from(TABLES.TRADE)
+              .from(TABLES.TRADE)
         .select('walletId, side, valueUsd')
         .in('walletId', walletIds)
         .gte('timestamp', thirtyDaysAgo.toISOString());
@@ -160,9 +160,10 @@ export class SmartWalletRepository {
             (pnl as any).sellValue = 0;
           }
           
-          if (trade.side === 'buy' || trade.side === 'add') {
+          // Use same logic as wallet detail endpoint - only count 'buy' and 'sell', not 'add' and 'remove'
+          if (trade.side === 'buy') {
             (pnl as any).buyValue += valueUsd;
-          } else if (trade.side === 'sell' || trade.side === 'remove') {
+          } else if (trade.side === 'sell') {
             (pnl as any).sellValue += valueUsd;
           }
         }
@@ -190,36 +191,36 @@ export class SmartWalletRepository {
         });
       } else if (recentTradesError) {
         console.error('   ❌ [Repository] Error fetching recent trades:', recentTradesError);
-      }
+        }
 
-      // Add recentPnl30dUsd and recentPnl30dPercent to each wallet
+        // Add recentPnl30dUsd and recentPnl30dPercent to each wallet
       // IMPORTANT: Always use calculated values (override DB values) to ensure consistency
-      wallets.forEach((wallet: any) => {
-        const pnl = walletPnLMap.get(wallet.id);
-        
+        wallets.forEach((wallet: any) => {
+          const pnl = walletPnLMap.get(wallet.id);
+          
         // Always set calculated values (even if 0) to override potentially stale DB values
-        if (pnl) {
-          wallet.recentPnl30dUsd = pnl.pnlUsd;
-          wallet.recentPnl30dPercent = pnl.pnlPercent;
-          // DEBUG: Log all wallets with non-zero PnL
-          if (Math.abs(pnl.pnlUsd) > 0.01 || Math.abs(pnl.pnlPercent) > 0.01) {
+          if (pnl) {
+            wallet.recentPnl30dUsd = pnl.pnlUsd;
+            wallet.recentPnl30dPercent = pnl.pnlPercent;
+            // DEBUG: Log all wallets with non-zero PnL
+            if (Math.abs(pnl.pnlUsd) > 0.01 || Math.abs(pnl.pnlPercent) > 0.01) {
             console.log(`   ✅ [Repository] Wallet ${wallet.address}: PnL calculated: ${pnl.pnlUsd.toFixed(2)} USD (${pnl.pnlPercent.toFixed(2)}%), DB had: ${(wallet.recentPnl30dPercent || 0).toFixed(2)}%`);
-          }
-        } else {
+            }
+          } else {
           // IMPORTANT: Always set to 0 (not undefined/null) to override stale DB values
-          wallet.recentPnl30dUsd = 0;
-          wallet.recentPnl30dPercent = 0;
+            wallet.recentPnl30dUsd = 0;
+            wallet.recentPnl30dPercent = 0;
           // DEBUG: Log wallets without PnL (but only if they have non-zero DB value)
           const dbValue = wallet.recentPnl30dPercent || 0;
           if (Math.abs(dbValue) > 0.01) {
             console.log(`   ⚠️  [Repository] Wallet ${wallet.address}: No trades in last 30 days, resetting PnL from DB value ${dbValue.toFixed(2)}% to 0`);
           }
-        }
-      });
-      
-      // DEBUG: Log summary
-      const walletsWithPnL = wallets.filter((w: any) => Math.abs(w.recentPnl30dUsd || 0) > 0.01 || Math.abs(w.recentPnl30dPercent || 0) > 0.01);
-      console.log(`   📊 [Repository] Summary: ${walletsWithPnL.length}/${wallets.length} wallets have non-zero PnL`);
+          }
+        });
+        
+        // DEBUG: Log summary
+        const walletsWithPnL = wallets.filter((w: any) => Math.abs(w.recentPnl30dUsd || 0) > 0.01 || Math.abs(w.recentPnl30dPercent || 0) > 0.01);
+        console.log(`   📊 [Repository] Summary: ${walletsWithPnL.length}/${wallets.length} wallets have non-zero PnL`);
     }
 
     return {
