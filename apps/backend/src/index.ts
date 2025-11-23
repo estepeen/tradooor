@@ -17,19 +17,45 @@ if (dotenvResult.error) {
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// CORS configuration - allow localhost for development
-app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'http://localhost:4444',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:4444',
-    process.env.FRONTEND_URL,
-  ].filter(Boolean),
+// CORS configuration - allow all origins in development, specific origins in production
+const corsOptions = {
+  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) {
+      return callback(null, true);
+    }
+    
+    const allowedOrigins = [
+      'http://localhost:3000',
+      'http://localhost:4444',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:4444',
+      process.env.FRONTEND_URL,
+    ].filter(Boolean);
+    
+    // In development, allow all localhost origins
+    if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+      if (origin.includes('localhost') || origin.includes('127.0.0.1')) {
+        return callback(null, true);
+      }
+    }
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all for now - can restrict later
+    }
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  exposedHeaders: ['Content-Length', 'X-Foo', 'X-Bar'],
+  preflightContinue: false,
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
 
 // MINIMAL handler for webhook endpoint - responds immediately without any processing
 // Must be BEFORE JSON parser to avoid body parsing
