@@ -213,11 +213,11 @@ export class SmartWalletRepository {
         });
       }
       
-      // DEBUG: Log summary
-      const walletsWithPnL = Array.from(walletPnLMap.entries())
+      // DEBUG: Log summary before setting values
+      const walletsWithPnLBefore = Array.from(walletPnLMap.entries())
         .filter(([_, pnl]) => Math.abs(pnl.pnlUsd) > 0.01 || Math.abs(pnl.pnlPercent) > 0.01);
-      console.log(`   📊 [Repository] Recent PnL (30d) from positions: ${walletsWithPnL.length}/${walletIds.length} wallets have non-zero PnL`);
-      walletsWithPnL.slice(0, 5).forEach(([walletId, pnl]) => {
+      console.log(`   📊 [Repository] Recent PnL (30d) from positions: ${walletsWithPnLBefore.length}/${walletIds.length} wallets have non-zero PnL`);
+      walletsWithPnLBefore.slice(0, 5).forEach(([walletId, pnl]) => {
         const wallet = wallets.find((w: any) => w.id === walletId);
         console.log(`   💰 Wallet ${wallet?.address || walletId}: PnL=${pnl.pnlUsd.toFixed(2)} USD (${pnl.pnlPercent.toFixed(2)}%)`);
       });
@@ -243,13 +243,13 @@ export class SmartWalletRepository {
           const dbValue = wallet.recentPnl30dPercent || 0;
           if (Math.abs(dbValue) > 0.01) {
             console.log(`   ⚠️  [Repository] Wallet ${wallet.address}: No positions in last 30 days, resetting PnL from DB value ${dbValue.toFixed(2)}% to 0`);
-            }
           }
-        });
-        
-        // DEBUG: Log summary
-        const walletsWithPnL = wallets.filter((w: any) => Math.abs(w.recentPnl30dUsd || 0) > 0.01 || Math.abs(w.recentPnl30dPercent || 0) > 0.01);
-      console.log(`   📊 [Repository] Summary: ${walletsWithPnL.length}/${wallets.length} wallets have non-zero PnL from closed positions`);
+        }
+      });
+      
+      // DEBUG: Log final summary
+      const finalWalletsWithPnL = wallets.filter((w: any) => Math.abs(w.recentPnl30dUsd || 0) > 0.01 || Math.abs(w.recentPnl30dPercent || 0) > 0.01);
+      console.log(`   📊 [Repository] Final summary: ${finalWalletsWithPnL.length}/${wallets.length} wallets have non-zero PnL`);
     }
 
     return {
