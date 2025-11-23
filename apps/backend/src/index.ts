@@ -169,6 +169,41 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// CORS test endpoint
+app.get('/api/cors-test', (req, res) => {
+  res.json({ 
+    message: 'CORS test successful',
+    origin: req.headers.origin,
+    timestamp: new Date().toISOString(),
+    headers: {
+      origin: req.headers.origin,
+      'access-control-request-method': req.headers['access-control-request-method'],
+      'access-control-request-headers': req.headers['access-control-request-headers'],
+    },
+    responseHeaders: {
+      'Access-Control-Allow-Origin': res.getHeader('Access-Control-Allow-Origin'),
+      'Access-Control-Allow-Methods': res.getHeader('Access-Control-Allow-Methods'),
+      'Access-Control-Allow-Headers': res.getHeader('Access-Control-Allow-Headers'),
+    },
+  });
+});
+
+// Explicit OPTIONS handler for all routes (fallback)
+app.options('*', (req, res) => {
+  console.log(`🔍 [CORS] Explicit OPTIONS handler called for: ${req.path}`);
+  console.log(`🔍 [CORS] Origin: ${req.headers.origin}`);
+  console.log(`🔍 [CORS] Request method: ${req.headers['access-control-request-method']}`);
+  console.log(`🔍 [CORS] Request headers: ${req.headers['access-control-request-headers']}`);
+  
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
+  
+  res.status(204).send();
+});
+
 // API routes (webhook router is already registered above)
 app.use('/api/smart-wallets', smartWalletRouter);
 app.use('/api/trades', tradesRouter);
