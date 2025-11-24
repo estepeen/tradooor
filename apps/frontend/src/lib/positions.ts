@@ -1,3 +1,4 @@
+export type TradeSide = 'buy' | 'sell' | 'add' | 'remove';
 export type PositionAction = 'BUY' | 'ADD' | 'SELL' | 'REM' | 'NONE';
 
 export interface PositionMetric {
@@ -12,7 +13,13 @@ export interface PositionMetric {
  * Využívá pouze percentuální data, takže funguje i když amountToken není spolehlivé.
  */
 export function computePositionMetricsFromPercent(
-  trades: Array<{ id: string; tokenId: string; positionChangePercent?: number | null; timestamp: Date | string | number }>
+  trades: Array<{
+    id: string;
+    tokenId: string;
+    positionChangePercent?: number | null;
+    timestamp: Date | string | number;
+    side?: TradeSide | null;
+  }>
 ): Record<string, PositionMetric> {
   if (!trades.length) {
     return {};
@@ -29,32 +36,57 @@ export function computePositionMetricsFromPercent(
     const tokenId = trade.tokenId;
     const percent = Number(trade.positionChangePercent ?? 0);
     const current = state.get(tokenId) ?? 0;
+    const changeMultiplier = percent / 100;
 
     let action: PositionAction = 'NONE';
-    let deltaX = 0;
     let beforeX = current;
+    let afterX = current;
 
-    if (percent >= 99) {
-      // Plné otevření nové pozice
+    const side = trade.side;
+
+    const applyRelativeChange = () => {
+      const next = current * (1 + changeMultiplier);
+      return Number.isFinite(next) ? Math.max(next, 0) : Math.max(current + changeMultiplier, 0);
+    };
+
+    if (side === 'buy') {
       action = 'BUY';
       beforeX = 0;
-      deltaX = 1;
-    } else if (percent > 0) {
+      afterX = 1;
+    } else if (side === 'add') {
       action = 'ADD';
-      deltaX = percent / 100;
-    } else if (percent <= -99) {
+      beforeX = current;
+      afterX = applyRelativeChange();
+    } else if (side === 'sell') {
       action = 'SELL';
-      deltaX = current !== 0 ? -current : -1;
-    } else if (percent < 0) {
+      beforeX = current;
+      afterX = 0;
+    } else if (side === 'remove') {
       action = 'REM';
-      deltaX = percent / 100;
+      beforeX = current;
+      afterX = applyRelativeChange();
     } else {
-      action = 'NONE';
-      deltaX = 0;
+      // Fallback heuristiky, pokud side není k dispozici (starší data)
+      if (percent >= 99) {
+        action = 'BUY';
+        beforeX = 0;
+        afterX = 1;
+      } else if (percent > 0) {
+        action = 'ADD';
+        beforeX = current;
+        afterX = Math.max(current + changeMultiplier, 0);
+      } else if (percent <= -99) {
+        action = 'SELL';
+        beforeX = current;
+        afterX = 0;
+      } else if (percent < 0) {
+        action = 'REM';
+        beforeX = current;
+        afterX = Math.max(current + changeMultiplier, 0);
+      }
     }
 
-    const afterX =
-      action === 'SELL' ? Math.max(current + deltaX, 0) : Math.max(beforeX + deltaX, 0);
+    const deltaX = afterX - beforeX;
 
     result[trade.id] = {
       positionXBefore: beforeX,
@@ -63,11 +95,7 @@ export function computePositionMetricsFromPercent(
       action,
     };
 
-    if (action === 'SELL') {
-      state.set(tokenId, 0);
-    } else {
-      state.set(tokenId, afterX);
-    }
+    state.set(tokenId, afterX);
   }
 
   return result;
