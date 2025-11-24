@@ -16,9 +16,25 @@ export class SmartWalletRepository {
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
+    // NOTE: Using explicit column selection to help debug Supabase errors
     let query = supabase
       .from(TABLES.SMART_WALLET)
-      .select('*', { count: 'exact' });
+      .select(`
+        id,
+        address,
+        label,
+        tags,
+        score,
+        totalTrades,
+        winRate,
+        avgRr,
+        avgPnlPercent,
+        pnlTotalBase,
+        avgHoldingTimeMin,
+        maxDrawdownPercent,
+        createdAt,
+        updatedAt
+      `);
 
     // Apply filters
     if (params?.minScore !== undefined) {
@@ -53,6 +69,20 @@ export class SmartWalletRepository {
     const { data: wallets, error, count } = await query;
 
     if (error) {
+      console.error('❌ [SmartWalletRepository] Supabase error while fetching wallets:', {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: (error as any)?.code,
+        status: (error as any)?.status,
+        stack: error.stack,
+      });
+      try {
+        console.error('❌ [SmartWalletRepository] Supabase raw error JSON:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
+      } catch (jsonError) {
+        console.error('❌ [SmartWalletRepository] Failed to stringify Supabase error:', jsonError);
+        console.error('❌ [SmartWalletRepository] Supabase raw error object:', error);
+      }
       throw new Error(`Failed to fetch wallets: ${error.message}`);
     }
 
