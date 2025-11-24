@@ -326,11 +326,8 @@ export default function WalletDetailPage() {
     allTrades.map((trade) => ({
       id: trade.id,
       tokenId: trade.tokenId,
+      amountToken: trade.amountToken,
       side: trade.side as any,
-      positionChangePercent:
-        trade.positionChangePercent !== null && trade.positionChangePercent !== undefined
-          ? Number(trade.positionChangePercent)
-          : null,
       timestamp: trade.timestamp,
     }))
   );

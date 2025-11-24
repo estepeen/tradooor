@@ -1,4 +1,3 @@
-export type TradeSide = 'buy' | 'sell' | 'add' | 'remove';
 export type PositionAction = 'BUY' | 'ADD' | 'SELL' | 'REM' | 'NONE';
 
 export interface PositionMetric {
@@ -12,21 +11,29 @@ export interface PositionMetric {
  * Vypočítá normalizované pozice podle procentální změny pozice (`positionChangePercent`).
  * Využívá pouze percentuální data, takže funguje i když amountToken není spolehlivé.
  */
+type RawTrade = {
+  id: string;
+  tokenId: string;
+  amountToken?: number | string | null;
+  timestamp: Date | string | number;
+  side?: string | null;
+};
+
+const EPS = 1e-9;
+
 export function computePositionMetricsFromPercent(
-  trades: Array<{
-    id: string;
-    tokenId: string;
-    positionChangePercent?: number | null;
-    timestamp: Date | string | number;
-    side?: TradeSide | null;
-  }>
+  trades: RawTrade[]
 ): Record<string, PositionMetric> {
-  if (!trades.length) {
-    return {};
-  }
+  if (!trades.length) return {};
 
   const result: Record<string, PositionMetric> = {};
-  const state = new Map<string, number>(); // current multiplier per token
+  const state = new Map<
+    string,
+    {
+      balanceTokens: number;
+      positionX: number;
+    }
+  >();
 
   const sorted = [...trades].sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -34,55 +41,78 @@ export function computePositionMetricsFromPercent(
 
   for (const trade of sorted) {
     const tokenId = trade.tokenId;
-    const percent = Number(trade.positionChangePercent ?? 0);
-    const current = state.get(tokenId) ?? 0;
-    const changeMultiplier = percent / 100;
+    const amount = Math.abs(Number(trade.amountToken ?? 0));
 
+    if (!state.has(tokenId)) {
+      state.set(tokenId, { balanceTokens: 0, positionX: 0 });
+    }
+
+    const entry = state.get(tokenId)!;
+    let beforeX = entry.positionX;
+    let afterX = beforeX;
     let action: PositionAction = 'NONE';
-    let beforeX = current;
-    let afterX = current;
 
-    const side = trade.side;
+    const side = (trade.side || '').toLowerCase();
 
-    const applyRelativeChange = () => {
-      const next = current * (1 + changeMultiplier);
-      return Number.isFinite(next) ? Math.max(next, 0) : Math.max(current + changeMultiplier, 0);
+    const resolveAction = (): PositionAction => {
+      if (side === 'buy') {
+        return entry.balanceTokens <= EPS ? 'BUY' : 'ADD';
+      }
+      if (side === 'add') return 'ADD';
+      if (side === 'sell') {
+        const remaining = Math.max(0, entry.balanceTokens - amount);
+        return remaining <= EPS ? 'SELL' : 'REM';
+      }
+      if (side === 'remove') return 'REM';
+      // Fallback heuristiky pokud není side dostupný
+      if (entry.balanceTokens <= EPS && amount > EPS) return 'BUY';
+      return 'NONE';
     };
 
-    if (side === 'buy') {
-      action = 'BUY';
-      beforeX = 0;
-      afterX = 1;
-    } else if (side === 'add') {
-      action = 'ADD';
-      beforeX = current;
-      afterX = applyRelativeChange();
-    } else if (side === 'sell') {
-      action = 'SELL';
-      beforeX = current;
-      afterX = 0;
-    } else if (side === 'remove') {
-      action = 'REM';
-      beforeX = current;
-      afterX = applyRelativeChange();
-    } else {
-      // Fallback heuristiky, pokud side není k dispozici (starší data)
-      if (percent >= 99) {
+    const resolvedAction = resolveAction();
+
+    switch (resolvedAction) {
+      case 'BUY': {
         action = 'BUY';
         beforeX = 0;
         afterX = 1;
-      } else if (percent > 0) {
+        entry.balanceTokens = amount;
+        break;
+      }
+      case 'ADD': {
         action = 'ADD';
-        beforeX = current;
-        afterX = Math.max(current + changeMultiplier, 0);
-      } else if (percent <= -99) {
+        if (entry.balanceTokens <= EPS) {
+          beforeX = 0;
+          afterX = 1;
+          entry.balanceTokens = amount;
+        } else {
+          const ratio = Math.max(0, amount / entry.balanceTokens);
+          afterX = entry.positionX * (1 + ratio);
+          entry.balanceTokens += amount;
+        }
+        break;
+      }
+      case 'SELL': {
         action = 'SELL';
-        beforeX = current;
         afterX = 0;
-      } else if (percent < 0) {
+        entry.balanceTokens = 0;
+        break;
+      }
+      case 'REM': {
         action = 'REM';
-        beforeX = current;
-        afterX = Math.max(current + changeMultiplier, 0);
+        if (entry.balanceTokens <= EPS) {
+          afterX = 0;
+          entry.balanceTokens = 0;
+        } else {
+          const ratio = Math.min(1, amount / entry.balanceTokens);
+          afterX = entry.positionX * (1 - ratio);
+          entry.balanceTokens = Math.max(0, entry.balanceTokens - amount);
+        }
+        break;
+      }
+      default: {
+        action = 'NONE';
+        break;
       }
     }
 
@@ -95,7 +125,8 @@ export function computePositionMetricsFromPercent(
       action,
     };
 
-    state.set(tokenId, afterX);
+    entry.positionX = afterX;
+    state.set(tokenId, entry);
   }
 
   return result;
