@@ -125,6 +125,43 @@ export class SolanaCollectorService {
         }
       }
 
+      // Calculate positionChangePercent (procentuální změna pozice)
+      let positionChangePercent: number | undefined = undefined;
+      if (isBuy) {
+        // BUY nebo ADD
+        if (normalizedBalanceBefore === 0) {
+          // První nákup (BUY) - pozice se vytváří, takže 100% změna
+          positionChangePercent = 100;
+        } else {
+          // Další nákup (ADD) - počítáme % změnu z existující pozice
+          positionChangePercent = (normalized.amountToken / balanceBefore) * 100;
+          // Omezíme na rozumné hodnoty (max 1000%, pak ořízneme na 100%)
+          if (positionChangePercent > 1000) {
+            positionChangePercent = 100;
+          }
+        }
+      } else {
+        // REM nebo SELL
+        if (normalizedBalanceBefore === 0) {
+          // Nemůžeme prodávat, když nemáme pozici
+          positionChangePercent = 0;
+        } else if (normalizedBalanceAfter === 0) {
+          // SELL - prodáváme všechno, takže -100%
+          positionChangePercent = -100;
+        } else {
+          // REM - částečný prodej, počítáme % změnu z existující pozice
+          positionChangePercent = -(normalized.amountToken / balanceBefore) * 100;
+          // Omezíme na rozumné hodnoty (min -100%)
+          if (positionChangePercent < -100) {
+            positionChangePercent = -100;
+          }
+          // Pokud je změna větší než 1000%, ořízneme na -100%
+          if (Math.abs(positionChangePercent) > 1000) {
+            positionChangePercent = -100;
+          }
+        }
+      }
+
       // 7. Save trade
       const existing = await this.tradeRepo.findBySignature(normalized.txSignature);
       if (existing) {
@@ -142,6 +179,7 @@ export class SolanaCollectorService {
         timestamp: normalized.timestamp,
         dex: normalized.dex,
         valueUsd,
+        positionChangePercent, // Calculate and save positionChangePercent at save time
         meta: {
           source: 'helius-webhook',
           baseToken: normalized.baseToken,

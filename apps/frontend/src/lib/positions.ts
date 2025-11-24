@@ -9,7 +9,8 @@ export interface PositionMetric {
 
 /**
  * Vypočítá normalizované pozice podle procentální změny pozice (`positionChangePercent`).
- * Využívá pouze percentuální data, takže funguje i když amountToken není spolehlivé.
+ * DŮLEŽITÉ: Použije positionChangePercent z databáze, pokud je k dispozici (uložený při webhooku).
+ * Pokud není k dispozici, použije výpočet z amountToken jako fallback.
  */
 type RawTrade = {
   id: string;
@@ -17,6 +18,7 @@ type RawTrade = {
   amountToken?: number | string | null;
   timestamp: Date | string | number;
   side?: string | null;
+  positionChangePercent?: number | null; // Z databáze - uložený při webhooku
 };
 
 const EPS = 1e-9;
@@ -85,13 +87,24 @@ export function computePositionMetricsFromPercent(
           afterX = 1.0;
           entry.balanceTokens = amount;
         } else {
-          // DŮLEŽITÉ: ratio = kolikrát větší je nový amount než současný balance
-          // Pokud přidáme 10x více tokenů, ratio = 10, takže afterX = positionX * (1 + 10) = positionX * 11
-          // Příklad: balanceTokens = 100, amount = 1000, ratio = 10
-          // beforeX = 1.0, afterX = 1.0 * (1 + 10) = 11.0, deltaX = 10.0 ✅
-          const ratio = amount / entry.balanceTokens;
-          afterX = entry.positionX * (1 + ratio);
-          entry.balanceTokens += amount;
+          // PRIORITA: Použij positionChangePercent z databáze, pokud je k dispozici
+          // Toto je přesnější, protože bylo vypočítáno při ukládání z webhooku
+          if (trade.positionChangePercent !== null && trade.positionChangePercent !== undefined) {
+            // positionChangePercent je v procentech (např. 100% = 100, 10% = 10)
+            // Převod na ratio: 100% = 1.0, 10% = 0.1
+            const ratio = trade.positionChangePercent / 100;
+            afterX = entry.positionX * (1 + ratio);
+            entry.balanceTokens += amount;
+          } else {
+            // Fallback: výpočet z amountToken (pro staré trady bez positionChangePercent)
+            // DŮLEŽITÉ: ratio = kolikrát větší je nový amount než současný balance
+            // Pokud přidáme 10x více tokenů, ratio = 10, takže afterX = positionX * (1 + 10) = positionX * 11
+            // Příklad: balanceTokens = 100, amount = 1000, ratio = 10
+            // beforeX = 1.0, afterX = 1.0 * (1 + 10) = 11.0, deltaX = 10.0 ✅
+            const ratio = amount / entry.balanceTokens;
+            afterX = entry.positionX * (1 + ratio);
+            entry.balanceTokens += amount;
+          }
         }
         break;
       }
@@ -109,12 +122,23 @@ export function computePositionMetricsFromPercent(
           afterX = 0;
           entry.balanceTokens = 0;
         } else {
-          // ratio = jaká část pozice se prodává (0-1)
-          // Příklad: balanceTokens = 1000, amount = 100, ratio = 0.1
-          // beforeX = 11.0, afterX = 11.0 * (1 - 0.1) = 9.9, deltaX = -1.1 ✅
-          const ratio = Math.min(1, amount / entry.balanceTokens);
-          afterX = entry.positionX * (1 - ratio);
-          entry.balanceTokens = Math.max(0, entry.balanceTokens - amount);
+          // PRIORITA: Použij positionChangePercent z databáze, pokud je k dispozici
+          // Toto je přesnější, protože bylo vypočítáno při ukládání z webhooku
+          if (trade.positionChangePercent !== null && trade.positionChangePercent !== undefined) {
+            // positionChangePercent je v procentech (např. -50% = -50)
+            // Převod na ratio: -50% = -0.5, -10% = -0.1
+            const ratio = trade.positionChangePercent / 100;
+            afterX = entry.positionX * (1 + ratio); // ratio je záporné, takže (1 + (-0.5)) = 0.5
+            entry.balanceTokens = Math.max(0, entry.balanceTokens - amount);
+          } else {
+            // Fallback: výpočet z amountToken (pro staré trady bez positionChangePercent)
+            // ratio = jaká část pozice se prodává (0-1)
+            // Příklad: balanceTokens = 1000, amount = 100, ratio = 0.1
+            // beforeX = 11.0, afterX = 11.0 * (1 - 0.1) = 9.9, deltaX = -1.1 ✅
+            const ratio = Math.min(1, amount / entry.balanceTokens);
+            afterX = entry.positionX * (1 - ratio);
+            entry.balanceTokens = Math.max(0, entry.balanceTokens - amount);
+          }
         }
         break;
       }

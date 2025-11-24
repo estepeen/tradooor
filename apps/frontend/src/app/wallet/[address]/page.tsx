@@ -329,6 +329,7 @@ export default function WalletDetailPage() {
       amountToken: trade.amountToken,
       side: trade.side as any,
       timestamp: trade.timestamp,
+      positionChangePercent: trade.positionChangePercent, // Použij positionChangePercent z databáze
     }))
   );
 
