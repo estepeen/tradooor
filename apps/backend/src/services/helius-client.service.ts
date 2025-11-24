@@ -919,8 +919,9 @@ export class HeliusClient {
         const totalNativeOut = nativeOutAmounts.length > 0 ? nativeOutAmounts.reduce((sum, val) => sum + val, 0) : 0;
         
         // DŮLEŽITÉ: Také zkontroluj nativeTransfers z top-levelu (může obsahovat více transferů než events.swap)
+        // SELL = Token -> SOL. Zjišťujeme, kolik SOL nám PŘIŠLO (toUserAccount).
         const nativeTransfersOut = (heliusTx.nativeTransfers || [])
-          .filter((t: any) => t.fromUserAccount === walletAddress)
+          .filter((t: any) => t.toUserAccount === walletAddress)
           .map((t: any) => t.amount / 1e9);
         const totalNativeTransfersOut = nativeTransfersOut.length > 0 ? nativeTransfersOut.reduce((sum, val) => sum + val, 0) : 0;
         
@@ -1044,8 +1045,9 @@ export class HeliusClient {
         const totalNativeIn = nativeInAmounts.length > 0 ? nativeInAmounts.reduce((sum, val) => sum + val, 0) : 0;
         
         // DŮLEŽITÉ: Také zkontroluj nativeTransfers z top-levelu (může obsahovat více transferů než events.swap)
+        // BUY = SOL -> Token. Zjišťujeme, kolik SOL ODEŠLO od nás (fromUserAccount).
         const nativeTransfersIn = (heliusTx.nativeTransfers || [])
-          .filter((t: any) => t.toUserAccount === walletAddress)
+          .filter((t: any) => t.fromUserAccount === walletAddress)
           .map((t: any) => t.amount / 1e9);
         const totalNativeTransfersIn = nativeTransfersIn.length > 0 ? nativeTransfersIn.reduce((sum, val) => sum + val, 0) : 0;
         
