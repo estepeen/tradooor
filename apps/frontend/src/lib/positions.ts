@@ -72,18 +72,22 @@ export function computePositionMetricsFromPercent(
       case 'BUY': {
         action = 'BUY';
         beforeX = 0;
-        afterX = 1;
+        afterX = 1.0; // První nákup = 1.00x
         entry.balanceTokens = amount;
         break;
       }
       case 'ADD': {
         action = 'ADD';
         if (entry.balanceTokens <= EPS) {
+          // Pokud nemáme žádnou pozici, ale dostáváme ADD (měl by to být BUY, ale použijeme ADD)
           beforeX = 0;
           afterX = 1;
           entry.balanceTokens = amount;
         } else {
-          const ratio = Math.max(0, amount / entry.balanceTokens);
+          // DŮLEŽITÉ: ratio = kolikrát větší je nový amount než současný balance
+          // Pokud přidáme 10x více tokenů, ratio = 10, takže afterX = positionX * (1 + 10) = positionX * 11
+          const ratio = amount / entry.balanceTokens;
+          beforeX = entry.positionX;
           afterX = entry.positionX * (1 + ratio);
           entry.balanceTokens += amount;
         }

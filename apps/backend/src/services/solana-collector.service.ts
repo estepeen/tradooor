@@ -114,9 +114,11 @@ export class SolanaCollectorService {
           correctSide = 'add';
         }
       } else {
-        // SELL: balanceAfter === 0 (poslední prodej, kdy balance klesne na 0)
+        // SELL: balanceAfter === 0 nebo velmi blízko 0 (poslední prodej, kdy balance klesne na 0)
         // REM: balanceAfter > 0 (částečný prodej, balance zůstává > 0)
-        if (normalizedBalanceAfter === 0) {
+        // DŮLEŽITÉ: Použij tolerance pro zaokrouhlování (pokud je balanceAfter < 0.000001, považuj to za 0)
+        const EPS = 0.000001;
+        if (normalizedBalanceAfter < EPS) {
           correctSide = 'sell';
         } else {
           correctSide = 'remove';
