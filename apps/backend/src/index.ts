@@ -28,6 +28,17 @@ app.use(cors({
   optionsSuccessStatus: 204,
 }));
 
+// Handle OPTIONS preflight requests BEFORE other middleware
+app.options('*', (req, res) => {
+  const origin = req.headers.origin;
+  res.header('Access-Control-Allow-Origin', origin || '*');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cache-Control, Access-Control-Request-Method, Access-Control-Request-Headers');
+  res.header('Access-Control-Max-Age', '86400');
+  res.sendStatus(204);
+});
+
 // Additional CORS headers for all responses (backup)
 app.use((req, res, next) => {
   const origin = req.headers.origin;
