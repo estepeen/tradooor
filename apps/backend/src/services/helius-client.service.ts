@@ -907,14 +907,15 @@ export class HeliusClient {
         // V multi-step swapech může být nativeOutput jen část celkové hodnoty
         // Musíme sečíst všechny base outputs (native + token outputs, které jsou base)
         
-        // 1. Sečti všechny native outputs (SOL)
+        // 1. Najdi nejvyšší hodnotu z native outputs (SOL) - bereme nejvyšší hodnotu, ne součet
         const allNativeOutputs = [
           swap.nativeOutput,
           ...((swap.innerSwaps ?? []).map((s: any) => s.nativeOutput).filter(Boolean)),
         ];
-        const totalNativeOut = allNativeOutputs
+        const nativeOutAmounts = allNativeOutputs
           .filter((n: any) => n?.account === walletAddress)
-          .reduce((sum: number, n: any) => sum + (Number(n.amount) / 1e9), 0);
+          .map((n: any) => Number(n.amount) / 1e9);
+        const totalNativeOut = nativeOutAmounts.length > 0 ? Math.max(...nativeOutAmounts) : 0;
         
         // 2. Sečti všechny token outputs, které jsou base tokeny
         const baseTokenOutputs = allTokenOutputs.filter((t: any) => {
@@ -1022,14 +1023,15 @@ export class HeliusClient {
         // V multi-step swapech může být nativeInput jen část celkové hodnoty
         // Musíme sečíst všechny base inputs (native + token inputs, které jsou base)
         
-        // 1. Sečti všechny native inputs (SOL)
+        // 1. Najdi nejvyšší hodnotu z native inputs (SOL) - bereme nejvyšší hodnotu, ne součet
         const allNativeInputs = [
           swap.nativeInput,
           ...((swap.innerSwaps ?? []).map((s: any) => s.nativeInput).filter(Boolean)),
         ];
-        const totalNativeIn = allNativeInputs
+        const nativeInAmounts = allNativeInputs
           .filter((n: any) => n?.account === walletAddress)
-          .reduce((sum: number, n: any) => sum + (Number(n.amount) / 1e9), 0);
+          .map((n: any) => Number(n.amount) / 1e9);
+        const totalNativeIn = nativeInAmounts.length > 0 ? Math.max(...nativeInAmounts) : 0;
         
         // 2. Sečti všechny token inputs, které jsou base tokeny
         const baseTokenInputs = allTokenInputs.filter((t: any) => {
@@ -1415,13 +1417,16 @@ export class HeliusClient {
       const side = traded.direction;
 
       // Spočítej SOL delta z native transfers
-      const nativeOutTotal = walletNativeTransfers
+      // DŮLEŽITÉ: Bereme nejvyšší hodnotu z native transfers, ne součet (podle požadavku uživatele)
+      const nativeOutAmounts = walletNativeTransfers
         .filter(transfer => transfer.fromUserAccount === walletAddress)
-        .reduce((sum, transfer) => sum + transfer.amount / 1e9, 0);
+        .map(transfer => transfer.amount / 1e9);
+      const nativeOutTotal = nativeOutAmounts.length > 0 ? Math.max(...nativeOutAmounts) : 0;
 
-      const nativeInTotal = walletNativeTransfers
+      const nativeInAmounts = walletNativeTransfers
         .filter(transfer => transfer.toUserAccount === walletAddress)
-        .reduce((sum, transfer) => sum + transfer.amount / 1e9, 0);
+        .map(transfer => transfer.amount / 1e9);
+      const nativeInTotal = nativeInAmounts.length > 0 ? Math.max(...nativeInAmounts) : 0;
 
       let solDelta = nativeInTotal - nativeOutTotal;
 

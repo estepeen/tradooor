@@ -76,7 +76,54 @@ export class SolanaCollectorService {
         console.warn(`⚠️  Failed to calculate USD value:`, error.message);
       }
 
-      // 6. Save trade
+      // 6. Determine correct TYPE (buy/add/remove/sell) based on balance before and after
+      // Get all previous trades for this wallet and token to calculate balance
+      const previousTrades = await this.tradeRepo.findAllForMetrics(wallet.id);
+      const tokenTrades = previousTrades
+        .filter(t => t.tokenId === token.id)
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      
+      // Calculate balance before this trade
+      let balanceBefore = 0;
+      for (const prevTrade of tokenTrades) {
+        const prevSide = prevTrade.side;
+        const prevAmount = Number(prevTrade.amountToken);
+        if (prevSide === 'buy' || prevSide === 'add') {
+          balanceBefore += prevAmount;
+        } else if (prevSide === 'sell' || prevSide === 'remove') {
+          balanceBefore = Math.max(0, balanceBefore - prevAmount);
+        }
+      }
+      
+      // Calculate balance after this trade
+      const normalizedBalanceBefore = Math.abs(balanceBefore) < 0.000001 ? 0 : balanceBefore;
+      const isBuy = normalized.side === 'buy';
+      const balanceAfter = isBuy 
+        ? balanceBefore + normalized.amountToken
+        : Math.max(0, balanceBefore - normalized.amountToken);
+      const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
+      
+      // Determine correct TYPE
+      let correctSide: 'buy' | 'sell' | 'add' | 'remove';
+      if (isBuy) {
+        // BUY: balanceBefore === 0 a balanceAfter > 0 (první nákup)
+        // ADD: balanceBefore > 0 a balanceAfter > balanceBefore (další nákup)
+        if (normalizedBalanceBefore === 0) {
+          correctSide = 'buy';
+        } else {
+          correctSide = 'add';
+        }
+      } else {
+        // SELL: balanceAfter === 0 (poslední prodej, kdy balance klesne na 0)
+        // REM: balanceAfter > 0 (částečný prodej, balance zůstává > 0)
+        if (normalizedBalanceAfter === 0) {
+          correctSide = 'sell';
+        } else {
+          correctSide = 'remove';
+        }
+      }
+
+      // 7. Save trade
       const existing = await this.tradeRepo.findBySignature(normalized.txSignature);
       if (existing) {
         return { saved: false, reason: 'duplicate' };
@@ -86,7 +133,7 @@ export class SolanaCollectorService {
         txSignature: normalized.txSignature,
         walletId: wallet.id,
         tokenId: token.id,
-        side: normalized.side,
+        side: correctSide, // Use calculated TYPE instead of normalized.side
         amountToken: normalized.amountToken,
         amountBase: normalized.amountBase,
         priceBasePerToken: normalized.priceBasePerToken,

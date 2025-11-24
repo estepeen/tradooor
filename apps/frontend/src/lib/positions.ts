@@ -55,14 +55,11 @@ export function computePositionMetricsFromPercent(
     const side = (trade.side || '').toLowerCase();
 
     const resolveAction = (): PositionAction => {
-      if (side === 'buy') {
-        return entry.balanceTokens <= EPS ? 'BUY' : 'ADD';
-      }
+      // DŮLEŽITÉ: Použij TYPE z backendu (už je správně vypočítaný na základě balance)
+      // Backend už správně určuje buy/add/remove/sell, takže to necháme na něm
+      if (side === 'buy') return 'BUY';
       if (side === 'add') return 'ADD';
-      if (side === 'sell') {
-        const remaining = Math.max(0, entry.balanceTokens - amount);
-        return remaining <= EPS ? 'SELL' : 'REM';
-      }
+      if (side === 'sell') return 'SELL';
       if (side === 'remove') return 'REM';
       // Fallback heuristiky pokud není side dostupný
       if (entry.balanceTokens <= EPS && amount > EPS) return 'BUY';
