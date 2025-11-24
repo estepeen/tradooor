@@ -29,6 +29,7 @@ export const TABLES = {
   TOKEN_MARKET_SNAPSHOT: 'TokenMarketSnapshot',
   SMART_WALLET_METRICS_HISTORY: 'SmartWalletMetricsHistory',
   CLOSED_LOT: 'ClosedLot',
+  WALLET_PROCESSING_QUEUE: 'WalletProcessingQueue',
 } as const;
 
 /**

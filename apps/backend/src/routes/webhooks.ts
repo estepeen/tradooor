@@ -3,16 +3,19 @@ import { SolanaCollectorService } from '../services/solana-collector.service.js'
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
+import { WalletProcessingQueueRepository } from '../repositories/wallet-processing-queue.repository.js';
 
 const router = Router();
 
 const smartWalletRepo = new SmartWalletRepository();
 const tradeRepo = new TradeRepository();
 const tokenRepo = new TokenRepository();
+const walletQueueRepo = new WalletProcessingQueueRepository();
 const collectorService = new SolanaCollectorService(
   smartWalletRepo,
   tradeRepo,
-  tokenRepo
+  tokenRepo,
+  walletQueueRepo
 );
 
 /**

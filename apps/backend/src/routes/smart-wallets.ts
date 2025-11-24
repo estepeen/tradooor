@@ -519,38 +519,14 @@ router.get('/:id', async (req, res) => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const metricsHistory = await metricsHistoryRepo.findByWalletId(wallet.id, thirtyDaysAgo);
-
-    // Get advanced stats
-    const advancedStats = await metricsCalculator.calculateAdvancedStats(wallet.id);
-
-    // Calculate recent PnL in USD (last 30 days)
-    const { data: recentTrades, error: recentTradesError } = await supabase
-      .from(TABLES.TRADE)
-      .select('side, valueUsd, timestamp')
-      .eq('walletId', wallet.id)
-      .gte('timestamp', thirtyDaysAgo.toISOString());
-
-    let recentPnl30dUsd = 0;
-    if (!recentTradesError && recentTrades) {
-      let buyValueUsd = 0;
-      let sellValueUsd = 0;
-      for (const trade of recentTrades) {
-        const valueUsd = Number(trade.valueUsd || 0);
-        if (trade.side === 'buy') {
-          buyValueUsd += valueUsd;
-        } else if (trade.side === 'sell') {
-          sellValueUsd += valueUsd;
-        }
-      }
-      recentPnl30dUsd = sellValueUsd - buyValueUsd;
-    }
+    const recentPnl30dUsd = Number(wallet.recentPnl30dUsd || 0);
 
     console.log(`✅ Returning wallet details with ${metricsHistory.length} history records`);
     res.json({
       ...wallet,
       recentPnl30dUsd,
       metricsHistory,
-      advancedStats,
+      advancedStats: wallet.advancedStats ?? null,
     });
   } catch (error: any) {
     console.error('❌ Error fetching wallet details:');

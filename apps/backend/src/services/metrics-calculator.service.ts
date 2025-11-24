@@ -52,7 +52,7 @@ export class MetricsCalculatorService {
     const pnlTotalBase = this.calculateTotalPnl(positions);
     const avgHoldingTimeMin = this.calculateAvgHoldingTime(positions);
     const maxDrawdownPercent = this.calculateMaxDrawdown(positions);
-    const recentPnl30dPercent = this.calculateRecentPnl30d(positions);
+    const { percent: recentPnl30dPercent, usd: recentPnl30dUsd } = this.calculateRecentPnl30d(positions);
 
     // Calculate score (simple formula: can be improved later)
     const score = this.calculateScore({
@@ -74,6 +74,7 @@ export class MetricsCalculatorService {
       avgHoldingTimeMin,
       maxDrawdownPercent,
       recentPnl30dPercent,
+      recentPnl30dUsd,
     });
 
     // Save to history
@@ -101,6 +102,7 @@ export class MetricsCalculatorService {
       avgHoldingTimeMin,
       maxDrawdownPercent,
       recentPnl30dPercent,
+      recentPnl30dUsd,
     };
   }
 
@@ -286,7 +288,7 @@ export class MetricsCalculatorService {
     return maxDrawdown * 100; // Convert to percentage
   }
 
-  private calculateRecentPnl30d(positions: Position[]): number {
+  private calculateRecentPnl30d(positions: Position[]): { percent: number; usd: number } {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
@@ -294,7 +296,9 @@ export class MetricsCalculatorService {
       p => p.sellTimestamp && p.sellTimestamp >= thirtyDaysAgo
     );
 
-    if (recentPositions.length === 0) return 0;
+    if (recentPositions.length === 0) {
+      return { percent: 0, usd: 0 };
+    }
 
     // Vypočti celkový ROI správně (celková investice vs celkový výnos), ne sčítání procent
     const totalBuyValue = recentPositions.reduce((sum, p) => {
@@ -306,12 +310,14 @@ export class MetricsCalculatorService {
     }, 0);
 
     // ROI v procentech
-    if (totalBuyValue <= 0) return 0;
+    if (totalBuyValue <= 0) {
+      return { percent: 0, usd: 0 };
+    }
     
     const totalPnl = totalSellValue - totalBuyValue;
     const pnlPercent = (totalPnl / totalBuyValue) * 100;
 
-    return pnlPercent;
+    return { percent: pnlPercent, usd: totalPnl };
   }
 
   private calculateScore(params: {

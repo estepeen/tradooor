@@ -2,6 +2,47 @@
 
 export type TradeSide = 'buy' | 'sell' | 'add' | 'remove';
 
+export interface SmartWalletAdvancedStats {
+  profitFactor: number;
+  bestTrade?: {
+    pnlPercent: number;
+    pnlBase: number;
+    tokenId: string;
+  };
+  worstTrade?: {
+    pnlPercent: number;
+    pnlBase: number;
+    tokenId: string;
+  };
+  largestWin?: {
+    pnlPercent: number;
+    pnlBase: number;
+    tokenId: string;
+  } | null;
+  largestLoss?: {
+    pnlPercent: number;
+    pnlBase: number;
+    tokenId: string;
+  } | null;
+  avgWin: number;
+  avgLoss: number;
+  maxWinStreak: number;
+  maxLossStreak: number;
+  tokenStats: Array<{
+    tokenId: string;
+    count: number;
+    totalPnl: number;
+    wins: number;
+    losses: number;
+    winRate: number;
+  }>;
+  dexStats: Array<{
+    dex: string;
+    count: number;
+    totalPnl: number;
+  }>;
+}
+
 export interface SmartWallet {
   id: string;
   address: string;
@@ -18,6 +59,7 @@ export interface SmartWallet {
   recentPnl30dPercent: number;
   recentPnl30dUsd?: number;
   lastTradeTimestamp?: Date | null;
+  advancedStats?: SmartWalletAdvancedStats | null;
   createdAt: Date;
   updatedAt: Date;
 }

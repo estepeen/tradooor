@@ -28,12 +28,15 @@ model SmartWallet {
   avgHoldingTimeMin     Float    @default(0) // Průměrná doba držení pozice v minutách
   maxDrawdownPercent    Float    @default(0) // Maximální drawdown v %
   recentPnl30dPercent   Float    @default(0) // PnL za posledních 30 dní v %
+  recentPnl30dUsd       Float    @default(0) // Cached USD PnL for last 30 days
+  advancedStats         Json?    // Cached advanced stats (profit factor, streaks, etc.)
   
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   
   trades                Trade[]
   metricsHistory        SmartWalletMetricsHistory[]
+  processingJobs        WalletProcessingQueue[]
   
   @@index([address])
   @@index([score])
@@ -123,5 +126,25 @@ model SmartWalletMetricsHistory {
   @@index([walletId])
   @@index([timestamp])
   @@index([walletId, timestamp])
+}
+
+model WalletProcessingQueue {
+  id            String   @id @default(cuid())
+  walletId      String
+  jobType       String   @default("metrics")
+  status        String   @default("pending")
+  priority      Int      @default(0)
+  attempts      Int      @default(0)
+  lastAttemptAt DateTime?
+  nextRunAt     DateTime @default(now())
+  error         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@unique([walletId, jobType])
+  @@index([status, nextRunAt])
+  @@index([priority, createdAt])
 }
 

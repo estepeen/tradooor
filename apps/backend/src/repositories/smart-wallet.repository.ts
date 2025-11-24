@@ -32,6 +32,9 @@ export class SmartWalletRepository {
         pnlTotalBase,
         avgHoldingTimeMin,
         maxDrawdownPercent,
+        recentPnl30dPercent,
+        recentPnl30dUsd,
+        advancedStats,
         createdAt,
         updatedAt
       `);
@@ -156,151 +159,6 @@ export class SmartWalletRepository {
           walletsWithoutTimestamp.map((w: any) => ({ id: w.id, address: w.address, totalTrades: w.totalTrades })));
       }
 
-      // Calculate recent PnL in USD (last 30 days) - SAME LOGIC AS /api/smart-wallets/:id/pnl endpoint
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      
-      // Initialize PnL map for ALL wallets (even if they have no trades)
-      const walletPnLMap = new Map<string, { pnlUsd: number; pnlPercent: number }>();
-      for (const walletId of walletIds) {
-        walletPnLMap.set(walletId, { pnlUsd: 0, pnlPercent: 0 });
-      }
-      
-      // Import MetricsCalculatorService to use buildPositionsFromTrades (same as PnL endpoint)
-      const { MetricsCalculatorService } = await import('../services/metrics-calculator.service.js');
-      const { TradeRepository } = await import('./trade.repository.js');
-      const { MetricsHistoryRepository } = await import('./metrics-history.repository.js');
-      const tradeRepo = new TradeRepository();
-      const metricsHistoryRepo = new MetricsHistoryRepository();
-      const metricsCalculator = new MetricsCalculatorService(
-        this,
-        tradeRepo,
-        metricsHistoryRepo
-      );
-      
-      // Calculate PnL for each wallet using same logic as /api/smart-wallets/:id/pnl
-      // Use Promise.all for parallel processing
-      const pnlPromises = walletIds.map(async (walletId) => {
-        try {
-          // Build positions from trades (same as PnL endpoint)
-          const positions = await metricsCalculator.buildPositionsFromTrades(walletId);
-          
-          // Filter positions by sellTimestamp (last 30 days) - SAME AS PnL ENDPOINT
-          const periodPositions = positions.filter(
-            p => p.sellTimestamp && p.sellTimestamp >= thirtyDaysAgo
-          );
-          
-          // Calculate PnL from positions (same as PnL endpoint)
-          const totalBuyValue = periodPositions.reduce((sum, p) => {
-            return sum + Number(p.buyPrice) * Number(p.buyAmount);
-          }, 0);
-          
-          const totalSellValue = periodPositions.reduce((sum, p) => {
-            return sum + Number(p.sellPrice!) * Number(p.sellAmount!);
-          }, 0);
-          
-          const pnl = totalSellValue - totalBuyValue;
-          const pnlPercent = totalBuyValue > 0 ? ((pnl / totalBuyValue) * 100) : 0;
-          
-          // Calculate PnL in USD from trades (same as PnL endpoint)
-          // IMPORTANT: Get ALL trades first, then filter by date (same as PnL endpoint)
-          const { data: allTradesForWallet } = await supabase
-              .from(TABLES.TRADE)
-            .select('side, valueUsd, timestamp')
-            .eq('walletId', walletId);
-          
-          // Filter trades by date (same as PnL endpoint)
-          const periodTrades = (allTradesForWallet || []).filter(t => {
-            const tradeDate = new Date(t.timestamp);
-            return tradeDate >= thirtyDaysAgo;
-          });
-          
-          let buyValueUsd = 0;
-          let sellValueUsd = 0;
-          if (periodTrades && periodTrades.length > 0) {
-            for (const trade of periodTrades) {
-              const valueUsd = Number(trade.valueUsd || 0);
-              if (trade.side === 'buy') {
-                buyValueUsd += valueUsd;
-              } else if (trade.side === 'sell') {
-                sellValueUsd += valueUsd;
-              }
-            }
-          }
-          const pnlUsd = sellValueUsd - buyValueUsd;
-          
-          // DEBUG: Log for specific wallet
-          const wallet = wallets.find((w: any) => w.id === walletId);
-          if (wallet && (wallet.address === 'HdxkiXqeN6qpK2YbG51W23QSWj3Yygc1eEk2zwmKJExp' || process.env.NODE_ENV === 'development')) {
-            console.log(`   🔍 [Repository PnL] Wallet ${wallet.address}:`);
-            console.log(`      - Period positions: ${periodPositions.length}`);
-            console.log(`      - Total buy value: ${totalBuyValue.toFixed(2)}`);
-            console.log(`      - Total sell value: ${totalSellValue.toFixed(2)}`);
-            console.log(`      - PnL from positions: ${pnl.toFixed(2)}`);
-            console.log(`      - Period trades: ${periodTrades.length}`);
-            console.log(`      - Buy value USD: ${buyValueUsd.toFixed(2)}`);
-            console.log(`      - Sell value USD: ${sellValueUsd.toFixed(2)}`);
-            console.log(`      - PnL USD: ${pnlUsd.toFixed(2)}`);
-            console.log(`      - PnL percent: ${pnlPercent.toFixed(2)}%`);
-          }
-          
-          return { walletId, pnlUsd, pnlPercent };
-        } catch (error: any) {
-          // Silently handle errors - don't log every wallet that has no trades
-          // Only log if it's a real error (not just missing trades)
-          if (error?.message && !error.message.includes('not found') && !error.message.includes('No trades')) {
-            console.error(`   ❌ [Repository] Error calculating PnL for wallet ${walletId}:`, error.message);
-          }
-          return { walletId, pnlUsd: 0, pnlPercent: 0 };
-        }
-      });
-      
-      // Wait for all calculations to complete
-      const pnlResults = await Promise.all(pnlPromises);
-      for (const result of pnlResults) {
-        walletPnLMap.set(result.walletId, {
-          pnlUsd: result.pnlUsd,
-          pnlPercent: result.pnlPercent,
-        });
-      }
-      
-      // DEBUG: Log summary before setting values
-      const walletsWithPnLBefore = Array.from(walletPnLMap.entries())
-        .filter(([_, pnl]) => Math.abs(pnl.pnlUsd) > 0.01 || Math.abs(pnl.pnlPercent) > 0.01);
-      console.log(`   📊 [Repository] Recent PnL (30d) from positions: ${walletsWithPnLBefore.length}/${walletIds.length} wallets have non-zero PnL`);
-      walletsWithPnLBefore.slice(0, 5).forEach(([walletId, pnl]) => {
-        const wallet = wallets.find((w: any) => w.id === walletId);
-        console.log(`   💰 Wallet ${wallet?.address || walletId}: PnL=${pnl.pnlUsd.toFixed(2)} USD (${pnl.pnlPercent.toFixed(2)}%)`);
-      });
-
-        // Add recentPnl30dUsd and recentPnl30dPercent to each wallet
-      // IMPORTANT: Always use calculated values (override DB values) to ensure consistency
-        wallets.forEach((wallet: any) => {
-          const pnl = walletPnLMap.get(wallet.id);
-          
-        // Always set calculated values (even if 0) to override potentially stale DB values
-          if (pnl) {
-            wallet.recentPnl30dUsd = pnl.pnlUsd;
-            wallet.recentPnl30dPercent = pnl.pnlPercent;
-            // DEBUG: Log all wallets with non-zero PnL
-            if (Math.abs(pnl.pnlUsd) > 0.01 || Math.abs(pnl.pnlPercent) > 0.01) {
-            console.log(`   ✅ [Repository] Wallet ${wallet.address}: PnL from positions: ${pnl.pnlUsd.toFixed(2)} USD (${pnl.pnlPercent.toFixed(2)}%), DB had: ${(wallet.recentPnl30dPercent || 0).toFixed(2)}%`);
-            }
-          } else {
-          // IMPORTANT: Always set to 0 (not undefined/null) to override stale DB values
-            wallet.recentPnl30dUsd = 0;
-            wallet.recentPnl30dPercent = 0;
-          // DEBUG: Log wallets without PnL (but only if they have non-zero DB value)
-          const dbValue = wallet.recentPnl30dPercent || 0;
-          if (Math.abs(dbValue) > 0.01) {
-            console.log(`   ⚠️  [Repository] Wallet ${wallet.address}: No positions in last 30 days, resetting PnL from DB value ${dbValue.toFixed(2)}% to 0`);
-          }
-        }
-      });
-      
-      // DEBUG: Log final summary
-      const finalWalletsWithPnL = wallets.filter((w: any) => Math.abs(w.recentPnl30dUsd || 0) > 0.01 || Math.abs(w.recentPnl30dPercent || 0) > 0.01);
-      console.log(`   📊 [Repository] Final summary: ${finalWalletsWithPnL.length}/${wallets.length} wallets have non-zero PnL`);
     }
 
     return {
@@ -421,6 +279,8 @@ export class SmartWalletRepository {
     avgHoldingTimeMin: number;
     maxDrawdownPercent: number;
     recentPnl30dPercent: number;
+    recentPnl30dUsd: number;
+    advancedStats: Record<string, any> | null;
   }>) {
     const { data: result, error } = await supabase
       .from(TABLES.SMART_WALLET)

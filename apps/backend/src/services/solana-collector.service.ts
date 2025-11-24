@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
+import { WalletProcessingQueueRepository } from '../repositories/wallet-processing-queue.repository.js';
 import { HeliusClient } from './helius-client.service.js';
 import { SolPriceService } from './sol-price.service.js';
 
@@ -20,7 +21,8 @@ export class SolanaCollectorService {
   constructor(
     private smartWalletRepo: SmartWalletRepository,
     private tradeRepo: TradeRepository,
-    private tokenRepo: TokenRepository
+    private tokenRepo: TokenRepository,
+    private walletQueueRepo: WalletProcessingQueueRepository = new WalletProcessingQueueRepository()
   ) {
     this.heliusClient = new HeliusClient(process.env.HELIUS_API_KEY);
     this.solPriceService = new SolPriceService();
@@ -245,7 +247,7 @@ export class SolanaCollectorService {
         console.warn(`⚠️  Failed to calculate priceUsd for trade ${swap.txSignature}: ${error.message}`);
       }
 
-      await this.tradeRepo.create({
+      const trade = await this.tradeRepo.create({
         txSignature: swap.txSignature,
         walletId: wallet.id,
         tokenId: token.id,
@@ -271,17 +273,9 @@ export class SolanaCollectorService {
       });
 
       try {
-        const { MetricsCalculatorService } = await import('./metrics-calculator.service.js');
-        const { MetricsHistoryRepository } = await import('../repositories/metrics-history.repository.js');
-        const metricsHistoryRepo = new MetricsHistoryRepository();
-        const metricsCalculator = new MetricsCalculatorService(
-          this.smartWalletRepo,
-          this.tradeRepo,
-          metricsHistoryRepo
-        );
-        await metricsCalculator.calculateMetricsForWallet(wallet.id);
+        await this.walletQueueRepo.enqueue(wallet.id, 'metrics');
       } catch (error: any) {
-        console.warn(`⚠️  Failed to recalculate metrics after webhook trade: ${error.message}`);
+        console.warn(`⚠️  Failed to enqueue wallet ${wallet.id} for metrics processing: ${error.message}`);
       }
 
       return { saved: true };
