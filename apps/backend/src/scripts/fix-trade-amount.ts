@@ -3,8 +3,10 @@ import { HeliusClient } from '../services/helius-client.service.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { supabase, TABLES } from '../lib/supabase.js';
 
-const TX_SIGNATURE = 'vvu4TLTiSMh7SKgTDrHwcc5d1SyNMbg3eYCaNUH6nL4CaDZ9J6qkrRJevHdocgbmTDodmmW5uz8Yr5ZG7Zk8eY8';
-const EXPECTED_AMOUNT_BASE = 10.115; // SOL
+// Usage: pnpm fix:trade-amount <txSignature> [expectedAmountBase]
+// Example: pnpm fix:trade-amount 2Sg2eS6gecV4koUTBiFU8VGt7q6VuaqY5CieHx6dhzhCQBT31jm3nT5WbmcDwftoY3Zv1YDn8kT4hHbZQLLbm6UJ
+const TX_SIGNATURE = process.argv[2] || '2Sg2eS6gecV4koUTBiFU8VGt7q6VuaqY5CieHx6dhzhCQBT31jm3nT5WbmcDwftoY3Zv1YDn8kT4hHbZQLLbm6UJ';
+const EXPECTED_AMOUNT_BASE = process.argv[3] ? parseFloat(process.argv[3]) : 0; // SOL (optional)
 
 async function fixTradeAmount() {
   console.log(`🔍 Fetching transaction ${TX_SIGNATURE}...`);
