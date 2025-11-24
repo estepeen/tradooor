@@ -39,16 +39,6 @@ async function processMetricsJob(job: { id: string; walletId: string }) {
   // 2. Recalculate metrics (score, win rate, pnl, etc.)
   const metricsResult = await metricsCalculator.calculateMetricsForWallet(job.walletId);
 
-  // 3. Advanced stats (cached)
-  try {
-    const advancedStats = await metricsCalculator.calculateAdvancedStats(job.walletId);
-    if (advancedStats) {
-      await smartWalletRepo.update(job.walletId, { advancedStats });
-    }
-  } catch (error: any) {
-    console.warn(`⚠️  Failed to calculate advanced stats for wallet ${job.walletId}:`, error?.message || error);
-  }
-
   console.log(
     `✅  [Worker] Wallet ${job.walletId} updated (score=${metricsResult?.score ?? 'n/a'})`
   );

@@ -9,6 +9,44 @@ const toNumeric = (value: NullableNumber) => {
   return value.toString();
 };
 
+const toNumber = (value: any) => (value === null || value === undefined ? null : Number(value));
+
+export interface TradeFeatureRecord {
+  id: string;
+  tradeId: string;
+  walletId: string;
+  tokenId: string;
+  sizeToken: number | null;
+  sizeUsd: number | null;
+  priceUsd: number | null;
+  slippageBps: number | null;
+  dex: string | null;
+  txTimestamp: Date | null;
+  positionSizeBeforeToken: number | null;
+  positionSizeBeforeUsd: number | null;
+  positionSizeAfterToken: number | null;
+  positionSizeAfterUsd: number | null;
+  positionSizeChangeMultiplier: number | null;
+  avgEntryPriceBeforeUsd: number | null;
+  avgEntryPriceAfterUsd: number | null;
+  realizedPnlUsd: number | null;
+  realizedPnlPercent: number | null;
+  holdTimeSeconds: number | null;
+  tokenAgeSeconds: number | null;
+  liquidityUsd: number | null;
+  volume1hUsd: number | null;
+  volume24hUsd: number | null;
+  fdvUsd: number | null;
+  trend5mPercent: number | null;
+  trend30mPercent: number | null;
+  solPriceUsd: number | null;
+  hourOfDay: number | null;
+  dayOfWeek: number | null;
+  baseTokenSymbol: string | null;
+  meta: Record<string, any> | null;
+  side: string | null;
+}
+
 export type TradeFeatureBaseInput = {
   tradeId: string;
   walletId: string;
@@ -118,6 +156,79 @@ export class TradeFeatureRepository {
     if (error) {
       throw new Error(`Failed to update trade feature metrics: ${error.message}`);
     }
+  }
+
+  async findForWallet(
+    walletId: string,
+    options?: {
+      fromDate?: Date;
+      toDate?: Date;
+    }
+  ): Promise<TradeFeatureRecord[]> {
+    let query = supabase
+      .from(TABLES.TRADE_FEATURE)
+      .select(
+        `
+          *,
+          trade:${TABLES.TRADE}(side)
+        `
+      )
+      .eq('walletId', walletId)
+      .order('txTimestamp', { ascending: false });
+
+    if (options?.fromDate) {
+      query = query.gte('txTimestamp', options.fromDate.toISOString());
+    }
+
+    if (options?.toDate) {
+      query = query.lte('txTimestamp', options.toDate.toISOString());
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw new Error(`Failed to fetch trade features: ${error.message}`);
+    }
+
+    return (data ?? []).map(row => this.mapRow(row));
+  }
+
+  private mapRow(row: any): TradeFeatureRecord {
+    return {
+      id: row.id,
+      tradeId: row.tradeId,
+      walletId: row.walletId,
+      tokenId: row.tokenId,
+      sizeToken: toNumber(row.sizeToken),
+      sizeUsd: toNumber(row.sizeUsd),
+      priceUsd: toNumber(row.priceUsd),
+      slippageBps: row.slippageBps ?? null,
+      dex: row.dex ?? null,
+      txTimestamp: row.txTimestamp ? new Date(row.txTimestamp) : null,
+      positionSizeBeforeToken: toNumber(row.positionSizeBeforeToken),
+      positionSizeBeforeUsd: toNumber(row.positionSizeBeforeUsd),
+      positionSizeAfterToken: toNumber(row.positionSizeAfterToken),
+      positionSizeAfterUsd: toNumber(row.positionSizeAfterUsd),
+      positionSizeChangeMultiplier: toNumber(row.positionSizeChangeMultiplier),
+      avgEntryPriceBeforeUsd: toNumber(row.avgEntryPriceBeforeUsd),
+      avgEntryPriceAfterUsd: toNumber(row.avgEntryPriceAfterUsd),
+      realizedPnlUsd: toNumber(row.realizedPnlUsd),
+      realizedPnlPercent: toNumber(row.realizedPnlPercent),
+      holdTimeSeconds: row.holdTimeSeconds ?? null,
+      tokenAgeSeconds: row.tokenAgeSeconds ?? null,
+      liquidityUsd: toNumber(row.liquidityUsd),
+      volume1hUsd: toNumber(row.volume1hUsd),
+      volume24hUsd: toNumber(row.volume24hUsd),
+      fdvUsd: toNumber(row.fdvUsd),
+      trend5mPercent: toNumber(row.trend5mPercent),
+      trend30mPercent: toNumber(row.trend30mPercent),
+      solPriceUsd: toNumber(row.solPriceUsd),
+      hourOfDay: row.hourOfDay ?? null,
+      dayOfWeek: row.dayOfWeek ?? null,
+      baseTokenSymbol: row.baseTokenSymbol ?? null,
+      meta: row.meta ?? null,
+      side: row.trade?.side ?? null,
+    };
   }
 }
 

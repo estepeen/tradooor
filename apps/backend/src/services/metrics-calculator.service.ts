@@ -1,6 +1,8 @@
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
+import { ClosedLotRepository, ClosedLotRecord } from '../repositories/closed-lot.repository.js';
+import { TradeFeatureRepository, TradeFeatureRecord } from '../repositories/trade-feature.repository.js';
 
 interface Position {
   tokenId: string;
@@ -12,11 +14,87 @@ interface Position {
   sellTimestamp?: Date;
 }
 
+type RollingWindowLabel = '7d' | '30d' | '90d';
+
+const WINDOW_CONFIG: Record<RollingWindowLabel, number> = {
+  '7d': 7,
+  '30d': 30,
+  '90d': 90,
+};
+
+const MAX_WINDOW_DAYS = Math.max(...Object.values(WINDOW_CONFIG));
+const LOW_LIQUIDITY_THRESHOLD_USD = 10_000;
+const NEW_TOKEN_AGE_SECONDS = 30 * 60; // 30 minutes
+
+type RollingWindowStats = {
+  realizedPnlUsd: number;
+  realizedRoiPercent: number;
+  winRate: number;
+  medianTradeRoiPercent: number;
+  percentile5TradeRoiPercent: number;
+  percentile95TradeRoiPercent: number;
+  maxDrawdownPercent: number;
+  volatilityPercent: number;
+  medianHoldMinutesWinners: number;
+  medianHoldMinutesLosers: number;
+  numClosedTrades: number;
+  totalVolumeUsd: number;
+  avgTradeSizeUsd: number;
+};
+
+type BehaviourStats = {
+  shareLowLiquidity: number;
+  shareNewTokens: number;
+  avgLiquidityUsd: number;
+  sampleTrades: number;
+};
+
+type ScoreBreakdown = {
+  profitabilityScore: number;
+  consistencyScore: number;
+  riskScore: number;
+  behaviourScore: number;
+  sampleFactor: number;
+  walletScoreRaw: number;
+  smartScore: number;
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+const median = (values: number[]): number => {
+  const filtered = values.filter(v => Number.isFinite(v));
+  if (!filtered.length) return 0;
+  const sorted = [...filtered].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+  return sorted[mid];
+};
+
+const percentile = (values: number[], p: number): number => {
+  const filtered = values.filter(v => Number.isFinite(v));
+  if (!filtered.length) return 0;
+  const sorted = [...filtered].sort((a, b) => a - b);
+  const index = clamp(Math.ceil(p * sorted.length) - 1, 0, sorted.length - 1);
+  return sorted[index];
+};
+
+const stdDeviation = (values: number[]): number => {
+  if (values.length <= 1) return 0;
+  const mean = values.reduce((sum, v) => sum + v, 0) / values.length;
+  const variance =
+    values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) / (values.length - 1);
+  return Math.sqrt(variance);
+};
+
 export class MetricsCalculatorService {
   constructor(
     private smartWalletRepo: SmartWalletRepository,
     private tradeRepo: TradeRepository,
-    private metricsHistoryRepo: MetricsHistoryRepository
+    private metricsHistoryRepo: MetricsHistoryRepository,
+    private closedLotRepo: ClosedLotRepository = new ClosedLotRepository(),
+    private tradeFeatureRepo: TradeFeatureRepository = new TradeFeatureRepository()
   ) {}
 
   /**
@@ -54,14 +132,33 @@ export class MetricsCalculatorService {
     const maxDrawdownPercent = this.calculateMaxDrawdown(positions);
     const { percent: recentPnl30dPercent, usd: recentPnl30dUsd } = this.calculateRecentPnl30d(positions);
 
-    // Calculate score (simple formula: can be improved later)
-    const score = this.calculateScore({
+    const legacyScore = this.calculateScore({
       totalTrades,
       winRate,
       avgPnlPercent,
       recentPnl30dPercent,
       avgRr,
     });
+
+    const legacyAdvancedStats = await this.calculateAdvancedStats(walletId);
+    const rollingInsights = await this.computeRollingStatsAndScores(walletId);
+    const shouldFallbackToLegacy =
+      rollingInsights.scores.sampleFactor === 0 &&
+      rollingInsights.rolling['90d']?.numClosedTrades === 0;
+    const score = shouldFallbackToLegacy
+      ? legacyScore
+      : rollingInsights.scores.smartScore ?? legacyScore;
+
+    const advancedStatsPayload = legacyAdvancedStats ? { ...legacyAdvancedStats } : {};
+    const advancedStats = {
+      ...advancedStatsPayload,
+      rolling: rollingInsights.rolling,
+      behaviour: rollingInsights.behaviour,
+      scoreBreakdown: {
+        ...rollingInsights.scores,
+        legacyScore,
+      },
+    };
 
     // Update wallet metrics
     await this.smartWalletRepo.update(walletId, {
@@ -75,6 +172,7 @@ export class MetricsCalculatorService {
       maxDrawdownPercent,
       recentPnl30dPercent,
       recentPnl30dUsd,
+      advancedStats,
     });
 
     // Save to history
@@ -103,6 +201,7 @@ export class MetricsCalculatorService {
       maxDrawdownPercent,
       recentPnl30dPercent,
       recentPnl30dUsd,
+      advancedStats,
     };
   }
 
@@ -340,6 +439,286 @@ export class MetricsCalculatorService {
 
     const score = winRateScore + avgPnlScore + recentPnlScore + volumeScore;
     return Math.min(Math.max(score, 0), 100); // Clamp to 0-100
+  }
+
+  private async computeRollingStatsAndScores(walletId: string) {
+    const now = new Date();
+    const earliest = new Date(now);
+    earliest.setDate(earliest.getDate() - MAX_WINDOW_DAYS);
+
+    const [closedLotsRaw, tradeFeatures] = await Promise.all([
+      this.closedLotRepo.findByWallet(walletId, { fromDate: earliest }),
+      this.fetchTradeFeaturesSafe(walletId, earliest),
+    ]);
+
+    const closedLots = closedLotsRaw.filter(lot => lot.costKnown !== false);
+
+    const rolling = {} as Record<RollingWindowLabel, RollingWindowStats>;
+    (Object.entries(WINDOW_CONFIG) as Array<[RollingWindowLabel, number]>).forEach(
+      ([label, days]) => {
+        const cutoff = new Date(now);
+        cutoff.setDate(cutoff.getDate() - days);
+        const lots = closedLots.filter(lot => lot.exitTime >= cutoff);
+        rolling[label] = this.buildRollingWindowStats(lots);
+      }
+    );
+
+    const behaviour = this.buildBehaviourStats(tradeFeatures);
+    const scores = this.buildScoreBreakdown(rolling, behaviour);
+
+    return { rolling, behaviour, scores };
+  }
+
+  private async fetchTradeFeaturesSafe(walletId: string, fromDate: Date) {
+    try {
+      return await this.tradeFeatureRepo.findForWallet(walletId, { fromDate });
+    } catch (error: any) {
+      console.warn(
+        `⚠️  Failed to fetch trade features for wallet ${walletId}:`,
+        error?.message || error
+      );
+      return [];
+    }
+  }
+
+  private buildRollingWindowStats(lots: ClosedLotRecord[]): RollingWindowStats {
+    if (lots.length === 0) {
+      return {
+        realizedPnlUsd: 0,
+        realizedRoiPercent: 0,
+        winRate: 0,
+        medianTradeRoiPercent: 0,
+        percentile5TradeRoiPercent: 0,
+        percentile95TradeRoiPercent: 0,
+        maxDrawdownPercent: 0,
+        volatilityPercent: 0,
+        medianHoldMinutesWinners: 0,
+        medianHoldMinutesLosers: 0,
+        numClosedTrades: 0,
+        totalVolumeUsd: 0,
+        avgTradeSizeUsd: 0,
+      };
+    }
+
+    const realizedPnlUsd = lots.reduce((sum, lot) => sum + lot.realizedPnl, 0);
+    const totalVolumeUsd = lots.reduce((sum, lot) => sum + lot.proceeds, 0);
+    const investedCapital = lots.reduce((sum, lot) => sum + Math.max(lot.costBasis, 0), 0);
+    const realizedRoiPercent =
+      investedCapital > 0 ? (realizedPnlUsd / investedCapital) * 100 : 0;
+    const wins = lots.filter(lot => lot.realizedPnl > 0).length;
+    const roiValues = lots.map(lot =>
+      lot.costBasis > 0 ? (lot.realizedPnl / lot.costBasis) * 100 : lot.realizedPnlPercent
+    );
+
+    const winnersHold = lots
+      .filter(lot => lot.realizedPnl > 0)
+      .map(lot => lot.holdTimeMinutes);
+    const losersHold = lots
+      .filter(lot => lot.realizedPnl <= 0)
+      .map(lot => lot.holdTimeMinutes);
+
+    return {
+      realizedPnlUsd,
+      realizedRoiPercent,
+      winRate: lots.length ? wins / lots.length : 0,
+      medianTradeRoiPercent: median(roiValues),
+      percentile5TradeRoiPercent: percentile(roiValues, 0.05),
+      percentile95TradeRoiPercent: percentile(roiValues, 0.95),
+      maxDrawdownPercent: this.calculateDrawdownPercent(lots),
+      volatilityPercent: this.calculateDailyVolatilityPercent(lots),
+      medianHoldMinutesWinners: median(winnersHold),
+      medianHoldMinutesLosers: median(losersHold),
+      numClosedTrades: lots.length,
+      totalVolumeUsd,
+      avgTradeSizeUsd: totalVolumeUsd / lots.length,
+    };
+  }
+
+  private calculateDailyVolatilityPercent(lots: ClosedLotRecord[]) {
+    if (!lots.length) {
+      return 0;
+    }
+    const dayMap = new Map<string, { pnl: number; cost: number }>();
+    for (const lot of lots) {
+      const key = lot.exitTime.toISOString().slice(0, 10);
+      const entry = dayMap.get(key) ?? { pnl: 0, cost: 0 };
+      entry.pnl += lot.realizedPnl;
+      entry.cost += Math.max(lot.costBasis, 0);
+      dayMap.set(key, entry);
+    }
+
+    const dailyReturns: number[] = [];
+    for (const entry of dayMap.values()) {
+      if (entry.cost > 0) {
+        dailyReturns.push((entry.pnl / entry.cost) * 100);
+      }
+    }
+
+    return stdDeviation(dailyReturns);
+  }
+
+  private calculateDrawdownPercent(lots: ClosedLotRecord[]) {
+    if (!lots.length) {
+      return 0;
+    }
+    const sorted = [...lots].sort(
+      (a, b) => a.exitTime.getTime() - b.exitTime.getTime()
+    );
+    let cumulative = 0;
+    let peak = 0;
+    let maxDrawdown = 0;
+
+    for (const lot of sorted) {
+      const roi = lot.costBasis > 0 ? (lot.realizedPnl / lot.costBasis) * 100 : 0;
+      cumulative += roi;
+      peak = Math.max(peak, cumulative);
+      const drawdown = peak - cumulative;
+      if (drawdown > maxDrawdown) {
+        maxDrawdown = drawdown;
+      }
+    }
+
+    return maxDrawdown;
+  }
+
+  private buildBehaviourStats(features: TradeFeatureRecord[]): BehaviourStats {
+    if (!features.length) {
+      return {
+        shareLowLiquidity: 0,
+        shareNewTokens: 0,
+        avgLiquidityUsd: 0,
+        sampleTrades: 0,
+      };
+    }
+
+    const lowLiquidityCount = features.filter(
+      feature =>
+        feature.liquidityUsd !== null &&
+        feature.liquidityUsd !== undefined &&
+        feature.liquidityUsd < LOW_LIQUIDITY_THRESHOLD_USD
+    ).length;
+
+    const newTokenCount = features.filter(
+      feature =>
+        feature.tokenAgeSeconds !== null &&
+        feature.tokenAgeSeconds !== undefined &&
+        feature.tokenAgeSeconds < NEW_TOKEN_AGE_SECONDS
+    ).length;
+
+    const liquidityValues = features
+      .map(feature => feature.liquidityUsd)
+      .filter((value): value is number => value !== null && value !== undefined);
+
+    const avgLiquidityUsd = liquidityValues.length
+      ? liquidityValues.reduce((sum, value) => sum + value, 0) / liquidityValues.length
+      : 0;
+
+    return {
+      shareLowLiquidity: lowLiquidityCount / features.length,
+      shareNewTokens: newTokenCount / features.length,
+      avgLiquidityUsd,
+      sampleTrades: features.length,
+    };
+  }
+
+  private buildScoreBreakdown(
+    rolling: Record<RollingWindowLabel, RollingWindowStats>,
+    behaviour: BehaviourStats
+  ): ScoreBreakdown {
+    const stats30 = rolling['30d'];
+    const stats90 = rolling['90d'];
+
+    const profitabilityScore = this.computeProfitabilityScore(stats30, stats90);
+    const consistencyScore = this.computeConsistencyScore(stats30);
+    const riskScore = this.computeRiskScore(stats90);
+    const behaviourScore = this.computeBehaviourScore(stats90, behaviour);
+    const sampleFactor = this.computeSampleFactor(stats90);
+    const walletScoreRaw =
+      0.4 * profitabilityScore +
+      0.25 * consistencyScore +
+      0.2 * riskScore +
+      0.15 * behaviourScore;
+
+    const smartScore = clamp(walletScoreRaw * sampleFactor, 0, 100);
+
+    return {
+      profitabilityScore,
+      consistencyScore,
+      riskScore,
+      behaviourScore,
+      sampleFactor,
+      walletScoreRaw,
+      smartScore,
+    };
+  }
+
+  private computeProfitabilityScore(
+    stats30: RollingWindowStats,
+    stats90: RollingWindowStats
+  ) {
+    const roi30 = stats30?.realizedRoiPercent ?? 0;
+    const roi90 = stats90?.realizedRoiPercent ?? 0;
+    const blended = 0.5 * roi30 + 0.5 * roi90;
+    const roiNorm = clamp((blended / 300) * 100, -100, 100);
+    if (roiNorm <= 0) {
+      return clamp(20 + 0.2 * roiNorm, 0, 100);
+    }
+    return clamp(20 + 0.8 * roiNorm, 0, 100);
+  }
+
+  private computeConsistencyScore(stats30: RollingWindowStats) {
+    const winComponent = clamp((stats30?.winRate ?? 0) * 100, 0, 100);
+    const medianComponent = clamp(
+      ((stats30?.medianTradeRoiPercent ?? 0) / 30) * 100,
+      0,
+      100
+    );
+    return 0.7 * winComponent + 0.3 * medianComponent;
+  }
+
+  private computeRiskScore(stats90: RollingWindowStats) {
+    const dd = Math.abs(stats90?.maxDrawdownPercent ?? 0);
+    const vol = Math.abs(stats90?.volatilityPercent ?? 0);
+    const ddScore = clamp((50 - dd) * 2, 0, 100);
+    const volScore = clamp((50 - vol) * 2, 0, 100);
+    return 0.6 * ddScore + 0.4 * volScore;
+  }
+
+  private computeBehaviourScore(
+    stats90: RollingWindowStats,
+    behaviour: BehaviourStats
+  ) {
+    const winHold = stats90?.medianHoldMinutesWinners ?? 0;
+    const lossHold = stats90?.medianHoldMinutesLosers ?? 0;
+    const ratio =
+      lossHold > 0 ? winHold / lossHold : winHold > 0 ? 2 : 0;
+
+    let holdScore = 50;
+    if (ratio >= 2) {
+      holdScore = 100;
+    } else if (ratio >= 1) {
+      holdScore = 60 + (ratio - 1) * 40;
+    } else if (ratio > 0) {
+      holdScore = Math.max(20 * ratio, 0);
+    } else if (winHold === 0 && lossHold === 0) {
+      holdScore = 50;
+    } else {
+      holdScore = 10;
+    }
+
+    const liquidityPenalty =
+      behaviour.shareLowLiquidity * 120 + behaviour.shareNewTokens * 80;
+    const liquidityScore = clamp(100 - liquidityPenalty, 0, 100);
+
+    return 0.6 * holdScore + 0.4 * liquidityScore;
+  }
+
+  private computeSampleFactor(stats90: RollingWindowStats) {
+    const trades = stats90?.numClosedTrades ?? 0;
+    const volume = stats90?.totalVolumeUsd ?? 0;
+    const tradeFactor = trades > 0 ? Math.log10(trades + 1) : 0;
+    const volumeFactor = volume > 0 ? Math.log10(volume / 100 + 1) : 0;
+    return clamp(0.5 * tradeFactor + 0.5 * volumeFactor, 0, 1);
   }
 
   /**
