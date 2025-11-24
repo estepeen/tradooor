@@ -907,7 +907,8 @@ export class HeliusClient {
         // V multi-step swapech může být nativeOutput jen část celkové hodnoty
         // Musíme sečíst všechny base outputs (native + token outputs, které jsou base)
         
-        // 1. Najdi nejvyšší hodnotu z native outputs (SOL) - bereme nejvyšší hodnotu, ne součet
+        // 1. Najdi všechny native outputs (SOL) - DŮLEŽITÉ: Použij součet, ne maximum!
+        // V multi-step swapech může být více native transfers, které musíme sečíst
         const allNativeOutputs = [
           swap.nativeOutput,
           ...((swap.innerSwaps ?? []).map((s: any) => s.nativeOutput).filter(Boolean)),
@@ -915,7 +916,16 @@ export class HeliusClient {
         const nativeOutAmounts = allNativeOutputs
           .filter((n: any) => n?.account === walletAddress)
           .map((n: any) => Number(n.amount) / 1e9);
-        const totalNativeOut = nativeOutAmounts.length > 0 ? Math.max(...nativeOutAmounts) : 0;
+        const totalNativeOut = nativeOutAmounts.length > 0 ? nativeOutAmounts.reduce((sum, val) => sum + val, 0) : 0;
+        
+        // DŮLEŽITÉ: Také zkontroluj nativeTransfers z top-levelu (může obsahovat více transferů než events.swap)
+        const nativeTransfersOut = (heliusTx.nativeTransfers || [])
+          .filter((t: any) => t.fromUserAccount === walletAddress)
+          .map((t: any) => t.amount / 1e9);
+        const totalNativeTransfersOut = nativeTransfersOut.length > 0 ? nativeTransfersOut.reduce((sum, val) => sum + val, 0) : 0;
+        
+        // Použij maximum z obou zdrojů (events.swap a nativeTransfers) - bereme vždy tu nejvyšší hodnotu
+        const finalNativeOut = Math.max(totalNativeOut, totalNativeTransfersOut);
         
         // 2. Sečti všechny token outputs, které jsou base tokeny
         const baseTokenOutputs = allTokenOutputs.filter((t: any) => {
@@ -928,9 +938,8 @@ export class HeliusClient {
         }, 0);
         
         // Celková hodnota = native outputs + base token outputs
-        // DŮLEŽITÉ: Použij hodnotu z events.swap (brutto, bez fees) - to odpovídá Solscan
-        // accountData.nativeBalanceChange zahrnuje fees (netto), takže ho NEPOUŽÍVÁME pro amountBase
-        amountBase = totalNativeOut + totalBaseTokenOut;
+        // DŮLEŽITÉ: Použij finalNativeOut (maximum z events.swap a nativeTransfers)
+        amountBase = finalNativeOut + totalBaseTokenOut;
         
         // PRIORITA: Zkus vytáhnout hodnotu z description (brutto swap value z Heliusu)
         // To je důležité pro agregátory (Trojan apod.), kde events.swap může obsahovat jen malé fees
@@ -1023,7 +1032,8 @@ export class HeliusClient {
         // V multi-step swapech může být nativeInput jen část celkové hodnoty
         // Musíme sečíst všechny base inputs (native + token inputs, které jsou base)
         
-        // 1. Najdi nejvyšší hodnotu z native inputs (SOL) - bereme nejvyšší hodnotu, ne součet
+        // 1. Najdi všechny native inputs (SOL) - DŮLEŽITÉ: Použij součet, ne maximum!
+        // V multi-step swapech může být více native transfers, které musíme sečíst
         const allNativeInputs = [
           swap.nativeInput,
           ...((swap.innerSwaps ?? []).map((s: any) => s.nativeInput).filter(Boolean)),
@@ -1031,7 +1041,16 @@ export class HeliusClient {
         const nativeInAmounts = allNativeInputs
           .filter((n: any) => n?.account === walletAddress)
           .map((n: any) => Number(n.amount) / 1e9);
-        const totalNativeIn = nativeInAmounts.length > 0 ? Math.max(...nativeInAmounts) : 0;
+        const totalNativeIn = nativeInAmounts.length > 0 ? nativeInAmounts.reduce((sum, val) => sum + val, 0) : 0;
+        
+        // DŮLEŽITÉ: Také zkontroluj nativeTransfers z top-levelu (může obsahovat více transferů než events.swap)
+        const nativeTransfersIn = (heliusTx.nativeTransfers || [])
+          .filter((t: any) => t.toUserAccount === walletAddress)
+          .map((t: any) => t.amount / 1e9);
+        const totalNativeTransfersIn = nativeTransfersIn.length > 0 ? nativeTransfersIn.reduce((sum, val) => sum + val, 0) : 0;
+        
+        // Použij maximum z obou zdrojů (events.swap a nativeTransfers) - bereme vždy tu nejvyšší hodnotu
+        const finalNativeIn = Math.max(totalNativeIn, totalNativeTransfersIn);
         
         // 2. Sečti všechny token inputs, které jsou base tokeny
         const baseTokenInputs = allTokenInputs.filter((t: any) => {
@@ -1044,9 +1063,8 @@ export class HeliusClient {
         }, 0);
         
         // Celková hodnota = native inputs + base token inputs
-        // DŮLEŽITÉ: Použij hodnotu z events.swap (brutto, bez fees) - to odpovídá Solscan
-        // accountData.nativeBalanceChange zahrnuje fees (netto), takže ho NEPOUŽÍVÁME pro amountBase
-        amountBase = totalNativeIn + totalBaseTokenIn;
+        // DŮLEŽITÉ: Použij finalNativeIn (maximum z events.swap a nativeTransfers)
+        amountBase = finalNativeIn + totalBaseTokenIn;
         
         // PRIORITA: Zkus vytáhnout hodnotu z description (brutto swap value z Heliusu)
         // To je důležité pro agregátory (Trojan apod.), kde events.swap může obsahovat jen malé fees
@@ -1417,16 +1435,17 @@ export class HeliusClient {
       const side = traded.direction;
 
       // Spočítej SOL delta z native transfers
-      // DŮLEŽITÉ: Bereme nejvyšší hodnotu z native transfers, ne součet (podle požadavku uživatele)
+      // DŮLEŽITÉ: Sečti všechny native transfers, ne jen maximum!
+      // V multi-step swapech může být více native transfers, které musíme sečíst
       const nativeOutAmounts = walletNativeTransfers
         .filter(transfer => transfer.fromUserAccount === walletAddress)
         .map(transfer => transfer.amount / 1e9);
-      const nativeOutTotal = nativeOutAmounts.length > 0 ? Math.max(...nativeOutAmounts) : 0;
+      const nativeOutTotal = nativeOutAmounts.length > 0 ? nativeOutAmounts.reduce((sum, val) => sum + val, 0) : 0;
 
       const nativeInAmounts = walletNativeTransfers
         .filter(transfer => transfer.toUserAccount === walletAddress)
         .map(transfer => transfer.amount / 1e9);
-      const nativeInTotal = nativeInAmounts.length > 0 ? Math.max(...nativeInAmounts) : 0;
+      const nativeInTotal = nativeInAmounts.length > 0 ? nativeInAmounts.reduce((sum, val) => sum + val, 0) : 0;
 
       let solDelta = nativeInTotal - nativeOutTotal;
 
