@@ -3,6 +3,7 @@ import { TradeRepository } from '../repositories/trade.repository.js';
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
 import { ClosedLotRepository, ClosedLotRecord } from '../repositories/closed-lot.repository.js';
 import { TradeFeatureRepository, TradeFeatureRecord } from '../repositories/trade-feature.repository.js';
+import { BinancePriceService } from './binance-price.service.js';
 
 interface Position {
   tokenId: string;
@@ -89,13 +90,17 @@ const stdDeviation = (values: number[]): number => {
 };
 
 export class MetricsCalculatorService {
+  private binancePriceService: BinancePriceService;
+
   constructor(
     private smartWalletRepo: SmartWalletRepository,
     private tradeRepo: TradeRepository,
     private metricsHistoryRepo: MetricsHistoryRepository,
     private closedLotRepo: ClosedLotRepository = new ClosedLotRepository(),
     private tradeFeatureRepo: TradeFeatureRepository = new TradeFeatureRepository()
-  ) {}
+  ) {
+    this.binancePriceService = new BinancePriceService();
+  }
 
   /**
    * Calculate all metrics for a wallet and update the database
@@ -459,14 +464,12 @@ export class MetricsCalculatorService {
     const closedLots = closedLotsRaw.filter(lot => lot.costKnown !== false);
 
     const rolling = {} as Record<RollingWindowLabel, RollingWindowStats>;
-    (Object.entries(WINDOW_CONFIG) as Array<[RollingWindowLabel, number]>).forEach(
-      ([label, days]) => {
-        const cutoff = new Date(now);
-        cutoff.setDate(cutoff.getDate() - days);
-        const lots = closedLots.filter(lot => lot.exitTime >= cutoff);
-        rolling[label] = this.buildRollingWindowStats(lots);
-      }
-    );
+    for (const [label, days] of Object.entries(WINDOW_CONFIG) as Array<[RollingWindowLabel, number]>) {
+      const cutoff = new Date(now);
+      cutoff.setDate(cutoff.getDate() - days);
+      const lots = closedLots.filter(lot => lot.exitTime >= cutoff);
+      rolling[label] = await this.buildRollingWindowStats(lots);
+    }
 
     const behaviour = this.buildBehaviourStats(tradeFeatures);
     const scores = this.buildScoreBreakdown(rolling, behaviour);
@@ -486,7 +489,7 @@ export class MetricsCalculatorService {
     }
   }
 
-  private buildRollingWindowStats(lots: ClosedLotRecord[]): RollingWindowStats {
+  private async buildRollingWindowStats(lots: ClosedLotRecord[]): Promise<RollingWindowStats> {
     if (lots.length === 0) {
       return {
         realizedPnlUsd: 0,
@@ -505,9 +508,19 @@ export class MetricsCalculatorService {
       };
     }
 
-    const realizedPnlUsd = lots.reduce((sum, lot) => sum + lot.realizedPnl, 0);
-    const totalVolumeUsd = lots.reduce((sum, lot) => sum + lot.proceeds, 0);
-    const investedCapital = lots.reduce((sum, lot) => sum + Math.max(lot.costBasis, 0), 0);
+    // Get current SOL price for conversion (approximation - ideally we'd use historical prices)
+    let solPriceUsd = 150; // Default fallback
+    try {
+      solPriceUsd = await this.binancePriceService.getCurrentSolPrice();
+    } catch (error) {
+      console.warn(`⚠️  Failed to fetch SOL price, using fallback: ${solPriceUsd}`);
+    }
+
+    // Convert SOL amounts to USD
+    // Note: realizedPnl, proceeds, and costBasis are in SOL (base currency)
+    const realizedPnlUsd = lots.reduce((sum, lot) => sum + lot.realizedPnl * solPriceUsd, 0);
+    const totalVolumeUsd = lots.reduce((sum, lot) => sum + lot.proceeds * solPriceUsd, 0);
+    const investedCapital = lots.reduce((sum, lot) => sum + Math.max(lot.costBasis, 0) * solPriceUsd, 0);
     const realizedRoiPercent =
       investedCapital > 0 ? (realizedPnlUsd / investedCapital) * 100 : 0;
     const wins = lots.filter(lot => lot.realizedPnl > 0).length;

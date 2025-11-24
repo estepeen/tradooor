@@ -37,7 +37,7 @@ export class SmartWalletRepository {
         advancedStats,
         createdAt,
         updatedAt
-      `);
+      `, { count: 'exact' });
 
     // Apply filters
     if (params?.minScore !== undefined) {
