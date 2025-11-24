@@ -51,24 +51,24 @@ async function fixTradeAmount() {
   
   console.log(`   walletAddress: ${walletAddress}`);
   
-  const walletNativeTransfers = heliusTx.nativeTransfers?.filter(
-    t => t.fromUserAccount === walletAddress || t.toUserAccount === walletAddress
-  ) || [];
+  const walletNativeTransfers = (heliusTx.nativeTransfers || []).filter(
+    (t: any) => t.fromUserAccount === walletAddress || t.toUserAccount === walletAddress
+  );
   
   console.log(`\n💰 Native transfers for wallet:`);
-  walletNativeTransfers.forEach((transfer, idx) => {
+  walletNativeTransfers.forEach((transfer: any, idx: number) => {
     const amount = transfer.amount / 1e9;
     const direction = transfer.fromUserAccount === walletAddress ? 'OUT' : 'IN';
     console.log(`   [${idx + 1}] ${direction}: ${amount.toFixed(6)} SOL (from: ${transfer.fromUserAccount.substring(0, 8)}..., to: ${transfer.toUserAccount.substring(0, 8)}...)`);
   });
   
   const nativeOutTotal = walletNativeTransfers
-    .filter(transfer => transfer.fromUserAccount === walletAddress)
-    .reduce((sum, transfer) => sum + transfer.amount / 1e9, 0);
+    .filter((transfer: any) => transfer.fromUserAccount === walletAddress)
+    .reduce((sum: number, transfer: any) => sum + transfer.amount / 1e9, 0);
   
   const nativeInTotal = walletNativeTransfers
-    .filter(transfer => transfer.toUserAccount === walletAddress)
-    .reduce((sum, transfer) => sum + transfer.amount / 1e9, 0);
+    .filter((transfer: any) => transfer.toUserAccount === walletAddress)
+    .reduce((sum: number, transfer: any) => sum + transfer.amount / 1e9, 0);
   
   const solDelta = nativeInTotal - nativeOutTotal;
   

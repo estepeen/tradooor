@@ -434,6 +434,43 @@ export class HeliusClient {
    * @param type Typ transakce (SWAP, TRANSFER, atd.)
    * @returns Array of parsed transactions
    */
+  /**
+   * Get a single transaction by signature
+   */
+  async getTransaction(signature: string): Promise<HeliusTransaction | null> {
+    if (!this.apiKey) {
+      throw new Error('Helius API key not configured');
+    }
+
+    try {
+      const response = await fetch(
+        `https://api.helius.xyz/v0/transactions/?api-key=${this.apiKey}`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            transactions: [signature],
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Helius API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (Array.isArray(data) && data.length > 0) {
+        return data[0] as HeliusTransaction;
+      }
+      return null;
+    } catch (error: any) {
+      console.error(`Error fetching transaction ${signature}:`, error.message);
+      throw error;
+    }
+  }
+
   async getTransactionsForAddress(
     address: string,
     options?: {
