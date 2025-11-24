@@ -24,6 +24,7 @@ export default function Home() {
 
   useEffect(() => {
     loadWallets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search, minScore, sortBy, sortOrder, selectedTags]);
 
   // Auto-refresh every 30 seconds
@@ -33,6 +34,7 @@ export default function Home() {
     }, 30000); // 30 seconds
 
     return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search, minScore, sortBy, sortOrder, selectedTags]);
 
   useEffect(() => {
