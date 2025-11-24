@@ -21,7 +21,10 @@ export function formatMultiplier(percent: number): string {
   return `${multiplier >= 0 ? '+' : ''}${multiplier.toFixed(2)}x`;
 }
 
-export function formatNumber(value: number, decimals = 2): string {
+export function formatNumber(value: number | null | undefined, decimals = 2): string {
+  if (value === null || value === undefined || isNaN(value)) {
+    return '0';
+  }
   return value.toLocaleString('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
