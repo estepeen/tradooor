@@ -48,6 +48,7 @@ export function computePositionMetricsFromPercent(
     }
 
     const entry = state.get(tokenId)!;
+    // DŮLEŽITÉ: beforeX musí být aktuální pozice PŘED tímto trade
     let beforeX = entry.positionX;
     let afterX = beforeX;
     let action: PositionAction = 'NONE';
@@ -71,23 +72,24 @@ export function computePositionMetricsFromPercent(
     switch (resolvedAction) {
       case 'BUY': {
         action = 'BUY';
-        beforeX = 0;
+        beforeX = entry.positionX; // Aktuální pozice před BUY (obvykle 0)
         afterX = 1.0; // První nákup = 1.00x
         entry.balanceTokens = amount;
         break;
       }
       case 'ADD': {
         action = 'ADD';
+        beforeX = entry.positionX; // Aktuální pozice před ADD
         if (entry.balanceTokens <= EPS) {
           // Pokud nemáme žádnou pozici, ale dostáváme ADD (měl by to být BUY, ale použijeme ADD)
-          beforeX = 0;
-          afterX = 1;
+          afterX = 1.0;
           entry.balanceTokens = amount;
         } else {
           // DŮLEŽITÉ: ratio = kolikrát větší je nový amount než současný balance
           // Pokud přidáme 10x více tokenů, ratio = 10, takže afterX = positionX * (1 + 10) = positionX * 11
+          // Příklad: balanceTokens = 100, amount = 1000, ratio = 10
+          // beforeX = 1.0, afterX = 1.0 * (1 + 10) = 11.0, deltaX = 10.0 ✅
           const ratio = amount / entry.balanceTokens;
-          beforeX = entry.positionX;
           afterX = entry.positionX * (1 + ratio);
           entry.balanceTokens += amount;
         }
@@ -95,16 +97,21 @@ export function computePositionMetricsFromPercent(
       }
       case 'SELL': {
         action = 'SELL';
-        afterX = 0;
+        beforeX = entry.positionX; // Aktuální pozice před SELL
+        afterX = 0; // Po SELL je pozice 0
         entry.balanceTokens = 0;
         break;
       }
       case 'REM': {
         action = 'REM';
+        beforeX = entry.positionX; // Aktuální pozice před REM
         if (entry.balanceTokens <= EPS) {
           afterX = 0;
           entry.balanceTokens = 0;
         } else {
+          // ratio = jaká část pozice se prodává (0-1)
+          // Příklad: balanceTokens = 1000, amount = 100, ratio = 0.1
+          // beforeX = 11.0, afterX = 11.0 * (1 - 0.1) = 9.9, deltaX = -1.1 ✅
           const ratio = Math.min(1, amount / entry.balanceTokens);
           afterX = entry.positionX * (1 - ratio);
           entry.balanceTokens = Math.max(0, entry.balanceTokens - amount);
