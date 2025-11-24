@@ -482,22 +482,22 @@ export default function Home() {
         </div>
 
         {/* Pagination */}
-        {data && data.total > data.pageSize && (
+        {data && data.total > 0 && (
           <div className="mt-6 flex justify-center items-center space-x-4">
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="px-4 py-2 border border-border rounded-md disabled:opacity-50"
+              className="px-4 py-2 border border-border rounded-md disabled:opacity-50 hover:bg-muted transition-colors"
             >
               Previous
             </button>
             <span className="text-sm text-muted-foreground">
-              Page {page} of {Math.ceil(data.total / data.pageSize)}
+              Page {page} of {Math.ceil(data.total / data.pageSize)} ({data.total} total)
             </span>
             <button
               onClick={() => setPage(p => p + 1)}
               disabled={page >= Math.ceil(data.total / data.pageSize)}
-              className="px-4 py-2 border border-border rounded-md disabled:opacity-50"
+              className="px-4 py-2 border border-border rounded-md disabled:opacity-50 hover:bg-muted transition-colors"
             >
               Next
             </button>

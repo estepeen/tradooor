@@ -130,7 +130,15 @@ export class MetricsCalculatorService {
     const pnlTotalBase = this.calculateTotalPnl(positions);
     const avgHoldingTimeMin = this.calculateAvgHoldingTime(positions);
     const maxDrawdownPercent = this.calculateMaxDrawdown(positions);
-    const { percent: recentPnl30dPercent, usd: recentPnl30dUsd } = this.calculateRecentPnl30d(positions);
+
+    const legacyAdvancedStats = await this.calculateAdvancedStats(walletId);
+    const rollingInsights = await this.computeRollingStatsAndScores(walletId);
+    
+    // Use rolling stats for recentPnl30d (from closed lots, same as detail page)
+    // This ensures consistency between homepage and detail page
+    const rolling30d = rollingInsights.rolling['30d'];
+    const recentPnl30dUsd = rolling30d?.realizedPnlUsd ?? 0;
+    const recentPnl30dPercent = rolling30d?.realizedRoiPercent ?? 0;
 
     const legacyScore = this.calculateScore({
       totalTrades,
@@ -139,9 +147,6 @@ export class MetricsCalculatorService {
       recentPnl30dPercent,
       avgRr,
     });
-
-    const legacyAdvancedStats = await this.calculateAdvancedStats(walletId);
-    const rollingInsights = await this.computeRollingStatsAndScores(walletId);
     const shouldFallbackToLegacy =
       rollingInsights.scores.sampleFactor === 0 &&
       rollingInsights.rolling['90d']?.numClosedTrades === 0;
