@@ -265,10 +265,16 @@ export default function WalletDetailPage() {
         fetchWalletPortfolio(actualWalletId, false).then((data) => {
           if (data) {
             setPortfolio(data);
-        if (portfolioData.lastUpdated) {
-          setPortfolioLastUpdated(new Date(portfolioData.lastUpdated));
-        }
-      }
+            if (data.lastUpdated) {
+              setPortfolioLastUpdated(new Date(data.lastUpdated));
+            }
+          }
+        }).catch(() => {
+          setPortfolio(null);
+        }),
+      ]).catch(() => {
+        // Silent fail - data se načtou později
+      });
     } catch (error: any) {
       console.error('Error loading wallet data:', error);
       // Pokud je to 404, nastav wallet na null, aby se zobrazilo "Wallet not found"
