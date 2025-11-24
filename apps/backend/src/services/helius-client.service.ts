@@ -1399,52 +1399,56 @@ export class HeliusClient {
         }
       }
 
-      const absSolDelta = Math.abs(solDelta);
-      const absAccountData = Math.abs(accountDataNativeChange);
-
-      if (absAccountData > 0) {
-        if (absSolDelta === 0) {
-          solDelta = accountDataNativeChange;
-          console.log(
-            `   ⚠️  Using accountData.nativeBalanceChange (${absAccountData} SOL) as base amount (no native transfers captured)`
-          );
-        } else if (absAccountData > absSolDelta * 1.1) {
-          solDelta = accountDataNativeChange;
-          console.log(
-            `   ⚠️  accountData.nativeBalanceChange (${absAccountData} SOL) significantly larger than native transfers (${absSolDelta} SOL), using accountData`
-          );
-        }
-      }
-      
-      // Pro BUY: amountBase = kolik SOL jsme poslali (abs(solDelta) nebo nativeOutTotal)
-      // Pro SELL: amountBase = kolik SOL jsme dostali (abs(solDelta) nebo nativeInTotal)
+      // Pro BUY: amountBase = kolik SOL jsme poslali (nativeOutTotal je brutto, bez fees)
+      // Pro SELL: amountBase = kolik SOL jsme dostali (nativeInTotal je brutto, bez fees)
+      // DŮLEŽITÉ: Vždy preferuj nativeOutTotal/nativeInTotal před solDelta, protože jsou brutto hodnoty
       let amountBase = 0;
       
       if (side === 'buy') {
         // BUY: použij nativeOutTotal (kolik SOL jsme poslali) - brutto hodnota bez fees
-        // DŮLEŽITÉ: Použij hodnotu z nativeTransfers (brutto), ne accountData (netto s fees)
-        amountBase = nativeOutTotal > 0 ? nativeOutTotal : Math.abs(solDelta);
+        // DŮLEŽITÉ: Vždy preferuj nativeOutTotal, protože je to brutto hodnota (před fees)
+        if (nativeOutTotal > 0) {
+          amountBase = nativeOutTotal;
+        } else {
+          // Fallback: použij solDelta (ale to může být netto po fees)
+          amountBase = Math.abs(solDelta);
+          console.log(`   ⚠️  BUY: No nativeOutTotal, using solDelta (${amountBase.toFixed(6)} SOL) - may be netto after fees`);
+        }
         
-        // Fallback: pokud nemáme nativeOutTotal, použij accountData jako poslední možnost
-        // Ale POZOR: accountData je netto (po fees), takže to nebude přesně odpovídat Solscan
+        // Pokud je accountData výrazně větší než nativeOutTotal, může to znamenat, že nativeTransfers neobsahují všechny transfery
+        // Ale accountData je netto (po fees), takže ho použijeme jen jako poslední možnost
         if (amountBase === 0 && accountDataNativeChange < 0) {
-          amountBase = Math.abs(accountDataNativeChange);
-          console.log(`   ⚠️  Using accountData.nativeBalanceChange as fallback (netto, includes fees): ${amountBase} SOL`);
+          const absAccountData = Math.abs(accountDataNativeChange);
+          amountBase = absAccountData;
+          console.log(`   ⚠️  BUY: Using accountData.nativeBalanceChange as last resort (${amountBase.toFixed(6)} SOL) - netto after fees`);
+        } else if (accountDataNativeChange < 0 && Math.abs(accountDataNativeChange) > amountBase * 1.5) {
+          // Pokud je accountData výrazně větší, může to znamenat, že nativeTransfers neobsahují všechny transfery
+          // Ale použijeme ho jen pokud je opravdu výrazně větší (1.5x), protože accountData je netto
+          console.log(`   ⚠️  BUY: accountData (${Math.abs(accountDataNativeChange).toFixed(6)} SOL) is ${(Math.abs(accountDataNativeChange) / amountBase).toFixed(2)}x larger than nativeOutTotal (${amountBase.toFixed(6)} SOL)`);
+          console.log(`       Keeping nativeOutTotal (brutto) instead of accountData (netto)`);
         }
       } else {
         // SELL: použij nativeInTotal (kolik SOL jsme dostali) - brutto hodnota bez fees
-        // DŮLEŽITÉ: Použij hodnotu z nativeTransfers (brutto), ne accountData (netto s fees)
-        amountBase = nativeInTotal > 0 ? nativeInTotal : Math.abs(solDelta);
-        
-        // Fallback: pokud nemáme nativeInTotal, použij accountData jako poslední možnost
-        // Ale POZOR: accountData je netto (po fees), takže to nebude přesně odpovídat Solscan
-        if (amountBase === 0 && accountDataNativeChange > 0) {
-          amountBase = accountDataNativeChange;
-          console.log(`   ⚠️  Using accountData.nativeBalanceChange as fallback (netto, includes fees): ${amountBase} SOL`);
+        // DŮLEŽITÉ: Vždy preferuj nativeInTotal, protože je to brutto hodnota (před fees)
+        if (nativeInTotal > 0) {
+          amountBase = nativeInTotal;
+        } else {
+          // Fallback: použij solDelta (ale to může být netto po fees)
+          amountBase = Math.abs(solDelta);
+          console.log(`   ⚠️  SELL: No nativeInTotal, using solDelta (${amountBase.toFixed(6)} SOL) - may be netto after fees`);
         }
         
-        // POZNÁMKA: NEPŘIDÁVÁME nativeOutTotal zpět, protože to jsou fees
-        // Solscan zobrazuje hodnotu swapu bez fees, takže to chceme také
+        // Pokud je accountData výrazně větší než nativeInTotal, může to znamenat, že nativeTransfers neobsahují všechny transfery
+        // Ale accountData je netto (po fees), takže ho použijeme jen jako poslední možnost
+        if (amountBase === 0 && accountDataNativeChange > 0) {
+          amountBase = accountDataNativeChange;
+          console.log(`   ⚠️  SELL: Using accountData.nativeBalanceChange as last resort (${amountBase.toFixed(6)} SOL) - netto after fees`);
+        } else if (accountDataNativeChange > 0 && accountDataNativeChange > amountBase * 1.5) {
+          // Pokud je accountData výrazně větší, může to znamenat, že nativeTransfers neobsahují všechny transfery
+          // Ale použijeme ho jen pokud je opravdu výrazně větší (1.5x), protože accountData je netto
+          console.log(`   ⚠️  SELL: accountData (${accountDataNativeChange.toFixed(6)} SOL) is ${(accountDataNativeChange / amountBase).toFixed(2)}x larger than nativeInTotal (${amountBase.toFixed(6)} SOL)`);
+          console.log(`       Keeping nativeInTotal (brutto) instead of accountData (netto)`);
+        }
       }
 
       // Pokud nemáme ani token ani base amount, není to swap
