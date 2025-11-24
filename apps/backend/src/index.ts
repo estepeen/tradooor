@@ -17,62 +17,28 @@ if (dotenvResult.error) {
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
 
-// CORS configuration with detailed logging
-const corsOptions = {
-  origin: function (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) {
-    // Log all CORS requests for debugging
-    console.log(`🌐 [CORS] Request from origin: ${origin || 'no origin'}`);
-    
-    // Allow requests with no origin (like mobile apps, Postman, curl)
-    if (!origin) {
-      console.log(`✅ [CORS] Allowing request with no origin`);
-      return callback(null, true);
-    }
-    
-    // Allow all origins for now (can be restricted later)
-    console.log(`✅ [CORS] Allowing origin: ${origin}`);
-    callback(null, true);
-  },
+// CORS configuration - allow all origins for development
+app.use(cors({
+  origin: true, // Allow all origins
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: [
-    'Content-Type', 
-    'Authorization', 
-    'X-Requested-With', 
-    'Accept', 
-    'Origin', 
-    'Cache-Control',
-    'Access-Control-Request-Method', 
-    'Access-Control-Request-Headers'
-  ],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'Access-Control-Request-Method', 'Access-Control-Request-Headers', 'Cache-Control'],
   exposedHeaders: ['Content-Length', 'Content-Type'],
   preflightContinue: false,
   optionsSuccessStatus: 204,
-};
+}));
 
-// Apply CORS middleware
-app.use(cors(corsOptions));
-
-// Additional CORS logging middleware
+// Additional CORS headers for all responses (backup)
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  const method = req.method;
-  
-  if (method === 'OPTIONS') {
-    console.log(`🔍 [CORS] Preflight OPTIONS request from: ${origin}`);
-    console.log(`🔍 [CORS] Request headers:`, req.headers['access-control-request-method'], req.headers['access-control-request-headers']);
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+  } else {
+    res.header('Access-Control-Allow-Origin', '*');
   }
-  
-  // Log response headers after CORS middleware
-  res.on('finish', () => {
-    console.log(`📤 [CORS] Response headers:`, {
-      'Access-Control-Allow-Origin': res.getHeader('Access-Control-Allow-Origin'),
-      'Access-Control-Allow-Methods': res.getHeader('Access-Control-Allow-Methods'),
-      'Access-Control-Allow-Headers': res.getHeader('Access-Control-Allow-Headers'),
-      'Access-Control-Allow-Credentials': res.getHeader('Access-Control-Allow-Credentials'),
-    });
-  });
-  
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, Cache-Control, Access-Control-Request-Method, Access-Control-Request-Headers');
   next();
 });
 
