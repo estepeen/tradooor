@@ -3,6 +3,7 @@ import { SmartWalletRepository } from '../repositories/smart-wallet.repository.j
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
 import { WalletProcessingQueueRepository } from '../repositories/wallet-processing-queue.repository.js';
+import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 import { HeliusClient } from './helius-client.service.js';
 import { SolPriceService } from './sol-price.service.js';
 
@@ -22,7 +23,8 @@ export class SolanaCollectorService {
     private smartWalletRepo: SmartWalletRepository,
     private tradeRepo: TradeRepository,
     private tokenRepo: TokenRepository,
-    private walletQueueRepo: WalletProcessingQueueRepository = new WalletProcessingQueueRepository()
+    private walletQueueRepo: WalletProcessingQueueRepository = new WalletProcessingQueueRepository(),
+    private tradeFeatureRepo: TradeFeatureRepository = new TradeFeatureRepository()
   ) {
     this.heliusClient = new HeliusClient(process.env.HELIUS_API_KEY);
     this.solPriceService = new SolPriceService();
@@ -271,6 +273,58 @@ export class SolanaCollectorService {
           balanceAfter,
         },
       });
+
+      const txTimestamp = swap.timestamp instanceof Date ? swap.timestamp : new Date(swap.timestamp);
+      const positionSizeBeforeToken = normalizedBalanceBefore;
+      const positionSizeAfterToken = normalizedBalanceAfter;
+      const pricePerTokenUsd = priceUsd ?? null;
+      const positionSizeBeforeUsd =
+        pricePerTokenUsd !== null ? positionSizeBeforeToken * pricePerTokenUsd : null;
+      const positionSizeAfterUsd =
+        pricePerTokenUsd !== null ? positionSizeAfterToken * pricePerTokenUsd : null;
+      const rawPositionMultiplier =
+        positionSizeBeforeToken === 0
+          ? null
+          : positionSizeAfterToken / (positionSizeBeforeToken || 1);
+      const positionSizeChangeMultiplier =
+        rawPositionMultiplier !== null && Number.isFinite(rawPositionMultiplier)
+          ? rawPositionMultiplier
+          : null;
+      const tokenAgeSeconds = token?.createdAt
+        ? Math.max(0, Math.floor((txTimestamp.getTime() - new Date(token.createdAt).getTime()) / 1000))
+        : null;
+      const hourOfDay = txTimestamp.getUTCHours();
+      const dayOfWeek = txTimestamp.getUTCDay();
+
+      try {
+        await this.tradeFeatureRepo.upsertBaseFeature({
+          tradeId: trade.id,
+          walletId: trade.walletId,
+          tokenId: trade.tokenId,
+          sizeToken: swap.amountToken,
+          sizeUsd: valueUsd ?? null,
+          priceUsd: pricePerTokenUsd ?? undefined,
+          slippageBps: undefined,
+          dex: swap.dex,
+          txTimestamp,
+          positionSizeBeforeToken,
+          positionSizeBeforeUsd,
+          positionSizeAfterToken,
+          positionSizeAfterUsd,
+          positionSizeChangeMultiplier,
+          tokenAgeSeconds,
+          solPriceUsd: solPriceAtTimestamp ?? null,
+          hourOfDay,
+          dayOfWeek,
+          baseTokenSymbol: swap.baseToken || 'SOL',
+          meta: {
+            baseAmount: swap.amountBase,
+            heliusSource: tx.source,
+          },
+        });
+      } catch (error: any) {
+        console.warn(`⚠️  Failed to upsert trade feature for ${swap.txSignature}:`, error?.message || error);
+      }
 
       try {
         await this.walletQueueRepo.enqueue(wallet.id, 'metrics');

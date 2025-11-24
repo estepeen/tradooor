@@ -9,6 +9,7 @@
  */
 
 import { supabase, TABLES } from '../lib/supabase.js';
+import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 
 interface Lot {
   remainingSize: number;
@@ -38,7 +39,19 @@ interface ClosedLot {
   costKnown: boolean;
 }
 
+type RealizedAggregate = {
+  totalPnl: number;
+  totalCost: number;
+  totalHoldSeconds: number;
+  totalSize: number;
+};
+
 export class LotMatchingService {
+  private tradeFeatureRepo: TradeFeatureRepository;
+
+  constructor(tradeFeatureRepo: TradeFeatureRepository = new TradeFeatureRepository()) {
+    this.tradeFeatureRepo = tradeFeatureRepo;
+  }
   /**
    * Process trades and create closed lots using FIFO matching
    * 
@@ -258,7 +271,80 @@ export class LotMatchingService {
       throw new Error(`Failed to save closed lots: ${insertError.message}`);
     }
 
+    await this.updateTradeFeatureMetrics(closedLots);
+
     console.log(`✅ Saved ${closedLots.length} closed lots to database`);
+  }
+
+  private async updateTradeFeatureMetrics(closedLots: ClosedLot[]) {
+    if (!closedLots.length) {
+      return;
+    }
+
+    const sellAggregates = new Map<string, RealizedAggregate>();
+    const buyAggregates = new Map<string, RealizedAggregate>();
+
+    const accumulate = (map: Map<string, RealizedAggregate>, tradeId: string | null, lot: ClosedLot) => {
+      if (!tradeId) {
+        return;
+      }
+      const size = lot.size || 0;
+      const cost = lot.costBasis || 0;
+      const pnl = lot.realizedPnl || 0;
+      const holdSeconds = (lot.holdTimeMinutes || 0) * 60;
+
+      const current =
+        map.get(tradeId) || { totalPnl: 0, totalCost: 0, totalHoldSeconds: 0, totalSize: 0 };
+
+      current.totalPnl += pnl;
+      current.totalCost += cost;
+      if (size > 0) {
+        current.totalSize += size;
+        current.totalHoldSeconds += holdSeconds * size;
+      }
+
+      map.set(tradeId, current);
+    };
+
+    for (const lot of closedLots) {
+      accumulate(sellAggregates, lot.sellTradeId, lot);
+      if (lot.buyTradeId && lot.buyTradeId !== 'synthetic') {
+        accumulate(buyAggregates, lot.buyTradeId, lot);
+      }
+    }
+
+    const updates: Array<Promise<void>> = [];
+
+    const queueUpdates = (map: Map<string, RealizedAggregate>) => {
+      for (const [tradeId, agg] of map.entries()) {
+        const realizedPnlPercent =
+          agg.totalCost > 0 ? (agg.totalPnl / agg.totalCost) * 100 : null;
+        const holdTimeSeconds =
+          agg.totalSize > 0
+            ? Math.max(0, Math.round(agg.totalHoldSeconds / agg.totalSize))
+            : null;
+
+        updates.push(
+          this.tradeFeatureRepo
+            .updateRealizedMetrics({
+              tradeId,
+              realizedPnlUsd: agg.totalPnl,
+              realizedPnlPercent,
+              holdTimeSeconds,
+            })
+            .catch(error => {
+              console.warn(`⚠️  Failed to update trade feature metrics for trade ${tradeId}:`, error.message || error);
+            })
+        );
+      }
+    };
+
+    queueUpdates(sellAggregates);
+    queueUpdates(buyAggregates);
+
+    if (updates.length > 0) {
+      await Promise.all(updates);
+    }
   }
 
   /**
