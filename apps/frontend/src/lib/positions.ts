@@ -133,8 +133,23 @@ export function computePositionMetricsFromPercent(
       action,
     };
 
+    // DŮLEŽITÉ: Aktualizuj stav PŘED dalším trade
+    // Toto je kritické pro správný výpočet následujících trades
     entry.positionX = afterX;
     state.set(tokenId, entry);
+    
+    // Debug log pro problematické případy
+    if (resolvedAction === 'ADD' && Math.abs(deltaX) < 0.01 && amount > 0 && entry.balanceTokens > 0) {
+      console.warn(`[POSITION DEBUG] Trade ${trade.id}: ADD with small deltaX`, {
+        tokenId,
+        amount,
+        balanceTokens: entry.balanceTokens,
+        ratio: amount / (entry.balanceTokens - amount),
+        beforeX,
+        afterX,
+        deltaX,
+      });
+    }
   }
 
   return result;
