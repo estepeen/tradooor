@@ -1,10 +1,10 @@
 /**
  * Service pro získání aktuální ceny SOL v USD
  * 
- * Používá CoinGecko API (free tier) pro získání ceny SOL
+ * Používá Binance API pro získání ceny SOL/USDT páru
  */
 
-const COINGECKO_API_URL = 'https://api.coingecko.com/api/v3';
+const BINANCE_API_URL = 'https://api.binance.com/api/v3';
 
 export class SolPriceService {
   private cachedPrice: number | null = null;
@@ -12,7 +12,7 @@ export class SolPriceService {
   private readonly CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minut
 
   /**
-   * Získá aktuální cenu SOL v USD
+   * Získá aktuální cenu SOL v USD (USDT)
    * Používá cache pro snížení API volání
    */
   async getSolPriceUsd(): Promise<number> {
@@ -25,7 +25,7 @@ export class SolPriceService {
 
     try {
       const response = await fetch(
-        `${COINGECKO_API_URL}/simple/price?ids=solana&vs_currencies=usd`,
+        `${BINANCE_API_URL}/ticker/price?symbol=SOLUSDT`,
         {
           method: 'GET',
           headers: {
@@ -35,14 +35,14 @@ export class SolPriceService {
       );
 
       if (!response.ok) {
-        throw new Error(`CoinGecko API error: ${response.status}`);
+        throw new Error(`Binance API error: ${response.status}`);
       }
 
-      const data = await response.json() as { solana?: { usd?: number } };
-      const price = data.solana?.usd;
+      const data = await response.json() as { price: string };
+      const price = parseFloat(data.price);
 
-      if (!price || typeof price !== 'number') {
-        throw new Error('Invalid price data from CoinGecko');
+      if (!price || isNaN(price) || price <= 0) {
+        throw new Error('Invalid price data from Binance');
       }
 
       // Ulož do cache
@@ -51,7 +51,7 @@ export class SolPriceService {
 
       return price;
     } catch (error: any) {
-      console.error('Error fetching SOL price:', error.message);
+      console.error('Error fetching SOL price from Binance:', error.message);
       
       // Pokud máme starou cache, použij ji
       if (this.cachedPrice) {
@@ -81,14 +81,15 @@ export class SolPriceService {
    */
   async getSolPriceUsdAtDate(date: Date): Promise<number> {
     try {
-      // Formátuj datum jako DD-MM-YYYY pro CoinGecko API
-      const day = String(date.getDate()).padStart(2, '0');
-      const month = String(date.getMonth() + 1).padStart(2, '0');
-      const year = date.getFullYear();
-      const dateStr = `${day}-${month}-${year}`;
+      const timestampMs = date.getTime();
+      const timestampSec = Math.floor(timestampMs / 1000);
+      
+      // Zaokrouhli na minutu (Binance klines jsou po minutách)
+      const minuteTimestamp = Math.floor(timestampSec / 60) * 60;
+      const endTime = minuteTimestamp * 1000;
 
       const response = await fetch(
-        `${COINGECKO_API_URL}/coins/solana/history?date=${dateStr}`,
+        `${BINANCE_API_URL}/klines?symbol=SOLUSDT&interval=1m&limit=1&endTime=${endTime}`,
         {
           method: 'GET',
           headers: {
@@ -98,23 +99,33 @@ export class SolPriceService {
       );
 
       if (!response.ok) {
-        // Pokud API vrátí chybu (např. pro velmi staré datum), použij aktuální cenu
-        console.warn(`CoinGecko historical price API error for ${dateStr}: ${response.status}, using current price`);
+        // Pokud není historická data (příliš staré), použij aktuální cenu
+        if (response.status === 400) {
+          console.warn(`Binance: No historical data for ${date.toISOString()}, using current price`);
+          return await this.getSolPriceUsd();
+        }
+        throw new Error(`Binance API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (!Array.isArray(data) || data.length === 0) {
+        // Pokud není data, použij aktuální cenu
+        console.warn(`Binance: No klines data for ${date.toISOString()}, using current price`);
         return await this.getSolPriceUsd();
       }
 
-      const data = await response.json() as { market_data?: { current_price?: { usd?: number } } };
-      const price = data.market_data?.current_price?.usd;
-
-      if (!price || typeof price !== 'number') {
-        // Pokud nemáme historickou cenu, použij aktuální cenu
-        console.warn(`No historical price data for ${dateStr}, using current price`);
-        return await this.getSolPriceUsd();
+      // Kline format: [openTime, open, high, low, close, volume, ...]
+      // Použijeme close price (index 4)
+      const closePrice = parseFloat(data[0][4]);
+      
+      if (!closePrice || isNaN(closePrice) || closePrice <= 0) {
+        throw new Error('Invalid price data from Binance klines');
       }
 
-      return price;
+      return closePrice;
     } catch (error: any) {
-      console.error(`Error fetching historical SOL price for ${date.toISOString()}:`, error.message);
+      console.error(`Error fetching historical SOL price from Binance for ${date.toISOString()}:`, error.message);
       // Fallback na aktuální cenu
       return await this.getSolPriceUsd();
     }
