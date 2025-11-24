@@ -30,6 +30,7 @@ export const TABLES = {
   SMART_WALLET_METRICS_HISTORY: 'SmartWalletMetricsHistory',
   CLOSED_LOT: 'ClosedLot',
   WALLET_PROCESSING_QUEUE: 'WalletProcessingQueue',
+  TRADE_FEATURE: 'TradeFeature',
 } as const;
 
 /**

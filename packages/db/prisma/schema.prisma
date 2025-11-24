@@ -35,6 +35,7 @@ model SmartWallet {
   updatedAt             DateTime @updatedAt
   
   trades                Trade[]
+  tradeFeatures         TradeFeature[]
   metricsHistory        SmartWalletMetricsHistory[]
   processingJobs        WalletProcessingQueue[]
   
@@ -54,6 +55,7 @@ model Token {
   updatedAt             DateTime @updatedAt
   
   trades                Trade[]
+  tradeFeatures         TradeFeature[]
   marketSnapshots       TokenMarketSnapshot[]
   
   @@index([mintAddress])
@@ -77,6 +79,7 @@ model Trade {
   
   wallet                SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
   token                 Token        @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  features              TradeFeature?
   
   @@index([walletId])
   @@index([tokenId])
@@ -126,6 +129,51 @@ model SmartWalletMetricsHistory {
   @@index([walletId])
   @@index([timestamp])
   @@index([walletId, timestamp])
+}
+
+model TradeFeature {
+  id                           String   @id @default(cuid())
+  tradeId                      String   @unique
+  walletId                     String
+  tokenId                      String
+  sizeToken                    Decimal? @db.Decimal(36, 18)
+  sizeUsd                      Decimal? @db.Decimal(36, 18)
+  priceUsd                     Decimal? @db.Decimal(36, 18)
+  slippageBps                  Int?
+  dex                          String?
+  txTimestamp                  DateTime?
+  positionSizeBeforeToken      Decimal? @db.Decimal(36, 18)
+  positionSizeBeforeUsd        Decimal? @db.Decimal(36, 18)
+  positionSizeAfterToken       Decimal? @db.Decimal(36, 18)
+  positionSizeAfterUsd         Decimal? @db.Decimal(36, 18)
+  positionSizeChangeMultiplier Decimal? @db.Decimal(36, 18)
+  avgEntryPriceBeforeUsd       Decimal? @db.Decimal(36, 18)
+  avgEntryPriceAfterUsd        Decimal? @db.Decimal(36, 18)
+  realizedPnlUsd               Decimal? @db.Decimal(36, 18)
+  realizedPnlPercent           Decimal? @db.Decimal(36, 18)
+  holdTimeSeconds              Int?
+  tokenAgeSeconds              Int?
+  liquidityUsd                 Decimal? @db.Decimal(36, 18)
+  volume1hUsd                  Decimal? @db.Decimal(36, 18)
+  volume24hUsd                 Decimal? @db.Decimal(36, 18)
+  fdvUsd                       Decimal? @db.Decimal(36, 18)
+  trend5mPercent               Decimal? @db.Decimal(36, 18)
+  trend30mPercent              Decimal? @db.Decimal(36, 18)
+  solPriceUsd                  Decimal? @db.Decimal(36, 18)
+  hourOfDay                    Int?
+  dayOfWeek                    Int?
+  baseTokenSymbol              String?
+  meta                         Json?
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  trade  Trade       @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  token  Token       @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([tokenId])
+  @@index([txTimestamp])
 }
 
 model WalletProcessingQueue {

@@ -93,6 +93,44 @@ export interface Trade {
   positionChangePercent?: number | null;
   token?: Token | null;
   wallet?: SmartWallet | null;
+  features?: TradeFeature | null;
+}
+
+export interface TradeFeature {
+  id: string;
+  tradeId: string;
+  walletId: string;
+  tokenId: string;
+  sizeToken?: number | null;
+  sizeUsd?: number | null;
+  priceUsd?: number | null;
+  slippageBps?: number | null;
+  dex?: string | null;
+  txTimestamp?: Date | null;
+  positionSizeBeforeToken?: number | null;
+  positionSizeBeforeUsd?: number | null;
+  positionSizeAfterToken?: number | null;
+  positionSizeAfterUsd?: number | null;
+  positionSizeChangeMultiplier?: number | null;
+  avgEntryPriceBeforeUsd?: number | null;
+  avgEntryPriceAfterUsd?: number | null;
+  realizedPnlUsd?: number | null;
+  realizedPnlPercent?: number | null;
+  holdTimeSeconds?: number | null;
+  tokenAgeSeconds?: number | null;
+  liquidityUsd?: number | null;
+  volume1hUsd?: number | null;
+  volume24hUsd?: number | null;
+  fdvUsd?: number | null;
+  trend5mPercent?: number | null;
+  trend30mPercent?: number | null;
+  solPriceUsd?: number | null;
+  hourOfDay?: number | null;
+  dayOfWeek?: number | null;
+  baseTokenSymbol?: string | null;
+  meta?: Record<string, any> | null;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface SmartWalletMetricsHistory {
