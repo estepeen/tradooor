@@ -2,8 +2,42 @@
 
 export type TradeSide = 'buy' | 'sell' | 'add' | 'remove';
 
+export interface SmartWalletRollingStats {
+  realizedPnlUsd: number;
+  realizedRoiPercent: number;
+  winRate: number;
+  medianTradeRoiPercent: number;
+  percentile5TradeRoiPercent: number;
+  percentile95TradeRoiPercent: number;
+  maxDrawdownPercent: number;
+  volatilityPercent: number;
+  medianHoldMinutesWinners: number;
+  medianHoldMinutesLosers: number;
+  numClosedTrades: number;
+  totalVolumeUsd: number;
+  avgTradeSizeUsd: number;
+}
+
+export interface SmartWalletBehaviourStats {
+  shareLowLiquidity: number;
+  shareNewTokens: number;
+  avgLiquidityUsd: number;
+  sampleTrades: number;
+}
+
+export interface SmartWalletScoreBreakdown {
+  profitabilityScore: number;
+  consistencyScore: number;
+  riskScore: number;
+  behaviourScore: number;
+  sampleFactor: number;
+  walletScoreRaw: number;
+  smartScore: number;
+  legacyScore?: number;
+}
+
 export interface SmartWalletAdvancedStats {
-  profitFactor: number;
+  profitFactor?: number;
   bestTrade?: {
     pnlPercent: number;
     pnlBase: number;
@@ -24,11 +58,11 @@ export interface SmartWalletAdvancedStats {
     pnlBase: number;
     tokenId: string;
   } | null;
-  avgWin: number;
-  avgLoss: number;
-  maxWinStreak: number;
-  maxLossStreak: number;
-  tokenStats: Array<{
+  avgWin?: number;
+  avgLoss?: number;
+  maxWinStreak?: number;
+  maxLossStreak?: number;
+  tokenStats?: Array<{
     tokenId: string;
     count: number;
     totalPnl: number;
@@ -36,11 +70,14 @@ export interface SmartWalletAdvancedStats {
     losses: number;
     winRate: number;
   }>;
-  dexStats: Array<{
+  dexStats?: Array<{
     dex: string;
     count: number;
     totalPnl: number;
   }>;
+  rolling?: Record<string, SmartWalletRollingStats>;
+  behaviour?: SmartWalletBehaviourStats;
+  scoreBreakdown?: SmartWalletScoreBreakdown;
 }
 
 export interface SmartWallet {

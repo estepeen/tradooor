@@ -181,6 +181,22 @@ export default function WalletDetailPage() {
     pnl: m.recentPnl30dPercent,
   })) || [];
 
+  const advancedStats = wallet.advancedStats;
+  const scoreBreakdown = advancedStats?.scoreBreakdown;
+  const rollingEntries =
+    advancedStats?.rolling
+      ? (['7d', '30d', '90d'] as const)
+          .map((label) => ({
+            label,
+            stats: advancedStats.rolling?.[label],
+          }))
+          .filter((entry) => entry.stats)
+      : [];
+  const behaviourStats = advancedStats?.behaviour;
+  const hasLegacyStats =
+    !!advancedStats &&
+    typeof advancedStats.profitFactor === 'number';
+
   return (
     <div className="min-h-screen bg-background p-8">
       <div className="container mx-auto">
@@ -751,113 +767,240 @@ export default function WalletDetailPage() {
         {/* Advanced Tab */}
         {activeTab === 'advanced' && (
           <>
-        {/* Advanced Stats */}
-        {wallet.advancedStats && (
-          <div className="border border-border rounded-lg p-6 mb-8">
-            <h2 className="text-lg font-semibold mb-4">Advanced Statistics</h2>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div>
-                <div className="text-sm text-muted-foreground mb-1">Profit Factor</div>
-                <div className="text-xl font-bold">
-                  {wallet.advancedStats.profitFactor === Infinity 
-                    ? '∞' 
-                    : formatNumber(wallet.advancedStats.profitFactor, 2)}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground mb-1">Max Win Streak</div>
-                <div className="text-xl font-bold">{wallet.advancedStats.maxWinStreak}</div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground mb-1">Max Loss Streak</div>
-                <div className="text-xl font-bold">{wallet.advancedStats.maxLossStreak}</div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground mb-1">Avg Win</div>
-                <div className="text-xl font-bold text-green-600">
-                  +{formatPercent(wallet.advancedStats.avgWin / 100)}
-                </div>
-              </div>
-              <div>
-                <div className="text-sm text-muted-foreground mb-1">Avg Loss</div>
-                <div className="text-xl font-bold text-red-600">
-                  {formatPercent(wallet.advancedStats.avgLoss / 100)}
-                </div>
-              </div>
-              {wallet.advancedStats.bestTrade && (
-                <div>
-                  <div className="text-sm text-muted-foreground mb-1">Best Trade</div>
-                  <div className="text-xl font-bold text-green-600">
-                    +{formatPercent(wallet.advancedStats.bestTrade.pnlPercent / 100)}
+            {scoreBreakdown && (
+              <div className="border border-border rounded-lg p-6 mb-8">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-6">
+                  <div>
+                    <div className="text-sm text-muted-foreground mb-1">Smart Score</div>
+                    <div className="text-3xl font-bold">{formatNumber(scoreBreakdown.smartScore, 1)}</div>
+                    {typeof scoreBreakdown.legacyScore === 'number' && (
+                      <div className="text-xs text-muted-foreground mt-1">
+                        Legacy score: {formatNumber(scoreBreakdown.legacyScore, 1)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 flex-1">
+                    {[
+                      { label: 'Profitability', value: scoreBreakdown.profitabilityScore },
+                      { label: 'Consistency', value: scoreBreakdown.consistencyScore },
+                      { label: 'Risk', value: scoreBreakdown.riskScore },
+                      { label: 'Behaviour', value: scoreBreakdown.behaviourScore },
+                      { label: 'Sample Factor', value: scoreBreakdown.sampleFactor * 100, isPercent: true },
+                    ].map((item) => (
+                      <div key={item.label} className="border border-border rounded-md p-3 text-center">
+                        <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">
+                          {item.label}
+                        </div>
+                        <div className="text-lg font-semibold">
+                          {item.isPercent ? `${item.value.toFixed(0)}%` : formatNumber(item.value, 0)}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
-              )}
-              {wallet.advancedStats.worstTrade && (
-                <div>
-                  <div className="text-sm text-muted-foreground mb-1">Worst Trade</div>
-                  <div className="text-xl font-bold text-red-600">
-                    {formatPercent(wallet.advancedStats.worstTrade.pnlPercent / 100)}
-                  </div>
-                </div>
-              )}
-            </div>
+              </div>
+            )}
 
-            {/* Token Stats */}
-            {wallet.advancedStats.tokenStats && wallet.advancedStats.tokenStats.length > 0 && (
-              <div className="mt-6">
-                <h3 className="text-md font-semibold mb-3">Top Tokens</h3>
+            {rollingEntries.length > 0 && (
+              <div className="border border-border rounded-lg p-6 mb-8">
+                <h2 className="text-lg font-semibold mb-4">Rolling Performance</h2>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
-                      <tr className="border-b border-border">
-                        <th className="text-left py-2">Token</th>
-                        <th className="text-right py-2">Trades</th>
+                      <tr className="border-b border-border text-muted-foreground">
+                        <th className="text-left py-2">Window</th>
+                        <th className="text-right py-2">PnL (USD)</th>
+                        <th className="text-right py-2">ROI</th>
                         <th className="text-right py-2">Win Rate</th>
-                        <th className="text-right py-2">Total PnL</th>
+                        <th className="text-right py-2">Trades</th>
+                        <th className="text-right py-2">Median ROI</th>
+                        <th className="text-right py-2">Max Drawdown</th>
+                        <th className="text-right py-2">Volatility</th>
+                        <th className="text-right py-2">Avg Hold (W/L)</th>
+                        <th className="text-right py-2">Avg Trade Size</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {wallet.advancedStats.tokenStats.slice(0, 10).map((stat: any) => (
-                        <tr key={stat.tokenId} className="border-b border-border">
-                          <td className="py-2">{stat.tokenId.slice(0, 8)}...</td>
-                          <td className="text-right py-2">{stat.count}</td>
-                          <td className="text-right py-2">{formatPercent(stat.winRate)}</td>
-                          <td className={`text-right py-2 ${
-                            stat.totalPnl >= 0 ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            {stat.totalPnl >= 0 ? '+' : ''}
-                            {formatNumber(stat.totalPnl, 2)}
-                          </td>
-                        </tr>
-                      ))}
+                      {rollingEntries.map(({ label, stats }) => {
+                        if (!stats) return null;
+                        return (
+                          <tr key={label} className="border-b border-border">
+                            <td className="py-2 font-medium uppercase">{label}</td>
+                            <td className={`text-right py-2 ${stats.realizedPnlUsd >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {stats.realizedPnlUsd >= 0 ? '+' : ''}
+                              ${formatNumber(stats.realizedPnlUsd, 2)}
+                            </td>
+                            <td className="text-right py-2">
+                              {formatPercent((stats.realizedRoiPercent ?? 0) / 100)}
+                            </td>
+                            <td className="text-right py-2">{formatPercent(stats.winRate ?? 0)}</td>
+                            <td className="text-right py-2">{stats.numClosedTrades}</td>
+                            <td className="text-right py-2">
+                              {formatPercent((stats.medianTradeRoiPercent ?? 0) / 100)}
+                            </td>
+                            <td className="text-right py-2">
+                              {formatPercent((Math.abs(stats.maxDrawdownPercent ?? 0)) / 100)}
+                            </td>
+                            <td className="text-right py-2">
+                              {formatPercent((stats.volatilityPercent ?? 0) / 100)}
+                            </td>
+                            <td className="text-right py-2 text-xs">
+                              {formatHoldTime(stats.medianHoldMinutesWinners)}
+                              {' / '}
+                              {formatHoldTime(stats.medianHoldMinutesLosers)}
+                            </td>
+                            <td className="text-right py-2">
+                              ${formatNumber(stats.avgTradeSizeUsd ?? 0, 2)}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
               </div>
             )}
 
-            {/* DEX Stats */}
-            {wallet.advancedStats.dexStats && wallet.advancedStats.dexStats.length > 0 && (
-              <div className="mt-6">
-                <h3 className="text-md font-semibold mb-3">DEX Usage</h3>
-                <div className="flex flex-wrap gap-4">
-                  {wallet.advancedStats.dexStats.map((stat: any) => (
-                    <div key={stat.dex} className="border border-border rounded p-3">
-                      <div className="text-sm text-muted-foreground">{stat.dex}</div>
-                      <div className="text-lg font-bold">{stat.count} trades</div>
-                      <div className={`text-sm ${
-                        stat.totalPnl >= 0 ? 'text-green-600' : 'text-red-600'
-                      }`}>
-                        {stat.totalPnl >= 0 ? '+' : ''}
-                        {formatNumber(stat.totalPnl, 2)} PnL
-                      </div>
+            {behaviourStats && (
+              <div className="border border-border rounded-lg p-6 mb-8">
+                <h2 className="text-lg font-semibold mb-4">Behaviour Signals</h2>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <div className="text-sm text-muted-foreground mb-1">Low Liquidity Trades</div>
+                    <div className="text-xl font-bold">
+                      {formatPercent(behaviourStats.shareLowLiquidity ?? 0)}
                     </div>
-                  ))}
+                    <div className="text-xs text-muted-foreground">under $10k liquidity</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-muted-foreground mb-1">New Token Entries</div>
+                    <div className="text-xl font-bold">
+                      {formatPercent(behaviourStats.shareNewTokens ?? 0)}
+                    </div>
+                    <div className="text-xs text-muted-foreground">token age &lt; 30 min</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-muted-foreground mb-1">Avg. Pool Liquidity</div>
+                    <div className="text-xl font-bold">
+                      ${formatNumber(behaviourStats.avgLiquidityUsd ?? 0, 0)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-muted-foreground mb-1">Sample Size</div>
+                    <div className="text-xl font-bold">{behaviourStats.sampleTrades}</div>
+                  </div>
                 </div>
               </div>
             )}
-          </div>
-        )}
+
+            {hasLegacyStats && advancedStats && (
+              <div className="border border-border rounded-lg p-6 mb-8">
+                <h2 className="text-lg font-semibold mb-4">Advanced Statistics</h2>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div>
+                    <div className="text-sm text-muted-foreground mb-1">Profit Factor</div>
+                    <div className="text-xl font-bold">
+                      {advancedStats.profitFactor === Infinity
+                        ? '∞'
+                        : formatNumber(advancedStats.profitFactor ?? 0, 2)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-muted-foreground mb-1">Max Win Streak</div>
+                    <div className="text-xl font-bold">{advancedStats.maxWinStreak ?? '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-muted-foreground mb-1">Max Loss Streak</div>
+                    <div className="text-xl font-bold">{advancedStats.maxLossStreak ?? '-'}</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-muted-foreground mb-1">Avg Win</div>
+                    <div className="text-xl font-bold text-green-600">
+                      {typeof advancedStats.avgWin === 'number'
+                        ? `+${formatPercent((advancedStats.avgWin ?? 0) / 100)}`
+                        : '-'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-muted-foreground mb-1">Avg Loss</div>
+                    <div className="text-xl font-bold text-red-600">
+                      {typeof advancedStats.avgLoss === 'number'
+                        ? formatPercent((advancedStats.avgLoss ?? 0) / 100)
+                        : '-'}
+                    </div>
+                  </div>
+                  {advancedStats.bestTrade && (
+                    <div>
+                      <div className="text-sm text-muted-foreground mb-1">Best Trade</div>
+                      <div className="text-xl font-bold text-green-600">
+                        +{formatPercent((advancedStats.bestTrade.pnlPercent ?? 0) / 100)}
+                      </div>
+                    </div>
+                  )}
+                  {advancedStats.worstTrade && (
+                    <div>
+                      <div className="text-sm text-muted-foreground mb-1">Worst Trade</div>
+                      <div className="text-xl font-bold text-red-600">
+                        {formatPercent((advancedStats.worstTrade.pnlPercent ?? 0) / 100)}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {advancedStats.tokenStats && advancedStats.tokenStats.length > 0 && (
+                  <div className="mt-6">
+                    <h3 className="text-md font-semibold mb-3">Top Tokens</h3>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-border">
+                            <th className="text-left py-2">Token</th>
+                            <th className="text-right py-2">Trades</th>
+                            <th className="text-right py-2">Win Rate</th>
+                            <th className="text-right py-2">Total PnL</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {advancedStats.tokenStats.slice(0, 10).map((stat: any) => (
+                            <tr key={stat.tokenId} className="border-b border-border">
+                              <td className="py-2">{stat.tokenId.slice(0, 8)}...</td>
+                              <td className="text-right py-2">{stat.count}</td>
+                              <td className="text-right py-2">{formatPercent(stat.winRate ?? 0)}</td>
+                              <td className={`text-right py-2 ${
+                                stat.totalPnl >= 0 ? 'text-green-600' : 'text-red-600'
+                              }`}>
+                                {stat.totalPnl >= 0 ? '+' : ''}
+                                {formatNumber(stat.totalPnl, 2)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {advancedStats.dexStats && advancedStats.dexStats.length > 0 && (
+                  <div className="mt-6">
+                    <h3 className="text-md font-semibold mb-3">DEX Usage</h3>
+                    <div className="flex flex-wrap gap-4">
+                      {advancedStats.dexStats.map((stat: any) => (
+                        <div key={stat.dex} className="border border-border rounded p-3">
+                          <div className="text-sm text-muted-foreground">{stat.dex}</div>
+                          <div className="text-lg font-bold">{stat.count} trades</div>
+                          <div className={`text-sm ${
+                            stat.totalPnl >= 0 ? 'text-green-600' : 'text-red-600'
+                          }`}>
+                            {stat.totalPnl >= 0 ? '+' : ''}
+                            {formatNumber(stat.totalPnl, 2)} PnL
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
         {/* Charts */}
         <div className="grid md:grid-cols-2 gap-6 mb-8">

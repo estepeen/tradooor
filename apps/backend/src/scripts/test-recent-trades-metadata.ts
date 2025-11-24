@@ -55,7 +55,7 @@ async function testRecentTradesMetadata() {
     return;
   }
 
-  const data = await response.json();
+  const data = (await response.json()) as { trades?: any[] };
   console.log(`✅ API returned ${data.trades?.length || 0} trades\n`);
 
   // Zobraz tokeny po enrichment

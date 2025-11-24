@@ -123,4 +123,21 @@ export class TokenRepository {
 
     return created;
   }
+
+  async findById(id: string) {
+    const { data: token, error } = await supabase
+      .from(TABLES.TOKEN)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      throw new Error(`Failed to fetch token by id: ${error.message}`);
+    }
+
+    return token;
+  }
 }

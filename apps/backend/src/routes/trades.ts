@@ -75,6 +75,7 @@ router.get('/', async (req, res) => {
         // Vypočítej USD cenu tokenu pomocí historické ceny SOL/USDT z Binance
         // Vzorec: priceUsd = priceBasePerToken * solPriceUsd
         let priceUsd: number | null = null;
+        const existingValueUsd = toNumber(t.valueUsd);
         if (baseToken === 'SOL' && priceBasePerToken > 0) {
           try {
             const tradeTimestamp = new Date(t.timestamp);
@@ -83,9 +84,11 @@ router.get('/', async (req, res) => {
           } catch (error: any) {
             console.warn(`Failed to fetch SOL price from Binance for trade ${t.txSignature}: ${error.message}`);
             // Použij existující valueUsd jako fallback, pokud je k dispozici
-            priceUsd = t.valueUsd != null && toNumber(t.valueUsd) != null && toNumber(t.valueUsd) > 0 && amountToken > 0 
-              ? toNumber(t.valueUsd)! / amountToken 
-              : null;
+            if (existingValueUsd !== null && amountToken > 0) {
+              priceUsd = existingValueUsd / amountToken;
+            } else {
+              priceUsd = null;
+            }
           }
         } else if (baseToken === 'USDC' || baseToken === 'USDT') {
           // Pro USDC/USDT: 1:1 s USD
@@ -107,7 +110,7 @@ router.get('/', async (req, res) => {
           // USD cena tokenu (vypočítaná pomocí Binance API)
           priceUsd, // Cena tokenu v USD z doby obchodu
           // USD hodnoty - pouze pro zobrazení
-          valueUsd: priceUsd && amountToken > 0 ? priceUsd * amountToken : toNumber(t.valueUsd),
+          valueUsd: priceUsd && amountToken > 0 ? priceUsd * amountToken : existingValueUsd,
           pnlUsd: toNumber(t.pnlUsd),
           pnlPercent: toNumber(t.pnlPercent),
           positionChangePercent: toNumber(t.positionChangePercent),

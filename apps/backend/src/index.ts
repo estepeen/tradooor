@@ -15,7 +15,7 @@ if (dotenvResult.error) {
 }
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT) || 3001;
 
 // CORS configuration with detailed logging
 const corsOptions = {
