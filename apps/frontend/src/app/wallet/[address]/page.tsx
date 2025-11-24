@@ -185,33 +185,9 @@ export default function WalletDetailPage() {
     setRecentTradesPage(1);
   }, [tokenFilter, timeframeFilter]);
 
-  // Automatic portfolio update every 1 minute (to catch new closed positions from recent trades)
-  useEffect(() => {
-    if (!walletAddress) return;
-    
-    const refreshPortfolio = async (forceRefresh: boolean = false) => {
-      try {
-        const walletData = await fetchSmartWallet(walletAddress);
-        const actualWalletId = walletData?.id || walletAddress;
-        // Force refresh to get latest closed positions from new trades
-        const portfolioData = await fetchWalletPortfolio(actualWalletId, forceRefresh);
-        setPortfolio(portfolioData);
-        if (portfolioData.lastUpdated) {
-          setPortfolioLastUpdated(new Date(portfolioData.lastUpdated));
-        }
-      } catch (error) {
-        console.error('Error auto-refreshing portfolio:', error);
-      }
-    };
-
-    // First load (force refresh to get latest data)
-    refreshPortfolio(true);
-
-    // Set interval for automatic update every 1 minute (to catch new closed positions)
-    const interval = setInterval(() => refreshPortfolio(true), 60 * 1000); // 1 minute
-
-    return () => clearInterval(interval);
-  }, [walletAddress]);
+  // OPTIMALIZACE: Portfolio se načte pouze jednou při načtení stránky
+  // Worker/cron aktualizuje data na pozadí, takže není potřeba force refresh
+  // Automatický refresh pouze pokud uživatel explicitně klikne na tlačítko
 
   // Countdown timer to show until next update
   useEffect(() => {
@@ -234,6 +210,21 @@ export default function WalletDetailPage() {
   async function loadData() {
     setLoading(true);
     try {
+      // OPTIMALIZACE: Načti pouze kritická data (wallet info) synchronně pro rychlý první render
+      const walletData = await fetchSmartWallet(walletAddress);
+      
+      if (!walletData) {
+        setWallet(null);
+        setLoading(false);
+        return;
+      }
+      
+      setWallet(walletData);
+      setLoading(false); // Zobraz profil okamžitě po načtení wallet info (do 1-2s)
+      
+      // Načti další data na pozadí (lazy loading) - neblokují první render
+      const actualWalletId = walletData.id || walletAddress;
+      
       // Calculate date range for timeframe filter
       let fromDate: string | undefined;
       const now = new Date();
@@ -250,37 +241,30 @@ export default function WalletDetailPage() {
         default:
           fromDate = undefined;
       }
-
-      // Get unique tokens for filter
-      // Use walletAddress instead of walletId (API supports both)
-      const walletData = await fetchSmartWallet(walletAddress); // API now supports address
       
-      if (!walletData) {
-        setWallet(null);
-        return;
-      }
-      
-      const actualWalletId = walletData.id || walletAddress;
-      
-      const [tradesData, pnl, portfolioData] = await Promise.all([
+      // OPTIMALIZACE: Načti pouze první stránku trades (50 trades) pro rychlý render
+      // Portfolio endpoint už má closed positions z precomputed dat, takže nepotřebujeme všechny trades
+      Promise.all([
         fetchTrades(actualWalletId, { 
           page: 1, 
-          pageSize: 10000, // Load all trades for position calculation
+          pageSize: 50, // OPTIMALIZACE: Pouze první stránka pro rychlý render
           tokenId: tokenFilter || undefined,
           fromDate,
+        }).then((data) => {
+          setTrades(data);
         }).catch((err) => {
           console.error('Error fetching trades:', err);
-          return { trades: [], total: 0 };
+          setTrades({ trades: [], total: 0 });
         }),
-        fetchWalletPnl(walletAddress).catch(() => null), // PnL data is optional
-        fetchWalletPortfolio(actualWalletId, true).catch(() => null), // Force refresh portfolio to get latest closed positions
-      ]);
-      
-      setWallet(walletData);
-      setTrades(tradesData);
-      setPnlData(pnl);
-      if (portfolioData) {
-        setPortfolio(portfolioData);
+        fetchWalletPnl(walletAddress).then((data) => {
+          setPnlData(data);
+        }).catch(() => {
+          setPnlData(null);
+        }),
+        // OPTIMALIZACE: Portfolio bez forceRefresh - použije precomputed cache z DB (rychlé)
+        fetchWalletPortfolio(actualWalletId, false).then((data) => {
+          if (data) {
+            setPortfolio(data);
         if (portfolioData.lastUpdated) {
           setPortfolioLastUpdated(new Date(portfolioData.lastUpdated));
         }
@@ -297,30 +281,13 @@ export default function WalletDetailPage() {
   }
 
   const allTrades = trades?.trades || [];
-  // Portfolio se načítá z API (s aktuálními cenami z Birdeye)
-  // Pro closed positions použijeme výpočet z trades, pokud portfolio z API nemá closed positions
-  const calculatedPortfolio = calculatePositionsFromTrades(allTrades);
-  // Použij portfolio z API pro open positions, ale použij calculatedPortfolio pro closed positions, pokud API nemá closed positions
-  // DŮLEŽITÉ: Použijeme calculatedPortfolio pouze pokud API nemá closed positions, a pak je ještě filtrujeme
-  const apiClosedPositions = portfolio?.closedPositions || [];
   
-  // VŽDY použij closed positions z API (pokud existují), protože backend už je správně filtruje
-  // calculatedPortfolio použijeme pouze jako poslední fallback, pokud API vůbec nevrátilo closed positions
-  const calculatedClosedPositions = calculatedPortfolio.closedPositions || [];
-  
-  // Filtruj calculated closed positions - pouze ty s platným HOLD time (povolujeme i 0)
-  const filteredCalculatedClosed = calculatedClosedPositions.filter((p: any) => {
-    return p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes >= 0 &&
-           p.buyCount > 0 && p.sellCount > 0;
-  });
-  
-  // DŮLEŽITÉ: Použij API closed positions, i když je pole prázdné (znamená to, že backend správně filtroval)
-  // calculatedPortfolio použijeme pouze pokud portfolio z API vůbec neexistuje
+  // OPTIMALIZACE: Portfolio endpoint už má closed positions z precomputed dat (worker/cron)
+  // Nepotřebujeme počítat pozice z trades - použijeme pouze portfolio z API
+  // calculatePositionsFromTrades se použije pouze pro position metrics (POSITION sloupec v trades tabulce)
   const finalPortfolio = {
     openPositions: portfolio?.openPositions || [],
-    closedPositions: portfolio && portfolio.closedPositions !== undefined
-      ? apiClosedPositions  // Použij API data (i když je pole prázdné)
-      : filteredCalculatedClosed,  // Fallback pouze pokud portfolio z API neexistuje
+    closedPositions: portfolio?.closedPositions || [],
   };
   const positionMetrics = computePositionMetricsFromPercent(
     allTrades.map((trade) => ({

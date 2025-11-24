@@ -922,14 +922,23 @@ router.get('/:id/portfolio', async (req, res) => {
     // Jinak aktualizuj z Birdeye API
     console.log(`🔄 Refreshing portfolio prices from Birdeye API...`);
 
-    // DŮLEŽITÉ: Open/Closed Positions se VŽDY počítají z tradeů!
-    // PortfolioBaseline je redundantní - neobsahuje closed positions ani PnL/hold time
-    // Vždy počítáme z tradeů pro přesnost a kompletní data
-    console.log('📊 Calculating Open/Closed Positions from trades...');
-    // Get all trades for this wallet with token info
+    // OPTIMALIZACE: Použij precomputed portfolio z PortfolioBaseline (rychlé)
+    // Pokud není k dispozici nebo je starý, použij closed positions z ClosedLot (precomputed)
+    // Nepočítáme pozice on-demand z trades - to je pomalé!
+    console.log('📊 Loading precomputed portfolio positions...');
+    
+    // Zkus načíst closed positions z ClosedLot (precomputed worker/cron)
+    const { data: closedLots } = await supabase
+      .from('ClosedLot')
+      .select('*')
+      .eq('walletId', wallet.id)
+      .order('closedAt', { ascending: false })
+      .limit(1000); // Limit pro rychlost
+    
+    // Get all trades for this wallet with token info (pouze pro open positions)
     const allTrades = await tradeRepo.findByWalletId(wallet.id, {
       page: 1,
-      pageSize: 10000, // Get all trades
+      pageSize: 10000, // Get all trades for open positions calculation
     });
 
     // Calculate portfolio positions
