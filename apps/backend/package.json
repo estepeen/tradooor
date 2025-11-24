@@ -30,7 +30,8 @@
     "test:recent-trades-metadata": "tsx src/scripts/test-recent-trades-metadata.ts",
     "test:birdeye-api": "tsx src/scripts/test-birdeye-api.ts",
     "metrics:worker": "tsx src/workers/wallet-processing-queue.ts",
-    "fix:trade-amount": "tsx src/scripts/fix-trade-amount.ts"
+    "fix:trade-amount": "tsx src/scripts/fix-trade-amount.ts",
+    "fix:wallet-types-positions": "tsx src/scripts/fix-wallet-types-positions.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.87.6",
