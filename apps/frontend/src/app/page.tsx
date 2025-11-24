@@ -377,9 +377,13 @@ export default function Home() {
                       return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
                     }
                     if (sortBy === 'recentPnl30dUsd') {
-                      // Handle nulls - treat as 0
-                      const aPnl = Number(a.recentPnl30dUsd) || 0;
-                      const bPnl = Number(b.recentPnl30dUsd) || 0;
+                      // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dUsd
+                      const getPnlUsd = (w: any) => {
+                        const rolling30d = w.advancedStats?.rolling?.['30d'];
+                        return rolling30d?.realizedPnlUsd ?? w.recentPnl30dUsd ?? 0;
+                      };
+                      const aPnl = getPnlUsd(a);
+                      const bPnl = getPnlUsd(b);
                       // DEBUG: Log sorting values
                       if (process.env.NODE_ENV === 'development' && Math.abs(aPnl) > 100 || Math.abs(bPnl) > 100) {
                         console.log(`🔍 [Sort] ${a.address}: ${aPnl}, ${b.address}: ${bPnl}, order: ${sortOrder}`);
@@ -387,9 +391,13 @@ export default function Home() {
                       return sortOrder === 'asc' ? aPnl - bPnl : bPnl - aPnl;
                     }
                     if (sortBy === 'recentPnl30dPercent') {
-                      // Handle nulls - treat as 0
-                      const aPnl = a.recentPnl30dPercent ?? 0;
-                      const bPnl = b.recentPnl30dPercent ?? 0;
+                      // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dPercent
+                      const getPnlPercent = (w: any) => {
+                        const rolling30d = w.advancedStats?.rolling?.['30d'];
+                        return rolling30d?.realizedRoiPercent ?? w.recentPnl30dPercent ?? 0;
+                      };
+                      const aPnl = getPnlPercent(a);
+                      const bPnl = getPnlPercent(b);
                       return sortOrder === 'asc' ? aPnl - bPnl : bPnl - aPnl;
                     }
                     // Other fields are sorted by backend, but we still need to maintain order
@@ -452,23 +460,26 @@ export default function Home() {
                         {formatPercent(wallet.winRate)}
                       </td>
                       <td className={`px-4 py-3 text-right text-sm font-medium ${
-                        (wallet.recentPnl30dPercent ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'
+                        (() => {
+                          // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dPercent
+                          const rolling30d = (wallet.advancedStats as any)?.rolling?.['30d'];
+                          const pnlPercent = rolling30d?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
+                          return pnlPercent >= 0 ? 'text-green-600' : 'text-red-600';
+                        })()
                       }`}>
-                        {wallet.recentPnl30dUsd !== undefined && wallet.recentPnl30dUsd !== null
-                          ? (
+                        {(() => {
+                          // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dUsd
+                          const rolling30d = (wallet.advancedStats as any)?.rolling?.['30d'];
+                          const pnlUsd = rolling30d?.realizedPnlUsd ?? wallet.recentPnl30dUsd ?? 0;
+                          const pnlPercent = rolling30d?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
+                          
+                          return (
                             <>
-                              ${formatNumber(Math.abs(wallet.recentPnl30dUsd), 2)}{' '}
-                              ({(wallet.recentPnl30dPercent ?? 0) >= 0 ? '+' : ''}{formatPercent((wallet.recentPnl30dPercent ?? 0) / 100)})
+                              ${formatNumber(Math.abs(pnlUsd), 2)}{' '}
+                              ({(pnlPercent >= 0 ? '+' : '')}{formatPercent(pnlPercent / 100)})
                             </>
-                          )
-                          : `${(wallet.recentPnl30dPercent ?? 0) >= 0 ? '+' : ''}${formatPercent((wallet.recentPnl30dPercent ?? 0) / 100)}`
-                        }
-                        {/* DEBUG: Log PnL values for homepage */}
-                        {process.env.NODE_ENV === 'development' && (
-                          <span className="text-xs text-gray-500 ml-2" title={`Debug: recentPnl30dUsd=${wallet.recentPnl30dUsd}, recentPnl30dPercent=${wallet.recentPnl30dPercent}`}>
-                            [D]
-                          </span>
-                        )}
+                          );
+                        })()}
                       </td>
                       <td className="px-4 py-3 text-right text-sm text-muted-foreground">
                         {formatLastTrade(wallet.lastTradeTimestamp)}
