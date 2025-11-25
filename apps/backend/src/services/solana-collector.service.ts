@@ -56,7 +56,7 @@ export class SolanaCollectorService {
       // 4. Fetch token metadata if missing
       if (!token.symbol || !token.name) {
         try {
-          await this.tokenMetadataBatchService.enrichTokenMetadata([normalized.tokenMint]);
+          await this.tokenMetadataBatchService.getTokenMetadataBatch([normalized.tokenMint]);
         } catch (error: any) {
           console.warn(`⚠️  Failed to fetch metadata for ${normalized.tokenMint.substring(0, 8)}...:`, error.message);
         }
