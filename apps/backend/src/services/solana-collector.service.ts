@@ -49,16 +49,34 @@ export class SolanaCollectorService {
       }
 
       // 3. Find or create token
-        const token = await this.tokenRepo.findOrCreate({
+      let token = await this.tokenRepo.findOrCreate({
         mintAddress: normalized.tokenMint,
       });
 
-      // 4. Fetch token metadata if missing
+      // 4. DŮLEŽITÉ: Fetch token metadata if missing - MUSÍME POČKAT na výsledek před uložením trade!
+      // Pokud token nemá symbol/name, zkusíme fetchovat z Birdeye/DexScreener/Metaplex/Helius
       if (!token.symbol || !token.name) {
         try {
-          await this.tokenMetadataBatchService.getTokenMetadataBatch([normalized.tokenMint]);
+          console.log(`   🔍 Token ${normalized.tokenMint.substring(0, 8)}... missing metadata, fetching from Birdeye/DexScreener/Metaplex...`);
+          const metadataMap = await this.tokenMetadataBatchService.getTokenMetadataBatch([normalized.tokenMint]);
+          const metadata = metadataMap.get(normalized.tokenMint);
+          
+          if (metadata && (metadata.symbol || metadata.name)) {
+            // Metadata byla úspěšně načtena a uložena do DB přes getTokenMetadataBatch
+            // Znovu načteme token z DB, aby měl aktualizované symbol/name
+            const updatedToken = await this.tokenRepo.findByMintAddress(normalized.tokenMint);
+            if (updatedToken) {
+              token = updatedToken;
+              console.log(`   ✅ Token metadata fetched: ${token.symbol || 'N/A'} / ${token.name || 'N/A'}`);
+            } else {
+              console.warn(`   ⚠️  Token metadata fetched but token not found in DB after update`);
+            }
+          } else {
+            console.warn(`   ⚠️  Token metadata fetch returned no symbol/name for ${normalized.tokenMint.substring(0, 8)}...`);
+          }
         } catch (error: any) {
           console.warn(`⚠️  Failed to fetch metadata for ${normalized.tokenMint.substring(0, 8)}...:`, error.message);
+          // Pokračujeme i když fetch selhal - trade se uloží bez symbol/name
         }
       }
 
