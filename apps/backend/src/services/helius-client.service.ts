@@ -676,6 +676,97 @@ export class HeliusClient {
         return this.normalizeSwapLegacy(heliusTx, walletAddress);
       }
 
+      /**
+       * Helper: Získá přesné množství SOL/Base tokenů ze swap eventu.
+       * Ignoruje nativeTransfers a accountData (které obsahují fees).
+       * Vychází z events.swap.nativeInput/Output a tokenInputs/Outputs.
+       */
+      const getSwapBaseAmounts = (): { baseIn: number; baseOut: number; baseTokenIn: string; baseTokenOut: string } => {
+        if (!swap) return { baseIn: 0, baseOut: 0, baseTokenIn: 'SOL', baseTokenOut: 'SOL' };
+
+        const SOL_MINT = 'So11111111111111111111111111111111111111112';
+        
+        let solInLamports = 0n;
+        let solOutLamports = 0n;
+        
+        // 1. Native SOL (z events.swap.nativeInput/Output)
+        // nativeInput = User posílá SOL do swapu (BUY)
+        if (swap.nativeInput && swap.nativeInput.account === walletAddress) {
+          solInLamports += BigInt(swap.nativeInput.amount);
+        }
+        // nativeOutput = User dostává SOL ze swapu (SELL)
+        if (swap.nativeOutput && swap.nativeOutput.account === walletAddress) {
+          solOutLamports += BigInt(swap.nativeOutput.amount);
+        }
+
+        // 2. Projdi tokenInputs/Outputs pro WSOL a USDC/USDT
+        // Sjednotíme tokenInputs/Outputs z hlavního swapu i innerSwaps
+        const allTokenInputs = [
+          ...(swap.tokenInputs ?? []),
+          ...((swap.innerSwaps ?? []).flatMap((s: any) => s.tokenInputs ?? [])),
+        ];
+
+        const allTokenOutputs = [
+          ...(swap.tokenOutputs ?? []),
+          ...((swap.innerSwaps ?? []).flatMap((s: any) => s.tokenOutputs ?? [])),
+        ];
+
+        let otherBaseIn = 0;
+        let otherBaseOut = 0;
+        let otherBaseTokenIn = '';
+        let otherBaseTokenOut = '';
+
+        // Zpracování vstupů (User sends)
+        for (const ti of allTokenInputs) {
+          const isWallet = ti.userAccount === walletAddress || ti.fromUserAccount === walletAddress;
+          if (!isWallet) continue;
+
+          if (ti.mint === SOL_MINT) {
+            // WSOL -> přičteme k SOL
+            const raw = ti.rawTokenAmount?.tokenAmount || ti.tokenAmount;
+            const amt = BigInt(typeof raw === 'string' ? raw : Math.round(Number(raw) * 1e9));
+            solInLamports += amt;
+          } else if (BASE_MINTS.has(ti.mint)) {
+            // USDC/USDT
+            const amt = getTokenAmount(ti);
+            otherBaseIn += amt;
+            otherBaseTokenIn = getBaseTokenSymbol(ti.mint);
+          }
+        }
+
+        // Zpracování výstupů (User receives)
+        for (const to of allTokenOutputs) {
+          const isWallet = to.userAccount === walletAddress || to.toUserAccount === walletAddress;
+          if (!isWallet) continue;
+
+          if (to.mint === SOL_MINT) {
+            // WSOL -> přičteme k SOL
+            const raw = to.rawTokenAmount?.tokenAmount || to.tokenAmount;
+            const amt = BigInt(typeof raw === 'string' ? raw : Math.round(Number(raw) * 1e9));
+            solOutLamports += amt;
+          } else if (BASE_MINTS.has(to.mint)) {
+            // USDC/USDT
+            const amt = getTokenAmount(to);
+            otherBaseOut += amt;
+            otherBaseTokenOut = getBaseTokenSymbol(to.mint);
+          }
+        }
+
+        const solIn = Number(solInLamports) / 1e9;
+        const solOut = Number(solOutLamports) / 1e9;
+
+        // Pokud máme SOL, má přednost. Jinak USDC/USDT.
+        if (solIn > 0) return { baseIn: solIn, baseOut: solOut, baseTokenIn: 'SOL', baseTokenOut: 'SOL' };
+        if (solOut > 0) return { baseIn: solIn, baseOut: solOut, baseTokenIn: 'SOL', baseTokenOut: 'SOL' };
+        
+        return {
+          baseIn: otherBaseIn,
+          baseOut: otherBaseOut,
+          baseTokenIn: otherBaseTokenIn || 'SOL',
+          baseTokenOut: otherBaseTokenOut || 'SOL'
+        };
+      };
+
       // 1) Najdi token input/output pro tuto peněženku
       // Zkombinuj tokenInputs/tokenOutputs z top-levelu i z innerSwaps
       const allTokenInputs = [
@@ -894,106 +985,41 @@ export class HeliusClient {
 
       // Scénář 2: Token → Base (SELL) - prodáváš token za base
       // PRIORITA: Toto kontrolujeme PRVNÍ, abychom správně detekovali prodej tokenu
-      // Může být:
-      // - tokenIn (token) → nativeOutput (SOL)
-      // - tokenIn (token) → tokenOut (USDC/USDT/WSOL)
-      // - tokenIn (token) → tokenOut (WSOL) v innerSwaps
       if (inMint && !isBaseToken(inMint)) {
         // Input je token (ne base) → SELL
-        let amountBase = 0;
         let amountToken = getTokenAmount(tokenIn);
         
-        // DŮLEŽITÉ: Pro SELL musíme brát CELKOVOU hodnotu swapu, ne jen transfer část
-        // V multi-step swapech může být nativeOutput jen část celkové hodnoty
-        // Musíme sečíst všechny base outputs (native + token outputs, které jsou base)
+        // NOVÁ LOGIKA: Získej amountBase přímo z events.swap (bez fees)
+        const { baseOut, baseTokenOut } = getSwapBaseAmounts();
+        let amountBase = baseOut;
+        let baseToken = baseTokenOut;
         
-        // 1. Najdi všechny native outputs (SOL) - DŮLEŽITÉ: Použij součet, ne maximum!
-        // V multi-step swapech může být více native transfers, které musíme sečíst
-        const allNativeOutputs = [
-          swap.nativeOutput,
-          ...((swap.innerSwaps ?? []).map((s: any) => s.nativeOutput).filter(Boolean)),
-        ];
-        const nativeOutAmounts = allNativeOutputs
-          .filter((n: any) => n?.account === walletAddress)
-          .map((n: any) => Number(n.amount) / 1e9);
-        const totalNativeOut = nativeOutAmounts.length > 0 ? nativeOutAmounts.reduce((sum, val) => sum + val, 0) : 0;
-        
-        // DŮLEŽITÉ: Také zkontroluj nativeTransfers z top-levelu (může obsahovat více transferů než events.swap)
-        // SELL = Token -> SOL. Zjišťujeme, kolik SOL nám PŘIŠLO (toUserAccount).
-        const nativeTransfersOut = (heliusTx.nativeTransfers || [])
-          .filter((t: any) => t.toUserAccount === walletAddress)
-          .map((t: any) => t.amount / 1e9);
-        const totalNativeTransfersOut = nativeTransfersOut.length > 0 ? nativeTransfersOut.reduce((sum, val) => sum + val, 0) : 0;
-        
-        // Použij maximum z obou zdrojů (events.swap a nativeTransfers) - bereme vždy tu nejvyšší hodnotu
-        const finalNativeOut = Math.max(totalNativeOut, totalNativeTransfersOut);
-        
-        // 2. Sečti všechny token outputs, které jsou base tokeny
-        const baseTokenOutputs = allTokenOutputs.filter((t: any) => {
-          const matchesWallet = t.userAccount === walletAddress || t.toUserAccount === walletAddress;
-          const isBase = isBaseToken(t.mint);
-          return matchesWallet && isBase;
-        });
-        const totalBaseTokenOut = baseTokenOutputs.reduce((sum: number, t: any) => {
-          return sum + getTokenAmount(t);
-        }, 0);
-        
-        // Celková hodnota = native outputs + base token outputs
-        // DŮLEŽITÉ: Použij finalNativeOut (maximum z events.swap a nativeTransfers)
-        amountBase = finalNativeOut + totalBaseTokenOut;
-        
-        // PRIORITA: Zkus vytáhnout hodnotu z description (brutto swap value z Heliusu)
-        // To je důležité pro agregátory (Trojan apod.), kde events.swap může obsahovat jen malé fees
-        // Description obvykle obsahuje správnou brutto hodnotu swapu
-        const descAmount = parseBaseAmountFromDescription();
-        if (descAmount > 0) {
-          // Pokud description má hodnotu, použij ji pokud je větší než to, co máme z events.swap
-          // nebo pokud máme jen velmi malou hodnotu (pravděpodobně fees)
-          const MIN_REALISTIC_SWAP = 0.01; // 0.01 SOL - méně než to je pravděpodobně jen fees
-          if (descAmount > amountBase || (amountBase > 0 && amountBase < MIN_REALISTIC_SWAP && descAmount >= MIN_REALISTIC_SWAP)) {
-            console.log(
-              `   ✅ Using description-based base amount (brutto swap value): ${descAmount} SOL (was ${amountBase} SOL from events.swap)`
-            );
+        // Fallback na description, pokud je events.swap prázdný (např. u některých agregátorů)
+        if (amountBase === 0) {
+          const descAmount = parseBaseAmountFromDescription();
+          if (descAmount > 0) {
+            console.log(`   ✅ Using description-based base amount (fallback): ${descAmount}`);
             amountBase = descAmount;
-          } else if (amountBase === 0) {
-            // Pokud nemáme žádnou hodnotu z events.swap, použij description
-            amountBase = descAmount;
-            console.log(
-              `   ⚠️  Using description-based base amount (brutto swap value): ${amountBase} SOL (no value from events.swap)`
-            );
           }
         }
         
-        // Fallback 2: pokud nemáme žádné base outputs z events.swap ani description,
-        // použij accountData jako poslední možnost.
-        // POZOR: accountData je netto (po fees), takže to nebude přesně odpovídat Solscan.
-        if (amountBase === 0 && accountDataNativeChange > 0) {
-          amountBase = accountDataNativeChange;
-          console.log(`   ⚠️  Using accountData.nativeBalanceChange as fallback (netto, includes fees): ${amountBase} SOL`);
-        }
-        
-        // Fallback 3: pokud stále nemáme žádné base outputs, zkus použít nativeOut nebo tokenOut
+        // Fallback na nativeOut/tokenOut (z původní logiky, ale jen jako pojistka)
         if (amountBase === 0) {
           if (nativeOut > 0) {
-            // Token → SOL
             amountBase = nativeOut;
           } else if (outMint && isBaseToken(outMint)) {
-            // Token → Base token (USDC/USDT/WSOL)
             amountBase = getTokenAmount(tokenOut);
           }
         }
         
         if (amountBase > 0 && amountToken > 0) {
-          // Pro SELL: baseToken je to, co jsme dostali (outMint nebo native SOL)
-          let baseToken = 'SOL'; // Default
+          // Urči base token symbol
           if (outMint && isBaseToken(outMint)) {
             baseToken = getBaseTokenSymbol(outMint);
-          } else if (totalNativeOut > 0) {
+          } else if (!baseToken || baseToken === 'SOL') {
             baseToken = 'SOL';
-          } else if (totalBaseTokenOut > 0 && baseTokenOutputs.length > 0) {
-            baseToken = getBaseTokenSymbol(baseTokenOutputs[0].mint);
           }
-          
+
           return {
             txSignature: heliusTx.signature,
             tokenMint: inMint,
@@ -1010,119 +1036,39 @@ export class HeliusClient {
 
       // Scénář 1: Base → Token (BUY) - kupuješ token za base
       // Toto kontrolujeme DRUHÉ, aby se SELL tokenu měl prioritu
-      // Může být:
-      // - nativeInput (SOL) → tokenOut (token)
-      // - tokenIn (WSOL/USDC/USDT) → tokenOut (token)
-      // - tokenIn (WSOL) → tokenOut (token) v innerSwaps
       if (outMint && !isBaseToken(outMint)) {
         // Output je token (ne base) → BUY
-        // DEBUG: Log pro Pump.fun AMM
-        if (heliusTx.source === 'PUMP_AMM' || heliusTx.source === 'PUMP_FUN') {
-          console.log(`   🔍 [PUMP] BUY candidate: ${heliusTx.signature.substring(0, 8)}...`);
-          console.log(`      - outMint: ${outMint.substring(0, 16)}...`);
-          console.log(`      - tokenOut: ${tokenOut ? 'exists' : 'null'}`);
-          console.log(`      - nativeInput: ${swap.nativeInput ? `${Number(swap.nativeInput.amount) / 1e9} SOL` : 'none'}`);
-          console.log(`      - tokenInputs: ${allTokenInputs.length}`);
-          console.log(`      - tokenOutputs: ${allTokenOutputs.length}`);
-        }
-        
-        let amountBase = 0;
         let amountToken = getTokenAmount(tokenOut);
         
-        // DŮLEŽITÉ: Pro BUY musíme brát CELKOVOU hodnotu swapu, ne jen transfer část
-        // V multi-step swapech může být nativeInput jen část celkové hodnoty
-        // Musíme sečíst všechny base inputs (native + token inputs, které jsou base)
+        // NOVÁ LOGIKA: Získej amountBase přímo z events.swap (bez fees)
+        const { baseIn, baseTokenIn } = getSwapBaseAmounts();
+        let amountBase = baseIn;
+        let baseToken = baseTokenIn;
         
-        // 1. Najdi všechny native inputs (SOL) - DŮLEŽITÉ: Použij součet, ne maximum!
-        // V multi-step swapech může být více native transfers, které musíme sečíst
-        const allNativeInputs = [
-          swap.nativeInput,
-          ...((swap.innerSwaps ?? []).map((s: any) => s.nativeInput).filter(Boolean)),
-        ];
-        const nativeInAmounts = allNativeInputs
-          .filter((n: any) => n?.account === walletAddress)
-          .map((n: any) => Number(n.amount) / 1e9);
-        const totalNativeIn = nativeInAmounts.length > 0 ? nativeInAmounts.reduce((sum, val) => sum + val, 0) : 0;
-        
-        // DŮLEŽITÉ: Také zkontroluj nativeTransfers z top-levelu (může obsahovat více transferů než events.swap)
-        // BUY = SOL -> Token. Zjišťujeme, kolik SOL ODEŠLO od nás (fromUserAccount).
-        const nativeTransfersIn = (heliusTx.nativeTransfers || [])
-          .filter((t: any) => t.fromUserAccount === walletAddress)
-          .map((t: any) => t.amount / 1e9);
-        const totalNativeTransfersIn = nativeTransfersIn.length > 0 ? nativeTransfersIn.reduce((sum, val) => sum + val, 0) : 0;
-        
-        // Použij maximum z obou zdrojů (events.swap a nativeTransfers) - bereme vždy tu nejvyšší hodnotu
-        const finalNativeIn = Math.max(totalNativeIn, totalNativeTransfersIn);
-        
-        // 2. Sečti všechny token inputs, které jsou base tokeny
-        const baseTokenInputs = allTokenInputs.filter((t: any) => {
-          const matchesWallet = t.userAccount === walletAddress || t.fromUserAccount === walletAddress;
-          const isBase = isBaseToken(t.mint);
-          return matchesWallet && isBase;
-        });
-        const totalBaseTokenIn = baseTokenInputs.reduce((sum: number, t: any) => {
-          return sum + getTokenAmount(t);
-        }, 0);
-        
-        // Celková hodnota = native inputs + base token inputs
-        // DŮLEŽITÉ: Použij finalNativeIn (maximum z events.swap a nativeTransfers)
-        amountBase = finalNativeIn + totalBaseTokenIn;
-        
-        // PRIORITA: Zkus vytáhnout hodnotu z description (brutto swap value z Heliusu)
-        // To je důležité pro agregátory (Trojan apod.), kde events.swap může obsahovat jen malé fees
-        // Description obvykle obsahuje správnou brutto hodnotu swapu
-        const descAmount = parseBaseAmountFromDescription();
-        if (descAmount > 0) {
-          // Pokud description má hodnotu, použij ji pokud je větší než to, co máme z events.swap
-          // nebo pokud máme jen velmi malou hodnotu (pravděpodobně fees)
-          const MIN_REALISTIC_SWAP = 0.01; // 0.01 SOL - méně než to je pravděpodobně jen fees
-          if (descAmount > amountBase || (amountBase > 0 && amountBase < MIN_REALISTIC_SWAP && descAmount >= MIN_REALISTIC_SWAP)) {
-            console.log(
-              `   ✅ Using description-based base amount (brutto swap value): ${descAmount} SOL (was ${amountBase} SOL from events.swap)`
-            );
+        // Fallback na description
+        if (amountBase === 0) {
+          const descAmount = parseBaseAmountFromDescription();
+          if (descAmount > 0) {
+            console.log(`   ✅ Using description-based base amount (fallback): ${descAmount}`);
             amountBase = descAmount;
-          } else if (amountBase === 0) {
-            // Pokud nemáme žádnou hodnotu z events.swap, použij description
-            amountBase = descAmount;
-            console.log(
-              `   ⚠️  Using description-based base amount (brutto swap value): ${amountBase} SOL (no value from events.swap)`
-            );
           }
         }
         
-        // Fallback 2: pokud nemáme žádné base inputs z events.swap ani description,
-        // použij accountData jako poslední možnost.
-        // POZOR: accountData je netto (po fees), takže to nebude přesně odpovídat Solscan.
-        if (amountBase === 0 && accountDataNativeChange > 0) {
-          amountBase = Math.abs(accountDataNativeChange); // accountDataNativeChange už je absolutní hodnota
-          console.log(`   ⚠️  Using accountData.nativeBalanceChange as fallback (netto, includes fees): ${amountBase} SOL`);
-        }
-        
-        // Fallback 3: pokud stále nemáme žádné base inputs, zkus použít nativeIn nebo tokenIn
+        // Fallback na nativeIn/tokenIn
         if (amountBase === 0) {
-          if (nativeIn > 0) {
-            // SOL → Token
+           if (nativeIn > 0) {
             amountBase = nativeIn;
           } else if (inMint && isBaseToken(inMint)) {
-            // Base token (WSOL/USDC/USDT) → Token
             amountBase = getTokenAmount(tokenIn);
           }
         }
         
         if (amountBase > 0 && amountToken > 0) {
-          // Pro BUY: baseToken je to, co jsme zaplatili (inMint nebo native SOL)
-          let baseToken = 'SOL'; // Default
+          // Urči base token symbol
           if (inMint && isBaseToken(inMint)) {
             baseToken = getBaseTokenSymbol(inMint);
-          } else if (totalNativeIn > 0) {
+          } else if (!baseToken || baseToken === 'SOL') {
             baseToken = 'SOL';
-          } else if (totalBaseTokenIn > 0 && baseTokenInputs.length > 0) {
-            baseToken = getBaseTokenSymbol(baseTokenInputs[0].mint);
-          }
-          
-          // DEBUG: Log pro Pump.fun AMM
-          if (heliusTx.source === 'PUMP_AMM' || heliusTx.source === 'PUMP_FUN') {
-            console.log(`   ✅ [PUMP] BUY detected: ${amountToken.toFixed(4)} tokens for ${amountBase.toFixed(4)} ${baseToken}`);
           }
           
           return {
@@ -1137,12 +1083,10 @@ export class HeliusClient {
             dex: heliusTx.source.toLowerCase() || 'unknown',
           };
         } else {
-          // DEBUG: Log proč BUY selhalo
+          // DEBUG
           if (heliusTx.source === 'PUMP_AMM' || heliusTx.source === 'PUMP_FUN') {
-            console.log(`   ⚠️  [PUMP] BUY failed: amountBase=${amountBase}, amountToken=${amountToken}`);
-            console.log(`      - totalNativeIn: ${totalNativeIn}`);
-            console.log(`      - totalBaseTokenIn: ${totalBaseTokenIn}`);
-            console.log(`      - accountDataNativeChange: ${accountDataNativeChange}`);
+             console.log(`   ⚠️  [PUMP] BUY failed: amountBase=${amountBase}, amountToken=${amountToken}`);
+             console.log(`      - baseIn from getSwapBaseAmounts: ${baseIn}`);
           }
         }
       }
@@ -1560,4 +1504,6 @@ export class HeliusClient {
     }
   }
 }
+
+
 

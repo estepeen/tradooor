@@ -49,7 +49,7 @@ export class SolanaCollectorService {
       }
 
       // 3. Find or create token
-      const token = await this.tokenRepo.findOrCreate({
+        const token = await this.tokenRepo.findOrCreate({
         mintAddress: normalized.tokenMint,
       });
 
@@ -72,7 +72,7 @@ export class SolanaCollectorService {
           // For USDC/USDT, 1:1 with USD
           valueUsd = normalized.amountBase;
         }
-      } catch (error: any) {
+        } catch (error: any) {
         console.warn(`⚠️  Failed to calculate USD value:`, error.message);
       }
 
@@ -94,7 +94,7 @@ export class SolanaCollectorService {
           balanceBefore = Math.max(0, balanceBefore - prevAmount);
         }
       }
-      
+
       // Calculate balance after this trade
       const normalizedBalanceBefore = Math.abs(balanceBefore) < 0.000001 ? 0 : balanceBefore;
       const isBuy = normalized.side === 'buy';
@@ -102,7 +102,7 @@ export class SolanaCollectorService {
         ? balanceBefore + normalized.amountToken
         : Math.max(0, balanceBefore - normalized.amountToken);
       const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
-      
+
       // Determine correct TYPE
       let correctSide: 'buy' | 'sell' | 'add' | 'remove';
       if (isBuy) {
@@ -113,7 +113,7 @@ export class SolanaCollectorService {
         } else {
           correctSide = 'add';
         }
-      } else {
+        } else {
         // SELL: balanceAfter === 0 nebo velmi blízko 0 (poslední prodej, kdy balance klesne na 0)
         // REM: balanceAfter > 0 (částečný prodej, balance zůstává > 0)
         // DŮLEŽITÉ: Použij tolerance pro zaokrouhlování (pokud je balanceAfter < 0.000001, považuj to za 0)
@@ -140,7 +140,7 @@ export class SolanaCollectorService {
             positionChangePercent = 100;
           }
         }
-      } else {
+        } else {
         // REM nebo SELL
         if (normalizedBalanceBefore === 0) {
           // Nemůžeme prodávat, když nemáme pozici
