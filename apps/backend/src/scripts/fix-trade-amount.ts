@@ -28,10 +28,63 @@ async function fixTradeAmount() {
   console.log(`   walletId: ${trade.walletId}`);
   console.log(`   side: ${trade.side}`);
   
-  // 2. Fetch transaction z Helius API
-  const heliusTx = await heliusClient.getTransaction(TX_SIGNATURE);
+  // 2. Pokud máme očekávanou hodnotu, použij ji přímo (Helius API není potřeba)
+  if (EXPECTED_AMOUNT_BASE > 0) {
+    console.log(`\n✅ Using provided expected amountBase: ${EXPECTED_AMOUNT_BASE} SOL`);
+    const correctAmountBase = EXPECTED_AMOUNT_BASE;
+    const correctPriceBasePerToken = correctAmountBase / Math.abs(Number(trade.amountToken));
+    
+    console.log(`\n📊 Updated values:`);
+    console.log(`   amountBase: ${correctAmountBase.toFixed(6)} SOL (was ${Number(trade.amountBase).toFixed(6)} SOL)`);
+    console.log(`   priceBasePerToken: ${correctPriceBasePerToken.toFixed(8)} SOL/token`);
+    
+    // Aktualizuj trade v databázi
+    const { error } = await supabase
+      .from(TABLES.TRADE)
+      .update({
+        amountBase: correctAmountBase.toString(),
+        priceBasePerToken: correctPriceBasePerToken.toString(),
+        updatedAt: new Date().toISOString(),
+      })
+      .eq('id', trade.id);
+    
+    if (error) {
+      console.error(`❌ Failed to update trade:`, error);
+      return;
+    }
+    
+    console.log(`\n✅ Trade updated successfully!`);
+    console.log(`   Trade ID: ${trade.id}`);
+    
+    // Enqueue wallet pro přepočet metrik
+    try {
+      const { WalletProcessingQueueRepository } = await import('../repositories/wallet-processing-queue.repository.js');
+      const walletProcessingQueueRepo = new WalletProcessingQueueRepository();
+      await walletProcessingQueueRepo.enqueue(trade.walletId);
+      console.log(`   ✅ Enqueued wallet ${trade.walletId} for metrics recalculation.`);
+    } catch (queueError: any) {
+      console.warn(`⚠️  Failed to enqueue wallet for metrics recalculation: ${queueError.message}`);
+    }
+    
+    return; // Hotovo, nemusíme načítat z Helius API
+  }
+  
+  // 3. Pokud nemáme očekávanou hodnotu, zkus načíst z Helius API (volitelné)
+  console.log(`\n📡 Attempting to fetch transaction from Helius API (optional)...`);
+  let heliusTx = null;
+  try {
+    heliusTx = await heliusClient.getTransaction(TX_SIGNATURE);
+  } catch (error: any) {
+    console.warn(`⚠️  Could not fetch from Helius API (${error.message}), but continuing with manual fix...`);
+    console.error(`❌ Please provide expected amountBase as second argument:`);
+    console.error(`   pnpm fix:trade-amount ${TX_SIGNATURE} <expectedAmountBase>`);
+    return;
+  }
+  
   if (!heliusTx) {
     console.error(`❌ Transaction not found in Helius: ${TX_SIGNATURE}`);
+    console.error(`❌ Please provide expected amountBase as second argument:`);
+    console.error(`   pnpm fix:trade-amount ${TX_SIGNATURE} <expectedAmountBase>`);
     return;
   }
   
@@ -91,7 +144,7 @@ async function fixTradeAmount() {
     }
   }
   
-  // 5. Vypočítej správný amountBase
+  // 4. Vypočítej správný amountBase z Helius data
   let correctAmountBase = 0;
   if (trade.side === 'buy') {
     // BUY: použij nativeOutTotal (kolik SOL jsme poslali)
@@ -106,25 +159,18 @@ async function fixTradeAmount() {
     correctAmountBase = nativeInTotal > 0 ? nativeInTotal : Math.abs(solDelta);
   }
   
-  // Pokud máme očekávanou hodnotu, použij ji
-  if (EXPECTED_AMOUNT_BASE > 0 && Math.abs(correctAmountBase - EXPECTED_AMOUNT_BASE) > 0.1) {
-    console.log(`\n⚠️  Calculated amountBase (${correctAmountBase.toFixed(6)} SOL) differs from expected (${EXPECTED_AMOUNT_BASE} SOL)`);
-    console.log(`   Using expected value: ${EXPECTED_AMOUNT_BASE} SOL`);
-    correctAmountBase = EXPECTED_AMOUNT_BASE;
-  }
-  
-  console.log(`\n✅ Correct amountBase: ${correctAmountBase.toFixed(6)} SOL`);
+  console.log(`\n✅ Calculated amountBase: ${correctAmountBase.toFixed(6)} SOL`);
   console.log(`   Current amountBase: ${Number(trade.amountBase).toFixed(6)} SOL`);
   console.log(`   Difference: ${(correctAmountBase - Number(trade.amountBase)).toFixed(6)} SOL`);
   
-  // 6. Vypočítej novou cenu
+  // 5. Vypočítej novou cenu
   const correctPriceBasePerToken = correctAmountBase / Math.abs(Number(trade.amountToken));
   
   console.log(`\n📊 Updated values:`);
   console.log(`   amountBase: ${correctAmountBase.toFixed(6)} SOL`);
   console.log(`   priceBasePerToken: ${correctPriceBasePerToken.toFixed(8)} SOL/token`);
   
-  // 7. Aktualizuj trade v databázi
+  // 6. Aktualizuj trade v databázi
   const { error } = await supabase
     .from(TABLES.TRADE)
     .update({
@@ -143,7 +189,7 @@ async function fixTradeAmount() {
   console.log(`   Trade ID: ${trade.id}`);
   console.log(`   New amountBase: ${correctAmountBase.toFixed(6)} SOL`);
   
-  // 8. Enqueue wallet pro přepočet metrik
+  // 7. Enqueue wallet pro přepočet metrik
   try {
     const { WalletProcessingQueueRepository } = await import('../repositories/wallet-processing-queue.repository.js');
     const walletProcessingQueueRepo = new WalletProcessingQueueRepository();
