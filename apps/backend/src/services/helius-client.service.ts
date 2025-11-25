@@ -660,6 +660,7 @@ export class HeliusClient {
       };
 
       const swap = heliusTx.events?.swap;
+      const NATIVE_DELTA_THRESHOLD = 0.05; // 5%
       if (!swap) {
         // Pokud má source z allowlistu DEXů, je to swap (Helius už to identifikoval)
         // Použijeme legacy metodu pro normalizaci
@@ -794,6 +795,27 @@ export class HeliusClient {
           baseOut: otherBaseOut,
           baseTokenIn: otherBaseTokenIn || 'SOL',
           baseTokenOut: otherBaseTokenOut || 'SOL'
+        };
+      };
+      
+      const getNativeTransferTotals = (): { nativeSent: number; nativeReceived: number } => {
+        const transfers = (heliusTx.nativeTransfers || []).filter(
+          (t: any) => t.fromUserAccount === walletAddress || t.toUserAccount === walletAddress
+        );
+        let nativeSentLamports = 0n;
+        let nativeReceivedLamports = 0n;
+        for (const t of transfers) {
+          const amountLamports = BigInt(String(t.amount)); // already in lamports
+          if (t.fromUserAccount === walletAddress) {
+            nativeSentLamports += amountLamports;
+          }
+          if (t.toUserAccount === walletAddress) {
+            nativeReceivedLamports += amountLamports;
+          }
+        }
+        return {
+          nativeSent: Number(nativeSentLamports) / 1e9,
+          nativeReceived: Number(nativeReceivedLamports) / 1e9,
         };
       };
 
@@ -1023,12 +1045,23 @@ export class HeliusClient {
         const { baseOut, baseTokenOut } = getSwapBaseAmounts();
         let amountBase = baseOut;
         let baseToken = baseTokenOut;
+        const { nativeSent, nativeReceived } = getNativeTransferTotals();
         
         // DEBUG: Log zdroj amountBase
         if (amountBase > 0) {
           console.log(`   ✅ [SELL] amountBase from getSwapBaseAmounts: ${amountBase} ${baseTokenOut}`);
         } else {
           console.log(`   ⚠️  [SELL] getSwapBaseAmounts returned 0, trying fallbacks...`);
+        }
+        
+        if (nativeReceived > 0) {
+          const diff = Math.abs(nativeReceived - amountBase);
+          const diffRatio = amountBase > 0 ? diff / amountBase : 1;
+          if (diffRatio > NATIVE_DELTA_THRESHOLD && nativeReceived > amountBase) {
+            console.log(`   ⚠️  [SELL] nativeTransfers total (${nativeReceived} SOL) differs from swap amount (${amountBase} SOL). Using nativeTransfers value.`);
+            amountBase = nativeReceived;
+            baseToken = 'SOL';
+          }
         }
         
         // Fallback na description, pokud je events.swap prázdný (např. u některých agregátorů)
@@ -1084,6 +1117,7 @@ export class HeliusClient {
         const { baseIn, baseTokenIn } = getSwapBaseAmounts();
         let amountBase = baseIn;
         let baseToken = baseTokenIn;
+        const { nativeSent, nativeReceived } = getNativeTransferTotals();
         
         // Fallback na description
         if (amountBase === 0) {
@@ -1100,6 +1134,16 @@ export class HeliusClient {
             amountBase = nativeIn;
           } else if (inMint && isBaseToken(inMint)) {
             amountBase = getTokenAmount(tokenIn);
+          }
+        }
+        
+        if (nativeSent > 0) {
+          const diff = Math.abs(nativeSent - amountBase);
+          const diffRatio = amountBase > 0 ? diff / amountBase : 1;
+          if (diffRatio > NATIVE_DELTA_THRESHOLD && nativeSent > amountBase) {
+            console.log(`   ⚠️  [BUY] nativeTransfers total (${nativeSent} SOL) differs from swap amount (${amountBase} SOL). Using nativeTransfers value.`);
+            amountBase = nativeSent;
+            baseToken = 'SOL';
           }
         }
         
