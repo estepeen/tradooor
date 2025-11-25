@@ -723,8 +723,23 @@ export class HeliusClient {
 
           if (ti.mint === SOL_MINT) {
             // WSOL -> přičteme k SOL
-            const raw = ti.rawTokenAmount?.tokenAmount || ti.tokenAmount;
-            const amt = BigInt(typeof raw === 'string' ? raw : Math.round(Number(raw) * 1e9));
+            // DŮLEŽITÉ: rawTokenAmount.tokenAmount je už v lamports (raw formát)
+            // Pokud není k dispozici, použij tokenAmount * 10^decimals
+            let amt: bigint;
+            if (ti.rawTokenAmount?.tokenAmount) {
+              // rawTokenAmount.tokenAmount je už v lamports (string nebo number)
+              amt = BigInt(String(ti.rawTokenAmount.tokenAmount));
+            } else if (ti.tokenAmount && ti.rawTokenAmount?.decimals !== undefined) {
+              // tokenAmount je v human-readable formátu, převedeme na lamports
+              const decimals = ti.rawTokenAmount.decimals;
+              amt = BigInt(Math.round(Number(ti.tokenAmount) * Math.pow(10, decimals)));
+            } else if (ti.tokenAmount) {
+              // Fallback: předpokládáme 9 decimals pro WSOL
+              amt = BigInt(Math.round(Number(ti.tokenAmount) * 1e9));
+            } else {
+              console.warn(`   ⚠️  WSOL input has no amount data:`, JSON.stringify(ti).substring(0, 200));
+              continue;
+            }
             solInLamports += amt;
           } else if (BASE_MINTS.has(ti.mint)) {
             // USDC/USDT
@@ -741,8 +756,23 @@ export class HeliusClient {
 
           if (to.mint === SOL_MINT) {
             // WSOL -> přičteme k SOL
-            const raw = to.rawTokenAmount?.tokenAmount || to.tokenAmount;
-            const amt = BigInt(typeof raw === 'string' ? raw : Math.round(Number(raw) * 1e9));
+            // DŮLEŽITÉ: rawTokenAmount.tokenAmount je už v lamports (raw formát)
+            // Pokud není k dispozici, použij tokenAmount * 10^decimals
+            let amt: bigint;
+            if (to.rawTokenAmount?.tokenAmount) {
+              // rawTokenAmount.tokenAmount je už v lamports (string nebo number)
+              amt = BigInt(String(to.rawTokenAmount.tokenAmount));
+            } else if (to.tokenAmount && to.rawTokenAmount?.decimals !== undefined) {
+              // tokenAmount je v human-readable formátu, převedeme na lamports
+              const decimals = to.rawTokenAmount.decimals;
+              amt = BigInt(Math.round(Number(to.tokenAmount) * Math.pow(10, decimals)));
+            } else if (to.tokenAmount) {
+              // Fallback: předpokládáme 9 decimals pro WSOL
+              amt = BigInt(Math.round(Number(to.tokenAmount) * 1e9));
+            } else {
+              console.warn(`   ⚠️  WSOL output has no amount data:`, JSON.stringify(to).substring(0, 200));
+              continue;
+            }
             solOutLamports += amt;
           } else if (BASE_MINTS.has(to.mint)) {
             // USDC/USDT
@@ -994,6 +1024,13 @@ export class HeliusClient {
         let amountBase = baseOut;
         let baseToken = baseTokenOut;
         
+        // DEBUG: Log zdroj amountBase
+        if (amountBase > 0) {
+          console.log(`   ✅ [SELL] amountBase from getSwapBaseAmounts: ${amountBase} ${baseTokenOut}`);
+        } else {
+          console.log(`   ⚠️  [SELL] getSwapBaseAmounts returned 0, trying fallbacks...`);
+        }
+        
         // Fallback na description, pokud je events.swap prázdný (např. u některých agregátorů)
         if (amountBase === 0) {
           const descAmount = parseBaseAmountFromDescription();
@@ -1006,9 +1043,12 @@ export class HeliusClient {
         // Fallback na nativeOut/tokenOut (z původní logiky, ale jen jako pojistka)
         if (amountBase === 0) {
           if (nativeOut > 0) {
+            console.log(`   ⚠️  [SELL] Using nativeOut fallback: ${nativeOut} SOL`);
             amountBase = nativeOut;
           } else if (outMint && isBaseToken(outMint)) {
-            amountBase = getTokenAmount(tokenOut);
+            const tokenOutAmount = getTokenAmount(tokenOut);
+            console.log(`   ⚠️  [SELL] Using tokenOut fallback: ${tokenOutAmount} ${getBaseTokenSymbol(outMint)}`);
+            amountBase = tokenOutAmount;
           }
         }
         
