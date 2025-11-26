@@ -979,21 +979,8 @@ export class HeliusClient {
         }
       }
 
-      // Debug logging - log vždy pokud je amountBase podezřele malý (< 0.1 SOL) nebo pokud je to Axiom
+      // Debug logging flag - použijeme později, až budou všechny proměnné deklarovány
       const shouldLog = Math.random() < 0.1 || heliusTx.source?.toUpperCase() === 'AXIOM';
-      if (shouldLog) {
-        console.log(`   🔍 normalizeSwap for ${walletAddress.substring(0, 8)}... (${heliusTx.source || 'unknown'}):`);
-      console.log(`      - tokenIn: ${tokenIn ? `${tokenIn.mint.substring(0, 8)}... (${(tokenIn.userAccount || tokenIn.fromUserAccount || '').substring(0, 8)}...)` : 'none'}`);
-      console.log(`      - tokenOut: ${tokenOut ? `${tokenOut.mint.substring(0, 8)}... (${(tokenOut.userAccount || tokenOut.toUserAccount || '').substring(0, 8)}...)` : 'none'}`);
-      console.log(`      - nativeIn: ${nativeIn > 0 ? `${nativeIn} SOL` : 'none'}`);
-      console.log(`      - nativeOut: ${nativeOut > 0 ? `${nativeOut} SOL` : 'none'}`);
-        console.log(`      - solNetIn: ${solNetIn > 0 ? `${solNetIn} SOL` : 'none'}`);
-        console.log(`      - solNetOut: ${solNetOut > 0 ? `${solNetOut} SOL` : 'none'}`);
-        console.log(`      - accountDataNativeChange: ${accountDataNativeChange > 0 ? `${accountDataNativeChange} SOL` : 'none'}`);
-        if ((heliusTx as any).description) {
-          console.log(`      - description: ${(heliusTx as any).description.substring(0, 200)}`);
-        }
-      }
 
       // 2) Urči, který asset je "token" a který "base"
       const inMint = tokenIn?.mint;
@@ -1157,6 +1144,21 @@ export class HeliusClient {
         : 0n;
       const solNetIn = lamportsToSol(nativeNetInLamports);
       const solNetOut = lamportsToSol(nativeNetOutLamports);
+
+      // Debug logging - teď už jsou všechny proměnné deklarovány
+      if (shouldLog) {
+        console.log(`   🔍 normalizeSwap for ${walletAddress.substring(0, 8)}... (${heliusTx.source || 'unknown'}):`);
+        console.log(`      - tokenIn: ${tokenIn ? `${tokenIn.mint.substring(0, 8)}... (${(tokenIn.userAccount || tokenIn.fromUserAccount || '').substring(0, 8)}...)` : 'none'}`);
+        console.log(`      - tokenOut: ${tokenOut ? `${tokenOut.mint.substring(0, 8)}... (${(tokenOut.userAccount || tokenOut.toUserAccount || '').substring(0, 8)}...)` : 'none'}`);
+        console.log(`      - nativeIn: ${nativeIn > 0 ? `${nativeIn} SOL` : 'none'}`);
+        console.log(`      - nativeOut: ${nativeOut > 0 ? `${nativeOut} SOL` : 'none'}`);
+        console.log(`      - solNetIn: ${solNetIn > 0 ? `${solNetIn} SOL` : 'none'}`);
+        console.log(`      - solNetOut: ${solNetOut > 0 ? `${solNetOut} SOL` : 'none'}`);
+        console.log(`      - accountDataNativeChange: ${accountDataNativeChange > 0 ? `${accountDataNativeChange} SOL` : 'none'}`);
+        if ((heliusTx as any).description) {
+          console.log(`      - description: ${(heliusTx as any).description.substring(0, 200)}`);
+        }
+      }
 
       // Hlavní logika: Trackujeme swapy kde je token ↔ base (SOL/WSOL/USDC/USDT)
       // Token = cokoliv, co NENÍ base
@@ -1519,8 +1521,9 @@ export class HeliusClient {
         } else {
           // DEBUG
           if (heliusTx.source === 'PUMP_AMM' || heliusTx.source === 'PUMP_FUN') {
+            const { baseIn: debugBaseIn } = getSwapBaseAmounts();
             console.log(`   ⚠️  [PUMP] BUY failed: amountBase=${amountBase}, amountToken=${amountToken}`);
-             console.log(`      - baseIn from getSwapBaseAmounts: ${baseIn}`);
+            console.log(`      - baseIn from getSwapBaseAmounts: ${debugBaseIn}`);
           }
         }
       }
