@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Stack+Sans+Text:wght@200..700&family=Zalando+Sans+Expanded:ital,wght@0,200..900;1,200..900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,25 +6,36 @@
 
 @layer base {
   :root {
-    /* Dark mode - custom colors */
-    --background: 20 0% 8%; /* #141414 */
-    --foreground: 0 0% 100%; /* #ffffff */
-    --card: 20 0% 10%;
-    --card-foreground: 0 0% 100%;
-    --primary: 231 100% 40%; /* #002bcb */
+    /* Modern Dark Mode Theme */
+    --background: 0 0% 3.9%; /* #0a0a0a */
+    --foreground: 0 0% 98%; /* #fafafa */
+    
+    --card: 0 0% 6%; /* #0f0f0f - slightly lighter than bg */
+    --card-foreground: 0 0% 98%;
+    
+    --popover: 0 0% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    
+    --primary: 231 90% 60%; /* Brighter Blue */
     --primary-foreground: 0 0% 100%;
-    --secondary: 20 0% 15%;
-    --secondary-foreground: 0 0% 100%;
-    --muted: 20 0% 15%;
-    --muted-foreground: 0 0% 70%;
-    --accent: 20 0% 15%;
-    --accent-foreground: 0 0% 100%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 20 0% 20%;
-    --input: 20 0% 20%;
-    --ring: 231 100% 40%; /* #002bcb */
-    --radius: 0;
+    
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
+    
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
+    
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    
+    --border: 0 0% 14.9%;
+    --input: 0 0% 14.9%;
+    --ring: 231 90% 60%;
+    
+    --radius: 0.5rem; /* Modern rounded corners */
   }
 }
 
@@ -34,72 +45,52 @@
   }
   body {
     @apply bg-background text-foreground;
-    background-color: #141414;
-    color: #ffffff;
-    font-family: 'Stack Sans Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
+    /* Subtle background gradient for depth */
+    background-image: radial-gradient(circle at 50% 0%, rgba(0, 43, 203, 0.05), transparent 40%);
+    background-attachment: fixed;
   }
   
   h1, h2, h3, h4, h5, h6 {
-    color: white;
-    font-family: 'Zalando Sans Expanded', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
-    font-weight: normal;
+    @apply font-sans font-medium tracking-tight;
   }
   
   h1 {
-    display: block;
-    font-size: 3.5rem;
-    font-weight: bold;
-    line-height: 1.2;
-    letter-spacing: 0.02em;
+    @apply text-4xl md:text-5xl font-bold mb-6;
+    letter-spacing: -0.02em;
   }
   
   h2 {
-    font-size: 3rem;
-    margin-bottom: 2rem;
-    line-height: 1.2;
-    font-weight: normal;
+    @apply text-3xl font-semibold mb-6;
+    letter-spacing: -0.01em;
   }
   
-  .text-primary {
-    color: #002bcb;
+  /* Modern scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
   }
   
-  .bg-primary {
-    background-color: #002bcb;
+  ::-webkit-scrollbar-track {
+    background: transparent;
   }
   
-  .border-border {
-    border-color: rgba(255, 255, 255, 0.1);
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 4px;
   }
   
-  .bg-muted {
-    background-color: rgba(255, 255, 255, 0.05);
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.2);
+  }
+
+  /* Utility for glass cards */
+  .glass-card {
+    @apply bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl;
   }
   
-  .text-muted-foreground {
-    color: rgba(255, 255, 255, 0.6);
-  }
-  
-  /* Remove all border-radius */
-  *, *::before, *::after {
-    border-radius: 0 !important;
-  }
-  
-  /* Button styles */
-  button {
-    letter-spacing: .05em;
-    font-size: .875rem;
-    text-transform: uppercase;
-    padding: 1rem 1.5rem;
-  }
-  
-  /* Links are white by default */
+  /* Links */
   a {
-    color: white;
-  }
-  
-  a:hover {
-    opacity: 0.8;
+    @apply transition-opacity hover:opacity-80;
   }
 }
-

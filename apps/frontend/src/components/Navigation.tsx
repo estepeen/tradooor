@@ -15,43 +15,43 @@ export default function Navigation() {
   };
 
   return (
-    <nav className="border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <nav className="sticky top-0 z-50 border-b border-white/10 bg-black/50 backdrop-blur-xl supports-[backdrop-filter]:bg-black/20">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
           <div className="flex items-center gap-8">
             <Link
               href="/"
-              className="text-xl font-bold hover:opacity-80 transition-opacity"
+              className="text-xl font-bold bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent hover:opacity-80 transition-opacity"
             >
               Tradooor
             </Link>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1">
               <Link
                 href="/"
-                className={`px-4 py-2 rounded-md transition-colors ${
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                   isActive('/') && !isActive('/wallets/add') && !isActive('/wallet/') && !isActive('/stats')
-                    ? 'bg-primary text-primary-foreground'
-                    : 'hover:bg-muted'
+                    ? 'bg-white/10 text-white shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
                 }`}
               >
                 Wallets
               </Link>
               <Link
                 href="/wallets/add"
-                className={`px-4 py-2 rounded-md transition-colors ${
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                   isActive('/wallets/add')
-                    ? 'bg-primary text-primary-foreground'
-                    : 'hover:bg-muted'
+                    ? 'bg-white/10 text-white shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
                 }`}
               >
                 Add Wallet
               </Link>
               <Link
                 href="/stats"
-                className={`px-4 py-2 rounded-md transition-colors ${
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                   isActive('/stats')
-                    ? 'bg-primary text-primary-foreground'
-                    : 'hover:bg-muted'
+                    ? 'bg-white/10 text-white shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-white/5'
                 }`}
               >
                 Statistics
@@ -66,4 +66,3 @@ export default function Navigation() {
     </nav>
   );
 }
-
