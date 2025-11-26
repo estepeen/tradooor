@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { fetchSmartWallets } from '@/lib/api';
+import { fetchSmartWallets, getApiBaseUrl } from '@/lib/api';
 import { formatAddress, formatPercent, formatNumber, formatLastTrade } from '@/lib/utils';
 import type { SmartWalletListResponse } from '@solbot/shared';
 
@@ -115,7 +115,7 @@ export default function Home() {
                 setSyncSuccess(null);
 
                 try {
-                  const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+                  const API_BASE_URL = getApiBaseUrl();
                   const response = await fetch(`${API_BASE_URL}/smart-wallets/sync`, {
                     method: 'POST',
                   });

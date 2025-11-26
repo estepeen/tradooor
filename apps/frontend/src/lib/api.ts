@@ -1,4 +1,18 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || '/api';
+// Use /api for local development (Next.js rewrite) or if NEXT_PUBLIC_API_URL is not set
+// Only use absolute URL if explicitly set and not running on localhost
+export const getApiBaseUrl = () => {
+  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (!envUrl) return '/api';
+  
+  // If running on localhost, always use /api (Next.js rewrite)
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return '/api';
+  }
+  
+  return envUrl;
+};
+
+const API_BASE_URL = getApiBaseUrl();
 
 export async function fetchSmartWallets(params?: {
   page?: number;
