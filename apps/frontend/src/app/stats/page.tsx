@@ -323,18 +323,32 @@ export default function StatsPage() {
                           </div>
                           <div className={`text-right font-bold ${
                             (() => {
-                              // Use advancedStats.rolling if available, otherwise use recentPnl30dPercent
+                              // STEJNÁ LOGIKA JAKO NA HOMEPAGE: použij advancedStats.rolling pokud je dostupné
                               const rolling = (wallet.advancedStats as any)?.rolling;
-                              const rollingKey = period === '1d' ? '7d' : period; // Use 7d for 1d as fallback
+                              let rollingKey: string;
+                              if (period === '1d') {
+                                rollingKey = '7d'; // Pro 1d použij 7d jako fallback (stejně jako homepage)
+                              } else if (period === '14d') {
+                                rollingKey = '30d'; // Pro 14d použij 30d jako aproximaci
+                              } else {
+                                rollingKey = period; // Pro 7d a 30d použij přímo
+                              }
                               const rollingData = rolling?.[rollingKey];
                               const pnlPercent = rollingData?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
                               return pnlPercent >= 0 ? 'text-green-600' : 'text-red-600';
                             })()
                           }`}>
                             {(() => {
-                              // Use advancedStats.rolling if available, otherwise use recentPnl30dUsd
+                              // STEJNÁ LOGIKA JAKO NA HOMEPAGE: použij advancedStats.rolling pokud je dostupné
                               const rolling = (wallet.advancedStats as any)?.rolling;
-                              const rollingKey = period === '1d' ? '7d' : period; // Use 7d for 1d as fallback
+                              let rollingKey: string;
+                              if (period === '1d') {
+                                rollingKey = '7d'; // Pro 1d použij 7d jako fallback (stejně jako homepage)
+                              } else if (period === '14d') {
+                                rollingKey = '30d'; // Pro 14d použij 30d jako aproximaci
+                              } else {
+                                rollingKey = period; // Pro 7d a 30d použij přímo
+                              }
                               const rollingData = rolling?.[rollingKey];
                               const pnlUsd = rollingData?.realizedPnlUsd ?? wallet.recentPnl30dUsd ?? 0;
                               const pnlPercent = rollingData?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;

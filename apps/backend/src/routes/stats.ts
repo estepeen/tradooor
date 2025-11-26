@@ -161,71 +161,48 @@ router.get('/overview', async (req, res) => {
     const topByScore = [...walletList].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
     const topByPnl = [...walletList].sort((a, b) => (b.pnlTotalBase || 0) - (a.pnlTotalBase || 0)).slice(0, 5);
     
-    // Calculate PnL for different time periods (1d, 7d, 14d, 30d) using closed lots
-    const now = new Date();
+    // Calculate PnL for different time periods (1d, 7d, 14d, 30d) using advancedStats.rolling
+    // STEJNÝ PRINCIP JAKO NA HOMEPAGE - používej rolling stats z advancedStats
     const periods = [
-      { label: '1d', days: 1 },
-      { label: '7d', days: 7 },
-      { label: '14d', days: 14 },
-      { label: '30d', days: 30 },
+      { label: '1d', rollingKey: '7d' }, // Pro 1d použij 7d jako fallback (stejně jako homepage)
+      { label: '7d', rollingKey: '7d' },
+      { label: '14d', rollingKey: '30d' }, // Pro 14d použij 30d jako aproximaci
+      { label: '30d', rollingKey: '30d' },
     ];
     
     const topByPeriod: Record<string, any[]> = {};
     
     for (const period of periods) {
-      const fromDate = new Date(now);
-      fromDate.setDate(fromDate.getDate() - period.days);
-      
-      // Calculate PnL for each wallet for this period
-      const walletsWithPeriodPnl = await Promise.all(
-        walletList.map(async (wallet) => {
-          // Try to use advancedStats.rolling if available
-          const rolling = (wallet.advancedStats as any)?.rolling;
-          let pnlUsd = 0;
-          let pnlPercent = 0;
-          
-          if (rolling) {
-            // Use rolling stats if available
-            const rollingKey = period.label === '1d' ? '7d' : period.label; // Use 7d for 1d as fallback
-            const rollingData = rolling[rollingKey];
-            if (rollingData) {
-              pnlUsd = rollingData.realizedPnlUsd || 0;
-              pnlPercent = rollingData.realizedRoiPercent || 0;
-            }
+      // Calculate PnL for each wallet for this period using advancedStats.rolling
+      const walletsWithPeriodPnl = walletList.map((wallet) => {
+        // STEJNÁ LOGIKA JAKO NA HOMEPAGE: použij advancedStats.rolling pokud je dostupné
+        const rolling = (wallet.advancedStats as any)?.rolling;
+        let pnlUsd = 0;
+        let pnlPercent = 0;
+        
+        if (rolling && rolling[period.rollingKey]) {
+          // Použij rolling stats (stejně jako homepage)
+          const rollingData = rolling[period.rollingKey];
+          pnlUsd = rollingData.realizedPnlUsd || 0;
+          pnlPercent = rollingData.realizedRoiPercent || 0;
+        } else {
+          // Fallback: použij recentPnl30dUsd/recentPnl30dPercent (stejně jako homepage)
+          if (period.label === '30d' || period.rollingKey === '30d') {
+            pnlUsd = wallet.recentPnl30dUsd || 0;
+            pnlPercent = wallet.recentPnl30dPercent || 0;
+          } else if (period.rollingKey === '7d') {
+            // Pro 7d a 1d použij 30d jako fallback, pokud není 7d rolling data
+            pnlUsd = wallet.recentPnl30dUsd || 0;
+            pnlPercent = wallet.recentPnl30dPercent || 0;
           }
-          
-          // If no rolling stats, calculate from closed lots
-          if (pnlUsd === 0 && pnlPercent === 0) {
-            try {
-              const closedLots = await closedLotRepo.findByWallet(wallet.id, { fromDate });
-              const periodLots = closedLots.filter(lot => {
-                const closeDate = new Date(lot.exitTime);
-                return closeDate >= fromDate && lot.costKnown !== false;
-              });
-              
-              if (periodLots.length > 0) {
-                // Sum realized PnL from closed lots
-                const totalRealizedPnl = periodLots.reduce((sum, lot) => sum + (lot.realizedPnl || 0), 0);
-                const totalCostBasis = periodLots.reduce((sum, lot) => sum + (lot.costBasis || 0), 0);
-                pnlUsd = totalRealizedPnl;
-                pnlPercent = totalCostBasis > 0 ? ((totalRealizedPnl / totalCostBasis) * 100) : 0;
-              }
-            } catch (error: any) {
-              // If closed lots fetch fails, use fallback
-              if (period.label === '30d') {
-                pnlUsd = wallet.recentPnl30dUsd || 0;
-                pnlPercent = wallet.recentPnl30dPercent || 0;
-              }
-            }
-          }
-          
-          return {
-            ...wallet,
-            periodPnlUsd: pnlUsd,
-            periodPnlPercent: pnlPercent,
-          };
-        })
-      );
+        }
+        
+        return {
+          ...wallet,
+          periodPnlUsd: pnlUsd,
+          periodPnlPercent: pnlPercent,
+        };
+      });
       
       // Sort by PnL USD and take top 5
       topByPeriod[period.label] = walletsWithPeriodPnl
@@ -236,9 +213,9 @@ router.get('/overview', async (req, res) => {
           address: w.address,
           label: w.label,
           totalTrades: w.totalTrades,
-          recentPnl30dUsd: w.periodPnlUsd,
-          recentPnl30dPercent: w.periodPnlPercent,
-          advancedStats: w.advancedStats, // Keep for frontend
+          recentPnl30dUsd: w.periodPnlUsd, // Použij periodPnlUsd pro zobrazení
+          recentPnl30dPercent: w.periodPnlPercent, // Použij periodPnlPercent pro zobrazení
+          advancedStats: w.advancedStats, // Keep for frontend - frontend použije rolling stats přímo
         }));
     }
 
