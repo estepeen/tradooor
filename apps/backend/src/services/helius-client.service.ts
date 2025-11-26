@@ -910,14 +910,20 @@ export class HeliusClient {
         }
       }
 
-      // Debug logging (only for first few swaps to avoid spam)
-      const shouldLog = Math.random() < 0.1; // Log 10% of swaps for debugging
+      // Debug logging - log vždy pokud je amountBase podezřele malý (< 0.1 SOL) nebo pokud je to Axiom
+      const shouldLog = Math.random() < 0.1 || heliusTx.source?.toUpperCase() === 'AXIOM';
       if (shouldLog) {
-      console.log(`   🔍 normalizeSwap for ${walletAddress.substring(0, 8)}...:`);
+        console.log(`   🔍 normalizeSwap for ${walletAddress.substring(0, 8)}... (${heliusTx.source || 'unknown'}):`);
       console.log(`      - tokenIn: ${tokenIn ? `${tokenIn.mint.substring(0, 8)}... (${(tokenIn.userAccount || tokenIn.fromUserAccount || '').substring(0, 8)}...)` : 'none'}`);
       console.log(`      - tokenOut: ${tokenOut ? `${tokenOut.mint.substring(0, 8)}... (${(tokenOut.userAccount || tokenOut.toUserAccount || '').substring(0, 8)}...)` : 'none'}`);
       console.log(`      - nativeIn: ${nativeIn > 0 ? `${nativeIn} SOL` : 'none'}`);
       console.log(`      - nativeOut: ${nativeOut > 0 ? `${nativeOut} SOL` : 'none'}`);
+        console.log(`      - solNetIn: ${solNetIn > 0 ? `${solNetIn} SOL` : 'none'}`);
+        console.log(`      - solNetOut: ${solNetOut > 0 ? `${solNetOut} SOL` : 'none'}`);
+        console.log(`      - accountDataNativeChange: ${accountDataNativeChange > 0 ? `${accountDataNativeChange} SOL` : 'none'}`);
+        if ((heliusTx as any).description) {
+          console.log(`      - description: ${(heliusTx as any).description.substring(0, 200)}`);
+        }
       }
 
       // 2) Urči, který asset je "token" a který "base"
@@ -1151,12 +1157,14 @@ export class HeliusClient {
           }
         }
 
-        // Pro Axiom: pokud getSwapBaseAmounts vrátilo 0 nebo velmi malou hodnotu (pravděpodobně fee),
-        // zkus znovu description parser nebo WSOL token transfers
-        if (isAxiom && amountBase > 0 && amountBase < 0.1) {
-        const descAmount = parseBaseAmountFromDescription();
+        // Obecná kontrola: pokud getSwapBaseAmounts vrátilo velmi malou hodnotu (< 0.1 SOL),
+        // může to být fee místo skutečné swap hodnoty - zkus description parser nebo WSOL token transfers
+        // Toto platí nejen pro Axiom, ale i pro jiné DEXy, které mohou mít podobný problém
+        if (amountBase > 0 && amountBase < 0.1) {
+          const descAmount = parseBaseAmountFromDescription();
           if (descAmount > amountBase) {
-            console.log(`   ✅ [AXIOM] Description amount (${descAmount}) > calculated amount (${amountBase}), using description`);
+            const sourceLabel = isAxiom ? '[AXIOM]' : `[${heliusTx.source || 'UNKNOWN'}]`;
+            console.log(`   ✅ ${sourceLabel} Description amount (${descAmount}) > calculated amount (${amountBase}), using description`);
             amountBase = descAmount;
             baseToken = baseToken || 'SOL';
           } else {
@@ -1179,9 +1187,14 @@ export class HeliusClient {
             }
             
             if (wsolAmount > amountBase) {
+              const sourceLabel = isAxiom ? '[AXIOM]' : `[${heliusTx.source || 'UNKNOWN'}]`;
+              console.log(`   ✅ ${sourceLabel} Using WSOL token transfer as fallback: ${wsolAmount} SOL (was ${amountBase})`);
               amountBase = wsolAmount;
               baseToken = 'SOL';
-              console.log(`   ✅ [AXIOM] Using WSOL token transfer as fallback: ${amountBase} ${baseToken}`);
+            } else if (amountBase < 0.1) {
+              // Pokud stále máme velmi malou hodnotu, loguj varování
+              const sourceLabel = isAxiom ? '[AXIOM]' : `[${heliusTx.source || 'UNKNOWN'}]`;
+              console.warn(`   ⚠️  ${sourceLabel} Very small amountBase (${amountBase} SOL) - might be fee instead of swap value. TX: ${heliusTx.signature.substring(0, 16)}...`);
             }
           }
         }
