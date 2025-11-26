@@ -821,6 +821,75 @@ export class HeliusClient {
         };
       };
 
+      /**
+       * Helper: Najde největší SOL/WSOL transfer pro wallet v transakci.
+       * Používá se jako fallback, když amountBase je podezřele malý (< 0.1 SOL).
+       * 
+       * @returns Největší SOL/WSOL hodnota v SOL (ne lamports)
+       */
+      const getLargestSolTransferForWallet = (): number => {
+        const SOL_MINT = 'So11111111111111111111111111111111111111112';
+        const walletLower = walletAddress.toLowerCase();
+        let largestSol = 0;
+
+        // 1. Zkontroluj native SOL transfers
+        for (const transfer of (heliusTx.nativeTransfers || [])) {
+          const isWallet = isWalletAccount(transfer.fromUserAccount) || isWalletAccount(transfer.toUserAccount);
+          if (!isWallet) continue;
+          
+          const amountSol = Number(transfer.amount || 0) / 1e9;
+          if (amountSol > largestSol) {
+            largestSol = amountSol;
+          }
+        }
+
+        // 2. Zkontroluj WSOL token transfers
+        for (const transfer of (heliusTx.tokenTransfers || [])) {
+          const isWallet = (transfer.fromUserAccount?.toLowerCase() === walletLower) || 
+                          (transfer.toUserAccount?.toLowerCase() === walletLower);
+          if (!isWallet || transfer.mint !== SOL_MINT) continue;
+          
+          const transferAmount = transfer.tokenAmount || 0;
+          if (transferAmount > largestSol) {
+            largestSol = transferAmount;
+          }
+        }
+
+        // 3. Zkontroluj events.swap pro WSOL
+        if (swap) {
+          const allTokenInputs = [
+            ...(swap.tokenInputs ?? []),
+            ...((swap.innerSwaps ?? []).flatMap((s: any) => s.tokenInputs ?? [])),
+          ];
+          const allTokenOutputs = [
+            ...(swap.tokenOutputs ?? []),
+            ...((swap.innerSwaps ?? []).flatMap((s: any) => s.tokenOutputs ?? [])),
+          ];
+
+          for (const ti of allTokenInputs) {
+            const isWallet = isWalletAccount(ti.userAccount) || isWalletAccount(ti.fromUserAccount);
+            if (!isWallet || ti.mint !== SOL_MINT) continue;
+            
+            const amt = getTokenAmount(ti);
+            if (amt > largestSol) {
+              largestSol = amt;
+            }
+          }
+
+          for (const to of allTokenOutputs) {
+            const isWallet = isWalletAccount(to.userAccount) || isWalletAccount(to.toUserAccount);
+            if (!isWallet || to.mint !== SOL_MINT) continue;
+            
+            const amt = getTokenAmount(to);
+            if (amt > largestSol) {
+              largestSol = amt;
+            }
+          }
+        }
+
+        return largestSol;
+      };
+
       // 1) Najdi token input/output pro tuto peněženku
       // Zkombinuj tokenInputs/tokenOutputs z top-levelu i z innerSwaps
       const allTokenInputs = [
@@ -1158,7 +1227,7 @@ export class HeliusClient {
         }
 
         // Obecná kontrola: pokud getSwapBaseAmounts vrátilo velmi malou hodnotu (< 0.1 SOL),
-        // může to být fee místo skutečné swap hodnoty - zkus description parser nebo WSOL token transfers
+        // může to být fee místo skutečné swap hodnoty - zkus description parser nebo největší SOL transfer
         // Toto platí nejen pro Axiom, ale i pro jiné DEXy, které mohou mít podobný problém
         if (amountBase > 0 && amountBase < 0.1) {
           const descAmount = parseBaseAmountFromDescription();
@@ -1168,33 +1237,18 @@ export class HeliusClient {
             amountBase = descAmount;
             baseToken = baseToken || 'SOL';
           } else {
-            // Zkus WSOL token transfers jako fallback
-            const SOL_MINT = 'So11111111111111111111111111111111111111112';
-            const walletLower = walletAddress.toLowerCase();
-            let wsolAmount = 0;
-            
-            for (const transfer of (heliusTx.tokenTransfers || [])) {
-              const isWallet = transfer.fromUserAccount?.toLowerCase() === walletLower || 
-                              transfer.toUserAccount?.toLowerCase() === walletLower;
-              if (!isWallet || transfer.mint !== SOL_MINT) continue;
-              
-              const transferAmount = transfer.tokenAmount || 0;
-              if (side === 'sell' && transfer.toUserAccount?.toLowerCase() === walletLower) {
-                wsolAmount = Math.max(wsolAmount, transferAmount);
-              } else if (side === 'buy' && transfer.fromUserAccount?.toLowerCase() === walletLower) {
-                wsolAmount = Math.max(wsolAmount, transferAmount);
-              }
-            }
-            
-            if (wsolAmount > amountBase) {
+            // FALLBACK: Najdi největší SOL/WSOL transfer pro wallet - to je pravděpodobně skutečná swap hodnota
+            const largestSol = getLargestSolTransferForWallet();
+            if (largestSol > amountBase && largestSol >= 0.1) {
               const sourceLabel = isAxiom ? '[AXIOM]' : `[${heliusTx.source || 'UNKNOWN'}]`;
-              console.log(`   ✅ ${sourceLabel} Using WSOL token transfer as fallback: ${wsolAmount} SOL (was ${amountBase})`);
-              amountBase = wsolAmount;
+              console.log(`   ✅ ${sourceLabel} Using largest SOL/WSOL transfer as fallback: ${largestSol} SOL (was ${amountBase} SOL - likely fee)`);
+              amountBase = largestSol;
               baseToken = 'SOL';
             } else if (amountBase < 0.1) {
               // Pokud stále máme velmi malou hodnotu, loguj varování
               const sourceLabel = isAxiom ? '[AXIOM]' : `[${heliusTx.source || 'UNKNOWN'}]`;
               console.warn(`   ⚠️  ${sourceLabel} Very small amountBase (${amountBase} SOL) - might be fee instead of swap value. TX: ${heliusTx.signature.substring(0, 16)}...`);
+              console.warn(`      Largest SOL transfer found: ${largestSol} SOL`);
             }
           }
         }
@@ -1293,14 +1347,24 @@ export class HeliusClient {
           }
         }
         
-        // Pro Axiom: pokud getSwapBaseAmounts vrátilo velmi malou hodnotu (pravděpodobně fee),
-        // zkus znovu description parser
-        if (isAxiom && amountBase > 0 && amountBase < 0.1) {
+        // Obecná kontrola: pokud getSwapBaseAmounts vrátilo velmi malou hodnotu (< 0.1 SOL),
+        // může to být fee místo skutečné swap hodnoty - zkus description parser nebo největší SOL transfer
+        if (amountBase > 0 && amountBase < 0.1) {
           const descAmount = parseBaseAmountFromDescription();
           if (descAmount > amountBase) {
-            console.log(`   ✅ [AXIOM SELL] Description amount (${descAmount}) > calculated amount (${amountBase}), using description`);
+            const sourceLabel = isAxiom ? '[AXIOM SELL]' : `[${heliusTx.source || 'UNKNOWN'} SELL]`;
+            console.log(`   ✅ ${sourceLabel} Description amount (${descAmount}) > calculated amount (${amountBase}), using description`);
             amountBase = descAmount;
             baseToken = 'SOL';
+          } else {
+            // FALLBACK: Najdi největší SOL/WSOL transfer pro wallet - to je pravděpodobně skutečná swap hodnota
+            const largestSol = getLargestSolTransferForWallet();
+            if (largestSol > amountBase && largestSol >= 0.1) {
+              const sourceLabel = isAxiom ? '[AXIOM SELL]' : `[${heliusTx.source || 'UNKNOWN'} SELL]`;
+              console.log(`   ✅ ${sourceLabel} Using largest SOL/WSOL transfer as fallback: ${largestSol} SOL (was ${amountBase} SOL - likely fee)`);
+              amountBase = largestSol;
+              baseToken = 'SOL';
+            }
           }
         }
         
@@ -1314,14 +1378,24 @@ export class HeliusClient {
         }
         
         // Fallback na nativeOut/tokenOut (z původní logiky, ale jen jako pojistka)
-        // Pro Axiom: tento fallback může obsahovat jen fee, takže ho použijeme jen jako poslední možnost
-        if (amountBase === 0 || (isAxiom && amountBase < 0.1)) {
-          if (nativeOut > 0 && (!isAxiom || nativeOut > 0.1)) {
-            console.log(`   ⚠️  [SELL] Using nativeOut fallback: ${nativeOut} SOL`);
-            amountBase = nativeOut;
-          } else if (outMint && isBaseToken(outMint)) {
-            const tokenOutAmount = getTokenAmount(tokenOut);
-            if (!isAxiom || tokenOutAmount > 0.1) {
+        if (amountBase === 0 || amountBase < 0.1) {
+          if (amountBase < 0.1 && amountBase > 0) {
+            // FALLBACK: Najdi největší SOL/WSOL transfer pro wallet
+            const largestSol = getLargestSolTransferForWallet();
+            if (largestSol > amountBase && largestSol >= 0.1) {
+              const sourceLabel = isAxiom ? '[AXIOM SELL]' : `[${heliusTx.source || 'UNKNOWN'} SELL]`;
+              console.log(`   ✅ ${sourceLabel} Using largest SOL/WSOL transfer as fallback: ${largestSol} SOL (was ${amountBase} SOL - likely fee)`);
+              amountBase = largestSol;
+              baseToken = 'SOL';
+            }
+          }
+          
+          if (amountBase === 0 || amountBase < 0.1) {
+            if (nativeOut > 0) {
+              console.log(`   ⚠️  [SELL] Using nativeOut fallback: ${nativeOut} SOL`);
+              amountBase = nativeOut;
+            } else if (outMint && isBaseToken(outMint)) {
+              const tokenOutAmount = getTokenAmount(tokenOut);
               console.log(`   ⚠️  [SELL] Using tokenOut fallback: ${tokenOutAmount} ${getBaseTokenSymbol(outMint)}`);
               amountBase = tokenOutAmount;
             }
@@ -1398,14 +1472,27 @@ export class HeliusClient {
         }
         
         // Fallback na nativeIn/tokenIn
-        // Pro Axiom: tento fallback může obsahovat jen fee, takže ho použijeme jen jako poslední možnost
-        if (amountBase === 0 || (isAxiom && amountBase < 0.1)) {
-          if (nativeIn > 0 && (!isAxiom || nativeIn > 0.1)) {
-            amountBase = nativeIn;
-          } else if (inMint && isBaseToken(inMint)) {
-            const tokenInAmount = getTokenAmount(tokenIn);
-            if (!isAxiom || tokenInAmount > 0.1) {
-              amountBase = tokenInAmount;
+        // Pokud je amountBase podezřele malý (< 0.1 SOL), zkus najít největší SOL transfer
+        if (amountBase === 0 || amountBase < 0.1) {
+          if (amountBase < 0.1 && amountBase > 0) {
+            // FALLBACK: Najdi největší SOL/WSOL transfer pro wallet
+            const largestSol = getLargestSolTransferForWallet();
+            if (largestSol > amountBase && largestSol >= 0.1) {
+              const sourceLabel = isAxiom ? '[AXIOM BUY]' : `[${heliusTx.source || 'UNKNOWN'} BUY]`;
+              console.log(`   ✅ ${sourceLabel} Using largest SOL/WSOL transfer as fallback: ${largestSol} SOL (was ${amountBase} SOL - likely fee)`);
+              amountBase = largestSol;
+              baseToken = 'SOL';
+            }
+          }
+          
+          if (amountBase === 0 || amountBase < 0.1) {
+            if (nativeIn > 0 && (!isAxiom || nativeIn > 0.1)) {
+              amountBase = nativeIn;
+            } else if (inMint && isBaseToken(inMint)) {
+              const tokenInAmount = getTokenAmount(tokenIn);
+              if (!isAxiom || tokenInAmount > 0.1) {
+                amountBase = tokenInAmount;
+              }
             }
           }
         }
