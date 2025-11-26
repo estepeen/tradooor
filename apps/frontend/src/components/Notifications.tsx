@@ -42,6 +42,9 @@ export default function Notifications() {
 
   // Fetch recent trades
   const loadTrades = async (since?: Date) => {
+    // Only fetch on client side
+    if (typeof window === 'undefined') return;
+    
     setLoading(true);
     try {
       const result = await fetchRecentTrades({
@@ -79,14 +82,18 @@ export default function Notifications() {
     }
   };
 
-  // Initial load
+  // Initial load - only on client side
   useEffect(() => {
-    loadTrades();
+    if (typeof window !== 'undefined') {
+      loadTrades();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Poll for new trades every 10 seconds
+  // Poll for new trades every 10 seconds - only on client side
   useEffect(() => {
+    if (typeof window === 'undefined') return;
+    
     const interval = setInterval(() => {
       if (lastFetchTime) {
         // Poll always, even when sidebar is open (to update badge)
