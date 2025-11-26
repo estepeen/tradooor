@@ -25,7 +25,7 @@ router.get('/overview', async (req, res) => {
 
     const { data: wallets, error } = await supabase
       .from(TABLES.SMART_WALLET)
-      .select('id, address, label, score, totalTrades, winRate, pnlTotalBase, recentPnl30dPercent');
+      .select('id, address, label, score, totalTrades, winRate, pnlTotalBase, recentPnl30dPercent, recentPnl30dUsd');
 
     // Calculate recent PnL in USD for each wallet
     const walletIds = (wallets || []).map(w => w.id);
@@ -55,11 +55,16 @@ router.get('/overview', async (req, res) => {
     }
 
     // Add recentPnl30dUsd to wallets
+    // DŮLEŽITÉ: Použij recentPnl30dUsd z databáze (pokud existuje), jinak vypočítej z trades
     const walletsWithUsd = (wallets || []).map(w => {
       const pnl = walletPnLMap.get(w.id);
+      // Preferuj recentPnl30dUsd z DB (je to precomputed a přesnější), jinak vypočítej z trades
+      const recentPnl30dUsd = w.recentPnl30dUsd !== null && w.recentPnl30dUsd !== undefined
+        ? Number(w.recentPnl30dUsd)
+        : (pnl ? pnl.sellValue - pnl.buyValue : 0);
       return {
         ...w,
-        recentPnl30dUsd: pnl ? pnl.sellValue - pnl.buyValue : 0,
+        recentPnl30dUsd,
       };
     });
 
@@ -70,7 +75,16 @@ router.get('/overview', async (req, res) => {
     const walletList = walletsWithUsd ?? [];
     const totalWallets = walletList.length;
     const totalTrades = actualTradeCount ?? 0; // Use actual count from trades table
-    const totalPnl = walletList.reduce((sum, w) => sum + (w.pnlTotalBase || 0), 0);
+    
+    // DŮLEŽITÉ: Počítej totalPnl pouze z walletů, které mají platné pnlTotalBase
+    // Ignoruj null, undefined a NaN hodnoty
+    const totalPnl = walletList.reduce((sum, w) => {
+      const pnl = w.pnlTotalBase;
+      if (pnl === null || pnl === undefined || isNaN(Number(pnl))) {
+        return sum;
+      }
+      return sum + Number(pnl);
+    }, 0);
     const avgScore = totalWallets > 0 
       ? walletList.reduce((sum, w) => sum + (w.score || 0), 0) / totalWallets 
       : 0;

@@ -16,7 +16,9 @@ export default function RootLayout({
     <html lang="en" className="dark">
       <body className="font-sans">
         <Navigation />
-        {children}
+        <div className="pt-16">
+          {children}
+        </div>
       </body>
     </html>
   )
