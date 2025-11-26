@@ -299,16 +299,16 @@ export default function StatsPage() {
           </div>
         )}
 
-        {/* Top by Period PnL (1d, 7d, 14d, 30d) */}
-        {overview && overview.topPerformers && overview.topPerformers.byPeriod && (
+        {/* Top by Period by Score (points) - NEZÁVISLÉ NA USD */}
+        {overview && overview.topPerformers && overview.topPerformers.byPeriodByScore && (
           <div className="mb-8">
-            <h2 className="text-2xl font-semibold mb-4">Top Traders by Period</h2>
+            <h2 className="text-2xl font-semibold mb-4">Top Traders by Period (in pts)</h2>
             <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
             {(['1d', '7d', '14d', '30d'] as const).map((period) => {
-              const wallets = overview.topPerformers.byPeriod[period] || [];
+              const wallets = overview.topPerformers.byPeriodByScore[period] || [];
               return (
                 <div key={period} className="border border-border rounded-lg p-6">
-                  <h2 className="text-lg font-semibold mb-4">PnL ({period})</h2>
+                  <h2 className="text-lg font-semibold mb-4">Score ({period})</h2>
                   <div className="space-y-2">
                     {wallets.length > 0 ? (
                       wallets.map((wallet: any) => (
@@ -321,57 +321,71 @@ export default function StatsPage() {
                             <div className="font-medium">{wallet.label || wallet.address.slice(0, 8)}</div>
                             <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
                           </div>
-                          <div className={`text-right font-bold ${
-                            (() => {
-                              // STEJNÁ LOGIKA JAKO NA HOMEPAGE: použij advancedStats.rolling pokud je dostupné
-                              const rolling = (wallet.advancedStats as any)?.rolling;
-                              let rollingKey: string;
-                              if (period === '1d') {
-                                rollingKey = '7d'; // Pro 1d použij 7d jako fallback (stejně jako homepage)
-                              } else if (period === '14d') {
-                                rollingKey = '30d'; // Pro 14d použij 30d jako aproximaci
-                              } else {
-                                rollingKey = period; // Pro 7d a 30d použij přímo
-                              }
-                              const rollingData = rolling?.[rollingKey];
-                              const pnlPercent = rollingData?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
-                              return pnlPercent >= 0 ? 'text-green-600' : 'text-red-600';
-                            })()
-                          }`}>
-                            {(() => {
-                              // STEJNÁ LOGIKA JAKO NA HOMEPAGE: použij advancedStats.rolling pokud je dostupné
-                              const rolling = (wallet.advancedStats as any)?.rolling;
-                              let rollingKey: string;
-                              if (period === '1d') {
-                                rollingKey = '7d'; // Pro 1d použij 7d jako fallback (stejně jako homepage)
-                              } else if (period === '14d') {
-                                rollingKey = '30d'; // Pro 14d použij 30d jako aproximaci
-                              } else {
-                                rollingKey = period; // Pro 7d a 30d použij přímo
-                              }
-                              const rollingData = rolling?.[rollingKey];
-                              const pnlUsd = rollingData?.realizedPnlUsd ?? wallet.recentPnl30dUsd ?? 0;
-                              const pnlPercent = rollingData?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
-                              
-                              if (pnlUsd !== undefined && pnlUsd !== null && pnlUsd !== 0) {
-                                return (
-                                  <>
-                                    <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                                      ${formatNumber(Math.abs(pnlUsd), 2)}
-                                    </span>
-                                    {' '}
-                                    <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                                      ({pnlPercent >= 0 ? '+' : ''}{formatPercent(pnlPercent / 100)})
-                                    </span>
-                                  </>
-                                );
-                              } else {
-                                return `${pnlPercent >= 0 ? '+' : ''}${formatPercent(pnlPercent / 100)}`;
-                              }
-                            })()}
+                          <div className="text-right font-bold">
+                            <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                              {formatNumber(wallet.score || 0, 1)}
+                            </span>
                           </div>
                         </Link>
                       ))
+                    ) : (
+                      <div className="text-sm text-muted-foreground text-center py-4">No data available</div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            </div>
+          </div>
+        )}
+
+        {/* Top by Period PnL (1d, 7d, 14d, 30d) - POUZE USD, BEZ PROCENT */}
+        {overview && overview.topPerformers && overview.topPerformers.byPeriod && (
+          <div className="mb-8">
+            <h2 className="text-2xl font-semibold mb-4">Top Traders by Period (in $)</h2>
+            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            {(['1d', '7d', '14d', '30d'] as const).map((period) => {
+              const wallets = overview.topPerformers.byPeriod[period] || [];
+              return (
+                <div key={period} className="border border-border rounded-lg p-6">
+                  <h2 className="text-lg font-semibold mb-4">PnL ({period})</h2>
+                  <div className="space-y-2">
+                    {wallets.length > 0 ? (
+                      wallets.map((wallet: any) => {
+                        // STEJNÁ LOGIKA JAKO NA HOMEPAGE: použij advancedStats.rolling pokud je dostupné
+                        const rolling = (wallet.advancedStats as any)?.rolling;
+                        let rollingKey: string;
+                        if (period === '1d') {
+                          rollingKey = '7d'; // Pro 1d použij 7d jako fallback (stejně jako homepage)
+                        } else if (period === '14d') {
+                          rollingKey = '30d'; // Pro 14d použij 30d jako aproximaci
+                        } else {
+                          rollingKey = period; // Pro 7d a 30d použij přímo
+                        }
+                        const rollingData = rolling?.[rollingKey];
+                        const pnlUsd = rollingData?.realizedPnlUsd ?? wallet.recentPnl30dUsd ?? 0;
+                        const pnlPercent = rollingData?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
+                        
+                        return (
+                          <Link
+                            key={wallet.id}
+                            href={`/wallet/${wallet.address}`}
+                            className="flex justify-between items-center p-2 hover:bg-muted rounded"
+                          >
+                            <div>
+                              <div className="font-medium">{wallet.label || wallet.address.slice(0, 8)}</div>
+                              <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
+                            </div>
+                            <div className={`text-right font-bold ${
+                              pnlUsd >= 0 ? 'text-green-600' : 'text-red-600'
+                            }`}>
+                              <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                                ${formatNumber(Math.abs(pnlUsd), 2)}
+                              </span>
+                            </div>
+                          </Link>
+                        );
+                      })
                     ) : (
                       <div className="text-sm text-muted-foreground text-center py-4">No data available</div>
                     )}

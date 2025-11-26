@@ -218,6 +218,23 @@ router.get('/overview', async (req, res) => {
           advancedStats: w.advancedStats, // Keep for frontend - frontend použije rolling stats přímo
         }));
     }
+    
+    // Top traders by score (points) for each period - use overall score (independent of period)
+    // Score je celkové skóre kvality tradera, nezávislé na období
+    const topByPeriodByScore: Record<string, any[]> = {};
+    for (const period of periods) {
+      // Pro všechny období použij stejné top 5 podle celkového score
+      topByPeriodByScore[period.label] = [...walletList]
+        .sort((a, b) => (b.score || 0) - (a.score || 0))
+        .slice(0, 5)
+        .map(w => ({
+          id: w.id,
+          address: w.address,
+          label: w.label,
+          totalTrades: w.totalTrades,
+          score: w.score,
+        }));
+    }
 
     res.json({
       totalWallets,
@@ -251,7 +268,8 @@ router.get('/overview', async (req, res) => {
         byScore: topByScore,
         byPnl: topByPnl,
         byRecentPnl: topByPeriod['30d'], // Keep for backward compatibility
-        byPeriod: topByPeriod, // New: 1d, 7d, 14d, 30d
+        byPeriod: topByPeriod, // New: 1d, 7d, 14d, 30d (by USD)
+        byPeriodByScore: topByPeriodByScore, // New: 1d, 7d, 14d, 30d (by points/score)
       },
     });
   } catch (error: any) {
