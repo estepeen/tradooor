@@ -27,3 +27,4 @@ ALTER TABLE "SmartWallet"
   ADD COLUMN IF NOT EXISTS "recentPnl30dUsd" double precision NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS "advancedStats" jsonb;
 
+

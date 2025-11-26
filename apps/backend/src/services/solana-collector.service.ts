@@ -51,7 +51,7 @@ export class SolanaCollectorService {
       // 3. Find or create token
       let token = await this.tokenRepo.findOrCreate({
         mintAddress: normalized.tokenMint,
-      });
+        });
 
       // 4. DŮLEŽITÉ: Fetch token metadata if missing - MUSÍME POČKAT na výsledek před uložením trade!
       // Pokud token nemá symbol/name, zkusíme fetchovat z Birdeye/DexScreener/Metaplex/Helius
@@ -68,7 +68,7 @@ export class SolanaCollectorService {
             if (updatedToken) {
               token = updatedToken;
               console.log(`   ✅ Token metadata fetched: ${token.symbol || 'N/A'} / ${token.name || 'N/A'}`);
-            } else {
+        } else {
               console.warn(`   ⚠️  Token metadata fetched but token not found in DB after update`);
             }
           } else {

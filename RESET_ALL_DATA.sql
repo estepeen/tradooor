@@ -48,3 +48,4 @@ SELECT
   (SELECT COUNT(*) FROM "WalletProcessingQueue") as remaining_queue_jobs,
   (SELECT COUNT(*) FROM "SmartWallet") as total_wallets;
 
+
