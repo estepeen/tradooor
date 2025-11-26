@@ -670,7 +670,7 @@ export class HeliusClient {
         // Použijeme legacy metodu pro normalizaci
         const source = heliusTx.source?.toUpperCase();
         if (source) {
-          const ALLOWED_SOURCES = ['JUPITER', 'JUPITER_LIMIT', 'RAYDIUM', 'PUMP_FUN', 'PUMP_AMM', 'METEORA', 'OKX', 'ORCA', 'ORCA_V2', 'ORCA_WHIRLPOOL', 'WHIRLPOOL', 'LIFINITY', 'PHOENIX', 'MERCURIAL', 'DRIFT', 'MANGO', 'ALDRIN', 'SABER', 'GOOSEFX', 'MARINADE', 'STEP', 'GMGN', 'BONK_DEX', 'BLOOM', 'DFLOW', 'BACKPACK', 'PHANTOM'];
+          const ALLOWED_SOURCES = ['JUPITER', 'JUPITER_LIMIT', 'RAYDIUM', 'PUMP_FUN', 'PUMP_AMM', 'METEORA', 'OKX', 'ORCA', 'ORCA_V2', 'ORCA_WHIRLPOOL', 'WHIRLPOOL', 'LIFINITY', 'PHOENIX', 'MERCURIAL', 'DRIFT', 'MANGO', 'ALDRIN', 'SABER', 'GOOSEFX', 'MARINADE', 'STEP', 'GMGN', 'BONK_DEX', 'BLOOM', 'DFLOW', 'BACKPACK', 'PHANTOM', 'AXIOM'];
           if (ALLOWED_SOURCES.includes(source)) {
             console.log(`   ℹ️  No events.swap in TX ${heliusTx.signature.substring(0, 8)}... but source=${source} indicates swap, using legacy method`);
             return this.normalizeSwapLegacy(heliusTx, walletAddress);
@@ -870,7 +870,7 @@ export class HeliusClient {
       // DŮLEŽITÉ: Pokud má type='SWAP' nebo source z allowlistu, je to swap (Solscan "TOKEN SWAP")
       // Ale i tak musíme filtrovat čisté transfery - swap musí mít změnu mezi tokenem a base tokenem
       const isConfirmedSwap = heliusTx.type === 'SWAP' || 
-        (heliusTx.source && ['JUPITER', 'JUPITER_LIMIT', 'RAYDIUM', 'PUMP_FUN', 'PUMP_AMM', 'METEORA', 'OKX', 'ORCA', 'ORCA_V2', 'ORCA_WHIRLPOOL', 'WHIRLPOOL', 'LIFINITY', 'PHOENIX', 'MERCURIAL', 'DRIFT', 'MANGO', 'ALDRIN', 'SABER', 'GOOSEFX', 'MARINADE', 'STEP', 'GMGN', 'BONK_DEX', 'BLOOM', 'DFLOW', 'BACKPACK', 'PHANTOM'].includes(heliusTx.source.toUpperCase()));
+        (heliusTx.source && ['JUPITER', 'JUPITER_LIMIT', 'RAYDIUM', 'PUMP_FUN', 'PUMP_AMM', 'METEORA', 'OKX', 'ORCA', 'ORCA_V2', 'ORCA_WHIRLPOOL', 'WHIRLPOOL', 'LIFINITY', 'PHOENIX', 'MERCURIAL', 'DRIFT', 'MANGO', 'ALDRIN', 'SABER', 'GOOSEFX', 'MARINADE', 'STEP', 'GMGN', 'BONK_DEX', 'BLOOM', 'DFLOW', 'BACKPACK', 'PHANTOM', 'AXIOM'].includes(heliusTx.source.toUpperCase()));
       
       // Helper funkce pro zjištění, jestli je mint base token (použijeme ji i před definicí)
       const isBaseToken = (mint: string | undefined): boolean => {
@@ -1092,12 +1092,27 @@ export class HeliusClient {
       // Když někdo prodá token za SOL, který se pak převádí na USDC,
       // chceme detekovat SELL tokenu, ne BUY USDC
 
+      // DŮLEŽITÉ: Pro Axiom a podobné agregátory, které mohou mít jinak strukturovaná data,
+      // prioritizujeme description parser, protože může obsahovat správnou swap hodnotu
+      // (zatímco nativeTransfers/accountData mohou obsahovat jen fees)
+      const isAxiom = heliusTx.source?.toUpperCase() === 'AXIOM';
+      
       if (primaryTokenNet) {
         const netAmount = primaryTokenNet.netAmount;
         const side: 'buy' | 'sell' = netAmount > 0 ? 'buy' : 'sell';
         const amountToken = Math.abs(netAmount);
         let amountBase = side === 'sell' ? solNetIn : solNetOut;
         let baseToken = amountBase > 0 ? 'SOL' : '';
+
+        // Pro Axiom: prioritizuj description parser (může obsahovat správnou swap hodnotu)
+        if (isAxiom) {
+          const descAmount = parseBaseAmountFromDescription();
+          if (descAmount > 0) {
+            amountBase = descAmount;
+            baseToken = baseToken || 'SOL';
+            console.log(`   ✅ [AXIOM] Using description-based base amount: ${amountBase} ${baseToken}`);
+          }
+        }
 
         if (amountBase === 0) {
           const { baseIn, baseOut, baseTokenIn, baseTokenOut } = getSwapBaseAmounts();
@@ -1110,9 +1125,23 @@ export class HeliusClient {
           }
         }
 
+        // Pro Axiom: pokud getSwapBaseAmounts vrátilo 0 nebo velmi malou hodnotu (pravděpodobně fee),
+        // zkus znovu description parser
+        if (isAxiom && amountBase > 0 && amountBase < 0.1) {
+          const descAmount = parseBaseAmountFromDescription();
+          if (descAmount > amountBase) {
+            console.log(`   ✅ [AXIOM] Description amount (${descAmount}) > calculated amount (${amountBase}), using description`);
+            amountBase = descAmount;
+            baseToken = baseToken || 'SOL';
+          }
+        }
+
         if (amountBase === 0 && accountDataNativeChange > 0) {
-          amountBase = accountDataNativeChange;
-          baseToken = 'SOL';
+          // Pro Axiom: accountDataNativeChange může obsahovat jen fee, takže ho použijeme jen jako poslední fallback
+          if (!isAxiom || accountDataNativeChange > 0.1) {
+            amountBase = accountDataNativeChange;
+            baseToken = 'SOL';
+          }
         }
 
         if (amountBase === 0) {
@@ -1174,15 +1203,42 @@ export class HeliusClient {
         // Input je token (ne base) → SELL
         let amountToken = getTokenAmount(tokenIn);
         
+        // Pro Axiom: prioritizuj description parser (může obsahovat správnou swap hodnotu)
+        const isAxiom = heliusTx.source?.toUpperCase() === 'AXIOM';
+        let amountBase = 0;
+        let baseToken = 'SOL';
+        
+        if (isAxiom) {
+          const descAmount = parseBaseAmountFromDescription();
+          if (descAmount > 0) {
+            amountBase = descAmount;
+            baseToken = 'SOL';
+            console.log(`   ✅ [AXIOM SELL] Using description-based base amount: ${amountBase} ${baseToken}`);
+          }
+        }
+        
         // NOVÁ LOGIKA: Získej amountBase přímo z events.swap (bez fees)
-        const { baseOut, baseTokenOut } = getSwapBaseAmounts();
-        let amountBase = baseOut;
-        let baseToken = baseTokenOut;
-        // DEBUG: Log zdroj amountBase
-        if (amountBase > 0) {
-          console.log(`   ✅ [SELL] amountBase from getSwapBaseAmounts: ${amountBase} ${baseTokenOut}`);
-        } else {
-          console.log(`   ⚠️  [SELL] getSwapBaseAmounts returned 0, trying fallbacks...`);
+        if (amountBase === 0) {
+          const { baseOut, baseTokenOut } = getSwapBaseAmounts();
+          amountBase = baseOut;
+          baseToken = baseTokenOut;
+          // DEBUG: Log zdroj amountBase
+          if (amountBase > 0) {
+            console.log(`   ✅ [SELL] amountBase from getSwapBaseAmounts: ${amountBase} ${baseTokenOut}`);
+          } else {
+            console.log(`   ⚠️  [SELL] getSwapBaseAmounts returned 0, trying fallbacks...`);
+          }
+        }
+        
+        // Pro Axiom: pokud getSwapBaseAmounts vrátilo velmi malou hodnotu (pravděpodobně fee),
+        // zkus znovu description parser
+        if (isAxiom && amountBase > 0 && amountBase < 0.1) {
+          const descAmount = parseBaseAmountFromDescription();
+          if (descAmount > amountBase) {
+            console.log(`   ✅ [AXIOM SELL] Description amount (${descAmount}) > calculated amount (${amountBase}), using description`);
+            amountBase = descAmount;
+            baseToken = 'SOL';
+          }
         }
         
         // Fallback na description, pokud je events.swap prázdný (např. u některých agregátorů)
@@ -1195,14 +1251,17 @@ export class HeliusClient {
         }
         
         // Fallback na nativeOut/tokenOut (z původní logiky, ale jen jako pojistka)
-        if (amountBase === 0) {
-          if (nativeOut > 0) {
+        // Pro Axiom: tento fallback může obsahovat jen fee, takže ho použijeme jen jako poslední možnost
+        if (amountBase === 0 || (isAxiom && amountBase < 0.1)) {
+          if (nativeOut > 0 && (!isAxiom || nativeOut > 0.1)) {
             console.log(`   ⚠️  [SELL] Using nativeOut fallback: ${nativeOut} SOL`);
             amountBase = nativeOut;
           } else if (outMint && isBaseToken(outMint)) {
             const tokenOutAmount = getTokenAmount(tokenOut);
-            console.log(`   ⚠️  [SELL] Using tokenOut fallback: ${tokenOutAmount} ${getBaseTokenSymbol(outMint)}`);
-            amountBase = tokenOutAmount;
+            if (!isAxiom || tokenOutAmount > 0.1) {
+              console.log(`   ⚠️  [SELL] Using tokenOut fallback: ${tokenOutAmount} ${getBaseTokenSymbol(outMint)}`);
+              amountBase = tokenOutAmount;
+            }
           }
         }
         
@@ -1234,10 +1293,38 @@ export class HeliusClient {
         // Output je token (ne base) → BUY
         let amountToken = getTokenAmount(tokenOut);
         
+        // Pro Axiom: prioritizuj description parser (může obsahovat správnou swap hodnotu)
+        const isAxiom = heliusTx.source?.toUpperCase() === 'AXIOM';
+        let amountBase = 0;
+        let baseToken = 'SOL';
+        
+        if (isAxiom) {
+          const descAmount = parseBaseAmountFromDescription();
+          if (descAmount > 0) {
+            amountBase = descAmount;
+            baseToken = 'SOL';
+            console.log(`   ✅ [AXIOM BUY] Using description-based base amount: ${amountBase} ${baseToken}`);
+          }
+        }
+        
         // NOVÁ LOGIKA: Získej amountBase přímo z events.swap (bez fees)
-        const { baseIn, baseTokenIn } = getSwapBaseAmounts();
-        let amountBase = baseIn;
-        let baseToken = baseTokenIn;
+        if (amountBase === 0) {
+          const { baseIn, baseTokenIn } = getSwapBaseAmounts();
+          amountBase = baseIn;
+          baseToken = baseTokenIn;
+        }
+        
+        // Pro Axiom: pokud getSwapBaseAmounts vrátilo velmi malou hodnotu (pravděpodobně fee),
+        // zkus znovu description parser
+        if (isAxiom && amountBase > 0 && amountBase < 0.1) {
+          const descAmount = parseBaseAmountFromDescription();
+          if (descAmount > amountBase) {
+            console.log(`   ✅ [AXIOM BUY] Description amount (${descAmount}) > calculated amount (${amountBase}), using description`);
+            amountBase = descAmount;
+            baseToken = 'SOL';
+          }
+        }
+        
         // Fallback na description
         if (amountBase === 0) {
           const descAmount = parseBaseAmountFromDescription();
@@ -1248,11 +1335,15 @@ export class HeliusClient {
         }
         
         // Fallback na nativeIn/tokenIn
-        if (amountBase === 0) {
-           if (nativeIn > 0) {
+        // Pro Axiom: tento fallback může obsahovat jen fee, takže ho použijeme jen jako poslední možnost
+        if (amountBase === 0 || (isAxiom && amountBase < 0.1)) {
+          if (nativeIn > 0 && (!isAxiom || nativeIn > 0.1)) {
             amountBase = nativeIn;
           } else if (inMint && isBaseToken(inMint)) {
-            amountBase = getTokenAmount(tokenIn);
+            const tokenInAmount = getTokenAmount(tokenIn);
+            if (!isAxiom || tokenInAmount > 0.1) {
+              amountBase = tokenInAmount;
+            }
           }
         }
         
