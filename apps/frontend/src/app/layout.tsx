@@ -14,6 +14,26 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              // Prevent browser extensions from setting window.ethereum if it's read-only
+              if (typeof window !== 'undefined' && window.ethereum && Object.getOwnPropertyDescriptor(window, 'ethereum')?.configurable === false) {
+                try {
+                  Object.defineProperty(window, 'ethereum', {
+                    value: window.ethereum,
+                    writable: true,
+                    configurable: true
+                  });
+                } catch (e) {
+                  console.warn('Could not configure window.ethereum:', e);
+                }
+              }
+            `,
+          }}
+        />
+      </head>
       <body className="font-sans">
         <Navigation />
         <div className="pt-16">
