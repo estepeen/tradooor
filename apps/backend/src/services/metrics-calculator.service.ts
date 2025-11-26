@@ -160,7 +160,7 @@ export class MetricsCalculatorService {
       : rollingInsights.scores.smartScore ?? legacyScore;
 
     const advancedStatsPayload = legacyAdvancedStats ? { ...legacyAdvancedStats } : {};
-    const advancedStats = {
+    const advancedStatsRaw = {
       ...advancedStatsPayload,
       rolling: rollingInsights.rolling,
       behaviour: rollingInsights.behaviour,
@@ -169,6 +169,10 @@ export class MetricsCalculatorService {
         legacyScore,
       },
     };
+
+    // DŮLEŽITÉ: Sanitizuj advancedStats před uložením - odstraní undefined, NaN, atd.
+    // Supabase nemůže serializovat undefined nebo NaN do JSON
+    const advancedStats = this.sanitizeJsonForDatabase(advancedStatsRaw);
 
     // Update wallet metrics
     await this.smartWalletRepo.update(walletId, {
@@ -427,6 +431,43 @@ export class MetricsCalculatorService {
     const pnlPercent = (totalPnl / totalBuyValue) * 100;
 
     return { percent: pnlPercent, usd: totalPnl };
+  }
+
+  /**
+   * Sanitizuje objekt pro uložení do databáze - odstraní undefined, převede NaN na null
+   */
+  private sanitizeJsonForDatabase(obj: any): any {
+    if (obj === null || obj === undefined) {
+      return null;
+    }
+    
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.sanitizeJsonForDatabase(item));
+    }
+    
+    if (typeof obj === 'object') {
+      const sanitized: any = {};
+      for (const [key, value] of Object.entries(obj)) {
+        // Přeskoč undefined hodnoty
+        if (value === undefined) {
+          continue;
+        }
+        // Převeď NaN na null
+        if (typeof value === 'number' && isNaN(value)) {
+          sanitized[key] = null;
+        } else {
+          sanitized[key] = this.sanitizeJsonForDatabase(value);
+        }
+      }
+      return sanitized;
+    }
+    
+    // Pro čísla: převeď NaN na null
+    if (typeof obj === 'number' && isNaN(obj)) {
+      return null;
+    }
+    
+    return obj;
   }
 
   private calculateScore(params: {
