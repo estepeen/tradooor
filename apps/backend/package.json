@@ -31,6 +31,7 @@
     "test:birdeye-api": "tsx src/scripts/test-birdeye-api.ts",
     "metrics:worker": "tsx src/workers/wallet-processing-queue.ts",
     "fix:trade-amount": "tsx src/scripts/fix-trade-amount.ts",
+    "test:sol-values": "tsx src/scripts/test-sol-values.ts",
     "fix:wallet-types-positions": "tsx src/scripts/fix-wallet-types-positions.ts"
   },
   "dependencies": {
