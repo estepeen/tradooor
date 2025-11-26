@@ -61,7 +61,12 @@ export async function fetchTrades(walletId: string, params?: {
   if (params?.toDate) searchParams.set('toDate', params.toDate);
 
   const url = `${API_BASE_URL}/trades?${searchParams.toString()}`;
-  const res = await fetch(url);
+  const res = await fetch(url, {
+    cache: 'no-store', // Vždy načti aktuální data
+    headers: {
+      'Cache-Control': 'no-cache',
+    },
+  });
   if (!res.ok) throw new Error('Failed to fetch trades');
   return res.json();
 }

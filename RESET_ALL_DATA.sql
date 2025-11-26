@@ -49,3 +49,4 @@ SELECT
   (SELECT COUNT(*) FROM "SmartWallet") as total_wallets;
 
 
+

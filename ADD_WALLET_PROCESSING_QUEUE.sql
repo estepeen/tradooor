@@ -28,3 +28,4 @@ ALTER TABLE "SmartWallet"
   ADD COLUMN IF NOT EXISTS "advancedStats" jsonb;
 
 
+

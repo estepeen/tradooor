@@ -47,3 +47,4 @@ CREATE INDEX IF NOT EXISTS trade_feature_token_idx ON "TradeFeature" ("tokenId")
 CREATE INDEX IF NOT EXISTS trade_feature_timestamp_idx ON "TradeFeature" ("txTimestamp");
 
 
+

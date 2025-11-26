@@ -415,21 +415,21 @@ export default function WalletDetailPage() {
           <>
         {/* Metrics Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <div className="p-4 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl hover:bg-white/10 transition-all duration-300">
-            <div className="mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">Score</div>
-            <div className="text-3xl font-medium tracking-tight text-foreground">{formatNumber(wallet.score, 1)}</div>
+          <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
+            <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Score</div>
+            <div style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }} className="text-white">{formatNumber(wallet.score, 1)}</div>
           </div>
-          <div className="p-4 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl hover:bg-white/10 transition-all duration-300">
-            <div className="mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">Total Trades</div>
-            <div className="text-3xl font-medium tracking-tight text-foreground">{wallet.totalTrades}</div>
+          <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
+            <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Total Trades</div>
+            <div style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }} className="text-white">{wallet.totalTrades}</div>
           </div>
-          <div className="p-4 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl hover:bg-white/10 transition-all duration-300">
-            <div className="mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">Win Rate</div>
-            <div className="text-3xl font-medium tracking-tight text-foreground">{formatPercent(wallet.winRate)}</div>
+          <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
+            <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Win Rate</div>
+            <div style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }} className="text-white">{formatPercent(wallet.winRate)}</div>
           </div>
-          <div className="p-4 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl hover:bg-white/10 transition-all duration-300">
-            <div className="mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">Avg Hold Time</div>
-            <div className="text-3xl font-medium tracking-tight text-foreground">
+          <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
+            <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Avg Hold Time</div>
+            <div style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }} className="text-white">
               {wallet.avgHoldingTimeMin > 0 
                 ? `${formatNumber(wallet.avgHoldingTimeMin, 0)} min`
                 : '-'
@@ -512,16 +512,16 @@ export default function WalletDetailPage() {
               {periods.map(({ key, days }) => {
                 const data = calculatePnLForPeriod(days);
               return (
-                  <div key={key} className="p-4 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl hover:bg-white/10 transition-all duration-300">
-                    <div className="mb-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">PnL ({key})</div>
+                  <div key={key} style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
+                    <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">PnL ({key})</div>
                   <div className={`${
                     data.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'
                   }`}>
-                          <span className="text-3xl font-medium tracking-tight">
+                          <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
                             ${formatNumber(Math.abs(data.pnlUsd), 2)}
                           </span>
                           {' '}
-                          <span className="text-sm font-medium">
+                          <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
                             ({data.pnlPercent >= 0 ? '+' : ''}{formatPercent(data.pnlPercent / 100)})
                           </span>
                   </div>
@@ -537,7 +537,7 @@ export default function WalletDetailPage() {
 
         {/* Open & Closed Positions */}
         <div className="mb-10">
-          <h2 className="text-2xl font-semibold mb-4 tracking-tight">Positions Overview</h2>
+          <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">Positions Overview</h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Open Positions */}
               <div className="overflow-hidden">
@@ -770,7 +770,7 @@ export default function WalletDetailPage() {
         </div>
             {/* Recent Trades */}
             <div className="overflow-hidden">
-              <h2 className="text-2xl font-semibold mb-4 tracking-tight">Recent Trades</h2>
+              <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">Recent Trades</h2>
               
               {/* Filters */}
               <div className="flex gap-4 flex-wrap mb-4">

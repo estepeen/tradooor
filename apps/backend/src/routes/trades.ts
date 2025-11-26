@@ -95,12 +95,15 @@ router.get('/', async (req, res) => {
           priceUsd = priceBasePerToken;
         }
 
+        // DŮLEŽITÉ: Explicitně přepiš amountBase, amountToken, priceBasePerToken jako čísla
+        // aby se předešlo problémům s Prisma Decimal serializací
+        const { amountBase: _, amountToken: __, priceBasePerToken: ___, ...rest } = t;
         return {
-          ...t,
+          ...rest,
           token,
-          amountToken,
-          amountBase,
-          priceBasePerToken,
+          amountToken, // Explicitně jako number
+          amountBase, // Explicitně jako number
+          priceBasePerToken, // Explicitně jako number
           // entryPrice = priceBasePerToken (cena v base měně za 1 token)
           entryPrice: priceBasePerToken,
           // entryCost (pro BUY) nebo proceedsBase (pro SELL) = amountBase
