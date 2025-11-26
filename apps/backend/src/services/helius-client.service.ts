@@ -1093,7 +1093,7 @@ export class HeliusClient {
       // chceme detekovat SELL tokenu, ne BUY USDC
 
       // DŮLEŽITÉ: Pro Axiom a podobné agregátory, které mohou mít jinak strukturovaná data,
-      // prioritizujeme description parser, protože může obsahovat správnou swap hodnotu
+      // prioritizujeme description parser a tokenTransfers (WSOL), protože mohou obsahovat správnou swap hodnotu
       // (zatímco nativeTransfers/accountData mohou obsahovat jen fees)
       const isAxiom = heliusTx.source?.toUpperCase() === 'AXIOM';
       
@@ -1111,6 +1111,32 @@ export class HeliusClient {
             amountBase = descAmount;
             baseToken = baseToken || 'SOL';
             console.log(`   ✅ [AXIOM] Using description-based base amount: ${amountBase} ${baseToken}`);
+          } else {
+            // Pokud description parser nefunguje, zkus najít WSOL v tokenTransfers
+            const SOL_MINT = 'So11111111111111111111111111111111111111112';
+            const walletLower = walletAddress.toLowerCase();
+            let wsolAmount = 0;
+            
+            for (const transfer of (heliusTx.tokenTransfers || [])) {
+              const isWallet = transfer.fromUserAccount?.toLowerCase() === walletLower || 
+                              transfer.toUserAccount?.toLowerCase() === walletLower;
+              if (!isWallet || transfer.mint !== SOL_MINT) continue;
+              
+              const transferAmount = transfer.tokenAmount || 0;
+              if (side === 'sell' && transfer.toUserAccount?.toLowerCase() === walletLower) {
+                // SELL: dostáváme WSOL
+                wsolAmount = Math.max(wsolAmount, transferAmount);
+              } else if (side === 'buy' && transfer.fromUserAccount?.toLowerCase() === walletLower) {
+                // BUY: posíláme WSOL
+                wsolAmount = Math.max(wsolAmount, transferAmount);
+              }
+            }
+            
+            if (wsolAmount > 0 && wsolAmount > amountBase) {
+              amountBase = wsolAmount;
+              baseToken = 'SOL';
+              console.log(`   ✅ [AXIOM] Using WSOL token transfer amount: ${amountBase} ${baseToken}`);
+            }
           }
         }
 
@@ -1126,24 +1152,48 @@ export class HeliusClient {
         }
 
         // Pro Axiom: pokud getSwapBaseAmounts vrátilo 0 nebo velmi malou hodnotu (pravděpodobně fee),
-        // zkus znovu description parser
+        // zkus znovu description parser nebo WSOL token transfers
         if (isAxiom && amountBase > 0 && amountBase < 0.1) {
-          const descAmount = parseBaseAmountFromDescription();
+        const descAmount = parseBaseAmountFromDescription();
           if (descAmount > amountBase) {
             console.log(`   ✅ [AXIOM] Description amount (${descAmount}) > calculated amount (${amountBase}), using description`);
             amountBase = descAmount;
             baseToken = baseToken || 'SOL';
+          } else {
+            // Zkus WSOL token transfers jako fallback
+            const SOL_MINT = 'So11111111111111111111111111111111111111112';
+            const walletLower = walletAddress.toLowerCase();
+            let wsolAmount = 0;
+            
+            for (const transfer of (heliusTx.tokenTransfers || [])) {
+              const isWallet = transfer.fromUserAccount?.toLowerCase() === walletLower || 
+                              transfer.toUserAccount?.toLowerCase() === walletLower;
+              if (!isWallet || transfer.mint !== SOL_MINT) continue;
+              
+              const transferAmount = transfer.tokenAmount || 0;
+              if (side === 'sell' && transfer.toUserAccount?.toLowerCase() === walletLower) {
+                wsolAmount = Math.max(wsolAmount, transferAmount);
+              } else if (side === 'buy' && transfer.fromUserAccount?.toLowerCase() === walletLower) {
+                wsolAmount = Math.max(wsolAmount, transferAmount);
+              }
+            }
+            
+            if (wsolAmount > amountBase) {
+              amountBase = wsolAmount;
+              baseToken = 'SOL';
+              console.log(`   ✅ [AXIOM] Using WSOL token transfer as fallback: ${amountBase} ${baseToken}`);
+            }
           }
         }
 
         if (amountBase === 0 && accountDataNativeChange > 0) {
           // Pro Axiom: accountDataNativeChange může obsahovat jen fee, takže ho použijeme jen jako poslední fallback
           if (!isAxiom || accountDataNativeChange > 0.1) {
-            amountBase = accountDataNativeChange;
+          amountBase = accountDataNativeChange;
             baseToken = 'SOL';
           }
         }
-
+        
         if (amountBase === 0) {
           const descAmount = parseBaseAmountFromDescription();
           if (descAmount > 0) {
@@ -1154,10 +1204,10 @@ export class HeliusClient {
 
         if (amountBase === 0) {
           if (side === 'sell') {
-            if (nativeOut > 0) {
-              amountBase = nativeOut;
+          if (nativeOut > 0) {
+            amountBase = nativeOut;
             } else if (tokenOut && isBaseToken(tokenOut.mint)) {
-              amountBase = getTokenAmount(tokenOut);
+            amountBase = getTokenAmount(tokenOut);
               baseToken = getBaseTokenSymbol(tokenOut.mint);
             }
           } else {
@@ -1179,7 +1229,7 @@ export class HeliusClient {
             baseToken = 'SOL';
           }
         }
-
+        
         if (amountBase > 0 && amountToken > 0) {
           return {
             txSignature: heliusTx.signature,
@@ -1272,7 +1322,7 @@ export class HeliusClient {
           } else if (!baseToken || baseToken === 'SOL') {
             baseToken = 'SOL';
           }
-
+          
           return {
             txSignature: heliusTx.signature,
             tokenMint: inMint,
@@ -1299,8 +1349,8 @@ export class HeliusClient {
         let baseToken = 'SOL';
         
         if (isAxiom) {
-          const descAmount = parseBaseAmountFromDescription();
-          if (descAmount > 0) {
+        const descAmount = parseBaseAmountFromDescription();
+        if (descAmount > 0) {
             amountBase = descAmount;
             baseToken = 'SOL';
             console.log(`   ✅ [AXIOM BUY] Using description-based base amount: ${amountBase} ${baseToken}`);
@@ -1369,7 +1419,7 @@ export class HeliusClient {
         } else {
           // DEBUG
           if (heliusTx.source === 'PUMP_AMM' || heliusTx.source === 'PUMP_FUN') {
-             console.log(`   ⚠️  [PUMP] BUY failed: amountBase=${amountBase}, amountToken=${amountToken}`);
+            console.log(`   ⚠️  [PUMP] BUY failed: amountBase=${amountBase}, amountToken=${amountToken}`);
              console.log(`      - baseIn from getSwapBaseAmounts: ${baseIn}`);
           }
         }
