@@ -173,6 +173,16 @@ export class MetricsCalculatorService {
     // DŮLEŽITÉ: Sanitizuj advancedStats před uložením - odstraní undefined, NaN, atd.
     // Supabase nemůže serializovat undefined nebo NaN do JSON
     const advancedStats = this.sanitizeJsonForDatabase(advancedStatsRaw);
+    
+    // Debug: Zkus serializovat, abychom viděli, jestli je to validní JSON
+    try {
+      JSON.stringify(advancedStats);
+    } catch (error: any) {
+      console.error('⚠️  advancedStats is not valid JSON after sanitization:', error.message);
+      console.error('Raw advancedStats:', JSON.stringify(advancedStatsRaw, null, 2));
+      console.error('Sanitized advancedStats:', JSON.stringify(advancedStats, null, 2));
+      throw new Error(`advancedStats is not valid JSON: ${error.message}`);
+    }
 
     // Update wallet metrics
     await this.smartWalletRepo.update(walletId, {

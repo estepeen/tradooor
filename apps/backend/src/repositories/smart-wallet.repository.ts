@@ -282,9 +282,25 @@ export class SmartWalletRepository {
     recentPnl30dUsd: number;
     advancedStats: Record<string, any> | null;
   }>) {
+    // DŮLEŽITÉ: Pokud je advancedStats objekt, zkus ho serializovat a parsovat,
+    // aby se zajistilo, že je to validní JSON
+    const updateData = { ...data };
+    if (updateData.advancedStats !== undefined && updateData.advancedStats !== null) {
+      try {
+        // Zkus serializovat a parsovat, aby se ověřilo, že je to validní JSON
+        const jsonString = JSON.stringify(updateData.advancedStats);
+        updateData.advancedStats = JSON.parse(jsonString) as any;
+      } catch (error: any) {
+        console.error('Error serializing advancedStats:', error);
+        console.error('advancedStats value:', JSON.stringify(updateData.advancedStats, null, 2));
+        // Pokud serializace selže, nastav na null
+        updateData.advancedStats = null;
+      }
+    }
+
     const { data: result, error } = await supabase
       .from(TABLES.SMART_WALLET)
-      .update(data)
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
