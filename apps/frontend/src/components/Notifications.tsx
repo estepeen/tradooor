@@ -194,8 +194,11 @@ export default function Notifications() {
               right: 0,
               top: 0,
               height: '100vh',
-              zIndex: 9999,
-              overflow: 'hidden'
+              zIndex: 10000,
+              overflow: 'hidden',
+              maxHeight: '100vh',
+              transform: 'translateZ(0)', // Create new stacking context
+              willChange: 'transform'
             }}
           >
             {/* Header */}
@@ -224,7 +227,7 @@ export default function Notifications() {
             </div>
 
             {/* Content */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden">
+            <div className="flex-1 overflow-y-auto overflow-x-hidden" style={{ minHeight: 0 }}>
               {loading && trades.length === 0 ? (
                 <div className="p-4 text-center text-muted-foreground">
                   Loading...
