@@ -6,8 +6,8 @@ import { fetchStatsOverview } from '@/lib/api';
 import { formatNumber, formatPercent, formatHoldTime } from '@/lib/utils';
 
 export default function StatsPage() {
-      const [overview, setOverview] = useState<any>(null);
-      const [loading, setLoading] = useState(true);
+  const [overview, setOverview] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     loadStats();
@@ -194,48 +194,49 @@ export default function StatsPage() {
           <div className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">Top Performers</h2>
             <div className="grid md:grid-cols-3 gap-6">
-            <div className="border border-border rounded-lg p-6">
-              <h2 className="text-lg font-semibold mb-4">Top by Score</h2>
-              <div className="space-y-2">
-                {overview.topPerformers.byScore.map((wallet: any, idx: number) => (
-                  <Link
-                    key={wallet.id}
-                    href={`/wallet/${wallet.address}`}
-                    className="flex justify-between items-center p-2 hover:bg-muted rounded"
-                  >
-                    <div>
-                      <div className="font-medium">{wallet.label || wallet.address.slice(0, 8)}</div>
-                      <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
-                    </div>
-                    <div className="text-right">
-                      <div className="font-bold">{formatNumber(wallet.score, 1)}</div>
-                    </div>
-                  </Link>
-                ))}
+              <div className="border border-border rounded-lg p-6">
+                <h2 className="text-lg font-semibold mb-4">Top by Score</h2>
+                <div className="space-y-2">
+                  {overview.topPerformers.byScore.map((wallet: any, idx: number) => (
+                    <Link
+                      key={wallet.id}
+                      href={`/wallet/${wallet.address}`}
+                      className="flex justify-between items-center p-2 hover:bg-muted rounded"
+                    >
+                      <div>
+                        <div className="font-medium">{wallet.label || wallet.address.slice(0, 8)}</div>
+                        <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-bold">{formatNumber(wallet.score, 1)}</div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            <div className="border border-border rounded-lg p-6">
-              <h2 className="text-lg font-semibold mb-4">Top by Total PnL</h2>
-              <div className="space-y-2">
-                {overview.topPerformers.byPnl.map((wallet: any, idx: number) => (
-                  <Link
-                    key={wallet.id}
-                    href={`/wallet/${wallet.address}`}
-                    className="flex justify-between items-center p-2 hover:bg-muted rounded"
-                  >
-                    <div>
-                      <div className="font-medium">{wallet.label || wallet.address.slice(0, 8)}</div>
-                      <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
-                    </div>
-                    <div className={`text-right font-bold ${
-                      wallet.pnlTotalBase >= 0 ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {wallet.pnlTotalBase >= 0 ? '+' : ''}
-                      {formatNumber(wallet.pnlTotalBase, 2)}
-                    </div>
-                  </Link>
-                ))}
+              <div className="border border-border rounded-lg p-6">
+                <h2 className="text-lg font-semibold mb-4">Top by Total PnL</h2>
+                <div className="space-y-2">
+                  {overview.topPerformers.byPnl.map((wallet: any, idx: number) => (
+                    <Link
+                      key={wallet.id}
+                      href={`/wallet/${wallet.address}`}
+                      className="flex justify-between items-center p-2 hover:bg-muted rounded"
+                    >
+                      <div>
+                        <div className="font-medium">{wallet.label || wallet.address.slice(0, 8)}</div>
+                        <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
+                      </div>
+                      <div className={`text-right font-bold ${
+                        wallet.pnlTotalBase >= 0 ? 'text-green-600' : 'text-red-600'
+                      }`}>
+                        {wallet.pnlTotalBase >= 0 ? '+' : ''}
+                        {formatNumber(wallet.pnlTotalBase, 2)}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
@@ -364,6 +365,7 @@ export default function StatsPage() {
                 </div>
               );
             })}
+            </div>
           </div>
         )}
 
