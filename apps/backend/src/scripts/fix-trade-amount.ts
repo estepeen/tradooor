@@ -44,7 +44,6 @@ async function fixTradeAmount() {
       .update({
         amountBase: correctAmountBase.toString(),
         priceBasePerToken: correctPriceBasePerToken.toString(),
-        updatedAt: new Date().toISOString(),
       })
       .eq('id', trade.id);
     
@@ -176,7 +175,6 @@ async function fixTradeAmount() {
     .update({
       amountBase: correctAmountBase.toString(),
       priceBasePerToken: correctPriceBasePerToken.toString(),
-      updatedAt: new Date().toISOString(),
     })
     .eq('id', trade.id);
   
