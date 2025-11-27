@@ -29,7 +29,7 @@ dotenv.config();
  *   pnpm --filter backend metrics:cron
  * 
  * Nebo s vlastním cron schedule:
- *   CRON_SCHEDULE="0 * /6 * * *" pnpm --filter backend metrics:cron
+ *   CRON_SCHEDULE="0 */6 * * *" pnpm --filter backend metrics:cron
  */
 async function calculateAllMetrics() {
   console.log(`\n⏰ [${new Date().toISOString()}] Starting metrics calculation...`);
@@ -76,13 +76,15 @@ async function calculateAllMetrics() {
 }
 
 async function main() {
-  // Default: každých 6 hodin (0 */6 * * *)
+  // Default: každou hodinu (0 * * * *)
   // Můžeš změnit přes environment variable CRON_SCHEDULE
-  const cronSchedule = process.env.CRON_SCHEDULE || '0 */6 * * *';
+  // Poznámka: Worker queue už zpracovává metriky po každém novém trade,
+  // takže tento cron je spíš backup/cleanup mechanismus pro zajištění aktuálnosti
+  const cronSchedule = process.env.CRON_SCHEDULE || '0 * * * *';
 
   console.log(`🚀 Starting metrics cron job`);
   console.log(`📅 Schedule: ${cronSchedule}`);
-  console.log(`   (Default: every 6 hours. Set CRON_SCHEDULE env var to customize)`);
+  console.log(`   (Default: every 1 hour. Set CRON_SCHEDULE env var to customize)`);
 
   // Spusť jednou hned při startu (pro testování)
   if (process.env.RUN_ON_START !== 'false') {
