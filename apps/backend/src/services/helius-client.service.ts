@@ -1585,8 +1585,8 @@ export class HeliusClient {
           
           if (amountBase === 0 || amountBase < 0.1) {
         */
-          if (amountBase === 0 || amountBase < 0.1) {
-            if (nativeIn > 0 && (!isAxiom || nativeIn > 0.1)) {
+        if (amountBase === 0 || amountBase < 0.1) {
+          if (nativeIn > 0 && (!isAxiom || nativeIn > 0.1)) {
               amountBase = nativeIn;
             } else if (inMint && isBaseToken(inMint)) {
               const tokenInAmount = getTokenAmount(tokenIn);
