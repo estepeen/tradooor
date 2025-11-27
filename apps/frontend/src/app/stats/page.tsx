@@ -385,8 +385,12 @@ export default function StatsPage() {
                           <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
                         </div>
                         <div className="text-right font-bold text-red-600">
-                          {/* Místo procent zobrazíme PnL v USD (30d), pokud je dostupný */}
-                          ${formatNumber(wallet.recentPnl30dUsd || 0, 2)}
+                          {/* STEJNÁ LOGIKA JAKO NA HOMEPAGE: použij advancedStats.rolling['30d'] pokud je dostupné */}
+                          {(() => {
+                            const rolling30d = (wallet.advancedStats as any)?.rolling?.['30d'];
+                            const pnlUsd = rolling30d?.realizedPnlUsd ?? wallet.recentPnl30dUsd ?? 0;
+                            return `$${formatNumber(pnlUsd, 2)}`;
+                          })()}
                         </div>
                       </Link>
                     ))
