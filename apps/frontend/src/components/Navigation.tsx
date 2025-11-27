@@ -29,7 +29,7 @@ export default function Navigation() {
               <Link
                 href="/"
                 className={`px-4 py-2 rounded-md transition-colors ${
-                  isActive('/') && !isActive('/wallets/add') && !isActive('/wallet/') && !isActive('/stats')
+                  isActive('/') && !isActive('/wallets/add') && !isActive('/wallet/') && !isActive('/stats') && !isActive('/paper-trading')
                     ? 'bg-primary text-primary-foreground'
                     : 'hover:bg-muted'
                 }`}
@@ -45,6 +45,16 @@ export default function Navigation() {
                 }`}
               >
                 Statistics
+              </Link>
+              <Link
+                href="/paper-trading"
+                className={`px-4 py-2 rounded-md transition-colors ${
+                  isActive('/paper-trading')
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted'
+                }`}
+              >
+                Paper trading
               </Link>
             </div>
           </div>
