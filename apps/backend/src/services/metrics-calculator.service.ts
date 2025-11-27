@@ -507,19 +507,24 @@ export class MetricsCalculatorService {
     const earliest = new Date(now);
     earliest.setDate(earliest.getDate() - MAX_WINDOW_DAYS);
 
-    const [closedLotsRaw, tradeFeatures] = await Promise.all([
-      this.closedLotRepo.findByWallet(walletId, { fromDate: earliest }),
+    // DŮLEŽITÉ: Použij stejnou logiku jako portfolio endpoint (totalProceedsBase - totalCostBase z trades)
+    // místo closed lots, aby byla konzistence s detailem tradera
+    const [trades, tradeFeatures] = await Promise.all([
+      this.tradeRepo.findAllForMetrics(walletId),
       this.fetchTradeFeaturesSafe(walletId, earliest),
     ]);
-
-    const closedLots = closedLotsRaw.filter(lot => lot.costKnown !== false);
 
     const rolling = {} as Record<RollingWindowLabel, RollingWindowStats>;
     for (const [label, days] of Object.entries(WINDOW_CONFIG) as Array<[RollingWindowLabel, number]>) {
       const cutoff = new Date(now);
       cutoff.setDate(cutoff.getDate() - days);
-      const lots = closedLots.filter(lot => lot.exitTime >= cutoff);
-      rolling[label] = await this.buildRollingWindowStats(lots);
+      // Filtruj trades za dané období
+      const periodTrades = trades.filter(trade => {
+        const tradeDate = new Date(trade.timestamp);
+        return tradeDate >= cutoff;
+      });
+      // Použij portfolio endpoint logiku (totalProceedsBase - totalCostBase)
+      rolling[label] = await this.buildRollingWindowStatsFromTrades(periodTrades);
     }
 
     const behaviour = this.buildBehaviourStats(tradeFeatures);
@@ -540,6 +545,127 @@ export class MetricsCalculatorService {
     }
   }
 
+  // Build rolling stats from trades (same logic as portfolio endpoint)
+  private async buildRollingWindowStatsFromTrades(trades: any[]): Promise<RollingWindowStats> {
+    if (trades.length === 0) {
+      return {
+        realizedPnlUsd: 0,
+        realizedRoiPercent: 0,
+        winRate: 0,
+        medianTradeRoiPercent: 0,
+        percentile5TradeRoiPercent: 0,
+        percentile95TradeRoiPercent: 0,
+        maxDrawdownPercent: 0,
+        volatilityPercent: 0,
+        medianHoldMinutesWinners: 0,
+        medianHoldMinutesLosers: 0,
+        numClosedTrades: 0,
+        totalVolumeUsd: 0,
+        avgTradeSizeUsd: 0,
+      };
+    }
+
+    // Get current SOL price for conversion
+    let solPriceUsd = 150; // Default fallback
+    try {
+      solPriceUsd = await this.binancePriceService.getCurrentSolPrice();
+    } catch (error) {
+      console.warn(`⚠️  Failed to fetch SOL price, using fallback: ${solPriceUsd}`);
+    }
+
+    // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: totalProceedsBase - totalCostBase
+    // Seskup trades podle tokenId a spočítej totalCostBase (BUY) a totalProceedsBase (SELL)
+    const positionMap = new Map<string, { 
+      totalCostBase: number; 
+      totalProceedsBase: number; 
+      totalBought: number;
+      totalSold: number;
+      baseToken: string;
+    }>();
+    
+    for (const trade of trades) {
+      const tokenId = trade.tokenId;
+      const amountBase = Number(trade.amountBase || 0);
+      const amountToken = Number(trade.amountToken || 0);
+      const baseToken = (trade.meta as any)?.baseToken || 'SOL';
+      
+      if (!positionMap.has(tokenId)) {
+        positionMap.set(tokenId, { 
+          totalCostBase: 0, 
+          totalProceedsBase: 0, 
+          totalBought: 0,
+          totalSold: 0,
+          baseToken 
+        });
+      }
+      
+      const position = positionMap.get(tokenId)!;
+      
+      if (trade.side === 'buy') {
+        position.totalCostBase += amountBase;
+        position.totalBought += amountToken;
+      } else if (trade.side === 'sell') {
+        position.totalProceedsBase += amountBase;
+        position.totalSold += amountToken;
+      }
+    }
+
+    // Pro každou pozici spočítej closed PnL (stejně jako portfolio endpoint)
+    // Portfolio endpoint počítá pouze uzavřené pozice (balance <= 0, tj. totalSold >= totalBought)
+    let totalRealizedPnlUsd = 0;
+    let totalInvestedCapitalUsd = 0;
+    const closedPositions: Array<{ pnlUsd: number; roiPercent: number }> = [];
+
+    for (const [tokenId, position] of positionMap.entries()) {
+      // Pouze closed positions (totalSold >= totalBought znamená, že byly prodány všechny tokeny)
+      // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: balance <= 0
+      if (position.totalProceedsBase > 0 && position.totalCostBase > 0 && position.totalSold >= position.totalBought) {
+        const closedPnlBase = position.totalProceedsBase - position.totalCostBase;
+        
+        // Convert to USD (stejně jako portfolio endpoint)
+        let closedPnlUsd = 0;
+        if (position.baseToken === 'SOL') {
+          closedPnlUsd = closedPnlBase * solPriceUsd;
+        } else if (position.baseToken === 'USDC' || position.baseToken === 'USDT') {
+          closedPnlUsd = closedPnlBase; // 1:1 with USD
+        } else {
+          closedPnlUsd = closedPnlBase * solPriceUsd; // Fallback
+        }
+        
+        const investedCapitalUsd = position.totalCostBase * (position.baseToken === 'SOL' ? solPriceUsd : 1);
+        const roiPercent = investedCapitalUsd > 0 ? (closedPnlUsd / investedCapitalUsd) * 100 : 0;
+        
+        totalRealizedPnlUsd += closedPnlUsd;
+        totalInvestedCapitalUsd += investedCapitalUsd;
+        closedPositions.push({ pnlUsd: closedPnlUsd, roiPercent });
+      }
+    }
+
+    const realizedRoiPercent = totalInvestedCapitalUsd > 0 
+      ? (totalRealizedPnlUsd / totalInvestedCapitalUsd) * 100 
+      : 0;
+    
+    const wins = closedPositions.filter(p => p.pnlUsd > 0).length;
+    const roiValues = closedPositions.map(p => p.roiPercent);
+
+    return {
+      realizedPnlUsd: totalRealizedPnlUsd,
+      realizedRoiPercent,
+      winRate: closedPositions.length ? wins / closedPositions.length : 0,
+      medianTradeRoiPercent: median(roiValues),
+      percentile5TradeRoiPercent: percentile(roiValues, 0.05),
+      percentile95TradeRoiPercent: percentile(roiValues, 0.95),
+      maxDrawdownPercent: 0, // TODO: Calculate from positions
+      volatilityPercent: 0, // TODO: Calculate from positions
+      medianHoldMinutesWinners: 0, // TODO: Calculate from positions
+      medianHoldMinutesLosers: 0, // TODO: Calculate from positions
+      numClosedTrades: closedPositions.length,
+      totalVolumeUsd: totalInvestedCapitalUsd + totalRealizedPnlUsd, // Approximate
+      avgTradeSizeUsd: closedPositions.length > 0 ? totalInvestedCapitalUsd / closedPositions.length : 0,
+    };
+  }
+
+  // Keep old method for backward compatibility (used by closed lots)
   private async buildRollingWindowStats(lots: ClosedLotRecord[]): Promise<RollingWindowStats> {
     if (lots.length === 0) {
       return {
