@@ -158,6 +158,82 @@ export class TradeFeatureRepository {
     }
   }
 
+  async findByTradeId(tradeId: string): Promise<TradeFeatureRecord | null> {
+    const { data, error } = await supabase
+      .from(TABLES.TRADE_FEATURE)
+      .select(
+        `
+          *,
+          trade:${TABLES.TRADE}(side)
+        `
+      )
+      .eq('tradeId', tradeId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      throw new Error(`Failed to fetch trade feature: ${error.message}`);
+    }
+
+    if (!data) {
+      return null;
+    }
+
+    return this.mapRow(data);
+  }
+
+  async update(tradeId: string, data: {
+    priceMomentum1mPercent?: number | null;
+    priceMomentum5mPercent?: number | null;
+    priceMomentum15mPercent?: number | null;
+    priceMomentum1hPercent?: number | null;
+    volumeSpike1hMultiplier?: number | null;
+    volumeSpike24hMultiplier?: number | null;
+    marketRegime?: 'bull' | 'bear' | 'sideways' | null;
+    otherSmartWalletsTradingCount?: number | null;
+  }) {
+    const payload: Record<string, any> = {
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (data.priceMomentum1mPercent !== undefined) {
+      payload.priceMomentum1mPercent = toNumeric(data.priceMomentum1mPercent);
+    }
+    if (data.priceMomentum5mPercent !== undefined) {
+      payload.priceMomentum5mPercent = toNumeric(data.priceMomentum5mPercent);
+    }
+    if (data.priceMomentum15mPercent !== undefined) {
+      payload.priceMomentum15mPercent = toNumeric(data.priceMomentum15mPercent);
+    }
+    if (data.priceMomentum1hPercent !== undefined) {
+      payload.priceMomentum1hPercent = toNumeric(data.priceMomentum1hPercent);
+    }
+    if (data.volumeSpike1hMultiplier !== undefined) {
+      payload.volumeSpike1hMultiplier = toNumeric(data.volumeSpike1hMultiplier);
+    }
+    if (data.volumeSpike24hMultiplier !== undefined) {
+      payload.volumeSpike24hMultiplier = toNumeric(data.volumeSpike24hMultiplier);
+    }
+    if (data.marketRegime !== undefined) {
+      payload.marketRegime = data.marketRegime;
+    }
+    if (data.otherSmartWalletsTradingCount !== undefined) {
+      payload.otherSmartWalletsTradingCount = data.otherSmartWalletsTradingCount;
+    }
+
+    if (Object.keys(payload).length === 1) {
+      return; // Only updatedAt present -> nothing to update
+    }
+
+    const { error } = await supabase
+      .from(TABLES.TRADE_FEATURE)
+      .update(payload)
+      .eq('tradeId', tradeId);
+
+    if (error) {
+      throw new Error(`Failed to update trade feature: ${error.message}`);
+    }
+  }
+
   async findForWallet(
     walletId: string,
     options?: {

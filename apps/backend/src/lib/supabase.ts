@@ -31,6 +31,8 @@ export const TABLES = {
   CLOSED_LOT: 'ClosedLot',
   WALLET_PROCESSING_QUEUE: 'WalletProcessingQueue',
   TRADE_FEATURE: 'TradeFeature',
+  TRADE_SEQUENCE: 'TradeSequence',
+  TRADE_OUTCOME: 'TradeOutcome',
 } as const;
 
 /**

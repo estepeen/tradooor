@@ -108,7 +108,7 @@ export class SmartWalletRepository {
           // If no trades found, that's OK - return null
           if (error.code === 'PGRST116') {
             return { walletId, timestamp: null };
-          }
+        }
           console.error(`❌ Error fetching last trade for wallet ${walletId}:`, error);
           return { walletId, timestamp: null };
         }
@@ -126,7 +126,7 @@ export class SmartWalletRepository {
             } else {
               console.warn(`⚠️ Invalid timestamp for wallet ${walletId}:`, lastTrade.timestamp);
               return { walletId, timestamp: null };
-            }
+              }
           } catch (error) {
             console.error(`❌ Error parsing timestamp for wallet ${walletId}:`, error, lastTrade.timestamp);
             return { walletId, timestamp: null };
@@ -134,8 +134,8 @@ export class SmartWalletRepository {
         }
 
         return { walletId, timestamp: null };
-      });
-
+          });
+          
       // Wait for all queries to complete
       const lastTradeResults = await Promise.all(lastTradePromises);
 
@@ -145,7 +145,7 @@ export class SmartWalletRepository {
         if (result.timestamp) {
           lastTradeMap.set(result.walletId, result.timestamp);
         }
-      }
+        }
 
       // Add lastTradeTimestamp to each wallet (as ISO string)
         wallets.forEach((wallet: any) => {

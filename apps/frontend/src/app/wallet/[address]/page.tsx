@@ -438,45 +438,65 @@ export default function WalletDetailPage() {
           </div>
         </div>
 
-        {/* PnL Periods Overview - Use rolling stats from advancedStats (same as homepage/stats) */}
+        {/* PnL Periods Overview - Calculated from Closed Positions */}
         {(() => {
-          // STEJNÁ LOGIKA JAKO HOMEPAGE/STATS: Použij advancedStats.rolling místo portfolio endpoint
-          // To zajišťuje konzistenci mezi homepage, stats a detailem tradera
-          const rolling = (wallet.advancedStats as any)?.rolling;
-          
-          const getPnLForPeriod = (periodKey: string) => {
-            // Map period keys to rolling stats keys (stejně jako homepage/stats)
-            let rollingKey: string;
-            if (periodKey === '1d') {
-              rollingKey = '7d'; // Pro 1d použij 7d jako fallback (stejně jako homepage)
-            } else if (periodKey === '14d') {
-              rollingKey = '30d'; // Pro 14d použij 30d jako aproximaci
-            } else {
-              rollingKey = periodKey; // Pro 7d a 30d použij přímo
-            }
+          // Calculate PnL from closed positions for each period
+          const calculatePnLForPeriod = (days: number) => {
+            const now = new Date();
+            const fromDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
             
-            const rollingData = rolling?.[rollingKey];
-            if (rollingData) {
-              return {
-                pnlUsd: rollingData.realizedPnlUsd ?? 0,
-                pnlPercent: rollingData.realizedRoiPercent ?? 0,
-                trades: rollingData.numClosedTrades ?? 0,
-              };
-            }
+            // Filter closed positions by lastSellTimestamp within the period
+            const closedPositions = (finalPortfolio.closedPositions || [])
+              .filter((p: any) => {
+                // Must have valid holdTimeMinutes and buyCount/sellCount
+                const hasValidHoldTime = p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes >= 0;
+                const hasBuyAndSell = p.buyCount > 0 && p.sellCount > 0;
+                if (!hasValidHoldTime || !hasBuyAndSell) return false;
+                
+                // Filter by lastSellTimestamp (when position was closed)
+                if (!p.lastSellTimestamp) return false;
+                const sellDate = new Date(p.lastSellTimestamp);
+                return sellDate >= fromDate && sellDate <= now;
+              });
             
-            // Fallback: pokud není rolling data, použij recentPnl30dUsd/recentPnl30dPercent
-            if (periodKey === '30d' || rollingKey === '30d') {
-              return {
-                pnlUsd: wallet.recentPnl30dUsd ?? 0,
-                pnlPercent: wallet.recentPnl30dPercent ?? 0,
-                trades: 0, // Nevíme počet trades z fallback
-              };
+            // Sum up PnL from closed positions
+            const totalPnl = closedPositions.reduce((sum: number, p: any) => {
+              const pnl = p.closedPnl ?? 0;
+              return sum + (typeof pnl === 'number' ? pnl : 0);
+            }, 0);
+            
+            // Calculate total cost for percentage calculation
+            // Use closedPnl and closedPnlPercent to calculate totalCost for each position
+            const totalCost = closedPositions.reduce((sum: number, p: any) => {
+              const pnl = p.closedPnl ?? 0;
+              const pnlPercent = p.closedPnlPercent ?? 0;
+              
+              // Calculate cost from PnL and PnL percent: cost = pnl / (pnlPercent / 100)
+              if (pnlPercent !== 0 && typeof pnl === 'number' && typeof pnlPercent === 'number') {
+                const cost = pnl / (pnlPercent / 100);
+                return sum + Math.abs(cost);
+              }
+              return sum;
+            }, 0);
+            
+            // Calculate overall PnL percentage
+            const pnlPercent = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0;
+            
+            // DEBUG: Log PnL calculation on frontend
+            if (days === 30 && closedPositions.length > 0) {
+              console.log(`   📊 [Frontend] Wallet ${walletAddress}: Found ${closedPositions.length} closed positions in last ${days} days`);
+              console.log(`   ✅ [Frontend] Wallet ${walletAddress}: totalPnl=${totalPnl.toFixed(2)}, totalCost=${totalCost.toFixed(2)}, pnlPercent=${pnlPercent.toFixed(2)}%`);
+              closedPositions.forEach((p: any, idx: number) => {
+                if (idx < 5) { // Log first 5 positions
+                  console.log(`   💰 [Frontend] Position ${idx + 1}: tokenId=${p.tokenId}, closedPnl=${p.closedPnl?.toFixed(2) || 'null'}, closedPnlPercent=${p.closedPnlPercent?.toFixed(2) || 'null'}%, lastSell=${p.lastSellTimestamp}`);
+                }
+              });
             }
             
             return {
-              pnlUsd: 0,
-              pnlPercent: 0,
-              trades: 0,
+              pnlUsd: totalPnl,
+              pnlPercent,
+              trades: closedPositions.length,
             };
           };
           
@@ -490,7 +510,7 @@ export default function WalletDetailPage() {
           return (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               {periods.map(({ key, days }) => {
-                const data = getPnLForPeriod(key);
+                const data = calculatePnLForPeriod(days);
               return (
                   <div key={key} style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
                     <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">PnL ({key})</div>

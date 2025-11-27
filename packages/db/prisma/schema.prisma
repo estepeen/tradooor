@@ -38,6 +38,8 @@ model SmartWallet {
   tradeFeatures         TradeFeature[]
   metricsHistory        SmartWalletMetricsHistory[]
   processingJobs        WalletProcessingQueue[]
+  tradeSequences        TradeSequence[]
+  tradeOutcomes         TradeOutcome[]
   
   @@index([address])
   @@index([score])
@@ -57,6 +59,8 @@ model Token {
   trades                Trade[]
   tradeFeatures         TradeFeature[]
   marketSnapshots       TokenMarketSnapshot[]
+  tradeSequences        TradeSequence[]
+  tradeOutcomes         TradeOutcome[]
   
   @@index([mintAddress])
   @@index([symbol])
@@ -80,6 +84,8 @@ model Trade {
   wallet                SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
   token                 Token        @relation(fields: [tokenId], references: [id], onDelete: Cascade)
   features              TradeFeature?
+  sequence              TradeSequence?
+  outcome               TradeOutcome?
   
   @@index([walletId])
   @@index([tokenId])
@@ -167,6 +173,16 @@ model TradeFeature {
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
 
+  // Market context features (pro AI/ML)
+  priceMomentum1mPercent        Decimal? @db.Decimal(36, 18) // Změna ceny 1 min před trade
+  priceMomentum5mPercent        Decimal? @db.Decimal(36, 18) // Změna ceny 5 min před trade
+  priceMomentum15mPercent      Decimal? @db.Decimal(36, 18) // Změna ceny 15 min před trade
+  priceMomentum1hPercent        Decimal? @db.Decimal(36, 18) // Změna ceny 1h před trade
+  volumeSpike1hMultiplier       Decimal? @db.Decimal(36, 18) // Násobek průměrného objemu (1h)
+  volumeSpike24hMultiplier      Decimal? @db.Decimal(36, 18) // Násobek průměrného objemu (24h)
+  marketRegime                 String?  // 'bull' | 'bear' | 'sideways' (na základě SOL price)
+  otherSmartWalletsTradingCount Int?     // Kolik dalších smart wallets tradeuje stejný token
+
   trade  Trade       @relation(fields: [tradeId], references: [id], onDelete: Cascade)
   wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
   token  Token       @relation(fields: [tokenId], references: [id], onDelete: Cascade)
@@ -194,5 +210,85 @@ model WalletProcessingQueue {
   @@unique([walletId, jobType])
   @@index([status, nextRunAt])
   @@index([priority, createdAt])
+}
+
+/// Sequence data pro AI/ML - pořadí tradeů, time between trades, patterns
+/// SEPAROVÁNO od současných fungujících věcí - pouze pro AI/ML trénink
+model TradeSequence {
+  id                    String   @id @default(cuid())
+  tradeId               String   @unique
+  walletId              String
+  tokenId               String
+  
+  // Sequence context
+  sequenceIndex         Int?     // Pořadí tradeu v sekvenci (1, 2, 3, ...)
+  sequenceLength        Int?     // Celková délka sekvence tradeů
+  timeSinceLastTradeSeconds Int? // Čas od posledního tradeu (v sekundách)
+  timeSinceLastTokenTradeSeconds Int? // Čas od posledního tradeu se stejným tokenem
+  
+  // Token switching patterns
+  isTokenSwitch         Boolean? @default(false) // Změnil trader token?
+  previousTokenId       String?  // Předchozí token (pokud se změnil)
+  tokensInSequence      Int?     // Kolik různých tokenů v sekvenci
+  
+  // Position sizing patterns
+  positionSizeChangePercent Decimal? @db.Decimal(36, 18) // Změna velikosti pozice vs. předchozí trade
+  avgPositionSizeUsd    Decimal? @db.Decimal(36, 18) // Průměrná velikost pozice v sekvenci
+  
+  // Trading frequency
+  tradesInLastHour      Int?     // Počet tradeů v poslední hodině
+  tradesInLastDay       Int?     // Počet tradeů v posledním dni
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  trade  Trade       @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  token  Token       @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([tokenId])
+  @@index([tradeId])
+}
+
+/// Outcome labels pro AI/ML - explicitní labely pro supervised learning
+/// SEPAROVÁNO od současných fungujících věcí - pouze pro AI/ML trénink
+model TradeOutcome {
+  id                    String   @id @default(cuid())
+  tradeId               String   @unique
+  walletId              String
+  tokenId               String
+  
+  // Trade outcome (pro BUY trades)
+  outcomeType           String?  // 'win' | 'loss' | 'breakeven' | 'unknown'
+  outcomeCategory       String?  // 'big_win' | 'small_win' | 'small_loss' | 'big_loss' | 'breakeven'
+  realizedPnlUsd       Decimal? @db.Decimal(36, 18) // Realizovaný PnL (pro SELL trades)
+  realizedPnlPercent    Decimal? @db.Decimal(36, 18) // Realizovaný PnL % (pro SELL trades)
+  
+  // Token outcome (jak dopadl token po trade)
+  tokenPriceChange1hPercent   Decimal? @db.Decimal(36, 18) // Změna ceny tokenu 1h po trade
+  tokenPriceChange24hPercent  Decimal? @db.Decimal(36, 18) // Změna ceny tokenu 24h po trade
+  tokenPriceChange7dPercent   Decimal? @db.Decimal(36, 18) // Změna ceny tokenu 7d po trade
+  tokenOutcome                String?  // 'pump' | 'dump' | 'sideways' | 'unknown'
+  
+  // Position outcome (celkový výsledek pozice)
+  positionClosedAt      DateTime? // Kdy byla pozice uzavřena (pokud už byla)
+  positionHoldTimeSeconds Int?   // Jak dlouho byla pozice držena
+  positionFinalPnlUsd   Decimal? @db.Decimal(36, 18) // Finální PnL pozice
+  positionFinalPnlPercent Decimal? @db.Decimal(36, 18) // Finální PnL % pozice
+  
+  // Labels calculated at
+  calculatedAt          DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  trade  Trade       @relation(fields: [tradeId], references: [id], onDelete: Cascade)
+  wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  token  Token       @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+
+  @@index([walletId])
+  @@index([tokenId])
+  @@index([tradeId])
+  @@index([outcomeType])
+  @@index([outcomeCategory])
 }
 

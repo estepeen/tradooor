@@ -1162,6 +1162,19 @@ router.get('/:id/portfolio', async (req, res) => {
     const { BinancePriceService } = await import('../services/binance-price.service.js');
     const binancePriceService = new BinancePriceService();
     const currentSolPrice = await binancePriceService.getCurrentSolPrice().catch(() => null);
+    
+    // Create a map of closed lots by tokenId for closed positions PnL calculation
+    // This ensures consistency with rolling stats (both use closed lots)
+    const closedLotsByToken = new Map<string, typeof closedLots>();
+    if (closedLots) {
+      for (const lot of closedLots) {
+        const tokenId = lot.tokenId;
+        if (!closedLotsByToken.has(tokenId)) {
+          closedLotsByToken.set(tokenId, []);
+        }
+        closedLotsByToken.get(tokenId)!.push(lot);
+      }
+    }
 
     // Calculate average buy price and finalize positions with current token data and prices
     const portfolio = Array.from(portfolioMap.values())

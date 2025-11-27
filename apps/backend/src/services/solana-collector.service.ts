@@ -40,7 +40,7 @@ export class SolanaCollectorService {
       const normalized = await this.heliusClient.normalizeSwap(tx, walletAddress);
       if (!normalized) {
         return { saved: false, reason: 'not a swap' };
-      }
+  }
 
       // 1b. Filter out tiny SOL trades (likely just fees) - do not store trades with value < 0.03 SOL
       if (normalized.baseToken === 'SOL' && normalized.amountBase < 0.03) {

@@ -11,6 +11,7 @@
     "db:studio": "pnpm --filter @solbot/db db:studio",
     "calculate-metrics": "tsx src/workers/calculate-metrics.ts",
     "metrics:cron": "tsx src/workers/metrics-cron.ts",
+    "ai-ml-data:cron": "tsx src/workers/ai-ml-data-cron.ts",
     "tokens:backfill-symbols": "tsx src/workers/backfill-token-symbols.ts",
     "position:add-column": "tsx src/workers/add-position-column.ts",
     "position:recalculate": "tsx src/workers/recalculate-position-change.ts",
