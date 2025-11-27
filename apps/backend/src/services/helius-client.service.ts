@@ -1554,7 +1554,6 @@ export class HeliusClient {
             }
           }
         }
-        }
         
         if (amountBase > 0 && amountToken > 0) {
           // Urči base token symbol
