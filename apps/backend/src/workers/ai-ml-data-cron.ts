@@ -3,9 +3,11 @@ import { TradeRepository } from '../repositories/trade.repository.js';
 import { TradeSequenceRepository } from '../repositories/trade-sequence.repository.js';
 import { TradeOutcomeRepository } from '../repositories/trade-outcome.repository.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
+import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TokenPriceService } from '../services/token-price.service.js';
 import { BinancePriceService } from '../services/binance-price.service.js';
 import { AiMlDataService } from '../services/ai-ml-data.service.js';
+import { TraderCharacterizationService } from '../services/trader-characterization.service.js';
 import { supabase, TABLES } from '../lib/supabase.js';
 import cron from 'node-cron';
 
@@ -24,8 +26,16 @@ async function processWallet(walletId: string) {
     const tradeSequenceRepo = new TradeSequenceRepository();
     const tradeOutcomeRepo = new TradeOutcomeRepository();
     const tradeFeatureRepo = new TradeFeatureRepository();
+    const smartWalletRepo = new SmartWalletRepository();
     const tokenPriceService = new TokenPriceService();
     const binancePriceService = new BinancePriceService();
+
+    const traderCharacterizationService = new TraderCharacterizationService(
+      tradeRepo,
+      tradeFeatureRepo,
+      tradeOutcomeRepo,
+      smartWalletRepo
+    );
 
     const aiMlDataService = new AiMlDataService(
       tradeRepo,
@@ -33,7 +43,8 @@ async function processWallet(walletId: string) {
       tradeOutcomeRepo,
       tradeFeatureRepo,
       tokenPriceService,
-      binancePriceService
+      binancePriceService,
+      traderCharacterizationService
     );
 
     // Načti všechny trades pro walletku
@@ -49,6 +60,14 @@ async function processWallet(walletId: string) {
         console.error(`❌ Failed to process trade ${trade.id}:`, error.message);
         // Pokračuj s dalšími trades
       }
+    }
+
+    // Vypočti behavior profile pro tradera
+    try {
+      await traderCharacterizationService.calculateBehaviorProfile(walletId);
+      console.log(`✅ Calculated behavior profile for wallet ${walletId}`);
+    } catch (error: any) {
+      console.error(`❌ Failed to calculate behavior profile for wallet ${walletId}:`, error.message);
     }
 
     console.log(`✅ Completed processing wallet ${walletId}`);

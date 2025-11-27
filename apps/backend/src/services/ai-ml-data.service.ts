@@ -17,7 +17,8 @@ export class AiMlDataService {
     private tradeOutcomeRepo: TradeOutcomeRepository,
     private tradeFeatureRepo: TradeFeatureRepository,
     private tokenPriceService: TokenPriceService,
-    private binancePriceService: BinancePriceService
+    private binancePriceService: BinancePriceService,
+    private traderCharacterizationService?: TraderCharacterizationService
   ) {}
 
   /**
@@ -318,10 +319,23 @@ export class AiMlDataService {
    */
   async calculateAllAiMlData(tradeId: string, walletId: string): Promise<void> {
     try {
+      // Načti trade pro tokenId
+      const { data: tradeData } = await supabase
+        .from(TABLES.TRADE)
+        .select('tokenId')
+        .eq('id', tradeId)
+        .single();
+
+      const tokenId = tradeData?.tokenId;
+
       await Promise.all([
         this.calculateSequenceData(tradeId, walletId),
         this.calculateOutcomeData(tradeId, walletId),
         this.calculateMarketContextFeatures(tradeId),
+        // Přidej correlation tracking
+        tokenId && this.traderCharacterizationService
+          ? this.traderCharacterizationService.calculateTradeCorrelation(tradeId, walletId, tokenId)
+          : Promise.resolve(),
       ]);
     } catch (error) {
       console.error(`Failed to calculate AI/ML data for trade ${tradeId}:`, error);
