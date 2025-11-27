@@ -1543,58 +1543,17 @@ export class HeliusClient {
         }
         
         // ZAKOMENTOVÁNO: SOL amount se nyní fetchuje přes Solscan API v solana-collector.service.ts
-        // Fallback na nativeIn/tokenIn
-        // Pokud je amountBase podezřele malý (< 0.1 SOL), zkus najít největší SOL transfer
-        /*
-        if (amountBase === 0 || amountBase < 0.1) {
-          if (amountBase < 0.1 && amountBase > 0) {
-            // FALLBACK: Najdi největší SOL/WSOL transfer pro wallet
-            const largestSol = getLargestSolTransferForWallet();
-            if (largestSol > amountBase && largestSol >= 0.1) {
-              const sourceLabel = isAxiom ? '[AXIOM BUY]' : `[${heliusTx.source || 'UNKNOWN'} BUY]`;
-              console.log(`   ✅ ${sourceLabel} Using largest SOL/WSOL transfer as fallback: ${largestSol} SOL (was ${amountBase} SOL - likely fee)`);
-              amountBase = largestSol;
-              baseToken = 'SOL';
-            } else if (amountBase < 0.1) {
-              // SOLSCAN FALLBACK: Pokud stále máme velmi malou hodnotu, zkus Solscan API
-              if (this.solscanClient.isAvailable()) {
-                try {
-                  const solscanValue = await this.solscanClient.getTransactionValue(heliusTx.signature);
-                  if (solscanValue && solscanValue > amountBase && solscanValue >= 0.1) {
-                    // Solscan vrací buď SOL amount nebo USD value
-                    // Pokud je to USD, musíme převést na SOL (přibližně)
-                    let solscanSolAmount = solscanValue;
-                    if (solscanValue > 100) {
-                      // Pravděpodobně USD value, převedeme na SOL (přibližně, SOL je ~$100-200)
-                      // Použijeme konzervativní odhad $150/SOL
-                      solscanSolAmount = solscanValue / 150;
-                    }
-                    if (solscanSolAmount > amountBase && solscanSolAmount >= 0.1) {
-                      const sourceLabel = isAxiom ? '[AXIOM BUY]' : `[${heliusTx.source || 'UNKNOWN'} BUY]`;
-                      console.log(`   ✅ ${sourceLabel} Using Solscan API fallback: ${solscanSolAmount.toFixed(6)} SOL (was ${amountBase} SOL - likely fee)`);
-                      amountBase = solscanSolAmount;
-                      baseToken = 'SOL';
-                    }
-                  }
-                } catch (error: any) {
-                  console.warn(`   ⚠️  Solscan API fallback failed: ${error.message}`);
-                }
-              }
-            }
-          }
-          
-          if (amountBase === 0 || amountBase < 0.1) {
-        */
+        // Fallback na nativeIn/tokenIn - pouze základní fallback, bez složitých logik
         if (amountBase === 0 || amountBase < 0.1) {
           if (nativeIn > 0 && (!isAxiom || nativeIn > 0.1)) {
-              amountBase = nativeIn;
-            } else if (inMint && isBaseToken(inMint)) {
-              const tokenInAmount = getTokenAmount(tokenIn);
-              if (!isAxiom || tokenInAmount > 0.1) {
-                amountBase = tokenInAmount;
-              }
+            amountBase = nativeIn;
+          } else if (inMint && isBaseToken(inMint)) {
+            const tokenInAmount = getTokenAmount(tokenIn);
+            if (!isAxiom || tokenInAmount > 0.1) {
+              amountBase = tokenInAmount;
             }
           }
+        }
         }
         
         if (amountBase > 0 && amountToken > 0) {
