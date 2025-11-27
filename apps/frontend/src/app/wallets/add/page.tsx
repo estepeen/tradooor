@@ -10,7 +10,6 @@ const API_BASE_URL = getApiBaseUrl();
 export default function AddWalletPage() {
   const router = useRouter();
   const [address, setAddress] = useState('');
-  const [label, setLabel] = useState('');
   const [tags, setTags] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,7 +34,6 @@ export default function AddWalletPage() {
         },
         body: JSON.stringify({
           address: address.trim(),
-          label: label.trim() || null,
           tags: tagsArray,
         }),
       });
@@ -117,20 +115,6 @@ export default function AddWalletPage() {
             </div>
 
             <div>
-              <label htmlFor="label" className="block text-sm font-medium mb-2">
-                Label (optional)
-              </label>
-              <input
-                id="label"
-                type="text"
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder="e.g., My Trader, Call Channel X"
-                className="w-full px-4 py-2 border border-border rounded-md bg-background"
-              />
-            </div>
-
-            <div>
               <label htmlFor="tags" className="block text-sm font-medium mb-2">
                 Tags (optional)
               </label>
@@ -165,14 +149,6 @@ export default function AddWalletPage() {
           </form>
         </div>
 
-        <div className="mt-6 p-4 bg-muted rounded-lg">
-          <h2 className="font-semibold mb-2">💡 Tip</h2>
-          <p className="text-sm text-muted-foreground">
-            Nové trady se teď ukládají výhradně přes Helius webhook. Jakmile wallet něco
-            nakoupí/prodá, backend obdrží notifikaci a swap se uloží automaticky –
-            žádné manuální backfilly už není potřeba spouštět.
-          </p>
-        </div>
       </div>
     </div>
   );
