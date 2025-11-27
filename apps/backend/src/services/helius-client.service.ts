@@ -639,7 +639,7 @@ export class HeliusClient {
     baseToken: string; // SOL, USDC, USDT
     timestamp: Date;
     dex: string;
-  } | null {
+  } | null> {
     try {
       const BASE_MINTS = new Set([
         // SOL (native / WSOL)
