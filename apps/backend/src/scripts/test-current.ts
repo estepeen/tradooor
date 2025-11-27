@@ -24,7 +24,7 @@ async function main() {
     }
 
     console.log(`\n🔄 Normalizing swap...`);
-    const normalized = heliusClient.normalizeSwap(tx as any, WALLET_ADDRESS);
+    const normalized = await heliusClient.normalizeSwap(tx as any, WALLET_ADDRESS);
     
     if (!normalized) {
       console.log('❌ Failed to normalize swap (returned null)');

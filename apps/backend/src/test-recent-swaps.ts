@@ -113,7 +113,7 @@ async function main() {
       console.log(`Source: ${tx.source}`);
       console.log('');
 
-      const normalized = heliusClient.normalizeSwap(tx, walletAddress);
+      const normalized = await heliusClient.normalizeSwap(tx, walletAddress);
       
       if (normalized) {
         successCount++;

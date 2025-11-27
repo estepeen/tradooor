@@ -62,7 +62,7 @@ async function main() {
 
     // Normalize swap
     console.log(`\n🔄 Normalizing swap for wallet: ${walletAddress}...`);
-    const normalized = heliusClient.normalizeSwap(tx as any, walletAddress);
+    const normalized = await heliusClient.normalizeSwap(tx as any, walletAddress);
     
     if (!normalized) {
       console.error('❌ Failed to normalize swap');

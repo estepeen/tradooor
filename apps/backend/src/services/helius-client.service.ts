@@ -1,3 +1,6 @@
+import { SolscanClient } from './solscan-client.service.js';
+import { SolPriceService } from './sol-price.service.js';
+
 /**
  * HeliusClient - Wrapper pro Helius Enhanced API
  * 
@@ -149,6 +152,8 @@ export class HeliusClient {
   private apiKey: string;
   private lastRequestTime = 0;
   private readonly MIN_DELAY_BETWEEN_REQUESTS_MS = 300; // Globální rate-limiter: min 300ms mezi requesty
+  private solscanClient: SolscanClient;
+  private solPriceService: SolPriceService;
 
   constructor(apiKey?: string) {
     const rawKey = apiKey || process.env.HELIUS_API_KEY || process.env.HELIUS_API || '';
@@ -160,6 +165,8 @@ export class HeliusClient {
     // - "https://api.helius.xyz/v0/...?api-key=..." (Enhanced API URL)
     this.apiKey = this.extractApiKey(rawKey);
     this.baseUrl = `https://api.helius.xyz/v0`;
+    this.solscanClient = new SolscanClient();
+    this.solPriceService = new SolPriceService();
     
     if (!this.apiKey) {
       console.warn('⚠️  HELIUS_API_KEY not set - Helius features will be disabled');
@@ -619,10 +626,10 @@ export class HeliusClient {
    * Používá events.swap strukturu, která obsahuje správné informace o swapu,
    * včetně innerSwaps a nativeInput/nativeOutput.
    */
-  normalizeSwap(
+  async normalizeSwap(
     heliusTx: HeliusSwap,
     walletAddress: string
-  ): {
+  ): Promise<{
     txSignature: string;
     tokenMint: string;
     side: 'buy' | 'sell';
@@ -1247,10 +1254,41 @@ export class HeliusClient {
               amountBase = largestSol;
               baseToken = 'SOL';
             } else if (amountBase < 0.1) {
-              // Pokud stále máme velmi malou hodnotu, loguj varování
-              const sourceLabel = isAxiom ? '[AXIOM]' : `[${heliusTx.source || 'UNKNOWN'}]`;
-              console.warn(`   ⚠️  ${sourceLabel} Very small amountBase (${amountBase} SOL) - might be fee instead of swap value. TX: ${heliusTx.signature.substring(0, 16)}...`);
-              console.warn(`      Largest SOL transfer found: ${largestSol} SOL`);
+              // SOLSCAN FALLBACK: Pokud stále máme velmi malou hodnotu, zkus Solscan API
+              if (this.solscanClient.isAvailable()) {
+                try {
+                  const solscanValue = await this.solscanClient.getTransactionValue(heliusTx.signature);
+                  if (solscanValue && solscanValue > amountBase && solscanValue >= 0.1) {
+                    // Solscan vrací buď SOL amount nebo USD value
+                    // Pokud je hodnota > 100, je to pravděpodobně USD, jinak SOL
+                    let solscanSolAmount = solscanValue;
+                    if (solscanValue > 100) {
+                      // Pravděpodobně USD value, převedeme na SOL pomocí aktuální ceny
+                      try {
+                        const solPrice = await this.solPriceService.getSolPriceUsd();
+                        solscanSolAmount = solscanValue / solPrice;
+                      } catch (priceError: any) {
+                        // Fallback na konzervativní odhad $150/SOL pokud selže price fetch
+                        solscanSolAmount = solscanValue / 150;
+                      }
+                    }
+                    if (solscanSolAmount > amountBase && solscanSolAmount >= 0.1) {
+                      const sourceLabel = isAxiom ? '[AXIOM]' : `[${heliusTx.source || 'UNKNOWN'}]`;
+                      console.log(`   ✅ ${sourceLabel} Using Solscan API fallback: ${solscanSolAmount.toFixed(6)} SOL (was ${amountBase} SOL - likely fee)`);
+                      amountBase = solscanSolAmount;
+                      baseToken = 'SOL';
+                    }
+                  }
+                } catch (error: any) {
+                  console.warn(`   ⚠️  Solscan API fallback failed: ${error.message}`);
+                }
+              }
+              // Pokud Solscan selhal nebo není dostupný, loguj varování
+              if (amountBase < 0.1) {
+                const sourceLabel = isAxiom ? '[AXIOM]' : `[${heliusTx.source || 'UNKNOWN'}]`;
+                console.warn(`   ⚠️  ${sourceLabel} Very small amountBase (${amountBase} SOL) - might be fee instead of swap value. TX: ${heliusTx.signature.substring(0, 16)}...`);
+                console.warn(`      Largest SOL transfer found: ${largestSol} SOL`);
+              }
             }
           }
         }
@@ -1366,6 +1404,31 @@ export class HeliusClient {
               console.log(`   ✅ ${sourceLabel} Using largest SOL/WSOL transfer as fallback: ${largestSol} SOL (was ${amountBase} SOL - likely fee)`);
               amountBase = largestSol;
               baseToken = 'SOL';
+            } else if (amountBase < 0.1) {
+              // SOLSCAN FALLBACK: Pokud stále máme velmi malou hodnotu, zkus Solscan API
+              if (this.solscanClient.isAvailable()) {
+                try {
+                  const solscanValue = await this.solscanClient.getTransactionValue(heliusTx.signature);
+                  if (solscanValue && solscanValue > amountBase && solscanValue >= 0.1) {
+                    // Solscan vrací buď SOL amount nebo USD value
+                    // Pokud je to USD, musíme převést na SOL (přibližně)
+                    let solscanSolAmount = solscanValue;
+                    if (solscanValue > 100) {
+                      // Pravděpodobně USD value, převedeme na SOL (přibližně, SOL je ~$100-200)
+                      // Použijeme konzervativní odhad $150/SOL
+                      solscanSolAmount = solscanValue / 150;
+                    }
+                    if (solscanSolAmount > amountBase && solscanSolAmount >= 0.1) {
+                      const sourceLabel = isAxiom ? '[AXIOM SELL]' : `[${heliusTx.source || 'UNKNOWN'} SELL]`;
+                      console.log(`   ✅ ${sourceLabel} Using Solscan API fallback: ${solscanSolAmount.toFixed(6)} SOL (was ${amountBase} SOL - likely fee)`);
+                      amountBase = solscanSolAmount;
+                      baseToken = 'SOL';
+                    }
+                  }
+                } catch (error: any) {
+                  console.warn(`   ⚠️  Solscan API fallback failed: ${error.message}`);
+                }
+              }
             }
           }
         }
@@ -1484,6 +1547,31 @@ export class HeliusClient {
               console.log(`   ✅ ${sourceLabel} Using largest SOL/WSOL transfer as fallback: ${largestSol} SOL (was ${amountBase} SOL - likely fee)`);
               amountBase = largestSol;
               baseToken = 'SOL';
+            } else if (amountBase < 0.1) {
+              // SOLSCAN FALLBACK: Pokud stále máme velmi malou hodnotu, zkus Solscan API
+              if (this.solscanClient.isAvailable()) {
+                try {
+                  const solscanValue = await this.solscanClient.getTransactionValue(heliusTx.signature);
+                  if (solscanValue && solscanValue > amountBase && solscanValue >= 0.1) {
+                    // Solscan vrací buď SOL amount nebo USD value
+                    // Pokud je to USD, musíme převést na SOL (přibližně)
+                    let solscanSolAmount = solscanValue;
+                    if (solscanValue > 100) {
+                      // Pravděpodobně USD value, převedeme na SOL (přibližně, SOL je ~$100-200)
+                      // Použijeme konzervativní odhad $150/SOL
+                      solscanSolAmount = solscanValue / 150;
+                    }
+                    if (solscanSolAmount > amountBase && solscanSolAmount >= 0.1) {
+                      const sourceLabel = isAxiom ? '[AXIOM BUY]' : `[${heliusTx.source || 'UNKNOWN'} BUY]`;
+                      console.log(`   ✅ ${sourceLabel} Using Solscan API fallback: ${solscanSolAmount.toFixed(6)} SOL (was ${amountBase} SOL - likely fee)`);
+                      amountBase = solscanSolAmount;
+                      baseToken = 'SOL';
+                    }
+                  }
+                } catch (error: any) {
+                  console.warn(`   ⚠️  Solscan API fallback failed: ${error.message}`);
+                }
+              }
             }
           }
           

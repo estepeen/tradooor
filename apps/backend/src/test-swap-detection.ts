@@ -329,7 +329,7 @@ async function main() {
     console.log('═══════════════════════════════════════════════════════════════');
     console.log('4️⃣  normalizeSwap CHECK (HeliusClient)');
     console.log('═══════════════════════════════════════════════════════════════\n');
-      const normalized = heliusClient.normalizeSwap(tx, walletAddress);
+      const normalized = await heliusClient.normalizeSwap(tx, walletAddress);
       if (normalized) {
       console.log(`   Result: ✅ SUCCESS (normalizeSwap vrátil swap)`);
       console.log(`\n   Normalized swap:`);

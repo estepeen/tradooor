@@ -145,7 +145,7 @@ async function analyzeTransaction(tx: any, walletAddress: string, heliusClient: 
 
   // Zkus normalizovat
   console.log('\n🔄 Attempting normalization...');
-  const normalized = heliusClient.normalizeSwap(tx, walletAddress);
+  const normalized = await heliusClient.normalizeSwap(tx, walletAddress);
   
   if (normalized) {
     console.log('✅ Normalization SUCCESS:');

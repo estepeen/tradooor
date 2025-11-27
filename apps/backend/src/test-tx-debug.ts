@@ -190,7 +190,7 @@ async function main() {
     logSwapEvent(tx);
 
     console.log('🧮 Running normalizeSwap...');
-    const normalized = heliusClient.normalizeSwap(tx, WALLET_ADDRESS);
+    const normalized = await heliusClient.normalizeSwap(tx, WALLET_ADDRESS);
     if (!normalized) {
       console.log('❌ normalizeSwap returned null (collector would skip this transaction)');
     } else {
