@@ -689,26 +689,6 @@ export class MetricsCalculatorService {
         }
       }
     }
-        const closedPnlBase = position.totalProceedsBase - position.totalCostBase;
-        
-        // Convert to USD (stejně jako portfolio endpoint)
-        let closedPnlUsd = 0;
-        if (position.baseToken === 'SOL') {
-          closedPnlUsd = closedPnlBase * solPriceUsd;
-        } else if (position.baseToken === 'USDC' || position.baseToken === 'USDT') {
-          closedPnlUsd = closedPnlBase; // 1:1 with USD
-        } else {
-          closedPnlUsd = closedPnlBase * solPriceUsd; // Fallback
-        }
-        
-        const investedCapitalUsd = position.totalCostBase * (position.baseToken === 'SOL' ? solPriceUsd : 1);
-        const roiPercent = investedCapitalUsd > 0 ? (closedPnlUsd / investedCapitalUsd) * 100 : 0;
-        
-        totalRealizedPnlUsd += closedPnlUsd;
-        totalInvestedCapitalUsd += investedCapitalUsd;
-        closedPositions.push({ pnlUsd: closedPnlUsd, roiPercent });
-      }
-    }
 
     const realizedRoiPercent = totalInvestedCapitalUsd > 0 
       ? (totalRealizedPnlUsd / totalInvestedCapitalUsd) * 100 
