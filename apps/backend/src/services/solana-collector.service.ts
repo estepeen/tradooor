@@ -6,6 +6,7 @@ import { HeliusClient } from './helius-client.service.js';
 import { TokenMetadataBatchService } from './token-metadata-batch.service.js';
 import { TokenPriceService } from './token-price.service.js';
 import { SolPriceService } from './sol-price.service.js';
+import { SolscanClient } from './solscan-client.service.js';
 
 /**
  * Service for processing Solana transactions from Helius webhooks
@@ -16,6 +17,7 @@ export class SolanaCollectorService {
   private tokenMetadataBatchService: TokenMetadataBatchService;
   private tokenPriceService: TokenPriceService;
   private solPriceService: SolPriceService;
+  private solscanClient: SolscanClient;
 
   constructor(
     private smartWalletRepo: SmartWalletRepository,
@@ -27,6 +29,7 @@ export class SolanaCollectorService {
     this.tokenMetadataBatchService = new TokenMetadataBatchService(this.heliusClient, this.tokenRepo);
     this.tokenPriceService = new TokenPriceService();
     this.solPriceService = new SolPriceService();
+    this.solscanClient = new SolscanClient();
   }
 
   /**
@@ -40,6 +43,33 @@ export class SolanaCollectorService {
       const normalized = await this.heliusClient.normalizeSwap(tx, walletAddress);
       if (!normalized) {
         return { saved: false, reason: 'not a swap' };
+      }
+
+      // 1.5. SOLSCAN FALLBACK: Fetch largest SOL amount from Solscan API
+      // This replaces the Helius-parsed amountBase with the actual swap value from Solscan
+      if (normalized.baseToken === 'SOL' && this.solscanClient.isAvailable()) {
+        try {
+          console.log(`   🔍 Fetching SOL amount from Solscan for TX: ${normalized.txSignature.substring(0, 16)}...`);
+          const solscanSolAmount = await this.solscanClient.getLargestSolAmount(normalized.txSignature);
+          if (solscanSolAmount && solscanSolAmount > 0 && solscanSolAmount >= 0.1) {
+            const oldAmountBase = normalized.amountBase;
+            normalized.amountBase = solscanSolAmount;
+            normalized.priceBasePerToken = solscanSolAmount / normalized.amountToken;
+            console.log(`   ✅ Using Solscan SOL amount: ${solscanSolAmount.toFixed(6)} SOL (was ${oldAmountBase.toFixed(6)} SOL from Helius)`);
+          } else if (solscanSolAmount && solscanSolAmount > 0) {
+            // If Solscan returned a value but it's < 0.1, still use it if it's larger than Helius value
+            if (solscanSolAmount > normalized.amountBase) {
+              const oldAmountBase = normalized.amountBase;
+              normalized.amountBase = solscanSolAmount;
+              normalized.priceBasePerToken = solscanSolAmount / normalized.amountToken;
+              console.log(`   ✅ Using Solscan SOL amount (small but larger than Helius): ${solscanSolAmount.toFixed(6)} SOL (was ${oldAmountBase.toFixed(6)} SOL)`);
+            }
+          } else {
+            console.log(`   ⚠️  Solscan API did not return a valid SOL amount, using Helius value: ${normalized.amountBase.toFixed(6)} SOL`);
+          }
+        } catch (error: any) {
+          console.warn(`   ⚠️  Solscan API fetch failed: ${error.message}, using Helius value: ${normalized.amountBase.toFixed(6)} SOL`);
+        }
       }
 
       // 2. Find or create wallet

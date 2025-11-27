@@ -1235,9 +1235,11 @@ export class HeliusClient {
           }
         }
 
+        // ZAKOMENTOVÁNO: SOL amount se nyní fetchuje přes Solscan API v solana-collector.service.ts
         // Obecná kontrola: pokud getSwapBaseAmounts vrátilo velmi malou hodnotu (< 0.1 SOL),
         // může to být fee místo skutečné swap hodnoty - zkus description parser nebo největší SOL transfer
         // Toto platí nejen pro Axiom, ale i pro jiné DEXy, které mohou mít podobný problém
+        /*
         if (amountBase > 0 && amountBase < 0.1) {
           const descAmount = parseBaseAmountFromDescription();
           if (descAmount > amountBase) {
@@ -1292,6 +1294,7 @@ export class HeliusClient {
             }
           }
         }
+        */
 
         if (amountBase === 0 && accountDataNativeChange > 0) {
           // Pro Axiom: accountDataNativeChange může obsahovat jen fee, takže ho použijeme jen jako poslední fallback
@@ -1387,8 +1390,10 @@ export class HeliusClient {
           }
         }
         
+        // ZAKOMENTOVÁNO: SOL amount se nyní fetchuje přes Solscan API v solana-collector.service.ts
         // Obecná kontrola: pokud getSwapBaseAmounts vrátilo velmi malou hodnotu (< 0.1 SOL),
         // může to být fee místo skutečné swap hodnoty - zkus description parser nebo největší SOL transfer
+        /*
         if (amountBase > 0 && amountBase < 0.1) {
           const descAmount = parseBaseAmountFromDescription();
           if (descAmount > amountBase) {
@@ -1432,6 +1437,7 @@ export class HeliusClient {
             }
           }
         }
+        */
         
         // Fallback na description, pokud je events.swap prázdný (např. u některých agregátorů)
         if (amountBase === 0) {
@@ -1536,8 +1542,10 @@ export class HeliusClient {
           }
         }
         
+        // ZAKOMENTOVÁNO: SOL amount se nyní fetchuje přes Solscan API v solana-collector.service.ts
         // Fallback na nativeIn/tokenIn
         // Pokud je amountBase podezřele malý (< 0.1 SOL), zkus najít největší SOL transfer
+        /*
         if (amountBase === 0 || amountBase < 0.1) {
           if (amountBase < 0.1 && amountBase > 0) {
             // FALLBACK: Najdi největší SOL/WSOL transfer pro wallet
@@ -1575,6 +1583,8 @@ export class HeliusClient {
             }
           }
           
+          if (amountBase === 0 || amountBase < 0.1) {
+        */
           if (amountBase === 0 || amountBase < 0.1) {
             if (nativeIn > 0 && (!isAxiom || nativeIn > 0.1)) {
               amountBase = nativeIn;
