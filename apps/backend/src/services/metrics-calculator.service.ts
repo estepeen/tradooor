@@ -518,13 +518,11 @@ export class MetricsCalculatorService {
     for (const [label, days] of Object.entries(WINDOW_CONFIG) as Array<[RollingWindowLabel, number]>) {
       const cutoff = new Date(now);
       cutoff.setDate(cutoff.getDate() - days);
-      // Filtruj trades za dané období
-      const periodTrades = trades.filter(trade => {
-        const tradeDate = new Date(trade.timestamp);
-        return tradeDate >= cutoff;
-      });
-      // Použij portfolio endpoint logiku (totalProceedsBase - totalCostBase)
-      rolling[label] = await this.buildRollingWindowStatsFromTrades(periodTrades);
+      // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: Filtruj closed positions podle lastSellTimestamp
+      // Portfolio endpoint filtruje closed positions podle lastSellTimestamp (kdy byla pozice uzavřena)
+      // Ne podle kdy byly trades, ale podle kdy byla pozice uzavřena!
+      // Takže musíme použít všechny trades (pro výpočet balance a PnL), ale filtrovat podle lastSellTimestamp
+      rolling[label] = await this.buildRollingWindowStatsFromTrades(trades, cutoff);
     }
 
     const behaviour = this.buildBehaviourStats(tradeFeatures);
@@ -546,7 +544,8 @@ export class MetricsCalculatorService {
   }
 
   // Build rolling stats from trades (same logic as portfolio endpoint)
-  private async buildRollingWindowStatsFromTrades(trades: any[]): Promise<RollingWindowStats> {
+  // cutoff: filter closed positions by lastSellTimestamp (when position was closed)
+  private async buildRollingWindowStatsFromTrades(trades: any[], cutoff?: Date): Promise<RollingWindowStats> {
     if (trades.length === 0) {
       return {
         realizedPnlUsd: 0,
@@ -574,13 +573,14 @@ export class MetricsCalculatorService {
     }
 
     // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: totalProceedsBase - totalCostBase
-    // Seskup trades podle tokenId a spočítej totalCostBase (BUY) a totalProceedsBase (SELL)
+    // Seskup trades podle tokenId a spočítej totalCostBase (BUY/ADD) a totalProceedsBase (SELL/REM)
+    // Portfolio endpoint zahrnuje ADD/REM trades do balance výpočtu
     const positionMap = new Map<string, { 
       totalCostBase: number; 
       totalProceedsBase: number; 
-      totalBought: number;
-      totalSold: number;
+      balance: number; // Balance = totalBought - totalSold (zahrnuje ADD/REM)
       baseToken: string;
+      lastSellTimestamp: Date | null; // Kdy byla pozice uzavřena (poslední SELL/REM)
     }>();
     
     for (const trade of trades) {
@@ -588,38 +588,54 @@ export class MetricsCalculatorService {
       const amountBase = Number(trade.amountBase || 0);
       const amountToken = Number(trade.amountToken || 0);
       const baseToken = (trade.meta as any)?.baseToken || 'SOL';
+      const tradeTimestamp = new Date(trade.timestamp);
       
       if (!positionMap.has(tokenId)) {
         positionMap.set(tokenId, { 
           totalCostBase: 0, 
           totalProceedsBase: 0, 
-          totalBought: 0,
-          totalSold: 0,
-          baseToken 
+          balance: 0,
+          baseToken,
+          lastSellTimestamp: null
         });
       }
       
       const position = positionMap.get(tokenId)!;
       
-      if (trade.side === 'buy') {
+      // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: buy/add zvyšuje balance a cost, sell/remove snižuje balance a zvyšuje proceeds
+      if (trade.side === 'buy' || trade.side === 'add') {
         position.totalCostBase += amountBase;
-        position.totalBought += amountToken;
-      } else if (trade.side === 'sell') {
+        position.balance += amountToken;
+      } else if (trade.side === 'sell' || trade.side === 'remove') {
         position.totalProceedsBase += amountBase;
-        position.totalSold += amountToken;
+        position.balance -= amountToken;
+        // Update lastSellTimestamp (kdy byla pozice uzavřena)
+        if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
+          position.lastSellTimestamp = tradeTimestamp;
+        }
       }
     }
 
     // Pro každou pozici spočítej closed PnL (stejně jako portfolio endpoint)
-    // Portfolio endpoint počítá pouze uzavřené pozice (balance <= 0, tj. totalSold >= totalBought)
+    // Portfolio endpoint počítá pouze uzavřené pozice (normalizedBalance <= 0)
+    // A filtruje podle lastSellTimestamp (kdy byla pozice uzavřena)
     let totalRealizedPnlUsd = 0;
     let totalInvestedCapitalUsd = 0;
     const closedPositions: Array<{ pnlUsd: number; roiPercent: number }> = [];
 
     for (const [tokenId, position] of positionMap.entries()) {
-      // Pouze closed positions (totalSold >= totalBought znamená, že byly prodány všechny tokeny)
-      // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: balance <= 0
-      if (position.totalProceedsBase > 0 && position.totalCostBase > 0 && position.totalSold >= position.totalBought) {
+      // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: normalizedBalance <= 0 (treat small negatives as 0)
+      const normalizedBalance = position.balance < 0 && Math.abs(position.balance) < 0.0001 ? 0 : position.balance;
+      
+      // Pouze closed positions (normalizedBalance <= 0 znamená, že byly prodány všechny tokeny)
+      if (normalizedBalance <= 0 && position.totalProceedsBase > 0 && position.totalCostBase > 0) {
+        // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: Filtruj podle lastSellTimestamp (kdy byla pozice uzavřena)
+        // Portfolio endpoint filtruje closed positions podle lastSellTimestamp, ne podle kdy byly trades
+        if (cutoff && position.lastSellTimestamp) {
+          if (position.lastSellTimestamp < cutoff) {
+            continue; // Skip positions closed before cutoff
+          }
+        }
         const closedPnlBase = position.totalProceedsBase - position.totalCostBase;
         
         // Convert to USD (stejně jako portfolio endpoint)
