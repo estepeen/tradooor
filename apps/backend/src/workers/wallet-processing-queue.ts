@@ -5,17 +5,28 @@ import { TradeRepository } from '../repositories/trade.repository.js';
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
 import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
 import { LotMatchingService } from '../services/lot-matching.service.js';
+import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
+import { TradeOutcomeRepository } from '../repositories/trade-outcome.repository.js';
+import { TraderCharacterizationService } from '../services/trader-characterization.service.js';
 
 const queueRepo = new WalletProcessingQueueRepository();
 const smartWalletRepo = new SmartWalletRepository();
 const tradeRepo = new TradeRepository();
 const metricsHistoryRepo = new MetricsHistoryRepository();
+const tradeFeatureRepo = new TradeFeatureRepository();
+const tradeOutcomeRepo = new TradeOutcomeRepository();
 const metricsCalculator = new MetricsCalculatorService(
   smartWalletRepo,
   tradeRepo,
   metricsHistoryRepo
 );
 const lotMatchingService = new LotMatchingService();
+const traderCharacterizationService = new TraderCharacterizationService(
+  tradeRepo,
+  tradeFeatureRepo,
+  tradeOutcomeRepo,
+  smartWalletRepo
+);
 
 const IDLE_DELAY_MS = Number(process.env.METRICS_WORKER_IDLE_MS || 2000);
 const MAX_BACKOFF_MS = Number(process.env.METRICS_WORKER_MAX_BACKOFF_MS || 5 * 60 * 1000); // 5 min
@@ -38,6 +49,15 @@ async function processMetricsJob(job: { id: string; walletId: string }) {
 
   // 2. Recalculate metrics (score, win rate, pnl, etc.)
   const metricsResult = await metricsCalculator.calculateMetricsForWallet(job.walletId);
+
+  // 3. Update behavior profile and auto-tags (SEPARATED - only for AI/ML)
+  try {
+    await traderCharacterizationService.calculateBehaviorProfile(job.walletId);
+    console.log(`✅  [Worker] Behavior profile updated for wallet ${job.walletId}`);
+  } catch (error: any) {
+    // Don't fail the job if behavior profile calculation fails
+    console.warn(`⚠️  [Worker] Failed to update behavior profile for wallet ${job.walletId}: ${error?.message || error}`);
+  }
 
   console.log(
     `✅  [Worker] Wallet ${job.walletId} updated (score=${metricsResult?.score ?? 'n/a'})`
