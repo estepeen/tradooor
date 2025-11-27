@@ -190,6 +190,11 @@ export class TradeFeatureRepository {
     volumeSpike24hMultiplier?: number | null;
     marketRegime?: 'bull' | 'bear' | 'sideways' | null;
     otherSmartWalletsTradingCount?: number | null;
+    otherSmartWalletsTradingSameTokenCount?: number | null;
+    otherSmartWalletsTradingSameTokenWithin1h?: number | null;
+    otherSmartWalletsTradingSameTokenWithin24h?: number | null;
+    avgTimeSinceOtherTradersTradeSeconds?: number | null;
+    copyTraderScore?: string | null;
   }) {
     const payload: Record<string, any> = {
       updatedAt: new Date().toISOString(),
@@ -218,6 +223,21 @@ export class TradeFeatureRepository {
     }
     if (data.otherSmartWalletsTradingCount !== undefined) {
       payload.otherSmartWalletsTradingCount = data.otherSmartWalletsTradingCount;
+    }
+    if (data.otherSmartWalletsTradingSameTokenCount !== undefined) {
+      payload.otherSmartWalletsTradingSameTokenCount = data.otherSmartWalletsTradingSameTokenCount;
+    }
+    if (data.otherSmartWalletsTradingSameTokenWithin1h !== undefined) {
+      payload.otherSmartWalletsTradingSameTokenWithin1h = data.otherSmartWalletsTradingSameTokenWithin1h;
+    }
+    if (data.otherSmartWalletsTradingSameTokenWithin24h !== undefined) {
+      payload.otherSmartWalletsTradingSameTokenWithin24h = data.otherSmartWalletsTradingSameTokenWithin24h;
+    }
+    if (data.avgTimeSinceOtherTradersTradeSeconds !== undefined) {
+      payload.avgTimeSinceOtherTradersTradeSeconds = data.avgTimeSinceOtherTradersTradeSeconds;
+    }
+    if (data.copyTraderScore !== undefined) {
+      payload.copyTraderScore = data.copyTraderScore ? toNumeric(Number(data.copyTraderScore)) : null;
     }
 
     if (Object.keys(payload).length === 1) {

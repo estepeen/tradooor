@@ -33,6 +33,8 @@ export const TABLES = {
   TRADE_FEATURE: 'TradeFeature',
   TRADE_SEQUENCE: 'TradeSequence',
   TRADE_OUTCOME: 'TradeOutcome',
+  TRADER_CORRELATION: 'TraderCorrelation',
+  TRADER_BEHAVIOR_PROFILE: 'TraderBehaviorProfile',
 } as const;
 
 /**
