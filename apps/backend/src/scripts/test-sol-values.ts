@@ -26,10 +26,73 @@ async function testSolValues() {
     heliusTx = await heliusClient.getTransaction(TX_SIGNATURE);
     if (!heliusTx) {
       console.error(`❌ Transaction not found in Helius: ${TX_SIGNATURE}`);
+      console.log(`\n💡 Tip: Try fetching from Solana RPC directly or check if transaction exists on Solscan`);
+      console.log(`   https://solscan.io/tx/${TX_SIGNATURE}`);
+      
+      // Try to get trade from DB and show what we have
+      const { data: trade } = await supabase
+        .from(TABLES.TRADE)
+        .select(`
+          id,
+          amountBase,
+          amountToken,
+          priceBasePerToken,
+          side,
+          wallet:${TABLES.SMART_WALLET}(address, label)
+        `)
+        .eq('txSignature', TX_SIGNATURE)
+        .single();
+      
+      if (trade) {
+        console.log(`\n📊 Found trade in database:`);
+        console.log(`   amountBase: ${Number(trade.amountBase).toFixed(9)} SOL`);
+        console.log(`   amountToken: ${Number(trade.amountToken).toFixed(2)}`);
+        console.log(`   side: ${trade.side}`);
+        if ((trade as any).wallet) {
+          console.log(`   wallet: ${(trade as any).wallet.address}`);
+        }
+      }
+      
       return;
     }
   } catch (error: any) {
-    console.error(`❌ Error fetching transaction: ${error.message}`);
+    console.error(`❌ Error fetching transaction from Helius: ${error.message}`);
+    if (error.message.includes('403')) {
+      console.log(`\n⚠️  Helius API returned 403 - this might be:`);
+      console.log(`   1. Rate limit - wait a few minutes and try again`);
+      console.log(`   2. Invalid API key - check HELIUS_API_KEY in .env`);
+      console.log(`   3. Transaction too old - Helius Enhanced API might not have it`);
+      console.log(`\n💡 Alternative: Check transaction on Solscan:`);
+      console.log(`   https://solscan.io/tx/${TX_SIGNATURE}`);
+    }
+    
+    // Try to get trade from DB and show what we have
+    const { data: trade } = await supabase
+      .from(TABLES.TRADE)
+      .select(`
+        id,
+        amountBase,
+        amountToken,
+        priceBasePerToken,
+        side,
+        wallet:${TABLES.SMART_WALLET}(address, label)
+      `)
+      .eq('txSignature', TX_SIGNATURE)
+      .single();
+    
+    if (trade) {
+      console.log(`\n📊 Found trade in database (can't fetch from Helius, but showing DB data):`);
+      console.log(`   amountBase: ${Number(trade.amountBase).toFixed(9)} SOL`);
+      console.log(`   amountToken: ${Number(trade.amountToken).toFixed(2)}`);
+      console.log(`   priceBasePerToken: ${Number(trade.priceBasePerToken).toFixed(9)} SOL`);
+      console.log(`   side: ${trade.side}`);
+      if ((trade as any).wallet) {
+        console.log(`   wallet: ${(trade as any).wallet.address} (${(trade as any).wallet.label || 'no label'})`);
+      }
+      console.log(`\n💡 To fix this trade, use:`);
+      console.log(`   pnpm fix:trade-amount ${TX_SIGNATURE} <correctAmountBase>`);
+    }
+    
     return;
   }
   
