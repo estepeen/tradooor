@@ -543,7 +543,7 @@ export class MetricsCalculatorService {
     }
   }
 
-  // Build rolling stats from trades (same logic as portfolio endpoint)
+  // Build rolling stats from trades (EXACT SAME LOGIC AS PORTFOLIO ENDPOINT)
   // cutoff: filter closed positions by lastSellTimestamp (when position was closed)
   private async buildRollingWindowStatsFromTrades(trades: any[], cutoff?: Date): Promise<RollingWindowStats> {
     if (trades.length === 0) {
@@ -572,70 +572,123 @@ export class MetricsCalculatorService {
       console.warn(`⚠️  Failed to fetch SOL price, using fallback: ${solPriceUsd}`);
     }
 
-    // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: totalProceedsBase - totalCostBase
-    // Seskup trades podle tokenId a spočítej totalCostBase (BUY/ADD) a totalProceedsBase (SELL/REM)
-    // Portfolio endpoint zahrnuje ADD/REM trades do balance výpočtu
+    // EXACT SAME LOGIC AS PORTFOLIO ENDPOINT (smart-wallets.ts lines 945-1031)
+    // Build positions from trades - include ADD/REM trades
     const positionMap = new Map<string, { 
+      tokenId: string;
+      totalBought: number;
+      totalSold: number;
+      balance: number;
       totalCostBase: number; 
       totalProceedsBase: number; 
-      balance: number; // Balance = totalBought - totalSold (zahrnuje ADD/REM)
+      buyCount: number;
+      sellCount: number;
+      firstBuyTimestamp: Date | null;
+      lastSellTimestamp: Date | null;
       baseToken: string;
-      lastSellTimestamp: Date | null; // Kdy byla pozice uzavřena (poslední SELL/REM)
     }>();
     
     for (const trade of trades) {
       const tokenId = trade.tokenId;
+      const amount = Number(trade.amountToken || 0);
       const amountBase = Number(trade.amountBase || 0);
-      const amountToken = Number(trade.amountToken || 0);
       const baseToken = (trade.meta as any)?.baseToken || 'SOL';
       const tradeTimestamp = new Date(trade.timestamp);
       
       if (!positionMap.has(tokenId)) {
         positionMap.set(tokenId, { 
-          totalCostBase: 0, 
-          totalProceedsBase: 0, 
+          tokenId,
+          totalBought: 0,
+          totalSold: 0,
           balance: 0,
-          baseToken,
-          lastSellTimestamp: null
+          totalCostBase: 0, 
+          totalProceedsBase: 0,
+          buyCount: 0,
+          sellCount: 0,
+          firstBuyTimestamp: null,
+          lastSellTimestamp: null,
+          baseToken
         });
       }
       
       const position = positionMap.get(tokenId)!;
       
-      // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: buy/add zvyšuje balance a cost, sell/remove snižuje balance a zvyšuje proceeds
+      // EXACT SAME LOGIC AS PORTFOLIO ENDPOINT: Handle all trade types: buy, sell, add, remove
       if (trade.side === 'buy' || trade.side === 'add') {
+        position.totalBought += amount;
+        position.balance += amount;
         position.totalCostBase += amountBase;
-        position.balance += amountToken;
+        position.buyCount++;
+        if (!position.firstBuyTimestamp || tradeTimestamp < position.firstBuyTimestamp) {
+          position.firstBuyTimestamp = tradeTimestamp;
+        }
       } else if (trade.side === 'sell' || trade.side === 'remove') {
+        position.totalSold += amount;
+        position.balance -= amount;
         position.totalProceedsBase += amountBase;
-        position.balance -= amountToken;
-        // Update lastSellTimestamp (kdy byla pozice uzavřena)
+        position.sellCount++;
         if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
           position.lastSellTimestamp = tradeTimestamp;
         }
       }
     }
 
-    // Pro každou pozici spočítej closed PnL (stejně jako portfolio endpoint)
-    // Portfolio endpoint počítá pouze uzavřené pozice (normalizedBalance <= 0)
-    // A filtruje podle lastSellTimestamp (kdy byla pozice uzavřena)
+    // EXACT SAME LOGIC AS PORTFOLIO ENDPOINT: Filter closed positions (lines 1346-1398)
+    // Portfolio endpoint filtruje closed positions podle:
+    // - normalizedBalance <= 0
+    // - buyCount > 0
+    // - sellCount > 0
+    // - firstBuyTimestamp a lastSellTimestamp existují
+    // - holdTimeMinutes >= 0
     let totalRealizedPnlUsd = 0;
     let totalInvestedCapitalUsd = 0;
-    const closedPositions: Array<{ pnlUsd: number; roiPercent: number }> = [];
+    const closedPositions: Array<{ pnlUsd: number; roiPercent: number; holdTimeMinutes: number }> = [];
 
     for (const [tokenId, position] of positionMap.entries()) {
-      // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: normalizedBalance <= 0 (treat small negatives as 0)
+      // EXACT SAME LOGIC AS PORTFOLIO ENDPOINT: normalizedBalance <= 0 (treat small negatives as 0)
       const normalizedBalance = position.balance < 0 && Math.abs(position.balance) < 0.0001 ? 0 : position.balance;
       
-      // Pouze closed positions (normalizedBalance <= 0 znamená, že byly prodány všechny tokeny)
-      if (normalizedBalance <= 0 && position.totalProceedsBase > 0 && position.totalCostBase > 0) {
-        // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: Filtruj podle lastSellTimestamp (kdy byla pozice uzavřena)
-        // Portfolio endpoint filtruje closed positions podle lastSellTimestamp, ne podle kdy byly trades
-        if (cutoff && position.lastSellTimestamp) {
-          if (position.lastSellTimestamp < cutoff) {
-            continue; // Skip positions closed before cutoff
-          }
+      // Portfolio endpoint filters: balance <= 0, buyCount > 0, sellCount > 0, timestamps exist
+      if (normalizedBalance <= 0 && position.buyCount > 0 && position.sellCount > 0 && 
+          position.firstBuyTimestamp && position.lastSellTimestamp) {
+        
+        // Calculate holdTimeMinutes (same as portfolio endpoint)
+        const holdTimeMs = position.lastSellTimestamp.getTime() - position.firstBuyTimestamp.getTime();
+        const holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
+        
+        // Portfolio endpoint allows 0 minutes (same timestamp)
+        if (holdTimeMinutes < 0) {
+          continue; // Invalid if SELL is before BUY
         }
+        
+        // EXACT SAME LOGIC AS PORTFOLIO ENDPOINT: Filter by lastSellTimestamp (when position was closed)
+        if (cutoff && position.lastSellTimestamp < cutoff) {
+          continue; // Skip positions closed before cutoff
+        }
+        
+        // EXACT SAME LOGIC AS PORTFOLIO ENDPOINT: closedPnlBase = totalProceedsBase - totalCostBase
+        if (position.totalProceedsBase > 0 && position.totalCostBase > 0) {
+          const closedPnlBase = position.totalProceedsBase - position.totalCostBase;
+          
+          // Convert to USD (EXACT SAME LOGIC AS PORTFOLIO ENDPOINT lines 1241-1260)
+          let closedPnlUsd = 0;
+          if (position.baseToken === 'SOL') {
+            closedPnlUsd = closedPnlBase * solPriceUsd;
+          } else if (position.baseToken === 'USDC' || position.baseToken === 'USDT') {
+            closedPnlUsd = closedPnlBase; // 1:1 with USD
+          } else {
+            closedPnlUsd = closedPnlBase * solPriceUsd; // Fallback
+          }
+          
+          const investedCapitalUsd = position.totalCostBase * (position.baseToken === 'SOL' ? solPriceUsd : 1);
+          const roiPercent = investedCapitalUsd > 0 ? (closedPnlUsd / investedCapitalUsd) * 100 : 0;
+          
+          totalRealizedPnlUsd += closedPnlUsd;
+          totalInvestedCapitalUsd += investedCapitalUsd;
+          closedPositions.push({ pnlUsd: closedPnlUsd, roiPercent, holdTimeMinutes });
+        }
+      }
+    }
         const closedPnlBase = position.totalProceedsBase - position.totalCostBase;
         
         // Convert to USD (stejně jako portfolio endpoint)
