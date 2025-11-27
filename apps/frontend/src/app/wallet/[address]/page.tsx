@@ -356,10 +356,23 @@ export default function WalletDetailPage() {
 
         {/* Header */}
         <div className="mb-8">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             <h1 className="mb-0">
-            {wallet.label || formatAddress(wallet.address)}
-          </h1>
+              {wallet.label || formatAddress(wallet.address)}
+            </h1>
+            {wallet.tags && wallet.tags.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {wallet.tags.map((tag: string) => (
+                  <span
+                    key={tag}
+                    className="px-2 py-1 bg-secondary text-secondary-foreground rounded text-xs"
+                    title={tag}
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
             <a
               href={`https://solscan.io/account/${wallet.address}`}
               target="_blank"
@@ -372,18 +385,6 @@ export default function WalletDetailPage() {
               </svg>
             </a>
           </div>
-          {wallet.tags && wallet.tags.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {wallet.tags.map((tag: string) => (
-                <span
-                  key={tag}
-                  className="px-2 py-1 bg-secondary text-secondary-foreground rounded text-xs"
-                >
-                  {tag}
-                </span>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* Tabs */}

@@ -421,9 +421,24 @@ export default function Home() {
                       className="border-t border-border hover:bg-muted/50 cursor-pointer"
                     >
                       <td className="px-4 py-3 text-sm">
-                        <span className="underline">
-                          {wallet.label || '-'}
-                        </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="underline">
+                            {wallet.label || '-'}
+                          </span>
+                          {wallet.tags && wallet.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {wallet.tags.map((tag: string) => (
+                                <span
+                                  key={tag}
+                                  className="px-2 py-0.5 bg-secondary text-secondary-foreground rounded text-xs"
+                                  title={tag}
+                                >
+                                  {tag}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <span className="font-mono text-sm">
