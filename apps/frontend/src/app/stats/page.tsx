@@ -242,63 +242,6 @@ export default function StatsPage() {
           </div>
         )}
 
-        {/* Bottom Performers */}
-        {overview && overview.bottomPerformers && (
-          <div className="mb-8">
-            <h2 className="text-2xl font-semibold mb-4">Bottom Performers</h2>
-            <div className="grid md:grid-cols-2 gap-6">
-              <div className="border border-border rounded-lg p-6">
-                <h3 className="text-lg font-semibold mb-4">Worst PnL</h3>
-                <div className="space-y-2">
-                  {overview.bottomPerformers.byPnl && overview.bottomPerformers.byPnl.length > 0 ? (
-                    overview.bottomPerformers.byPnl.map((wallet: any) => (
-                      <Link
-                        key={wallet.id}
-                        href={`/wallet/${wallet.address}`}
-                        className="flex justify-between items-center p-2 hover:bg-muted rounded"
-                      >
-                        <div>
-                          <div className="font-medium">{wallet.label || wallet.address.slice(0, 8)}</div>
-                          <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
-                        </div>
-                        <div className="text-right font-bold text-red-600">
-                          {formatNumber(wallet.pnlTotalBase || 0, 2)}
-                        </div>
-                      </Link>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground text-center py-4">No data available</div>
-                  )}
-                </div>
-              </div>
-              <div className="border border-border rounded-lg p-6">
-                <h3 className="text-lg font-semibold mb-4">Lowest Win Rate</h3>
-                <div className="space-y-2">
-                  {overview.bottomPerformers.byWinRate && overview.bottomPerformers.byWinRate.length > 0 ? (
-                    overview.bottomPerformers.byWinRate.map((wallet: any) => (
-                      <Link
-                        key={wallet.id}
-                        href={`/wallet/${wallet.address}`}
-                        className="flex justify-between items-center p-2 hover:bg-muted rounded"
-                      >
-                        <div>
-                          <div className="font-medium">{wallet.label || wallet.address.slice(0, 8)}</div>
-                          <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
-                        </div>
-                        <div className="text-right font-bold text-red-600">
-                          {formatPercent(wallet.winRate || 0)}
-                        </div>
-                      </Link>
-                    ))
-                  ) : (
-                    <div className="text-sm text-muted-foreground text-center py-4">No data available</div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Top by Period by Score (points) - NEZÁVISLÉ NA USD */}
         {overview && overview.topPerformers && overview.topPerformers.byPeriodByScore && (
           <div className="mb-8">
@@ -393,6 +336,65 @@ export default function StatsPage() {
                 </div>
               );
             })}
+            </div>
+          </div>
+        )}
+
+        {/* Bottom Performers - přesunuto naspod stránky */}
+        {overview && overview.bottomPerformers && (
+          <div className="mb-8">
+            <h2 className="text-2xl font-semibold mb-4">Bottom Performers</h2>
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="border border-border rounded-lg p-6">
+                <h3 className="text-lg font-semibold mb-4">Worst PnL</h3>
+                <div className="space-y-2">
+                  {overview.bottomPerformers.byPnl && overview.bottomPerformers.byPnl.length > 0 ? (
+                    overview.bottomPerformers.byPnl.map((wallet: any) => (
+                      <Link
+                        key={wallet.id}
+                        href={`/wallet/${wallet.address}`}
+                        className="flex justify-between items-center p-2 hover:bg-muted rounded"
+                      >
+                        <div>
+                          <div className="font-medium">{wallet.label || wallet.address.slice(0, 8)}</div>
+                          <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
+                        </div>
+                        <div className="text-right font-bold text-red-600">
+                          {/* Celkový PnL v base (SOL) – zatím necháváme v jednotkách base */}
+                          {formatNumber(wallet.pnlTotalBase || 0, 2)}
+                        </div>
+                      </Link>
+                    ))
+                  ) : (
+                    <div className="text-sm text-muted-foreground text-center py-4">No data available</div>
+                  )}
+                </div>
+              </div>
+              <div className="border border-border rounded-lg p-6">
+                <h3 className="text-lg font-semibold mb-4">Lowest Win Rate (30d PnL $)</h3>
+                <div className="space-y-2">
+                  {overview.bottomPerformers.byWinRate && overview.bottomPerformers.byWinRate.length > 0 ? (
+                    overview.bottomPerformers.byWinRate.map((wallet: any) => (
+                      <Link
+                        key={wallet.id}
+                        href={`/wallet/${wallet.address}`}
+                        className="flex justify-between items-center p-2 hover:bg-muted rounded"
+                      >
+                        <div>
+                          <div className="font-medium">{wallet.label || wallet.address.slice(0, 8)}</div>
+                          <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
+                        </div>
+                        <div className="text-right font-bold text-red-600">
+                          {/* Místo procent zobrazíme PnL v USD (30d), pokud je dostupný */}
+                          ${formatNumber(wallet.recentPnl30dUsd || 0, 2)}
+                        </div>
+                      </Link>
+                    ))
+                  ) : (
+                    <div className="text-sm text-muted-foreground text-center py-4">No data available</div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
