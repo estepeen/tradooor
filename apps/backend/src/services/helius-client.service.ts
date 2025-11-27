@@ -1235,12 +1235,10 @@ export class HeliusClient {
           }
         }
 
-        // ZAKOMENTOVÁNO: SOL amount se nyní fetchuje přes Solscan API v solana-collector.service.ts
         // Obecná kontrola: pokud getSwapBaseAmounts vrátilo velmi malou hodnotu (< 0.1 SOL),
         // může to být fee místo skutečné swap hodnoty - zkus description parser nebo největší SOL transfer
         // Toto platí nejen pro Axiom, ale i pro jiné DEXy, které mohou mít podobný problém
-        /*
-        if (amountBase > 0 && amountBase < 0.1) {
+        if (amountBase > 0 && amountBase <= 0.1) {
           const descAmount = parseBaseAmountFromDescription();
           if (descAmount > amountBase) {
             const sourceLabel = isAxiom ? '[AXIOM]' : `[${heliusTx.source || 'UNKNOWN'}]`;
@@ -1294,7 +1292,6 @@ export class HeliusClient {
             }
           }
         }
-        */
 
         if (amountBase === 0 && accountDataNativeChange > 0) {
           // Pro Axiom: accountDataNativeChange může obsahovat jen fee, takže ho použijeme jen jako poslední fallback
@@ -1390,11 +1387,9 @@ export class HeliusClient {
           }
         }
         
-        // ZAKOMENTOVÁNO: SOL amount se nyní fetchuje přes Solscan API v solana-collector.service.ts
         // Obecná kontrola: pokud getSwapBaseAmounts vrátilo velmi malou hodnotu (< 0.1 SOL),
         // může to být fee místo skutečné swap hodnoty - zkus description parser nebo největší SOL transfer
-        /*
-        if (amountBase > 0 && amountBase < 0.1) {
+        if (amountBase > 0 && amountBase <= 0.1) {
           const descAmount = parseBaseAmountFromDescription();
           if (descAmount > amountBase) {
             const sourceLabel = isAxiom ? '[AXIOM SELL]' : `[${heliusTx.source || 'UNKNOWN'} SELL]`;
@@ -1437,20 +1432,19 @@ export class HeliusClient {
             }
           }
         }
-        */
         
         // Fallback na description, pokud je events.swap prázdný (např. u některých agregátorů)
         if (amountBase === 0) {
-          const descAmount = parseBaseAmountFromDescription();
-          if (descAmount > 0) {
+        const descAmount = parseBaseAmountFromDescription();
+        if (descAmount > 0) {
             console.log(`   ✅ Using description-based base amount (fallback): ${descAmount}`);
             amountBase = descAmount;
           }
         }
         
         // Fallback na nativeOut/tokenOut (z původní logiky, ale jen jako pojistka)
-        if (amountBase === 0 || amountBase < 0.1) {
-          if (amountBase < 0.1 && amountBase > 0) {
+        if (amountBase === 0 || amountBase <= 0.1) {
+          if (amountBase <= 0.1 && amountBase > 0) {
             // FALLBACK: Najdi největší SOL/WSOL transfer pro wallet
             const largestSol = getLargestSolTransferForWallet();
             if (largestSol > amountBase && largestSol >= 0.1) {
@@ -1461,11 +1455,11 @@ export class HeliusClient {
             }
           }
           
-          if (amountBase === 0 || amountBase < 0.1) {
-            if (nativeOut > 0) {
+          if (amountBase === 0 || amountBase <= 0.1) {
+          if (nativeOut > 0) {
               console.log(`   ⚠️  [SELL] Using nativeOut fallback: ${nativeOut} SOL`);
-              amountBase = nativeOut;
-            } else if (outMint && isBaseToken(outMint)) {
+            amountBase = nativeOut;
+          } else if (outMint && isBaseToken(outMint)) {
               const tokenOutAmount = getTokenAmount(tokenOut);
               console.log(`   ⚠️  [SELL] Using tokenOut fallback: ${tokenOutAmount} ${getBaseTokenSymbol(outMint)}`);
               amountBase = tokenOutAmount;
@@ -1524,7 +1518,7 @@ export class HeliusClient {
         
         // Pro Axiom: pokud getSwapBaseAmounts vrátilo velmi malou hodnotu (pravděpodobně fee),
         // zkus znovu description parser
-        if (isAxiom && amountBase > 0 && amountBase < 0.1) {
+        if (isAxiom && amountBase > 0 && amountBase <= 0.1) {
           const descAmount = parseBaseAmountFromDescription();
           if (descAmount > amountBase) {
             console.log(`   ✅ [AXIOM BUY] Description amount (${descAmount}) > calculated amount (${amountBase}), using description`);
@@ -1535,22 +1529,60 @@ export class HeliusClient {
         
         // Fallback na description
         if (amountBase === 0) {
-          const descAmount = parseBaseAmountFromDescription();
-          if (descAmount > 0) {
+        const descAmount = parseBaseAmountFromDescription();
+        if (descAmount > 0) {
             console.log(`   ✅ Using description-based base amount (fallback): ${descAmount}`);
             amountBase = descAmount;
           }
         }
         
-        // ZAKOMENTOVÁNO: SOL amount se nyní fetchuje přes Solscan API v solana-collector.service.ts
-        // Fallback na nativeIn/tokenIn - pouze základní fallback, bez složitých logik
-        if (amountBase === 0 || amountBase < 0.1) {
-          if (nativeIn > 0 && (!isAxiom || nativeIn > 0.1)) {
+        // Fallback na nativeIn/tokenIn
+        // Pokud je amountBase podezřele malý (< 0.1 SOL), zkus najít největší SOL transfer
+        if (amountBase === 0 || amountBase <= 0.1) {
+          if (amountBase <= 0.1 && amountBase > 0) {
+            // FALLBACK: Najdi největší SOL/WSOL transfer pro wallet
+            const largestSol = getLargestSolTransferForWallet();
+            if (largestSol > amountBase && largestSol >= 0.1) {
+              const sourceLabel = isAxiom ? '[AXIOM BUY]' : `[${heliusTx.source || 'UNKNOWN'} BUY]`;
+              console.log(`   ✅ ${sourceLabel} Using largest SOL/WSOL transfer as fallback: ${largestSol} SOL (was ${amountBase} SOL - likely fee)`);
+              amountBase = largestSol;
+              baseToken = 'SOL';
+            } else if (amountBase < 0.1) {
+              // SOLSCAN FALLBACK: Pokud stále máme velmi malou hodnotu, zkus Solscan API
+              if (this.solscanClient.isAvailable()) {
+                try {
+                  const solscanValue = await this.solscanClient.getTransactionValue(heliusTx.signature);
+                  if (solscanValue && solscanValue > amountBase && solscanValue >= 0.1) {
+                    // Solscan vrací buď SOL amount nebo USD value
+                    // Pokud je to USD, musíme převést na SOL (přibližně)
+                    let solscanSolAmount = solscanValue;
+                    if (solscanValue > 100) {
+                      // Pravděpodobně USD value, převedeme na SOL (přibližně, SOL je ~$100-200)
+                      // Použijeme konzervativní odhad $150/SOL
+                      solscanSolAmount = solscanValue / 150;
+                    }
+                    if (solscanSolAmount > amountBase && solscanSolAmount >= 0.1) {
+                      const sourceLabel = isAxiom ? '[AXIOM BUY]' : `[${heliusTx.source || 'UNKNOWN'} BUY]`;
+                      console.log(`   ✅ ${sourceLabel} Using Solscan API fallback: ${solscanSolAmount.toFixed(6)} SOL (was ${amountBase} SOL - likely fee)`);
+                      amountBase = solscanSolAmount;
+                      baseToken = 'SOL';
+                    }
+                  }
+                } catch (error: any) {
+                  console.warn(`   ⚠️  Solscan API fallback failed: ${error.message}`);
+                }
+              }
+            }
+          }
+          
+          if (amountBase === 0 || amountBase <= 0.1) {
+            if (nativeIn > 0 && (!isAxiom || nativeIn > 0.1)) {
             amountBase = nativeIn;
           } else if (inMint && isBaseToken(inMint)) {
-            const tokenInAmount = getTokenAmount(tokenIn);
-            if (!isAxiom || tokenInAmount > 0.1) {
-              amountBase = tokenInAmount;
+              const tokenInAmount = getTokenAmount(tokenIn);
+              if (!isAxiom || tokenInAmount > 0.1) {
+                amountBase = tokenInAmount;
+              }
             }
           }
         }
@@ -1954,6 +1986,21 @@ export class HeliusClient {
           // Ale použijeme ho jen pokud je opravdu výrazně větší (1.5x), protože accountData je netto
           console.log(`   ⚠️  SELL: accountData (${accountDataNativeChange.toFixed(6)} SOL) is ${(accountDataNativeChange / amountBase).toFixed(2)}x larger than nativeInTotal (${amountBase.toFixed(6)} SOL)`);
           console.log(`       Keeping nativeInTotal (brutto) instead of accountData (netto)`);
+        }
+      }
+
+      // Pokud je amountBase podezřele malý (≤ 0.1 SOL), je to velmi pravděpodobně jen fee a ne skutečná swap hodnota.
+      // V legacy větvi nemáme helper getLargestSolTransferForWallet, ale máme accountDataNativeChange,
+      // které reprezentuje celkovou netto změnu SOL pro wallet – použijeme ho jako konzervativní fallback.
+      if (amountBase > 0 && amountBase <= 0.1) {
+        const absAccountData = Math.abs(accountDataNativeChange);
+        if (absAccountData >= 0.1 && absAccountData > amountBase * 2) {
+          console.log(
+            `   ✅ [NETTO CHANGE] Using accountData.nativeBalanceChange fallback: ${absAccountData.toFixed(
+              6
+            )} SOL (was ${amountBase.toFixed(6)} SOL - likely fee)`
+          );
+          amountBase = absAccountData;
         }
       }
 
