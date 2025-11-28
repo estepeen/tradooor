@@ -8,25 +8,36 @@ import { formatAddress, formatPercent, formatNumber, formatLastTrade } from '@/l
 import type { SmartWalletListResponse } from '@solbot/shared';
 
 const TAG_TOOLTIPS: Record<string, string> = {
-  scalper: 'Scalper: dělá hodně krátkodobých tradeů s velmi krátkou dobou držení.',
-  'high-risk': 'High-risk: velké drawdowny a agresivní risk profil.',
-  degen: 'Degen: často traduje low-liquidity a rizikové tokeny.',
-  sniper: 'Sniper: vstupuje velmi brzy po launchi nových tokenů.',
-  'swing-trader': 'Swing trader: drží pozice delší dobu (dny až týdny).',
-  'copy-trader': 'Copy trader: často vstupuje do tokenů, které předtím nakoupili jiní smart tradeři.',
-  'early-adopter': 'Early adopter: rád nakupuje velmi nové tokeny krátce po launchi.',
-  'momentum-trader': 'Momentum trader: vstupuje do tokenů s výrazným cenovým pohybem.',
-  'extreme-risk': 'Extreme risk: extrémní drawdowny, velmi agresivní risk profil.',
-  'high-frequency': 'High-frequency: dělá velké množství tradeů denně.',
-  conviction: 'Conviction: obchoduje méně, ale ve větších pozicích a s vysokým win rate (10+ closed trades).',
+  scalper:
+    'Scalper: průměrná doba držení < 30 minut (počítáno z closed pozic). Zaměřuje se na rychlé, krátké obchody.',
+  'high-risk':
+    'High-risk: max drawdown > 30 % (z metrik tradera). Vysoká volatilita kapitálu a větší ztrátové série.',
+  degen:
+    'Degen: > 40 % tradeů jde do tokenů s likviditou < 10 000 USD (používá se liquidityUsd z TradeFeature).',
+  sniper:
+    'Sniper: > 20 % tradeů jde do tokenů mladších než 5 minut (tokenAgeSeconds < 300). Vstup velmi brzy po launchi.',
+  'swing-trader':
+    'Swing trader: průměrná doba držení > 1 440 minut (24 h). Pozice drží dny až týdny.',
+  'copy-trader':
+    'Copy trader: vysoké copyTraderScore (> 0.5), tedy často vstupuje krátce po jiných smart walletech do stejného tokenu.',
+  'early-adopter':
+    'Early adopter: > 30 % tradeů je do tokenů mladších než 30 minut (tokenAgeSeconds < 1 800).',
+  'momentum-trader':
+    'Momentum trader: > 30 % tradeů má 5m trend |trend5mPercent| > 10 % – vstupuje do silného pohybu.',
+  'extreme-risk':
+    'Extreme risk: max drawdown > 50 % (z metrik tradera). Extrémně agresivní risk profil.',
+  'high-frequency':
+    'High-frequency: více než ~10 tradeů denně (počítá se z totalTrades a stáří walletky).',
+  conviction:
+    'Conviction: alespoň 10 closed trades, win rate ≥ 60 %, frekvence low/medium a průměrná velikost pozice ≳ 200 USD.',
 };
 
 const SCORE_TOOLTIPS: Record<string, string> = {
-  P: 'Profitability (P): jak ziskové jsou obchody (realizovaný PnL, ROI).',
-  C: 'Consistency (C): jak konzistentní jsou výsledky (win rate, stabilita).',
-  R: 'Risk (R): řízení rizika, drawdowny a velikost ztrát.',
-  B: 'Behaviour (B): kvalita chování – likvidita, nové tokeny, zdravost stylu.',
-  SF: 'Sample factor (SF): kolik dat máme. 1.0 = hodně tradeů, 0 = málo dat.',
+  P: 'Profitability (P): kombinuje 30d a 90d realized ROI (realizedRoiPercent). Počítá se jako blend ROI a škáluje se na 0–100.',
+  C: 'Consistency (C): staví hlavně na win rate (winRate) a medianTradeRoiPercent za 30d. 70 % váha win rate, 30 % medián ROI.',
+  R: 'Risk (R): používá maxDrawdownPercent a volatilityPercent za 90d. Čím nižší drawdown a volatilita, tím vyšší skóre.',
+  B: 'Behaviour (B): porovnává medianHoldMinutesWinners vs medianHoldMinutesLosers a penalizuje shareLowLiquidity a shareNewTokens.',
+  SF: 'Sample factor (SF): bere numClosedTrades a totalVolumeUsd za 90d, používá log10; 0 = málo dat, 1 = hodně dat a objemu.',
 };
 
 const getTagTooltip = (tag: string) =>
@@ -452,7 +463,7 @@ export default function Home() {
                           </span>
                           {wallet.tags && wallet.tags.length > 0 && (
                             <div className="flex flex-wrap gap-1">
-                              {wallet.tags.map((tag: string) => (
+                              {wallet.tags.slice(0, 2).map((tag: string) => (
                                 <span
                                   key={tag}
                                   className="px-2 py-0.5 bg-secondary text-secondary-foreground rounded text-xs"
@@ -461,6 +472,22 @@ export default function Home() {
                                   {tag}
                                 </span>
                               ))}
+                              {wallet.tags.length > 2 && (
+                                <span
+                                  className="px-2 py-0.5 bg-secondary text-secondary-foreground rounded text-xs"
+                                  title={
+                                    wallet.tags
+                                      .slice(2)
+                                      .map(
+                                        (tag: string) =>
+                                          `${tag}: ${getTagTooltip(tag)}`
+                                      )
+                                      .join('\n')
+                                  }
+                                >
+                                  +{wallet.tags.length - 2}
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>
