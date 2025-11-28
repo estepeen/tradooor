@@ -343,6 +343,7 @@ export default function WalletDetailPage() {
       id: trade.id,
       tokenId: trade.tokenId,
       amountToken: trade.amountToken,
+      amountBase: trade.amountBase, // Přidej amountBase pro správný výpočet ratio
       side: trade.side as any,
       timestamp: trade.timestamp,
       positionChangePercent: trade.positionChangePercent, // Použij positionChangePercent z databáze

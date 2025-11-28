@@ -16,6 +16,7 @@ type RawTrade = {
   id: string;
   tokenId: string;
   amountToken?: number | string | null;
+  amountBase?: number | string | null; // Hodnota v SOL/USDC/USDT (důležité pro správný výpočet ratio)
   timestamp: Date | string | number;
   side?: string | null;
   positionChangePercent?: number | null; // Z databáze - uložený při webhooku
@@ -33,6 +34,7 @@ export function computePositionMetricsFromPercent(
     string,
     {
       balanceTokens: number;
+      totalCostBase: number; // Celkové náklady v SOL/USDC/USDT (pro správný výpočet ratio)
       positionX: number;
     }
   >();
@@ -46,7 +48,7 @@ export function computePositionMetricsFromPercent(
     const amount = Math.abs(Number(trade.amountToken ?? 0));
 
     if (!state.has(tokenId)) {
-      state.set(tokenId, { balanceTokens: 0, positionX: 0 });
+      state.set(tokenId, { balanceTokens: 0, totalCostBase: 0, positionX: 0 });
     }
 
     const entry = state.get(tokenId)!;
@@ -56,6 +58,7 @@ export function computePositionMetricsFromPercent(
     let action: PositionAction = 'NONE';
 
     const side = (trade.side || '').toLowerCase();
+    const amountBase = Math.abs(Number(trade.amountBase ?? 0)); // Hodnota v SOL/USDC/USDT
 
     const resolveAction = (): PositionAction => {
       // DŮLEŽITÉ: Použij TYPE z backendu (už je správně vypočítaný na základě balance)
@@ -77,6 +80,7 @@ export function computePositionMetricsFromPercent(
         beforeX = entry.positionX; // Aktuální pozice před BUY (obvykle 0)
         afterX = 1.0; // První nákup = 1.00x
         entry.balanceTokens = amount;
+        entry.totalCostBase = amountBase; // Ulož náklady v SOL
         break;
       }
       case 'ADD': {
@@ -86,18 +90,18 @@ export function computePositionMetricsFromPercent(
           // Pokud nemáme žádnou pozici, ale dostáváme ADD (měl by to být BUY, ale použijeme ADD)
           afterX = 1.0;
           entry.balanceTokens = amount;
+          entry.totalCostBase = amountBase;
         } else {
-          // DŮLEŽITÉ: ratio = jaká část současného balance přidáváme (0-1 nebo více)
-          // Pokud přidáme stejné množství (zdvojnásobíme), ratio = 1.0, takže deltaX = 1.0
-          // Pokud přidáme 50% současného balance, ratio = 0.5, takže deltaX = 0.5
-          // Příklad: balanceTokens = 1000, amount = 1000, ratio = 1.0
-          // beforeX = 1.0, deltaX = 1.0, afterX = 2.0 ✅
-          // Příklad: balanceTokens = 1000, amount = 500, ratio = 0.5
-          // beforeX = 1.0, deltaX = 0.5, afterX = 1.5 ✅
-          const ratio = amount / entry.balanceTokens;
-          const deltaX = ratio; // deltaX = kolik x přidáváme
+          // DŮLEŽITÉ: ratio = jaká část současných nákladů přidáváme (v SOL, ne v tokenech!)
+          // Pokud přidáme stejnou hodnotu v SOL (zdvojnásobíme náklady), ratio = 1.0, takže deltaX = 1.0
+          // Pokud přidáme 50% současných nákladů, ratio = 0.5, takže deltaX = 0.5
+          // Příklad: totalCostBase = 1.51 SOL, amountBase = 0.26 SOL, ratio = 0.26 / 1.51 = 0.17
+          // beforeX = 1.0, deltaX = 0.17, afterX = 1.17 ✅
+          const ratio = entry.totalCostBase > 0 ? amountBase / entry.totalCostBase : 0;
+          const deltaX = ratio; // deltaX = kolik x přidáváme (podle hodnoty v SOL)
           afterX = entry.positionX + deltaX;
           entry.balanceTokens += amount;
+          entry.totalCostBase += amountBase; // Přidej náklady v SOL
         }
         break;
       }
@@ -115,25 +119,28 @@ export function computePositionMetricsFromPercent(
           // Nemůžeme prodávat, když nemáme pozici
           afterX = 0;
           entry.balanceTokens = 0;
+          entry.totalCostBase = 0;
         } else {
-          // DŮLEŽITÉ: Vždy počítáme z amountToken a balanceTokens, protože to je spolehlivější
-          // ratio = jaká část pozice se prodává (0-1)
-          // Pokud prodáme 25% pozice, ratio = 0.25, takže afterX = positionX * (1 - 0.25) = positionX * 0.75
-          // Příklad: balanceTokens = 1000, amount = 250, ratio = 0.25
-          // beforeX = 2.0, afterX = 2.0 * (1 - 0.25) = 1.5, deltaX = -0.5 ✅
-          const ratio = Math.min(1, amount / entry.balanceTokens);
+          // DŮLEŽITÉ: ratio = jaká část pozice se prodává (podle hodnoty v SOL, ne v tokenech!)
+          // Pokud prodáme 25% hodnoty pozice v SOL, ratio = 0.25, takže afterX = positionX * (1 - 0.25) = positionX * 0.75
+          // Příklad: totalCostBase = 1.51 SOL, amountBase = 0.26 SOL, ratio = 0.26 / 1.51 = 0.17
+          // beforeX = 1.17, afterX = 1.17 * (1 - 0.17) = 0.97, deltaX = -0.20 ✅
+          const ratio = entry.totalCostBase > 0 ? Math.min(1, amountBase / entry.totalCostBase) : Math.min(1, amount / entry.balanceTokens);
           
           // Vypočti balance po REM PŘED výpočtem afterX
           const balanceAfter = Math.max(0, entry.balanceTokens - amount);
+          const costAfter = Math.max(0, entry.totalCostBase - amountBase);
           
           // Pokud po REM klesne balance na 0, pozice je 0
-          if (balanceAfter <= EPS) {
+          if (balanceAfter <= EPS || costAfter <= EPS) {
             afterX = 0;
             entry.balanceTokens = 0;
+            entry.totalCostBase = 0;
           } else {
-            // Částečný prodej - pozice se sníží proporcionálně
+            // Částečný prodej - pozice se sníží proporcionálně podle hodnoty v SOL
             afterX = entry.positionX * (1 - ratio);
             entry.balanceTokens = balanceAfter;
+            entry.totalCostBase = costAfter;
           }
         }
         break;
