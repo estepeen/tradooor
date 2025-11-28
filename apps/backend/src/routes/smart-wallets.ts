@@ -954,7 +954,8 @@ router.get('/:id/portfolio', async (req, res) => {
       totalProceedsBase: number; // Total proceeds in base currency (SOL/USDC/USDT) from SELL trades
       averageBuyPrice: number;
       buyCount: number;
-      sellCount: number;
+      sellCount: number; // Počet SELL trades (uzavírají pozici)
+      removeCount: number; // Počet REM trades (snižují balance, ale neuzavírají pozici)
       lastBuyPrice: number;
       lastSellPrice: number;
       firstBuyTimestamp: Date | null;
@@ -983,6 +984,7 @@ router.get('/:id/portfolio', async (req, res) => {
           averageBuyPrice: 0,
           buyCount: 0,
           sellCount: 0,
+          removeCount: 0, // Počet REM trades (snižují balance, ale neuzavírají pozici)
           lastBuyPrice: 0,
           lastSellPrice: 0,
           firstBuyTimestamp: null,
@@ -1012,7 +1014,8 @@ router.get('/:id/portfolio', async (req, res) => {
         if (!position.firstBuyTimestamp || tradeTimestamp < position.firstBuyTimestamp) {
           position.firstBuyTimestamp = tradeTimestamp;
         }
-      } else if (trade.side === 'sell' || trade.side === 'remove') {
+      } else if (trade.side === 'sell') {
+        // SELL uzavírá pozici → closed position
         position.totalSold += amount;
         position.balance -= amount;
         position.sellCount++;
@@ -1022,11 +1025,17 @@ router.get('/:id/portfolio', async (req, res) => {
         if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
           position.lastSellTimestamp = tradeTimestamp;
         }
+      } else if (trade.side === 'remove') {
+        // REM jen snižuje balance, ale neuzavírá pozici → stále open position (pokud balance > 0)
+        position.totalSold += amount;
+        position.balance -= amount;
+        position.removeCount++;
+        // REM neaktualizuje lastSellTimestamp (není to uzavření pozice)
       }
       
       // Debug logging for balance calculation
       if (trade.side === 'buy' || trade.side === 'sell' || trade.side === 'add' || trade.side === 'remove') {
-        console.log(`   Trade ${trade.side}: tokenId=${tokenId}, amount=${amount}, balance=${position.balance}, buyCount=${position.buyCount}, sellCount=${position.sellCount}`);
+        console.log(`   Trade ${trade.side}: tokenId=${tokenId}, amount=${amount}, balance=${position.balance}, buyCount=${position.buyCount}, sellCount=${position.sellCount}, removeCount=${position.removeCount || 0}`);
       }
     }
 
@@ -1309,31 +1318,36 @@ router.get('/:id/portfolio', async (req, res) => {
       })
       .filter((p): p is NonNullable<typeof p> => p !== null);
 
-    // JEDNODUCHÁ LOGIKA: Open/Closed positions přímo z recent trades
-    // Recent trades = všechny BUY a SELL trady
-    // Open positions = BUY tradicional, které ještě nejsou uzavřené SELL tradeem (balance > 0)
-    // Closed positions = BUY tradicional, které jsou uzavřené SELL tradeem (balance <= 0)
+    // LOGIKA: Open/Closed positions z recent trades
+    // Open positions = BUY+ADD tradicional, které ještě nejsou uzavřené SELL tradeem
+    //   - balance > 0 NEBO (balance <= 0 ale nemá žádný SELL trade, jen REM)
+    // Closed positions = BUY tradicional, které jsou uzavřené SELL tradeem (balance <= 0 A má alespoň jeden SELL)
     
-    // Open positions: BUY tradicional, které ještě nejsou uzavřené SELL tradeem
+    // Open positions: balance > 0 NEBO (balance <= 0 ale nemá žádný SELL trade)
     const openPositions = portfolio
       .filter(p => {
-        // Musí mít balance > 0 (neuzavřená pozice - ještě máme tokeny)
-        if (p.balance <= 0) {
-          console.log(`   ⏭️  Skipping open position: balance <= 0 (${p.balance})`);
-          return false;
-        }
-        // Musí mít alespoň jeden BUY trade
+        // Musí mít alespoň jeden BUY nebo ADD trade
         if (p.buyCount === 0) {
-          console.log(`   ⏭️  Skipping open position: no BUY trades`);
+          console.log(`   ⏭️  Skipping open position: no BUY/ADD trades`);
           return false;
         }
-        // Filtruj pozice s velmi malou hodnotou (prakticky 0)
+        
+        // Open position = balance > 0 NEBO (balance <= 0 ale nemá žádný SELL trade, jen REM)
+        const hasSellTrade = p.sellCount > 0;
+        if (p.balance <= 0 && hasSellTrade) {
+          // balance <= 0 A má SELL trade → closed position
+          console.log(`   ⏭️  Skipping open position: balance <= 0 (${p.balance}) and has SELL trade (closed position)`);
+          return false;
+        }
+        
+        // Pokud je balance <= 0 ale nemá SELL trade, může to být otevřená pozice (jen REM trades)
+        // Ale filtrujeme pozice s velmi malou hodnotou (prakticky 0)
         const value = p.currentValue || (p.balance * p.averageBuyPrice);
         if (value <= 0.01) {
           console.log(`   ⏭️  Skipping open position: value too small (${value})`);
           return false;
         }
-        console.log(`   ✅ Open position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, value=${value}`);
+        console.log(`   ✅ Open position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, value=${value}, sellCount=${p.sellCount}, removeCount=${p.removeCount || 0}`);
         return true;
       })
       .sort((a, b) => {
@@ -1342,7 +1356,7 @@ router.get('/:id/portfolio', async (req, res) => {
         return bValue - aValue;
       });
 
-    // Closed positions: BUY tradicional, které jsou uzavřené SELL tradeem
+    // Closed positions: balance <= 0 A musí mít alespoň jeden SELL trade (ne REM!)
     const closedPositions = portfolio
       .filter(p => {
         // Treat small negative balance (rounding errors) as 0 for closed positions
@@ -1352,15 +1366,15 @@ router.get('/:id/portfolio', async (req, res) => {
         if (normalizedBalance > 0) {
           console.log(`   ⏭️  Skipping closed position: balance > 0 (${p.balance}, normalized: ${normalizedBalance})`);
           return false;
-    }
+        }
         // Musí mít alespoň jeden BUY trade (známe první nákup)
         if (p.buyCount === 0) {
           console.log(`   ⏭️  Skipping closed position: no BUY trades`);
           return false;
         }
-        // Musí mít alespoň jeden SELL trade (známe prodej - pozice je uzavřená)
+        // DŮLEŽITÉ: Musí mít alespoň jeden SELL trade (ne REM!) - SELL uzavírá pozici
         if (p.sellCount === 0) {
-          console.log(`   ⏭️  Skipping closed position: no SELL trades`);
+          console.log(`   ⏭️  Skipping closed position: no SELL trades (only REM trades don't close position)`);
           return false;
         }
         // Musí mít firstBuyTimestamp a lastSellTimestamp (pro výpočet HOLD time)
