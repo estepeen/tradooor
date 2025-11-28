@@ -9,6 +9,23 @@ import { computePositionMetricsFromPercent } from '@/lib/positions';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { SmartWallet, Trade } from '@solbot/shared';
 
+const TAG_TOOLTIPS: Record<string, string> = {
+  scalper: 'Scalper: dělá hodně krátkodobých tradeů s velmi krátkou dobou držení.',
+  'high-risk': 'High-risk: velké drawdowny a agresivní risk profil.',
+  degen: 'Degen: často traduje low-liquidity a rizikové tokeny.',
+  sniper: 'Sniper: vstupuje velmi brzy po launchi nových tokenů.',
+  'swing-trader': 'Swing trader: drží pozice delší dobu (dny až týdny).',
+  'copy-trader': 'Copy trader: často vstupuje do tokenů, které předtím nakoupili jiní smart tradeři.',
+  'early-adopter': 'Early adopter: rád nakupuje velmi nové tokeny krátce po launchi.',
+  'momentum-trader': 'Momentum trader: vstupuje do tokenů s výrazným cenovým pohybem.',
+  'extreme-risk': 'Extreme risk: extrémní drawdowny, velmi agresivní risk profil.',
+  'high-frequency': 'High-frequency: dělá velké množství tradeů denně.',
+  conviction: 'Conviction: obchoduje méně, ale ve větších pozicích a s vysokým win rate (10+ closed trades).',
+};
+
+const getTagTooltip = (tag: string) =>
+  TAG_TOOLTIPS[tag.toLowerCase()] || 'User-defined tag pro kategorizaci tradera.';
+
 // Calculate positions from trades
 function calculatePositionsFromTrades(trades: Trade[]) {
   const positionMap = new Map<string, {
@@ -366,7 +383,7 @@ export default function WalletDetailPage() {
                   <span
                     key={tag}
                     className="px-2 py-1 bg-secondary text-secondary-foreground rounded text-xs"
-                    title={tag}
+                    title={getTagTooltip(tag)}
                   >
                     {tag}
                   </span>

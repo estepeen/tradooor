@@ -302,6 +302,23 @@ export class TraderCharacterizationService {
       tradingFrequency = 'low';
     }
 
+    // Average trade size (USD) – pro conviction tag
+    const validSizeTrades = features.filter(f => (f.sizeUsd || 0) > 0);
+    const avgTradeSizeUsd = validSizeTrades.length
+      ? validSizeTrades.reduce((sum, f) => sum + (f.sizeUsd || 0), 0) / validSizeTrades.length
+      : 0;
+
+    // Conviction trader:
+    // - Má aspoň 10 closed trades (použijeme totalTrades jako aproximaci)
+    // - Vysoký winrate
+    // - Neobchoduje extrémně často
+    // - Průměrná velikost pozice je vyšší (obchoduje za víc SOL/USD)
+    const hasEnoughHistory = wallet.totalTrades >= 10;
+    const highWinRate = (wallet.winRate || 0) >= 0.6; // 60%+
+    const notHighFrequency = tradingFrequency === 'low' || tradingFrequency === 'medium';
+    const bigAverageSize = avgTradeSizeUsd >= 200; // cca 200+ USD průměrná velikost pozice
+    const isConvictionTrader = hasEnoughHistory && highWinRate && notHighFrequency && bigAverageSize;
+
     // Preferred trading hours
     const hourCounts = new Map<number, number>();
     features.forEach(f => {
@@ -323,6 +340,7 @@ export class TraderCharacterizationService {
     if (isCopyTrader) autoTags.push('copy-trader');
     if (isEarlyAdopter) autoTags.push('early-adopter');
     if (isMomentumTrader) autoTags.push('momentum-trader');
+    if (isConvictionTrader) autoTags.push('conviction');
     if (riskTolerance === 'extreme') autoTags.push('extreme-risk');
     if (riskTolerance === 'high') autoTags.push('high-risk');
     if (tradingFrequency === 'very_high') autoTags.push('high-frequency');

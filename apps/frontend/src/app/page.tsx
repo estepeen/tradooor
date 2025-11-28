@@ -7,6 +7,31 @@ import { fetchSmartWallets, getApiBaseUrl } from '@/lib/api';
 import { formatAddress, formatPercent, formatNumber, formatLastTrade } from '@/lib/utils';
 import type { SmartWalletListResponse } from '@solbot/shared';
 
+const TAG_TOOLTIPS: Record<string, string> = {
+  scalper: 'Scalper: dělá hodně krátkodobých tradeů s velmi krátkou dobou držení.',
+  'high-risk': 'High-risk: velké drawdowny a agresivní risk profil.',
+  degen: 'Degen: často traduje low-liquidity a rizikové tokeny.',
+  sniper: 'Sniper: vstupuje velmi brzy po launchi nových tokenů.',
+  'swing-trader': 'Swing trader: drží pozice delší dobu (dny až týdny).',
+  'copy-trader': 'Copy trader: často vstupuje do tokenů, které předtím nakoupili jiní smart tradeři.',
+  'early-adopter': 'Early adopter: rád nakupuje velmi nové tokeny krátce po launchi.',
+  'momentum-trader': 'Momentum trader: vstupuje do tokenů s výrazným cenovým pohybem.',
+  'extreme-risk': 'Extreme risk: extrémní drawdowny, velmi agresivní risk profil.',
+  'high-frequency': 'High-frequency: dělá velké množství tradeů denně.',
+  conviction: 'Conviction: obchoduje méně, ale ve větších pozicích a s vysokým win rate (10+ closed trades).',
+};
+
+const SCORE_TOOLTIPS: Record<string, string> = {
+  P: 'Profitability (P): jak ziskové jsou obchody (realizovaný PnL, ROI).',
+  C: 'Consistency (C): jak konzistentní jsou výsledky (win rate, stabilita).',
+  R: 'Risk (R): řízení rizika, drawdowny a velikost ztrát.',
+  B: 'Behaviour (B): kvalita chování – likvidita, nové tokeny, zdravost stylu.',
+  SF: 'Sample factor (SF): kolik dat máme. 1.0 = hodně tradeů, 0 = málo dat.',
+};
+
+const getTagTooltip = (tag: string) =>
+  TAG_TOOLTIPS[tag.toLowerCase()] || 'User-defined tag pro kategorizaci tradera.';
+
 export default function Home() {
   const router = useRouter();
   const [data, setData] = useState<SmartWalletListResponse | null>(null);
@@ -431,7 +456,7 @@ export default function Home() {
                                 <span
                                   key={tag}
                                   className="px-2 py-0.5 bg-secondary text-secondary-foreground rounded text-xs"
-                                  title={tag}
+                                  title={getTagTooltip(tag)}
                                 >
                                   {tag}
                                 </span>
@@ -459,11 +484,15 @@ export default function Home() {
                                 <span
                                   key={item.label}
                                   className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-semibold"
+                                  title={SCORE_TOOLTIPS[item.label] || ''}
                                 >
                                   {item.label}:{Math.round(item.value)}
                                 </span>
                               ))}
-                              <span className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-semibold" title="Sample factor">
+                              <span
+                                className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-semibold"
+                                title={SCORE_TOOLTIPS.SF}
+                              >
                                 SF:{(wallet.advancedStats.scoreBreakdown.sampleFactor || 0).toFixed(2)}
                               </span>
                             </div>
