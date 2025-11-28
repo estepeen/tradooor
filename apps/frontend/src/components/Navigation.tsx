@@ -21,9 +21,13 @@ export default function Navigation() {
           <div className="flex items-center gap-8">
             <Link
               href="/"
-              className="text-xl font-bold hover:opacity-80 transition-opacity"
+              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
             >
-              Tradooor
+              <img 
+                src="/logo.svg" 
+                alt="Tradooor" 
+                className="h-8 w-auto"
+              />
             </Link>
             <div className="flex items-center gap-4">
               <Link
