@@ -13,7 +13,11 @@ export const metadata: Metadata = {
     noimageindex: true,
   },
   icons: {
-    icon: '/favicon.png',
+    icon: [
+      { url: '/favicon.png', type: 'image/png' },
+    ],
+    shortcut: '/favicon.png',
+    apple: '/favicon.png',
   },
 }
 
