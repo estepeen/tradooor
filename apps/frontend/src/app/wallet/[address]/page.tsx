@@ -925,42 +925,42 @@ export default function WalletDetailPage() {
                       return (
                         <>
                           {recentTrades.map((trade) => {
-                        const tradeDate = new Date(trade.timestamp);
-                        // Použij side z backendu (může být 'buy', 'sell', 'add', 'remove')
-                        let tradeType: 'BUY' | 'ADD' | 'SELL' | 'REM' = 'BUY';
-                        if (trade.side === 'buy') {
-                          tradeType = 'BUY';
-                        } else if (trade.side === 'add') {
-                          tradeType = 'ADD';
-                        } else if (trade.side === 'sell') {
-                          tradeType = 'SELL';
-                        } else if (trade.side === 'remove') {
-                          tradeType = 'REM';
-                        }
-                        
-                        const metrics = positionMetrics[trade.id];
-                        
-                        const positionDisplay = metrics
-                          ? `${metrics.positionXAfter.toFixed(2)}x (${metrics.deltaX >= 0 ? '+' : ''}${metrics.deltaX.toFixed(2)}x)`
-                          : '-';
-                        
-                          const amountToken = Number(trade.amountToken);
-                          const amountBase = Number(trade.amountBase);
-                          const priceBasePerToken = Number(trade.priceBasePerToken);
-                          const baseToken = (trade as any).baseToken || (trade as any).meta?.baseToken || 'SOL'; // SOL, USDC, USDT
-                          
-                          // Use priceUsd from meta (calculated in backend: priceBasePerToken * historical SOL price from Binance)
-                          // If not available, use priceBasePerToken as fallback
-                          const priceUsd = (trade as any).priceUsd || (trade as any).meta?.priceUsd || null;
-                          const entryPrice = priceBasePerToken;
-                          const entryCost = (trade as any).entryCost || (trade.side === 'buy' || trade.side === 'add' ? amountBase : null);
-                          const proceedsBase = (trade as any).proceedsBase || (trade.side === 'sell' || trade.side === 'remove' ? amountBase : null);
-                          const amountDisplay = amountToken && amountToken > 0
-                            ? `${formatNumber(amountToken, 2)} $${trade.token?.symbol || trade.token?.name || ''}`.trim()
-                            : `${formatNumber(Number(trade.amountBase), 2)} SOL`;
+                            const tradeDate = new Date(trade.timestamp);
+                            // Použij side z backendu (může být 'buy', 'sell', 'add', 'remove')
+                            let tradeType: 'BUY' | 'ADD' | 'SELL' | 'REM' = 'BUY';
+                            if (trade.side === 'buy') {
+                              tradeType = 'BUY';
+                            } else if (trade.side === 'add') {
+                              tradeType = 'ADD';
+                            } else if (trade.side === 'sell') {
+                              tradeType = 'SELL';
+                            } else if (trade.side === 'remove') {
+                              tradeType = 'REM';
+                            }
+                            
+                            const metrics = positionMetrics[trade.id];
+                            
+                            const positionDisplay = metrics
+                              ? `${metrics.positionXAfter.toFixed(2)}x (${metrics.deltaX >= 0 ? '+' : ''}${metrics.deltaX.toFixed(2)}x)`
+                              : '-';
+                            
+                            const amountToken = Number(trade.amountToken);
+                            const amountBase = Number(trade.amountBase);
+                            const priceBasePerToken = Number(trade.priceBasePerToken);
+                            const baseToken = (trade as any).baseToken || (trade as any).meta?.baseToken || 'SOL'; // SOL, USDC, USDT
+                            
+                            // Use priceUsd from meta (calculated in backend: priceBasePerToken * historical SOL price from Binance)
+                            // If not available, use priceBasePerToken as fallback
+                            const priceUsd = (trade as any).priceUsd || (trade as any).meta?.priceUsd || null;
+                            const entryPrice = priceBasePerToken;
+                            const entryCost = (trade as any).entryCost || (trade.side === 'buy' || trade.side === 'add' ? amountBase : null);
+                            const proceedsBase = (trade as any).proceedsBase || (trade.side === 'sell' || trade.side === 'remove' ? amountBase : null);
+                            const amountDisplay = amountToken && amountToken > 0
+                              ? `${formatNumber(amountToken, 2)} $${trade.token?.symbol || trade.token?.name || ''}`.trim()
+                              : `${formatNumber(Number(trade.amountBase), 2)} SOL`;
 
-                          return (
-                          <tr key={trade.id} className="border-t border-border hover:bg-muted/50">
+                            return (
+                              <tr key={trade.id} className="border-t border-border hover:bg-muted/50">
                             <td className="px-4 py-3 text-sm">
                               <a
                                 href={`https://solscan.io/tx/${trade.txSignature}`}
@@ -1062,9 +1062,9 @@ export default function WalletDetailPage() {
                             }`}>
                               {amountBase > 0 ? `${formatNumber(amountBase, 6)} ${baseToken}` : '-'}
                             </td>
-                          </tr>
-                        );
-                      })}
+                              </tr>
+                            );
+                          })}
                       </>
                     );
                   })()}
