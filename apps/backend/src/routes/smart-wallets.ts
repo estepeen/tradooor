@@ -1030,6 +1030,8 @@ router.get('/:id/portfolio', async (req, res) => {
         position.totalSold += amount;
         position.balance -= amount;
         position.removeCount++;
+        position.totalSoldValue += valueUsd || value;
+        position.totalProceedsBase += amountBase; // REM také přispívá k proceeds (je to prodej)
         // REM neaktualizuje lastSellTimestamp (není to uzavření pozice)
       }
       
