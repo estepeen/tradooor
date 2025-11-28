@@ -120,6 +120,12 @@ export function computePositionMetricsFromPercent(
           const ratio = Math.min(1, amount / entry.balanceTokens);
           afterX = entry.positionX * (1 - ratio);
           entry.balanceTokens = Math.max(0, entry.balanceTokens - amount);
+          
+          // DŮLEŽITÉ: Pokud po REM klesne balance na 0 (nebo velmi blízko 0), afterX musí být 0
+          // To zajišťuje, že když prodáme všechno, pozice je 0
+          if (entry.balanceTokens <= EPS) {
+            afterX = 0;
+          }
         }
         break;
       }
