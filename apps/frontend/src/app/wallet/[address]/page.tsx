@@ -816,7 +816,6 @@ export default function WalletDetailPage() {
                 )}
               </div>
             </div>
-          </div>
           )}
         </div>
             {/* Recent Trades */}
@@ -1219,8 +1218,6 @@ export default function WalletDetailPage() {
                 </div>
               )}
             </div>
-          </>
-        )}
           </>
         )}
 
