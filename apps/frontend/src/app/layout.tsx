@@ -5,6 +5,13 @@ import Navigation from '@/components/Navigation'
 export const metadata: Metadata = {
   title: 'Tradooor - Smart Wallet Analytics',
   description: 'Track and analyze smart wallets on Solana',
+  robots: {
+    index: false,
+    follow: false,
+    noarchive: true,
+    nosnippet: true,
+    noimageindex: true,
+  },
 }
 
 export default function RootLayout({
