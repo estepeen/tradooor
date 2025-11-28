@@ -4,8 +4,21 @@ import Link from 'next/link';
 
 export default function PaperTradingPage() {
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="container mx-auto space-y-8">
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto px-4 py-8 space-y-8">
+        <Link 
+          href="/" 
+          style={{
+            color: 'hsl(var(--muted-foreground))',
+            fontSize: '.75rem',
+            textTransform: 'uppercase',
+            letterSpacing: '0.03em',
+            padding: '0 0 2rem .5rem'
+          }}
+          className="inline-block hover:opacity-80"
+        >
+          ← BACK
+        </Link>
         <div>
           <h1 className="text-3xl font-bold mb-2">Paper trading</h1>
           <p className="text-muted-foreground max-w-2xl">

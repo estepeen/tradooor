@@ -27,8 +27,8 @@ export default function StatsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background p-8">
-        <div className="container mx-auto">
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto px-4 py-8">
           <div className="text-center">Loading...</div>
         </div>
       </div>
@@ -36,11 +36,21 @@ export default function StatsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="container mx-auto">
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto px-4 py-8">
         <div className="mb-8">
-          <Link href="/wallets" className="text-primary hover:underline mb-4 inline-block">
-            Back to Wallets
+          <Link 
+            href="/" 
+            style={{
+              color: 'hsl(var(--muted-foreground))',
+              fontSize: '.75rem',
+              textTransform: 'uppercase',
+              letterSpacing: '0.03em',
+              padding: '0 0 2rem .5rem'
+            }}
+            className="inline-block hover:opacity-80"
+          >
+            ← BACK
           </Link>
           <h1 className="mb-2">Global Statistics</h1>
           <p className="text-muted-foreground">Overview across all tracked wallets</p>

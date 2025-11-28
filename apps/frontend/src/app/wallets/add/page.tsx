@@ -58,10 +58,20 @@ export default function AddWalletPage() {
   }
 
   return (
-    <div className={`min-h-screen bg-background p-8 ${(error || success) ? 'pt-20' : ''}`}>
-      <div className="container mx-auto max-w-2xl">
-        <Link href="/wallets" className="text-primary hover:underline mb-4 inline-block">
-          Back to Wallets
+    <div className={`min-h-screen bg-background ${(error || success) ? 'pt-20' : ''}`}>
+      <div className="container mx-auto px-4 py-8 max-w-2xl">
+        <Link 
+          href="/" 
+          style={{
+            color: 'hsl(var(--muted-foreground))',
+            fontSize: '.75rem',
+            textTransform: 'uppercase',
+            letterSpacing: '0.03em',
+            padding: '0 0 2rem .5rem'
+          }}
+          className="inline-block hover:opacity-80"
+        >
+          ← BACK
         </Link>
 
         <div className="border border-border rounded-lg p-6">

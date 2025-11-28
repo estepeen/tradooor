@@ -351,8 +351,8 @@ export default function WalletDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background p-8">
-        <div className="container mx-auto">
+      <div className="min-h-screen bg-background">
+        <div className="container mx-auto px-4 py-8">
           <div className="text-center">Loading...</div>
         </div>
       </div>
@@ -381,8 +381,8 @@ export default function WalletDetailPage() {
   })) || [];
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="container mx-auto">
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto px-4 py-8">
         <Link 
           href="/wallets" 
           style={{
@@ -653,7 +653,7 @@ export default function WalletDetailPage() {
                               <td className="px-4 py-3 text-sm">
                                 {token?.mintAddress ? (
                                   <a
-                                    href={`https://solscan.io/token/${token.mintAddress}`}
+                                    href={`https://birdeye.so/token/${token.mintAddress}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-white hover:opacity-80 hover:underline"
