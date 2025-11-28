@@ -109,6 +109,7 @@ export function computePositionMetricsFromPercent(
         action = 'REM';
         beforeX = entry.positionX; // Aktuální pozice před REM
         if (entry.balanceTokens <= EPS) {
+          // Nemůžeme prodávat, když nemáme pozici
           afterX = 0;
           entry.balanceTokens = 0;
         } else {
@@ -118,13 +119,18 @@ export function computePositionMetricsFromPercent(
           // Příklad: balanceTokens = 1000, amount = 250, ratio = 0.25
           // beforeX = 2.0, afterX = 2.0 * (1 - 0.25) = 1.5, deltaX = -0.5 ✅
           const ratio = Math.min(1, amount / entry.balanceTokens);
-          afterX = entry.positionX * (1 - ratio);
-          entry.balanceTokens = Math.max(0, entry.balanceTokens - amount);
           
-          // DŮLEŽITÉ: Pokud po REM klesne balance na 0 (nebo velmi blízko 0), afterX musí být 0
-          // To zajišťuje, že když prodáme všechno, pozice je 0
-          if (entry.balanceTokens <= EPS) {
+          // Vypočti balance po REM PŘED výpočtem afterX
+          const balanceAfter = Math.max(0, entry.balanceTokens - amount);
+          
+          // Pokud po REM klesne balance na 0, pozice je 0
+          if (balanceAfter <= EPS) {
             afterX = 0;
+            entry.balanceTokens = 0;
+          } else {
+            // Částečný prodej - pozice se sníží proporcionálně
+            afterX = entry.positionX * (1 - ratio);
+            entry.balanceTokens = balanceAfter;
           }
         }
         break;
