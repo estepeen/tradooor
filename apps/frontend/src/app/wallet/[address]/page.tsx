@@ -20,7 +20,8 @@ const TAG_TOOLTIPS: Record<string, string> = {
   'momentum-trader': 'Momentum trader: vstupuje do tokenů s výrazným cenovým pohybem.',
   'extreme-risk': 'Extreme risk: extrémní drawdowny, velmi agresivní risk profil.',
   'high-frequency': 'High-frequency: dělá velké množství tradeů denně.',
-  conviction: 'Conviction: obchoduje méně, ale ve větších pozicích a s vysokým win rate (10+ closed trades).',
+  conviction:
+    'Conviction: alespoň 10 closed trades, win rate ≥ 60 %, frekvence low/medium a průměrná velikost pozice ≳ 200 USD.',
 };
 
 const getTagTooltip = (tag: string) =>

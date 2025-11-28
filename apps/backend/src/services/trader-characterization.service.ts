@@ -236,8 +236,17 @@ export class TraderCharacterizationService {
     }
 
     // Trading style characteristics
+    // SCALPER: průměrná doba držení pod 5 minut alespoň u 80 % uzavřených pozic
+    const closedWithHold = features.filter(
+      f => f.holdTimeSeconds !== null && f.holdTimeSeconds !== undefined && f.holdTimeSeconds > 0
+    );
+    const shortHolds = closedWithHold.filter(f => (f.holdTimeSeconds || 0) <= 5 * 60);
+    const scalperShare =
+      closedWithHold.length > 0 ? shortHolds.length / closedWithHold.length : 0;
+    const isScalper = scalperShare >= 0.8;
+
+    // Swing trader: používáme stále průměrnou dobu držení z metrik wallet
     const avgHoldingTime = wallet.avgHoldingTimeMin || 0;
-    const isScalper = avgHoldingTime < 30; // Méně než 30 minut
     const isSwingTrader = avgHoldingTime > 1440; // Více než 24 hodin
 
     // Early adopter - tradeuje nové tokeny
