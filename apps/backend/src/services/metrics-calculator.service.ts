@@ -507,10 +507,11 @@ export class MetricsCalculatorService {
     const earliest = new Date(now);
     earliest.setDate(earliest.getDate() - MAX_WINDOW_DAYS);
 
-    // DŮLEŽITÉ: Použij stejnou logiku jako portfolio endpoint (totalProceedsBase - totalCostBase z trades)
-    // místo closed lots, aby byla konzistence s detailem tradera
-    const [trades, tradeFeatures] = await Promise.all([
-      this.tradeRepo.findAllForMetrics(walletId),
+    // DŮLEŽITÉ: Použij ClosedLot data (stejně jako portfolio endpoint v detailu tradera)
+    // Toto zajišťuje, že PnL je fixní hodnota z doby uzavření (používá historickou SOL cenu)
+    // a je konzistentní mezi homepage, stats a detail tradera
+    const [closedLots, tradeFeatures] = await Promise.all([
+      this.closedLotRepo.findAllForWallet(walletId),
       this.fetchTradeFeaturesSafe(walletId, earliest),
     ]);
 
@@ -518,11 +519,12 @@ export class MetricsCalculatorService {
     for (const [label, days] of Object.entries(WINDOW_CONFIG) as Array<[RollingWindowLabel, number]>) {
       const cutoff = new Date(now);
       cutoff.setDate(cutoff.getDate() - days);
-      // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: Filtruj closed positions podle lastSellTimestamp
-      // Portfolio endpoint filtruje closed positions podle lastSellTimestamp (kdy byla pozice uzavřena)
-      // Ne podle kdy byly trades, ale podle kdy byla pozice uzavřena!
-      // Takže musíme použít všechny trades (pro výpočet balance a PnL), ale filtrovat podle lastSellTimestamp
-      rolling[label] = await this.buildRollingWindowStatsFromTrades(trades, cutoff);
+      // Filtruj closed lots podle exitTime (kdy byla pozice uzavřena)
+      const filteredLots = closedLots.filter(lot => {
+        const exitTime = new Date(lot.exitTime);
+        return exitTime >= cutoff;
+      });
+      rolling[label] = await this.buildRollingWindowStats(filteredLots);
     }
 
     const behaviour = this.buildBehaviourStats(tradeFeatures);
