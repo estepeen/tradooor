@@ -742,9 +742,18 @@ export class MetricsCalculatorService {
       console.warn(`⚠️  Failed to fetch SOL price, using fallback: ${solPriceUsd}`);
     }
 
-    // Convert SOL amounts to USD
-    // Note: realizedPnl, proceeds, and costBasis are in SOL (base currency)
-    const realizedPnlUsd = lots.reduce((sum, lot) => sum + lot.realizedPnl * solPriceUsd, 0);
+    // DŮLEŽITÉ: Použij realizedPnlUsd z ClosedLot (fixní hodnota z doby uzavření)
+    // Nechceme přepočítávat s aktuální cenou SOL - PnL by mělo být neměnné
+    const realizedPnlUsd = lots.reduce((sum, lot) => {
+      // Použij realizedPnlUsd z ClosedLot pokud existuje (fixní hodnota)
+      if (lot.realizedPnlUsd !== null && lot.realizedPnlUsd !== undefined) {
+        return sum + lot.realizedPnlUsd;
+      }
+      // Fallback: přepočítat s aktuální cenou SOL (jen pokud nemáme realizedPnlUsd)
+      return sum + lot.realizedPnl * solPriceUsd;
+    }, 0);
+    
+    // Pro volume a invested capital použijeme přepočet (tyto hodnoty se mohou měnit)
     const totalVolumeUsd = lots.reduce((sum, lot) => sum + lot.proceeds * solPriceUsd, 0);
     const investedCapital = lots.reduce((sum, lot) => sum + Math.max(lot.costBasis, 0) * solPriceUsd, 0);
     const realizedRoiPercent =

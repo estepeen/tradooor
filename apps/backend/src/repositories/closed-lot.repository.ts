@@ -16,6 +16,7 @@ export interface ClosedLotRecord {
   proceeds: number;
   realizedPnl: number;
   realizedPnlPercent: number;
+  realizedPnlUsd: number | null; // USD value at time of closure (fixed, doesn't change with SOL price)
   buyTradeId: string | null;
   sellTradeId: string | null;
   isPreHistory: boolean;
@@ -67,6 +68,7 @@ export class ClosedLotRepository {
       proceeds: toNumber(row.proceeds),
       realizedPnl: toNumber(row.realizedPnl),
       realizedPnlPercent: toNumber(row.realizedPnlPercent),
+      realizedPnlUsd: row.realizedPnlUsd !== null && row.realizedPnlUsd !== undefined ? toNumber(row.realizedPnlUsd) : null,
       buyTradeId: row.buyTradeId ?? null,
       sellTradeId: row.sellTradeId ?? null,
       isPreHistory: Boolean(row.isPreHistory),
