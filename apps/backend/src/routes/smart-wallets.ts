@@ -1151,17 +1151,17 @@ router.get('/:id/portfolio', async (req, res) => {
     });
 
     // Vypočítej totalCost z trades pro Live PnL
-    // Získej všechny buy trades pro každý token
-    const { data: allBuyTrades } = await supabase
+    // Získej všechny buy a add trades pro každý token (BUY + ADD přispívají k nákladům)
+    const { data: allBuyAndAddTrades } = await supabase
       .from(TABLES.TRADE)
       .select('tokenId, amountBase, meta')
       .eq('walletId', wallet.id)
-      .eq('side', 'buy');
+      .in('side', ['buy', 'add']);
     
-    // Vytvoř mapu tokenId -> totalCost (součet všech buy trades v base měně)
+    // Vytvoř mapu tokenId -> totalCost (součet všech buy + add trades v base měně)
     const totalCostMap = new Map<string, number>();
-    if (allBuyTrades) {
-      for (const trade of allBuyTrades) {
+    if (allBuyAndAddTrades) {
+      for (const trade of allBuyAndAddTrades) {
         const tokenId = trade.tokenId;
         const amountBase = Number(trade.amountBase || 0);
         const currentCost = totalCostMap.get(tokenId) || 0;
