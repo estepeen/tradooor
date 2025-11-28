@@ -34,7 +34,8 @@
     "fix:trade-amount": "tsx src/scripts/fix-trade-amount.ts",
     "test:sol-values": "tsx src/scripts/test-sol-values.ts",
     "debug:pnl": "tsx src/scripts/debug-pnl.ts",
-    "fix:wallet-types-positions": "tsx src/scripts/fix-wallet-types-positions.ts"
+    "fix:wallet-types-positions": "tsx src/scripts/fix-wallet-types-positions.ts",
+    "calculate:token-pnl": "tsx src/scripts/calculate-token-pnl.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.87.6",
