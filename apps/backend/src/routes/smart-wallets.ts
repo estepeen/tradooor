@@ -1256,23 +1256,68 @@ router.get('/:id/portfolio', async (req, res) => {
         // DŮLEŽITÉ: Pro closed positions použij realizedPnlUsd z ClosedLot (fixní hodnota z doby uzavření)
         // Nechceme přepočítávat s aktuální cenou SOL - PnL by mělo být neměnné
         if (normalizedBalance <= 0) {
-          // Najdi closed lot pro tento token
-          const closedLotForToken = (closedLots || []).find((lot: any) => 
+          // Najdi VŠECHNY closed lots pro tento token (může jich být více - více buy/sell cyklů)
+          const closedLotsForToken = (closedLots || []).filter((lot: any) => 
             lot.tokenId === position.tokenId && 
             lot.exitTime && 
             new Date(lot.exitTime) <= new Date()
           );
           
-          if (closedLotForToken?.realizedPnlUsd !== null && closedLotForToken?.realizedPnlUsd !== undefined) {
-            // Použij fixní realizedPnlUsd z ClosedLot (nemění se s cenou SOL)
-            closedPnlUsd = Number(closedLotForToken.realizedPnlUsd);
-            closedPnlBase = position.totalProceedsBase - position.totalCostBase;
-            closedPnlPercent = position.totalCostBase > 0
-              ? (closedPnlBase / position.totalCostBase) * 100
-              : null;
+          // Sečti všechny realizedPnlUsd z closed lots pro tento token
+          // Toto zajišťuje konzistenci s buildRollingWindowStats, který také sčítá všechny lots
+          if (closedLotsForToken.length > 0) {
+            const totalRealizedPnlUsd = closedLotsForToken.reduce((sum: number, lot: any) => {
+              if (lot.realizedPnlUsd !== null && lot.realizedPnlUsd !== undefined) {
+                return sum + Number(lot.realizedPnlUsd);
+              }
+              return sum;
+            }, 0);
             
-            if (wallet.id) {
-              console.log(`   💰 [Portfolio] Position: tokenId=${position.tokenId}, using FIXED realizedPnlUsd=${closedPnlUsd.toFixed(2)} from ClosedLot (not recalculated)`);
+            if (totalRealizedPnlUsd !== 0) {
+              // Použij fixní realizedPnlUsd z ClosedLot (nemění se s cenou SOL)
+              closedPnlUsd = totalRealizedPnlUsd;
+              closedPnlBase = position.totalProceedsBase - position.totalCostBase;
+              closedPnlPercent = position.totalCostBase > 0
+                ? (closedPnlBase / position.totalCostBase) * 100
+                : null;
+              
+              if (wallet.id) {
+                console.log(`   💰 [Portfolio] Position: tokenId=${position.tokenId}, using FIXED realizedPnlUsd=${closedPnlUsd.toFixed(2)} from ${closedLotsForToken.length} ClosedLot(s) (not recalculated)`);
+              }
+            } else if (position.totalProceedsBase > 0 && position.totalCostBase > 0) {
+              // Fallback: pokud nemáme realizedPnlUsd z ClosedLot, použij přepočet
+              closedPnlBase = position.totalProceedsBase - position.totalCostBase;
+              
+              // Convert to USD for display (using current SOL price for SOL, 1:1 for USDC/USDT)
+              // POZNÁMKA: Toto je fallback - mělo by se použít realizedPnlUsd z ClosedLot
+              if (currentSolPrice) {
+                if (position.baseToken === 'SOL') {
+                  closedPnlUsd = closedPnlBase * currentSolPrice;
+                } else if (position.baseToken === 'USDC' || position.baseToken === 'USDT') {
+                  closedPnlUsd = closedPnlBase; // 1:1 with USD
+                } else {
+                  // Fallback: use SOL price
+                  closedPnlUsd = closedPnlBase * currentSolPrice;
+                }
+              } else {
+                // Fallback to old calculation if no SOL price
+                closedPnlUsd = position.totalSoldValue - position.totalInvested;
+              }
+              
+              // Calculate percentage
+              closedPnlPercent = position.totalCostBase > 0
+                ? (closedPnlBase / position.totalCostBase) * 100
+                : null;
+
+              if (wallet.id) {
+                console.log(`   ⚠️  [Portfolio] Position: tokenId=${position.tokenId}, FALLBACK: recalculating closedPnlUsd=${closedPnlUsd.toFixed(2)} (should use ClosedLot.realizedPnlUsd)`);
+              }
+            } else if (position.totalSoldValue > 0) {
+              // Fallback to old calculation if we don't have base currency data
+              closedPnlUsd = position.totalSoldValue - position.totalInvested;
+              closedPnlPercent = position.totalInvested > 0
+                ? (closedPnlUsd / position.totalInvested) * 100
+                : null;
             }
           } else if (position.totalProceedsBase > 0 && position.totalCostBase > 0) {
             // Fallback: pokud nemáme realizedPnlUsd z ClosedLot, použij přepočet (ale jen jako fallback)
