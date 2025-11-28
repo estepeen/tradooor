@@ -582,11 +582,11 @@ export default function WalletDetailPage() {
         {/* Open & Closed Positions */}
         <div className="mb-10">
           <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">Positions Overview</h2>
-          {portfolioLoading && (
-            <div className="py-6">
+          {portfolioLoading ? (
+            <div className="py-4">
               <Spinner label="Loading positions..." />
             </div>
-          )}
+          ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Open Positions */}
               <div className="overflow-hidden">
@@ -816,15 +816,18 @@ export default function WalletDetailPage() {
                 )}
               </div>
             </div>
+          </div>
+          )}
         </div>
             {/* Recent Trades */}
             <div className="overflow-hidden">
               <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">Recent Trades</h2>
-              {tradesLoading && (
+              {tradesLoading ? (
                 <div className="py-4">
                   <Spinner label="Loading trades..." />
                 </div>
-              )}
+              ) : (
+              <>
               {/* Filters */}
               <div className="flex gap-4 flex-wrap mb-4">
                 <div className="flex-1 min-w-[200px]">
@@ -921,6 +924,7 @@ export default function WalletDetailPage() {
                       
                       return (
                         <>
+                          {recentTrades.map((trade) => {
                           {recentTrades.map((trade) => {
                         const tradeDate = new Date(trade.timestamp);
                         // Použij side z backendu (může být 'buy', 'sell', 'add', 'remove')
@@ -1060,14 +1064,16 @@ export default function WalletDetailPage() {
                               {amountBase > 0 ? `${formatNumber(amountBase, 6)} ${baseToken}` : '-'}
                             </td>
                         </tr>
-                      );
-                          })}
+                              );
+                            })}
                         </>
                       );
                     })()}
                   </tbody>
                 </table>
               </div>
+              </>
+              )}
               
               {/* Stránkování */}
               {(() => {
