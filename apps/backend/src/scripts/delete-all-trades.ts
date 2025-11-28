@@ -81,8 +81,8 @@ async function deleteAllTrades() {
       console.log('✅ Successfully deleted metrics history');
     }
 
-    // 7. Reset all wallet metrics (including score and PnL for homepage)
-    console.log('🔄 Resetting wallet metrics (including score and PnL)...');
+    // 7. Reset all wallet metrics (including score, PnL, and tags)
+    console.log('🔄 Resetting wallet metrics (including score, PnL, and tags)...');
     const { error: updateError } = await supabase
       .from(TABLES.SMART_WALLET)
       .update({
@@ -97,6 +97,7 @@ async function deleteAllTrades() {
         recentPnl30dPercent: 0,
         recentPnl30dUsd: 0, // Important for homepage PnL display
         advancedStats: null, // Important for homepage score and rolling stats
+        tags: [], // Reset all tags (auto-generated and user-defined)
         updatedAt: new Date().toISOString(),
       })
       .neq('id', '00000000-0000-0000-0000-000000000000'); // Update all
@@ -114,7 +115,7 @@ async function deleteAllTrades() {
     console.log('   - Portfolio baseline cache cleared');
     console.log('   - Wallet processing queue cleared');
     console.log('   - Metrics history deleted');
-    console.log('   - Wallet metrics reset (score, PnL, advancedStats)');
+    console.log('   - Wallet metrics reset (score, PnL, advancedStats, tags)');
   } catch (error: any) {
     console.error('❌ Error deleting trades:', error.message);
     process.exit(1);
