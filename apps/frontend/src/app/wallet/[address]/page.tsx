@@ -925,7 +925,6 @@ export default function WalletDetailPage() {
                       return (
                         <>
                           {recentTrades.map((trade) => {
-                          {recentTrades.map((trade) => {
                         const tradeDate = new Date(trade.timestamp);
                         // Použij side z backendu (může být 'buy', 'sell', 'add', 'remove')
                         let tradeType: 'BUY' | 'ADD' | 'SELL' | 'REM' = 'BUY';
@@ -1220,6 +1219,8 @@ export default function WalletDetailPage() {
                 </div>
               )}
             </div>
+          </>
+        )}
           </>
         )}
 
