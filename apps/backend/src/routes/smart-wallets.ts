@@ -1150,22 +1150,74 @@ router.get('/:id/portfolio', async (req, res) => {
       }
     });
 
-    // Vypočítej totalCost z trades pro Live PnL
-    // Získej všechny buy a add trades pro každý token (BUY + ADD přispívají k nákladům)
-    const { data: allBuyAndAddTrades } = await supabase
+    // Vypočítej náklady pomocí FIFO metody (First In First Out)
+    // Získej všechny trades pro každý token seřazené podle času
+    const { data: allTradesForFifo } = await supabase
       .from(TABLES.TRADE)
-      .select('tokenId, amountBase, meta')
+      .select('tokenId, side, amountToken, amountBase, timestamp')
       .eq('walletId', wallet.id)
-      .in('side', ['buy', 'add']);
+      .order('timestamp', { ascending: true });
     
-    // Vytvoř mapu tokenId -> totalCost (součet všech buy + add trades v base měně)
-    const totalCostMap = new Map<string, number>();
-    if (allBuyAndAddTrades) {
-      for (const trade of allBuyAndAddTrades) {
+    // FIFO: Pro každý token simuluj queue nákupů a prodejů
+    // Náklady pro aktuální balance = součet nákladů zbývajících tokenů podle FIFO
+    const fifoCostMap = new Map<string, number>();
+    
+    if (allTradesForFifo) {
+      // Skupina trades podle tokenId
+      const tradesByToken = new Map<string, typeof allTradesForFifo>();
+      for (const trade of allTradesForFifo) {
         const tokenId = trade.tokenId;
-        const amountBase = Number(trade.amountBase || 0);
-        const currentCost = totalCostMap.get(tokenId) || 0;
-        totalCostMap.set(tokenId, currentCost + amountBase);
+        if (!tradesByToken.has(tokenId)) {
+          tradesByToken.set(tokenId, []);
+        }
+        tradesByToken.get(tokenId)!.push(trade);
+      }
+      
+      // Pro každý token aplikuj FIFO
+      for (const [tokenId, trades] of tradesByToken.entries()) {
+        // Queue nákupů: [{ amount: number, costBase: number }]
+        const buyQueue: Array<{ amount: number; costBase: number }> = [];
+        let currentBalance = 0;
+        
+        for (const trade of trades) {
+          const amount = Number(trade.amountToken || 0);
+          const costBase = Number(trade.amountBase || 0);
+          
+          if (trade.side === 'buy' || trade.side === 'add') {
+            // Přidej do queue
+            buyQueue.push({ amount, costBase });
+            currentBalance += amount;
+          } else if (trade.side === 'remove' || trade.side === 'sell') {
+            // Odeber z queue podle FIFO
+            let remainingToRemove = amount;
+            while (remainingToRemove > 0 && buyQueue.length > 0) {
+              const firstBuy = buyQueue[0];
+              const originalAmount = firstBuy.amount;
+              const costPerToken = firstBuy.costBase / originalAmount;
+              
+              if (firstBuy.amount <= remainingToRemove) {
+                // Odeber celý první nákup
+                remainingToRemove -= firstBuy.amount;
+                buyQueue.shift();
+              } else {
+                // Odeber část prvního nákupu - sníž i costBase proporcionálně
+                const removedAmount = remainingToRemove;
+                firstBuy.amount -= removedAmount;
+                firstBuy.costBase -= removedAmount * costPerToken;
+                remainingToRemove = 0;
+              }
+            }
+            currentBalance -= amount;
+          }
+        }
+        
+        // Náklady pro aktuální balance = součet nákladů zbývajících tokenů v queue
+        // Každý nákup v queue už má správně upravené costBase po REM/SELL
+        const costForCurrentBalance = buyQueue.reduce((sum, buy) => {
+          return sum + buy.costBase;
+        }, 0);
+        
+        fifoCostMap.set(tokenId, costForCurrentBalance);
       }
     }
     
@@ -1205,20 +1257,23 @@ router.get('/:id/portfolio', async (req, res) => {
           ? currentPrice * position.balance
           : position.balance * position.averageBuyPrice; // Fallback to average buy price if no current price
         
-        // Vypočítej Live PnL pomocí totalCost z trades
-        const totalCostBase = totalCostMap.get(position.tokenId) || 0;
+        // Vypočítej Live PnL pomocí FIFO metody (First In First Out)
+        // Náklady pro aktuální balance = součet nákladů zbývajících tokenů podle FIFO
+        const costForCurrentBalance = fifoCostMap.get(position.tokenId) || 0;
+        
         let totalCostUsd = 0;
         let livePnl = 0;
         let livePnlPercent = 0;
         
-        // Převod totalCost z base měny na USD
-        if (totalCostBase > 0 && currentSolPrice) {
-          // Předpokládáme, že totalCost je v SOL (pro většinu tokenů)
+        // Převod nákladů pro aktuální balance z base měny na USD
+        if (costForCurrentBalance > 0 && currentSolPrice) {
+          // Předpokládáme, že cost je v SOL (pro většinu tokenů)
           // TODO: Detekovat baseToken z trades a použít správnou konverzi
-          totalCostUsd = totalCostBase * currentSolPrice;
-        } else if (position.totalInvested > 0) {
-          // Fallback na totalInvested, pokud nemáme totalCostBase
-          totalCostUsd = position.totalInvested;
+          totalCostUsd = costForCurrentBalance * currentSolPrice;
+        } else if (position.totalInvested > 0 && position.totalBought > 0) {
+          // Fallback: použij průměrný nákupní kurz v USD (pokud FIFO selže)
+          const averageCostUsd = position.totalInvested / position.totalBought;
+          totalCostUsd = position.balance * averageCostUsd;
         }
         
         // Vypočítej Live PnL
