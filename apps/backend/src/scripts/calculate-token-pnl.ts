@@ -1,11 +1,7 @@
-import { PrismaClient } from '@prisma/client';
-import { SupabaseClient } from '@supabase/supabase-js';
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
-
-const prisma = new PrismaClient();
 
 // Initialize Supabase client
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -215,12 +211,10 @@ if (!walletAddress || !tokenSymbol) {
 
 calculateTokenPnL(walletAddress, tokenSymbol)
   .then(() => {
-    prisma.$disconnect();
     process.exit(0);
   })
   .catch((error) => {
     console.error('❌ Error:', error);
-    prisma.$disconnect();
     process.exit(1);
   });
 
