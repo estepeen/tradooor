@@ -1062,12 +1062,12 @@ export default function WalletDetailPage() {
                             }`}>
                               {amountBase > 0 ? `${formatNumber(amountBase, 6)} ${baseToken}` : '-'}
                             </td>
-                        </tr>
-                              );
-                            })}
-                        </>
-                      );
-                    })()}
+                          </tr>
+                        );
+                      })}
+                      </>
+                    );
+                  })()}
                   </tbody>
                 </table>
               </div>
