@@ -28,7 +28,7 @@ dotenv.config();
  * Použití:
  *   pnpm --filter backend metrics:cron
  * 
- * Nebo s vlastním cron schedule:
+ * Nebo s vlastním cron schedule (každých 6 hodin):
  *   CRON_SCHEDULE="0 0,6,12,18 * * *" pnpm --filter backend metrics:cron
  */
 async function calculateAllMetrics() {
