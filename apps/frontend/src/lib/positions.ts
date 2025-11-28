@@ -87,11 +87,16 @@ export function computePositionMetricsFromPercent(
           afterX = 1.0;
           entry.balanceTokens = amount;
         } else {
-          // DŮLEŽITÉ: Každý ADD přidá +1.00X, nezávisle na množství tokenů
-          // BUY = 1.00X, první ADD = 2.00X, druhý ADD = 3.00X, atd.
-          // Příklad: beforeX = 1.0 → afterX = 2.0, deltaX = +1.0 ✅
-          // Příklad: beforeX = 2.0 → afterX = 3.0, deltaX = +1.0 ✅
-          afterX = entry.positionX + 1.0;
+          // DŮLEŽITÉ: ratio = jaká část současného balance přidáváme (0-1 nebo více)
+          // Pokud přidáme stejné množství (zdvojnásobíme), ratio = 1.0, takže deltaX = 1.0
+          // Pokud přidáme 50% současného balance, ratio = 0.5, takže deltaX = 0.5
+          // Příklad: balanceTokens = 1000, amount = 1000, ratio = 1.0
+          // beforeX = 1.0, deltaX = 1.0, afterX = 2.0 ✅
+          // Příklad: balanceTokens = 1000, amount = 500, ratio = 0.5
+          // beforeX = 1.0, deltaX = 0.5, afterX = 1.5 ✅
+          const ratio = amount / entry.balanceTokens;
+          const deltaX = ratio; // deltaX = kolik x přidáváme
+          afterX = entry.positionX + deltaX;
           entry.balanceTokens += amount;
         }
         break;
