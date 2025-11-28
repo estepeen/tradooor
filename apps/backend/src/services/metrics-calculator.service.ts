@@ -511,7 +511,7 @@ export class MetricsCalculatorService {
     // Toto zajišťuje, že PnL je fixní hodnota z doby uzavření (používá historickou SOL cenu)
     // a je konzistentní mezi homepage, stats a detail tradera
     const [closedLots, tradeFeatures] = await Promise.all([
-      this.closedLotRepo.findAllForWallet(walletId),
+      this.closedLotRepo.findByWallet(walletId, { fromDate: earliest }),
       this.fetchTradeFeaturesSafe(walletId, earliest),
     ]);
 
