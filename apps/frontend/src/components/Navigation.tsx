@@ -18,18 +18,17 @@ export default function Navigation() {
     <nav className="fixed top-0 left-0 right-0 z-[9999] border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container mx-auto px-4">
         <div className="flex items-center justify-between h-16">
-          <div className="flex items-center gap-8">
-            <Link
-              href="/"
-              className="flex items-center gap-2 hover:opacity-80 transition-opacity"
-            >
-              <img 
-                src="/logo.svg" 
-                alt="Tradooor" 
-                className="h-8 w-auto"
-              />
-            </Link>
-            <div className="flex items-center gap-4">
+          <Link
+            href="/"
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity"
+          >
+            <img 
+              src="/logo.svg" 
+              alt="Tradooor" 
+              className="h-10 w-auto"
+            />
+          </Link>
+          <div className="flex items-center gap-4">
               <Link
                 href="/"
                 className={`px-4 py-2 rounded-md transition-colors ${
@@ -60,7 +59,6 @@ export default function Navigation() {
               >
                 Paper trading
               </Link>
-            </div>
           </div>
           <div className="flex items-center gap-3">
             <Link

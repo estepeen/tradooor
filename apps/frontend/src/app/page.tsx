@@ -130,20 +130,14 @@ export default function Home() {
   }
 
   return (
-    <div className={`min-h-screen bg-background p-8 ${(syncError || syncSuccess) ? 'pt-20' : ''}`}>
-      <div className="container mx-auto">
+    <div className={`min-h-screen bg-background ${(syncError || syncSuccess) ? 'pt-20' : ''}`}>
+      <div className="container mx-auto px-4 py-8">
         <div className="mb-8 flex justify-between items-center">
           <div>
             <h1 className="mb-2">Smart Wallets</h1>
             <p className="text-muted-foreground">Track and analyze smart wallet performance</p>
           </div>
           <div className="flex gap-2">
-            <Link
-              href="/wallets/add"
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
-            >
-              Add Wallet
-            </Link>
             <button
               onClick={async () => {
                 setSyncLoading(true);
