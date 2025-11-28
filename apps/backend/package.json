@@ -34,6 +34,7 @@
     "fix:trade-amount": "tsx src/scripts/fix-trade-amount.ts",
     "test:sol-values": "tsx src/scripts/test-sol-values.ts",
     "debug:pnl": "tsx src/scripts/debug-pnl.ts",
+    "debug:pnl-diff": "tsx src/scripts/debug-pnl-diff.ts",
     "fix:wallet-types-positions": "tsx src/scripts/fix-wallet-types-positions.ts"
   },
   "dependencies": {
