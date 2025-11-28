@@ -112,23 +112,14 @@ export function computePositionMetricsFromPercent(
           afterX = 0;
           entry.balanceTokens = 0;
         } else {
-          // PRIORITA: Použij positionChangePercent z databáze, pokud je k dispozici
-          // Toto je přesnější, protože bylo vypočítáno při ukládání z webhooku
-          if (trade.positionChangePercent !== null && trade.positionChangePercent !== undefined) {
-            // positionChangePercent je v procentech (např. -50% = -50)
-            // Převod na ratio: -50% = -0.5, -10% = -0.1
-            const ratio = trade.positionChangePercent / 100;
-            afterX = entry.positionX * (1 + ratio); // ratio je záporné, takže (1 + (-0.5)) = 0.5
-            entry.balanceTokens = Math.max(0, entry.balanceTokens - amount);
-          } else {
-            // Fallback: výpočet z amountToken (pro staré trady bez positionChangePercent)
-            // ratio = jaká část pozice se prodává (0-1)
-            // Příklad: balanceTokens = 1000, amount = 100, ratio = 0.1
-            // beforeX = 11.0, afterX = 11.0 * (1 - 0.1) = 9.9, deltaX = -1.1 ✅
-            const ratio = Math.min(1, amount / entry.balanceTokens);
-            afterX = entry.positionX * (1 - ratio);
-            entry.balanceTokens = Math.max(0, entry.balanceTokens - amount);
-          }
+          // DŮLEŽITÉ: Vždy počítáme z amountToken a balanceTokens, protože to je spolehlivější
+          // ratio = jaká část pozice se prodává (0-1)
+          // Pokud prodáme 25% pozice, ratio = 0.25, takže afterX = positionX * (1 - 0.25) = positionX * 0.75
+          // Příklad: balanceTokens = 1000, amount = 250, ratio = 0.25
+          // beforeX = 2.0, afterX = 2.0 * (1 - 0.25) = 1.5, deltaX = -0.5 ✅
+          const ratio = Math.min(1, amount / entry.balanceTokens);
+          afterX = entry.positionX * (1 - ratio);
+          entry.balanceTokens = Math.max(0, entry.balanceTokens - amount);
         }
         break;
       }
