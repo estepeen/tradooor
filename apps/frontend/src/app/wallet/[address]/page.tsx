@@ -8,6 +8,7 @@ import { formatAddress, formatPercent, formatNumber, formatDate, formatDateTimeC
 import { computePositionMetricsFromPercent } from '@/lib/positions';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { SmartWallet, Trade } from '@solbot/shared';
+import { Spinner } from '@/components/Spinner';
 
 const TAG_TOOLTIPS: Record<string, string> = {
   scalper: 'Scalper: dělá hodně krátkodobých tradeů s velmi krátkou dobou držení.',
@@ -191,6 +192,9 @@ export default function WalletDetailPage() {
   const [countdown, setCountdown] = useState<number>(0);
   const [recentTradesPage, setRecentTradesPage] = useState<number>(1);
   const RECENT_TRADES_PER_PAGE = 50;
+  const [tradesLoading, setTradesLoading] = useState<boolean>(true);
+  const [pnlLoading, setPnlLoading] = useState<boolean>(true);
+  const [portfolioLoading, setPortfolioLoading] = useState<boolean>(true);
 
   useEffect(() => {
     if (walletAddress) {
@@ -260,39 +264,60 @@ export default function WalletDetailPage() {
           fromDate = undefined;
       }
       
-      // OPTIMALIZACE: Načti pouze první stránku trades (50 trades) pro rychlý render
-      // Portfolio endpoint už má closed positions z precomputed dat, takže nepotřebujeme všechny trades
-      Promise.all([
-        fetchTrades(actualWalletId, { 
-          page: 1, 
-          pageSize: 50, // OPTIMALIZACE: Pouze první stránka pro rychlý render
-          tokenId: tokenFilter || undefined,
-          fromDate,
-        }).then((data) => {
+      // OPTIMALIZACE: Načti další části paralelně a nastav sekční loading stavy
+      setTradesLoading(true);
+      setPnlLoading(true);
+      setPortfolioLoading(true);
+
+      // Trades
+      fetchTrades(actualWalletId, { 
+        page: 1, 
+        pageSize: 50, // Pouze první stránka pro rychlý render
+        tokenId: tokenFilter || undefined,
+        fromDate,
+      })
+        .then((data) => {
           setTrades(data);
-        }).catch((err) => {
+        })
+        .catch((err) => {
           console.error('Error fetching trades:', err);
           setTrades({ trades: [], total: 0 });
-        }),
-        fetchWalletPnl(walletAddress).then((data) => {
+        })
+        .finally(() => {
+          setTradesLoading(false);
+        });
+
+      // PnL / metrics
+      fetchWalletPnl(actualWalletId)
+        .then((data) => {
           setPnlData(data);
-        }).catch(() => {
+        })
+        .catch(() => {
           setPnlData(null);
-        }),
-        // OPTIMALIZACE: Portfolio bez forceRefresh - použije precomputed cache z DB (rychlé)
-        fetchWalletPortfolio(actualWalletId, false).then((data) => {
+        })
+        .finally(() => {
+          setPnlLoading(false);
+        });
+
+      // Portfolio (open/closed positions, PnL)
+      fetchWalletPortfolio(actualWalletId, false)
+        .then((data) => {
           if (data) {
             setPortfolio(data);
             if (data.lastUpdated) {
               setPortfolioLastUpdated(new Date(data.lastUpdated));
             }
+          } else {
+            setPortfolio({ openPositions: [], closedPositions: [] });
           }
-        }).catch(() => {
-          setPortfolio(null);
-        }),
-      ]).catch(() => {
-        // Silent fail - data se načtou později
-      });
+        })
+        .catch((err) => {
+          console.error('Error fetching portfolio:', err);
+          setPortfolio({ openPositions: [], closedPositions: [] });
+        })
+        .finally(() => {
+          setPortfolioLoading(false);
+        });
     } catch (error: any) {
       console.error('Error loading wallet data:', error);
       // Pokud je to 404, nastav wallet na null, aby se zobrazilo "Wallet not found"
@@ -557,6 +582,11 @@ export default function WalletDetailPage() {
         {/* Open & Closed Positions */}
         <div className="mb-10">
           <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">Positions Overview</h2>
+          {portfolioLoading && (
+            <div className="py-6">
+              <Spinner label="Loading positions..." />
+            </div>
+          )}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Open Positions */}
               <div className="overflow-hidden">
@@ -790,7 +820,11 @@ export default function WalletDetailPage() {
             {/* Recent Trades */}
             <div className="overflow-hidden">
               <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">Recent Trades</h2>
-              
+              {tradesLoading && (
+                <div className="py-4">
+                  <Spinner label="Loading trades..." />
+                </div>
+              )}
               {/* Filters */}
               <div className="flex gap-4 flex-wrap mb-4">
                 <div className="flex-1 min-w-[200px]">
@@ -1312,7 +1346,11 @@ export default function WalletDetailPage() {
 
           <div className="border border-border rounded-lg p-6">
             <h2 className="text-lg font-semibold mb-4">PnL Over Time</h2>
-            {pnlData && pnlData.daily && pnlData.daily.length > 0 ? (
+            {pnlLoading ? (
+              <div className="py-12">
+                <Spinner label="Loading PnL chart..." />
+              </div>
+            ) : pnlData && pnlData.daily && pnlData.daily.length > 0 ? (
               <>
                 <div className="flex gap-2 mb-4">
                   {(['7d', '30d', '90d', '1y'] as const).map((period) => (
