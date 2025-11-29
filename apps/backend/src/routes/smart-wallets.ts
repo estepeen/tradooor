@@ -1571,19 +1571,20 @@ router.get('/:id/portfolio', async (req, res) => {
       return sellDate >= thirtyDaysAgo && sellDate <= new Date();
     });
     
+    // Calculate 30d PnL from closed positions (same logic as detail page)
+    const totalPnl30d = recentClosedPositions30d.reduce((sum: number, p: any) => sum + (p.realizedPnlBase ?? 0), 0);
+    const totalCost30d = recentClosedPositions30d.reduce((sum: number, p: any) => {
+      const pnl = p.realizedPnlBase ?? 0; // PnL v SOL
+      const pnlPercent = p.realizedPnlPercent ?? 0;
+      if (pnlPercent !== 0 && typeof pnl === 'number' && typeof pnlPercent === 'number') {
+        const cost = pnl / (pnlPercent / 100);
+        return sum + Math.abs(cost);
+      }
+      return sum;
+    }, 0);
+    const pnlPercent30d = totalCost30d > 0 ? (totalPnl30d / totalCost30d) * 100 : 0;
+    
     if (wallet.id && recentClosedPositions30d.length > 0) {
-      const totalPnl30d = recentClosedPositions30d.reduce((sum: number, p: any) => sum + (p.realizedPnlBase ?? 0), 0);
-      const totalCost30d = recentClosedPositions30d.reduce((sum: number, p: any) => {
-        const pnl = p.realizedPnlBase ?? 0; // PnL v SOL
-        const pnlPercent = p.realizedPnlPercent ?? 0;
-        if (pnlPercent !== 0 && typeof pnl === 'number' && typeof pnlPercent === 'number') {
-          const cost = pnl / (pnlPercent / 100);
-          return sum + Math.abs(cost);
-        }
-        return sum;
-      }, 0);
-      const pnlPercent30d = totalCost30d > 0 ? (totalPnl30d / totalCost30d) * 100 : 0;
-      
       console.log(`   📊 [Portfolio] Wallet ${wallet.id}: Found ${recentClosedPositions30d.length} closed positions in last 30 days`);
       console.log(`   ✅ [Portfolio] Wallet ${wallet.id}: totalPnl30d=${totalPnl30d.toFixed(2)}, totalCost30d=${totalCost30d.toFixed(2)}, pnlPercent30d=${pnlPercent30d.toFixed(2)}%`);
     }
