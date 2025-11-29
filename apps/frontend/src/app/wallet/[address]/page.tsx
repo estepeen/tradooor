@@ -660,7 +660,7 @@ export default function WalletDetailPage() {
                         if (openPositions.length === 0) {
                           return (
                             <tr className="border-t border-border">
-                              <td colSpan={4} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                              <td colSpan={5} className="px-4 py-6 text-center text-sm text-muted-foreground">
                                 No open positions
                               </td>
                             </tr>
