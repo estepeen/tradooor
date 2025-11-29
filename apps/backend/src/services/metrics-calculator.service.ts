@@ -509,36 +509,36 @@ export class MetricsCalculatorService {
     earliest.setDate(earliest.getDate() - MAX_WINDOW_DAYS);
 
     // DŮLEŽITÉ: Použij ÚPLNĚ STEJNOU logiku jako portfolio endpoint
-    // 1. Pokud existují ClosedLot, použij je (sčítání realizedPnlUsd)
-    // 2. Pokud neexistují ClosedLot, použij fallback - vytvoř closed positions z trades a počítaj z totalProceedsBase - totalCostBase
+    // Vždy vytvoř closed positions z trades (stejně jako portfolio endpoint)
+    // Pokud existují ClosedLot, použij je pro optimalizaci (sčítání realizedPnlUsd)
+    // Pokud neexistují ClosedLot, počítaj z trades (totalProceedsBase - totalCostBase)
     const [closedLots, tradeFeatures, allTrades] = await Promise.all([
       this.closedLotRepo.findByWallet(walletId, { fromDate: earliest }),
       this.fetchTradeFeaturesSafe(walletId, earliest),
       this.tradeRepo.findByWalletId(walletId, { fromDate: earliest, page: 1, pageSize: 100000 }),
     ]);
 
+    // Group closed lots by tokenId for quick lookup (optimalizace)
+    const closedLotsByToken = new Map<string, ClosedLotRecord[]>();
+    for (const lot of closedLots) {
+      if (!closedLotsByToken.has(lot.tokenId)) {
+        closedLotsByToken.set(lot.tokenId, []);
+      }
+      closedLotsByToken.get(lot.tokenId)!.push(lot);
+    }
+
     const rolling = {} as Record<RollingWindowLabel, RollingWindowStats>;
     for (const [label, days] of Object.entries(WINDOW_CONFIG) as Array<[RollingWindowLabel, number]>) {
       const cutoff = new Date(now);
       cutoff.setDate(cutoff.getDate() - days);
       
-      // Filtruj closed lots podle exitTime (kdy byl lot uzavřen)
-      const filteredLots = closedLots.filter(lot => {
-        const exitTime = new Date(lot.exitTime);
-        return exitTime >= cutoff && exitTime <= now;
-      });
-      
-      // Pokud máme ClosedLot data, použij je (stejně jako portfolio endpoint)
-      if (filteredLots.length > 0) {
-        rolling[label] = await this.buildRollingWindowStats(filteredLots);
-      } else {
-        // FALLBACK: Pokud nemáme ClosedLot, použij stejnou logiku jako portfolio endpoint
-        // Vytvoř closed positions z trades a počítaj PnL z totalProceedsBase - totalCostBase
-        rolling[label] = await this.buildRollingWindowStatsFromTradesFallback(
-          allTrades.trades || [],
-          cutoff
-        );
-      }
+      // VŽDY použij trades (stejně jako portfolio endpoint) - vytvoř closed positions z trades
+      // Pokud existují ClosedLot, použij je pro optimalizaci
+      rolling[label] = await this.buildRollingWindowStatsFromTrades(
+        allTrades.trades || [],
+        closedLotsByToken,
+        cutoff
+      );
     }
 
     const behaviour = this.buildBehaviourStats(tradeFeatures);
@@ -547,9 +547,11 @@ export class MetricsCalculatorService {
     return { rolling, behaviour, scores };
   }
 
-  // FALLBACK: Stejná logika jako portfolio endpoint - vytvoří closed positions z trades a počítá PnL
-  private async buildRollingWindowStatsFromTradesFallback(
+  // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT - vytvoří closed positions z trades a počítá PnL
+  // Pokud existují ClosedLot, použij je (optimalizace), jinak počítaj z trades
+  private async buildRollingWindowStatsFromTrades(
     trades: any[],
+    closedLotsByToken: Map<string, ClosedLotRecord[]>,
     cutoff: Date
   ): Promise<RollingWindowStats> {
     if (trades.length === 0) {
@@ -657,7 +659,9 @@ export class MetricsCalculatorService {
       return p.lastSellTimestamp >= cutoff && p.lastSellTimestamp <= new Date();
     });
 
-    // Calculate PnL from trades (STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT FALLBACK)
+    // Calculate PnL (STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT)
+    // 1. Pokud existují ClosedLot, použij je (optimalizace - fixní realizedPnlUsd)
+    // 2. Pokud neexistují ClosedLot, počítaj z trades (totalProceedsBase - totalCostBase)
     let totalRealizedPnlUsd = 0;
     let totalInvestedCapitalUsd = 0;
     const positionPnls: Array<{ pnlUsd: number; roiPercent: number; holdTimeMinutes: number }> = [];
@@ -668,12 +672,37 @@ export class MetricsCalculatorService {
       const holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
       if (holdTimeMinutes < 0) continue;
 
-      // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT FALLBACK: closedPnlBase = totalProceedsBase - totalCostBase
-      if (position.totalProceedsBase > 0 && position.totalCostBase > 0) {
+      let closedPnlUsd = 0;
+      let roiPercent = 0;
+
+      // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT: Zkus použít ClosedLot (pokud existují)
+      const closedLotsForToken = (closedLotsByToken.get(position.tokenId) || []).filter((lot: any) => 
+        lot.exitTime && 
+        new Date(lot.exitTime) <= new Date()
+      );
+      
+      if (closedLotsForToken.length > 0) {
+        // Použij ClosedLot (optimalizace - fixní realizedPnlUsd z doby uzavření)
+        const totalRealizedPnlUsdForToken = closedLotsForToken.reduce((sum: number, lot: any) => {
+          if (lot.realizedPnlUsd !== null && lot.realizedPnlUsd !== undefined) {
+            return sum + Number(lot.realizedPnlUsd);
+          }
+          return sum;
+        }, 0);
+        
+        if (totalRealizedPnlUsdForToken !== 0) {
+          closedPnlUsd = totalRealizedPnlUsdForToken;
+          // Pro ROI potřebujeme cost - použijeme totalCostBase z trades
+          const investedCapitalUsd = position.totalCostBase * (position.baseToken === 'SOL' ? solPriceUsd : 1);
+          roiPercent = investedCapitalUsd > 0 ? (closedPnlUsd / investedCapitalUsd) * 100 : 0;
+        }
+      }
+      
+      // FALLBACK: Pokud nemáme ClosedLot nebo realizedPnlUsd = 0, počítaj z trades
+      if (closedPnlUsd === 0 && position.totalProceedsBase > 0 && position.totalCostBase > 0) {
         const closedPnlBase = position.totalProceedsBase - position.totalCostBase;
         
         // Convert to USD (STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT)
-        let closedPnlUsd = 0;
         if (position.baseToken === 'SOL') {
           closedPnlUsd = closedPnlBase * solPriceUsd;
         } else if (position.baseToken === 'USDC' || position.baseToken === 'USDT') {
@@ -683,9 +712,12 @@ export class MetricsCalculatorService {
         }
         
         const investedCapitalUsd = position.totalCostBase * (position.baseToken === 'SOL' ? solPriceUsd : 1);
-        const roiPercent = investedCapitalUsd > 0 ? (closedPnlUsd / investedCapitalUsd) * 100 : 0;
-        
+        roiPercent = investedCapitalUsd > 0 ? (closedPnlUsd / investedCapitalUsd) * 100 : 0;
+      }
+
+      if (closedPnlUsd !== 0) {
         totalRealizedPnlUsd += closedPnlUsd;
+        const investedCapitalUsd = position.totalCostBase * (position.baseToken === 'SOL' ? solPriceUsd : 1);
         totalInvestedCapitalUsd += investedCapitalUsd;
         positionPnls.push({ pnlUsd: closedPnlUsd, roiPercent, holdTimeMinutes });
       }
