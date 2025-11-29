@@ -3,7 +3,7 @@
 export type TradeSide = 'buy' | 'sell' | 'add' | 'remove';
 
 export interface SmartWalletRollingStats {
-  realizedPnlUsd: number;
+  realizedPnl: number; // PnL v SOL/base měně (změněno z realizedPnlUsd)
   realizedRoiPercent: number;
   winRate: number;
   medianTradeRoiPercent: number;
@@ -94,7 +94,8 @@ export interface SmartWallet {
   avgHoldingTimeMin: number;
   maxDrawdownPercent: number;
   recentPnl30dPercent: number;
-  recentPnl30dUsd?: number;
+  recentPnl30dUsd?: number; // Deprecated: use recentPnl30dBase (SOL value stored in DB column)
+  recentPnl30dBase?: number; // PnL v SOL/base měně (primární hodnota)
   lastTradeTimestamp?: Date | null;
   advancedStats?: SmartWalletAdvancedStats | null;
   createdAt: Date;
