@@ -1454,197 +1454,100 @@ router.get('/:id/portfolio', async (req, res) => {
     // 3. SELL trade (finální prodej, uzavírá pozici) NEBO ClosedLot data (priorita - ClosedLot znamená, že pozice byla uzavřena)
     // 4. ClosedLot data (jednotný princip - PnL se počítá POUZE z ClosedLot)
     
-    // DŮLEŽITÉ: Pokud máme ClosedLot data pro token, který není v portfolio mapě (např. staré obchody),
-    // vytvoříme closed position přímo z ClosedLot dat
+    // DŮLEŽITÉ: Vytvoříme samostatnou closed position pro každý BUY-SELL cyklus (skupina ClosedLots se stejným sellTradeId)
+    // Tím zajistíme, že každý cyklus pro stejný token bude samostatná pozice s řadovým označením (1., 2., 3. atd.)
     const closedPositionsFromLots: any[] = [];
-    if (closedLots) {
-      const tokensWithClosedLots = new Set(closedLots.map((lot: any) => lot.tokenId));
-      for (const tokenId of tokensWithClosedLots) {
-        // Zkontroluj, jestli už není v portfolio mapě
-        const existingInPortfolio = portfolio.find(p => p.tokenId === tokenId);
-        if (!existingInPortfolio) {
-          // Vytvoř closed position přímo z ClosedLot dat
-          const lotsForToken = closedLots.filter((lot: any) => lot.tokenId === tokenId);
-          if (lotsForToken.length > 0) {
-            const firstLot = lotsForToken[0];
-            const lastLot = lotsForToken.sort((a: any, b: any) => 
-              new Date(b.exitTime).getTime() - new Date(a.exitTime).getTime()
-            )[0];
-            
-            const token = tokenDataMap.get(tokenId);
-            const totalRealizedPnl = lotsForToken.reduce((sum: number, lot: any) => {
-              // Použij realizedPnl z ClosedLot (v SOL/base měně)
-              const pnl = lot.realizedPnl !== null && lot.realizedPnl !== undefined ? Number(lot.realizedPnl) : 0;
-              if (wallet.id && Math.abs(pnl) > 0.0001) {
-                console.log(`   💰 [ClosedLot] tokenId=${lot.tokenId}, realizedPnl=${pnl.toFixed(4)} SOL, costBasis=${lot.costBasis?.toFixed(4) || 'N/A'}, proceeds=${lot.proceeds?.toFixed(4) || 'N/A'}`);
-              }
-              return sum + pnl;
-            }, 0);
-            
-            const totalCostBase = lotsForToken.reduce((sum: number, lot: any) => sum + (lot.costBasis || 0), 0);
-            const totalProceedsBase = lotsForToken.reduce((sum: number, lot: any) => sum + (lot.proceeds || 0), 0);
-            // Pokud totalCostBase je 0, zkus použít totalProceedsBase - totalRealizedPnl jako cost
-            const effectiveCostBase = totalCostBase > 0 ? totalCostBase : (totalProceedsBase - totalRealizedPnl);
-            const realizedPnlPercent = effectiveCostBase > 0 ? (totalRealizedPnl / effectiveCostBase) * 100 : 0;
-            
-            if (wallet.id && lotsForToken.length > 0) {
-              console.log(`   💰 [ClosedLot Summary] tokenId=${tokenId}, lots=${lotsForToken.length}, totalRealizedPnl=${totalRealizedPnl.toFixed(4)} SOL, totalCostBase=${totalCostBase.toFixed(4)}, totalProceedsBase=${totalProceedsBase.toFixed(4)}, realizedPnlPercent=${realizedPnlPercent.toFixed(2)}%`);
-            }
-            
-            const entryTime = new Date(firstLot.entryTime);
-            const exitTime = new Date(lastLot.exitTime);
-            const holdTimeMs = exitTime.getTime() - entryTime.getTime();
-            const holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
-            
-            closedPositionsFromLots.push({
-              tokenId,
-              token: token || null,
-              balance: 0,
-              totalBought: 0,
-              totalSold: 0,
-              totalInvested: 0,
-              totalSoldValue: 0,
-              totalCostBase,
-              totalProceedsBase: totalCostBase + totalRealizedPnl,
-              averageBuyPrice: 0,
-              buyCount: 1, // Odhad - máme ClosedLot, takže musel být BUY
-              sellCount: 1, // Odhad - máme ClosedLot, takže musel být SELL
-              removeCount: 0,
-              lastBuyPrice: 0,
-              lastSellPrice: 0,
-              firstBuyTimestamp: entryTime.toISOString(),
-              lastSellTimestamp: exitTime.toISOString(),
-              baseToken: 'SOL',
-              currentPrice: null,
-              currentValue: 0,
-              totalCost: 0,
-              livePnl: 0,
-              livePnlBase: 0,
-              livePnlPercent: 0,
-              pnl: 0,
-              pnlPercent: 0,
-              holdTimeMinutes: holdTimeMinutes >= 0 ? holdTimeMinutes : 0,
-              realizedPnlBase: totalRealizedPnl,
-              realizedPnlPercent,
-              closedPnl: totalRealizedPnl,
-              closedPnlBase: totalRealizedPnl,
-              closedPnlPercent: realizedPnlPercent,
-            });
-            
-            console.log(`   ✅ Created closed position from ClosedLot: tokenId=${tokenId}, realizedPnlBase=${totalRealizedPnl.toFixed(4)} SOL, holdTime=${holdTimeMinutes}min`);
-          }
+    if (closedLots && closedLots.length > 0) {
+      // Seskupíme ClosedLots podle sellTradeId (každý SELL = jeden cyklus)
+      const lotsBySellTradeId = new Map<string, any[]>();
+      for (const lot of closedLots) {
+        const sellTradeId = lot.sellTradeId || 'unknown';
+        if (!lotsBySellTradeId.has(sellTradeId)) {
+          lotsBySellTradeId.set(sellTradeId, []);
         }
+        lotsBySellTradeId.get(sellTradeId)!.push(lot);
+      }
+      
+      // Pro každou skupinu ClosedLots se stejným sellTradeId vytvoříme samostatnou closed position
+      for (const [sellTradeId, lotsForSell] of lotsBySellTradeId.entries()) {
+        if (lotsForSell.length === 0) continue;
+        
+        const firstLot = lotsForSell.sort((a: any, b: any) => 
+          new Date(a.entryTime).getTime() - new Date(b.entryTime).getTime()
+        )[0];
+        const lastLot = lotsForSell.sort((a: any, b: any) => 
+          new Date(b.exitTime).getTime() - new Date(a.exitTime).getTime()
+        )[0];
+        
+        const tokenId = firstLot.tokenId;
+        const token = tokenDataMap.get(tokenId);
+        const sequenceNumber = firstLot.sequenceNumber ?? null; // Kolikátý cyklus (1., 2., 3. atd.)
+        
+        const totalRealizedPnl = lotsForSell.reduce((sum: number, lot: any) => {
+          const pnl = lot.realizedPnl !== null && lot.realizedPnl !== undefined ? Number(lot.realizedPnl) : 0;
+          if (wallet.id && Math.abs(pnl) > 0.0001) {
+            console.log(`   💰 [ClosedLot] tokenId=${lot.tokenId}, sequenceNumber=${sequenceNumber}, sellTradeId=${sellTradeId}, realizedPnl=${pnl.toFixed(4)} SOL`);
+          }
+          return sum + pnl;
+        }, 0);
+        
+        const totalCostBase = lotsForSell.reduce((sum: number, lot: any) => sum + (lot.costBasis || 0), 0);
+        const totalProceedsBase = lotsForSell.reduce((sum: number, lot: any) => sum + (lot.proceeds || 0), 0);
+        const effectiveCostBase = totalCostBase > 0 ? totalCostBase : (totalProceedsBase - totalRealizedPnl);
+        const realizedPnlPercent = effectiveCostBase > 0 ? (totalRealizedPnl / effectiveCostBase) * 100 : 0;
+        
+        const entryTime = new Date(firstLot.entryTime);
+        const exitTime = new Date(lastLot.exitTime);
+        const holdTimeMs = exitTime.getTime() - entryTime.getTime();
+        const holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
+        
+        closedPositionsFromLots.push({
+          tokenId,
+          token: token || null,
+          sequenceNumber, // Přidáme sequenceNumber pro řadové označení
+          balance: 0,
+          totalBought: 0,
+          totalSold: 0,
+          totalInvested: 0,
+          totalSoldValue: 0,
+          totalCostBase,
+          totalProceedsBase: totalCostBase + totalRealizedPnl,
+          averageBuyPrice: 0,
+          buyCount: lotsForSell.length, // Počet lots = počet BUY/ADD trades
+          sellCount: 1, // Jeden SELL trade
+          removeCount: 0,
+          lastBuyPrice: 0,
+          lastSellPrice: 0,
+          firstBuyTimestamp: entryTime.toISOString(),
+          lastSellTimestamp: exitTime.toISOString(),
+          baseToken: 'SOL',
+          currentPrice: null,
+          currentValue: 0,
+          totalCost: 0,
+          livePnl: 0,
+          livePnlBase: 0,
+          livePnlPercent: 0,
+          pnl: 0,
+          pnlPercent: 0,
+          holdTimeMinutes: holdTimeMinutes >= 0 ? holdTimeMinutes : 0,
+          realizedPnlBase: totalRealizedPnl,
+          realizedPnlPercent,
+          closedPnl: totalRealizedPnl,
+          closedPnlBase: totalRealizedPnl,
+          closedPnlPercent: realizedPnlPercent,
+        });
+        
+        console.log(`   ✅ Created closed position from ClosedLot: tokenId=${tokenId}, sequenceNumber=${sequenceNumber}, realizedPnlBase=${totalRealizedPnl.toFixed(4)} SOL, holdTime=${holdTimeMinutes}min`);
       }
     }
     
+    // DŮLEŽITÉ: Closed positions se vytváří POUZE z ClosedLots (jednotný princip)
+    // Portfolio mapa se používá jen pro open positions
+    // Pokud pozice z portfolio mapy má ClosedLot data, přeskočíme ji (už je v closedPositionsFromLots)
+    const tokensWithClosedLots = new Set((closedLots || []).map((lot: any) => lot.tokenId));
+    
     const closedPositions = [
-      ...portfolio
-        .filter(p => {
-          // Treat small negative balance (rounding errors) as 0 for closed positions
-          const normalizedBalance = p.balance < 0 && Math.abs(p.balance) < 0.0001 ? 0 : p.balance;
-          
-          // DŮLEŽITÉ: Pokud máme ClosedLot data, pozice je uzavřená (priorita nad balance)
-          const closedLotsForToken = (closedLots || []).filter((lot: any) => 
-            lot.tokenId === p.tokenId && 
-            lot.exitTime && 
-            new Date(lot.exitTime) <= new Date()
-          );
-          const hasClosedLot = closedLotsForToken.length > 0;
-          
-          // Musí mít balance <= 0 NEBO ClosedLot data (priorita)
-          if (normalizedBalance > 0 && !hasClosedLot) {
-            console.log(`   ⏭️  Skipping closed position: balance > 0 (${p.balance}, normalized: ${normalizedBalance}) and no ClosedLot data`);
-            return false;
-          }
-          
-          // Pokud máme ClosedLot data, akceptujeme pozici i když chybí buyCount/sellCount
-          if (hasClosedLot) {
-            // ClosedLot data existují → pozice je uzavřená, akceptujeme ji
-            console.log(`   ✅ Accepting closed position (has ClosedLot): tokenId=${p.tokenId}, balance=${p.balance}, buyCount=${p.buyCount}, sellCount=${p.sellCount}`);
-          } else {
-            // Nemáme ClosedLot data → musí mít buyCount a sellCount
-            if (p.buyCount === 0) {
-              console.log(`   ⏭️  Skipping closed position: no BUY trades (počáteční nákup) and no ClosedLot data`);
-              return false;
-            }
-            if (p.sellCount === 0) {
-              console.log(`   ⏭️  Skipping closed position: no SELL trades (finální prodej) and no ClosedLot data`);
-              return false;
-            }
-          }
-          
-          // DŮLEŽITÉ: Musí mít ClosedLot data (jednotný princip - PnL se počítá POUZE z ClosedLot)
-          if (closedLotsForToken.length === 0) {
-            console.log(`   ⏭️  Skipping closed position: no ClosedLot data for token ${p.tokenId}`);
-            return false;
-          }
-        // Musí mít firstBuyTimestamp a lastSellTimestamp (pro výpočet HOLD time)
-        // Pokud chybí v trades, zkusíme je doplnit z ClosedLot
-        if (!p.firstBuyTimestamp && closedLotsForToken.length > 0) {
-          // Najdi nejstarší entryTime
-          const firstEntryTime = closedLotsForToken
-            .map((lot: any) => new Date(lot.entryTime))
-            .sort((a: Date, b: Date) => a.getTime() - b.getTime())[0];
-          if (firstEntryTime) {
-            p.firstBuyTimestamp = firstEntryTime.toISOString();
-            console.log(`   🔧 Patched firstBuyTimestamp from ClosedLot: ${firstEntryTime.toISOString()}`);
-          }
-        }
-        
-        if (!p.firstBuyTimestamp) {
-          console.log(`   ⏭️  Skipping closed position: missing firstBuyTimestamp (and not found in ClosedLots)`);
-          return false;
-        }
-
-        if (!p.lastSellTimestamp) {
-          // Pokud nemá lastSellTimestamp, použij poslední exitTime z ClosedLot
-          const lastExitTime = closedLotsForToken
-            .map((lot: any) => new Date(lot.exitTime))
-            .sort((a: Date, b: Date) => b.getTime() - a.getTime())[0];
-          if (lastExitTime) {
-            p.lastSellTimestamp = lastExitTime.toISOString();
-            console.log(`   🔧 Patched lastSellTimestamp from ClosedLot: ${lastExitTime.toISOString()}`);
-          } else {
-            console.log(`   ⏭️  Skipping closed position: missing lastSellTimestamp and no exitTime in ClosedLot`);
-            return false;
-          }
-        }
-        
-        // Recalculate holdTimeMinutes if we patched timestamps
-        if (p.firstBuyTimestamp && p.lastSellTimestamp) {
-          const firstBuyDate = typeof p.firstBuyTimestamp === 'string' ? new Date(p.firstBuyTimestamp) : p.firstBuyTimestamp;
-          const lastSellDate = typeof p.lastSellTimestamp === 'string' ? new Date(p.lastSellTimestamp) : p.lastSellTimestamp;
-          const holdTimeMs = lastSellDate.getTime() - firstBuyDate.getTime();
-          p.holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
-        }
-
-        // Musí mít platný holdTimeMinutes (bylo vypočítáno výše) - povolujeme i 0 (stejný timestamp)
-        if (p.holdTimeMinutes === null || p.holdTimeMinutes < 0) {
-          console.log(`   ⏭️  Skipping closed position: invalid holdTimeMinutes (${p.holdTimeMinutes})`);
-          return false;
-        }
-        // Musí mít alespoň nějaký PnL data (cost nebo proceeds)
-        if (!p.totalCostBase && !p.totalProceedsBase && !p.totalInvested && !p.totalSoldValue) {
-          console.log(`   ⏭️  Skipping closed position: no PnL data`);
-          return false;
-        }
-          console.log(`   ✅ Closed position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, holdTime=${p.holdTimeMinutes}min, realizedPnlBase=${p.realizedPnlBase} SOL, closedLots=${closedLotsForToken.length}, sellCount=${p.sellCount}`);
-          return true;
-        })
-        .map(p => ({
-          ...p,
-          // Ujisti se, že máme všechny potřebné pole
-          totalSold: p.totalSold || 0,
-          realizedPnlBase: p.realizedPnlBase ?? null, // PnL v SOL (primární hodnota)
-          realizedPnlPercent: p.realizedPnlPercent ?? null,
-          // Pro kompatibilitu s frontendem zachováme staré názvy
-          closedPnl: p.realizedPnlBase ?? null, // Alias (deprecated)
-          closedPnlBase: p.realizedPnlBase ?? null, // Alias (deprecated)
-          closedPnlPercent: p.realizedPnlPercent ?? null, // Alias (deprecated)
-          holdTimeMinutes: p.holdTimeMinutes ?? null,
-        }))
-        .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes >= 0), // Finální kontrola - povolujeme i 0 (stejný timestamp)
-      ...closedPositionsFromLots // Přidej closed positions vytvořené přímo z ClosedLot dat
+      ...closedPositionsFromLots // Všechny closed positions z ClosedLots (každý cyklus je samostatná pozice)
     ]
       .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes >= 0) // Finální kontrola - povolujeme i 0 (stejný timestamp)
         .sort((a, b) => {

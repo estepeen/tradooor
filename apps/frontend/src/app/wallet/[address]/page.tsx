@@ -760,7 +760,7 @@ export default function WalletDetailPage() {
                         }
 
                         const items = closedPositions.slice(0, showAllClosedPositions ? closedPositions.length : 10);
-                        return items.map((position: any) => {
+                        return items.map((position: any, index: number) => {
                           const token = position.token;
                           const closedPnlBase = position.realizedPnlBase ?? position.closedPnlBase ?? position.closedPnl ?? 0; // PnL v SOL
                           const closedPnlPercent = position.realizedPnlPercent ?? position.closedPnlPercent ?? 0;
@@ -768,9 +768,15 @@ export default function WalletDetailPage() {
                           const sellDate = position.lastSellTimestamp
                             ? formatDate(new Date(position.lastSellTimestamp))
                             : '-';
+                          const sequenceNumber = position.sequenceNumber ?? null; // Kolikátý BUY-SELL cyklus (1., 2., 3. atd.)
+
+                          // Vytvoř unikátní klíč pro každou pozici (tokenId + sequenceNumber nebo index)
+                          const positionKey = sequenceNumber 
+                            ? `${position.tokenId}-${sequenceNumber}` 
+                            : `${position.tokenId}-${index}`;
 
                           return (
-                            <tr key={position.tokenId} className="border-t border-border hover:bg-muted/50">
+                            <tr key={positionKey} className="border-t border-border hover:bg-muted/50">
                               <td className="px-4 py-3 text-sm text-muted-foreground">
                                 {sellDate}
                               </td>
@@ -782,11 +788,19 @@ export default function WalletDetailPage() {
                                     rel="noopener noreferrer"
                                     className="text-white hover:opacity-80 hover:underline"
                                   >
-                                    {token.symbol 
-                                      ? `$${token.symbol}` 
-                                      : token.name 
-                                      ? token.name 
-                                      : `${token.mintAddress.slice(0, 6)}...${token.mintAddress.slice(-6)}`}
+                                    {(() => {
+                                      const tokenName = token.symbol 
+                                        ? `$${token.symbol}` 
+                                        : token.name 
+                                        ? token.name 
+                                        : `${token.mintAddress.slice(0, 6)}...${token.mintAddress.slice(-6)}`;
+                                      
+                                      // Přidej řadové označení, pokud sequenceNumber existuje a je > 1
+                                      if (sequenceNumber !== null && sequenceNumber > 1) {
+                                        return `${tokenName} (${sequenceNumber}.)`;
+                                      }
+                                      return tokenName;
+                                    })()}
                                   </a>
                                 ) : (
                                   <span className="text-muted-foreground">-</span>

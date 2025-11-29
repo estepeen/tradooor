@@ -38,6 +38,7 @@ interface ClosedLot {
   sellTradeId: string;
   isPreHistory: boolean;
   costKnown: boolean;
+  sequenceNumber?: number; // Kolikátý BUY-SELL cyklus pro tento token (1., 2., 3. atd.)
 }
 
 type RealizedAggregate = {
@@ -123,6 +124,7 @@ export class LotMatchingService {
   ): ClosedLot[] {
     const openLots: Lot[] = [];
     const closedLots: ClosedLot[] = [];
+    let sequenceNumber = 0; // Počítadlo BUY-SELL cyklů pro tento token
 
     // Minimální hodnota v base měně pro považování za reálný trade
     const MIN_BASE_VALUE = 0.0001;
@@ -158,10 +160,26 @@ export class LotMatchingService {
         // SELL: Match against open lots using FIFO a vytvoř closed lot
         // SELL je finální prodej, který uzavírá pozici (balance = 0)
         let toSell = amount;
+        const openLotsBeforeSell = openLots.length; // Počet open lots před SELL
+        
+        // Uložíme si data o spotřebovaných lots před jejich spotřebou
+        const consumedLotsData: Array<{
+          lot: Lot;
+          consumed: number;
+          costBasis: number;
+          proceeds: number;
+          realizedPnl: number;
+          realizedPnlPercent: number;
+          holdTimeMinutes: number;
+        }> = [];
 
-        while (toSell > 0 && openLots.length > 0) {
-          const lot = openLots[0]; // FIFO: take first lot
-          const consumed = Math.min(toSell, lot.remainingSize);
+        // První fáze: vypočítáme data o spotřebovaných lots (bez jejich spotřeby)
+        let tempToSell = toSell;
+        const tempOpenLots = openLots.map(lot => ({ ...lot })); // Kopie pro simulaci
+        
+        while (tempToSell > 0 && tempOpenLots.length > 0) {
+          const lot = tempOpenLots[0];
+          const consumed = Math.min(tempToSell, lot.remainingSize);
 
           const costBasis = consumed * lot.entryPrice;
           const proceeds = consumed * price;
@@ -174,33 +192,73 @@ export class LotMatchingService {
             (timestamp.getTime() - lot.entryTime.getTime()) / (1000 * 60)
           );
 
-          // Create closed lot (POUZE pro SELL - finální prodej)
-          closedLots.push({
-            walletId,
-            tokenId,
-            size: consumed,
-            entryPrice: lot.entryPrice,
-            exitPrice: price,
-            entryTime: lot.entryTime,
-            exitTime: timestamp,
-            holdTimeMinutes,
+          consumedLotsData.push({
+            lot: { ...lot }, // Kopie lotu
+            consumed,
             costBasis,
             proceeds,
             realizedPnl,
             realizedPnlPercent,
-            buyTradeId: lot.tradeId,
-            sellTradeId: trade.id,
-            isPreHistory: lot.isSynthetic || false,
-            costKnown: lot.costKnown !== false, // Default to true
+            holdTimeMinutes,
           });
 
-          // Update lot
+          // Simulace spotřeby (na kopii)
           lot.remainingSize -= consumed;
-          if (lot.remainingSize <= 0.00000001) { // Small epsilon for floating point
-            openLots.shift(); // Remove fully consumed lot
+          if (lot.remainingSize <= 0.00000001) {
+            tempOpenLots.shift();
+          }
+
+          tempToSell -= consumed;
+        }
+
+        // Druhá fáze: skutečně spotřebujeme lots
+        while (toSell > 0 && openLots.length > 0) {
+          const lot = openLots[0];
+          const consumed = Math.min(toSell, lot.remainingSize);
+
+          lot.remainingSize -= consumed;
+          if (lot.remainingSize <= 0.00000001) {
+            openLots.shift();
           }
 
           toSell -= consumed;
+        }
+
+        // Třetí fáze: zjistíme, jestli pozice byla uzavřena a určíme sequenceNumber
+        const openLotsAfterSell = openLots.length;
+        const positionClosed = openLotsAfterSell === 0 && openLotsBeforeSell > 0;
+        
+        // Pokud pozice byla uzavřena, zvýšíme sequenceNumber pro další cyklus
+        if (positionClosed) {
+          sequenceNumber++;
+        }
+        
+        // Pokud je sequenceNumber 0 (první cyklus ještě nezačal), nastavíme ho na 1
+        if (sequenceNumber === 0) {
+          sequenceNumber = 1;
+        }
+
+        // Čtvrtá fáze: vytvoříme closed lots s sequenceNumber
+        for (const data of consumedLotsData) {
+          closedLots.push({
+            walletId,
+            tokenId,
+            size: data.consumed,
+            entryPrice: data.lot.entryPrice,
+            exitPrice: price,
+            entryTime: data.lot.entryTime,
+            exitTime: timestamp,
+            holdTimeMinutes: data.holdTimeMinutes,
+            costBasis: data.costBasis,
+            proceeds: data.proceeds,
+            realizedPnl: data.realizedPnl,
+            realizedPnlPercent: data.realizedPnlPercent,
+            buyTradeId: data.lot.tradeId,
+            sellTradeId: trade.id,
+            isPreHistory: data.lot.isSynthetic || false,
+            costKnown: data.lot.costKnown !== false,
+            sequenceNumber, // Přidáme sequenceNumber
+          });
         }
 
         // If we still have tokens to sell but no open lots, this is a SELL without BUY (pre-history)
@@ -270,6 +328,7 @@ export class LotMatchingService {
         sellTradeId: lot.sellTradeId,
         isPreHistory: lot.isPreHistory,
         costKnown: lot.costKnown,
+        sequenceNumber: lot.sequenceNumber ?? null, // Kolikátý BUY-SELL cyklus (1., 2., 3. atd.)
       };
     });
 

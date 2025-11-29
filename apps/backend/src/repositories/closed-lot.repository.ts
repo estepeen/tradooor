@@ -21,6 +21,7 @@ export interface ClosedLotRecord {
   sellTradeId: string | null;
   isPreHistory: boolean;
   costKnown: boolean;
+  sequenceNumber: number | null; // Kolikátý BUY-SELL cyklus pro tento token (1., 2., 3. atd.)
 }
 
 export class ClosedLotRepository {
@@ -73,6 +74,7 @@ export class ClosedLotRepository {
       sellTradeId: row.sellTradeId ?? null,
       isPreHistory: Boolean(row.isPreHistory),
       costKnown: row.costKnown !== undefined ? Boolean(row.costKnown) : true,
+      sequenceNumber: row.sequenceNumber !== null && row.sequenceNumber !== undefined ? toNumber(row.sequenceNumber) : null,
     };
   }
 }
