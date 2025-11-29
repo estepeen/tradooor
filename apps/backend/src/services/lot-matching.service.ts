@@ -135,15 +135,17 @@ export class LotMatchingService {
       const timestamp = new Date(trade.timestamp);
 
       // Filtruj airdropy/transfery
-      if (side === 'buy' && amountBase < MIN_BASE_VALUE) {
+      if ((side === 'buy' || side === 'add') && amountBase < MIN_BASE_VALUE) {
         continue;
       }
       if (price <= 0 || price < MIN_BASE_VALUE / amount) {
         continue;
       }
 
-      if (side === 'buy') {
-        // BUY: Add new lot
+      // DŮLEŽITÉ: ADD se chová jako BUY (přidá do open lots)
+      // REM se chová jako SELL (uzavře část lotu pomocí FIFO)
+      if (side === 'buy' || side === 'add') {
+        // BUY/ADD: Add new lot
         openLots.push({
           remainingSize: amount,
           entryPrice: price,
@@ -152,8 +154,8 @@ export class LotMatchingService {
           isSynthetic: false,
           costKnown: true,
         });
-      } else if (side === 'sell') {
-        // SELL: Match against open lots using FIFO
+      } else if (side === 'sell' || side === 'remove') {
+        // SELL/REM: Match against open lots using FIFO
         let toSell = amount;
 
         while (toSell > 0 && openLots.length > 0) {
@@ -171,7 +173,7 @@ export class LotMatchingService {
             (timestamp.getTime() - lot.entryTime.getTime()) / (1000 * 60)
           );
 
-          // Create closed lot
+          // Create closed lot (pro SELL i REM)
           closedLots.push({
             walletId,
             tokenId,
@@ -200,14 +202,14 @@ export class LotMatchingService {
           toSell -= consumed;
         }
 
-        // If we still have tokens to sell but no open lots, this is a SELL without BUY (pre-history)
+        // If we still have tokens to sell but no open lots, this is a SELL/REM without BUY (pre-history)
         // DŮLEŽITÉ: NEPŘIDÁVÁME synthetic lots do closedLots, protože:
         // 1. Neznáme cost basis (PnL = 0, nemá smysl zobrazovat)
         // 2. Nevíme, kdy byl skutečný buy (hold time je nepřesný)
-        // 3. Closed positions by měly obsahovat jen kompletní trades (BUY + SELL)
+        // 3. Closed positions by měly obsahovat jen kompletní trades (BUY/ADD + SELL/REM)
         // Pokud chceme trackovat sell bez buy, měl by se použít jiný mechanismus
         if (toSell > 0) {
-          console.log(`   ⚠️  SELL without matching BUY for token ${tokenId}: ${toSell} tokens sold at ${price} - skipping (pre-history, no cost basis)`);
+          console.log(`   ⚠️  ${side.toUpperCase()} without matching BUY/ADD for token ${tokenId}: ${toSell} tokens sold at ${price} - skipping (pre-history, no cost basis)`);
           // Nepřidáváme do closedLots - není to kompletní trade
         }
       }
