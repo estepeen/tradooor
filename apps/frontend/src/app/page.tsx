@@ -539,11 +539,19 @@ export default function Home() {
                           const rolling30d = (wallet.advancedStats as any)?.rolling?.['30d'];
                           const pnlUsd = rolling30d?.realizedPnlUsd ?? wallet.recentPnl30dUsd ?? 0;
                           const pnlPercent = rolling30d?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
+                          // Convert USD to SOL (approximate: 1 SOL ≈ 150 USD)
+                          const SOL_PRICE_APPROX = 150;
+                          const pnlSol = pnlUsd !== 0 ? pnlUsd / SOL_PRICE_APPROX : 0;
                           
                           return (
                             <>
                               ${formatNumber(Math.abs(pnlUsd), 2)}{' '}
                               ({(pnlPercent >= 0 ? '+' : '')}{formatPercent(pnlPercent / 100)})
+                              {Math.abs(pnlSol) > 0.0001 && (
+                                <span className="text-muted-foreground ml-1">
+                                  / {formatNumber(Math.abs(pnlSol), 4)} SOL
+                                </span>
+                              )}
                             </>
                           );
                         })()}

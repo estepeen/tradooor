@@ -570,6 +570,16 @@ export default function WalletDetailPage() {
                             ({data.pnlPercent >= 0 ? '+' : ''}{formatPercent(data.pnlPercent / 100)})
                           </span>
                   </div>
+                  {/* Convert USD to SOL (approximate: 1 SOL ≈ 150 USD) */}
+                  {(() => {
+                    const SOL_PRICE_APPROX = 150;
+                    const pnlSol = data.pnlUsd !== 0 ? data.pnlUsd / SOL_PRICE_APPROX : 0;
+                    return Math.abs(pnlSol) > 0.0001 ? (
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {formatNumber(Math.abs(pnlSol), 4)} SOL
+                      </div>
+                    ) : null;
+                  })()}
                   <div className="text-xs text-muted-foreground mt-1">
                     {data.trades} trades
                   </div>

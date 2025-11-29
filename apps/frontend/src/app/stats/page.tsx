@@ -13,15 +13,6 @@ export default function StatsPage() {
     loadStats();
   }, []);
 
-  // Auto-refresh every 30 seconds (same as homepage)
-  useEffect(() => {
-    const interval = setInterval(() => {
-      loadStats();
-    }, 30000); // 30 seconds
-
-    return () => clearInterval(interval);
-  }, []);
-
   async function loadStats() {
     setLoading(true);
     try {
@@ -327,6 +318,9 @@ export default function StatsPage() {
                         const rollingData = rolling?.[rollingKey];
                         const pnlUsd = rollingData?.realizedPnlUsd ?? wallet.recentPnl30dUsd ?? 0;
                         const pnlPercent = rollingData?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
+                        // Convert USD to SOL (approximate: 1 SOL ≈ 150 USD)
+                        const SOL_PRICE_APPROX = 150;
+                        const pnlSol = pnlUsd !== 0 ? pnlUsd / SOL_PRICE_APPROX : 0;
                         
                         return (
                           <Link
@@ -341,9 +335,16 @@ export default function StatsPage() {
                             <div className={`text-right font-bold ${
                               pnlUsd >= 0 ? 'text-green-600' : 'text-red-600'
                             }`}>
-                              <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                                ${formatNumber(Math.abs(pnlUsd), 2)}
-                              </span>
+                              <div>
+                                <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                                  ${formatNumber(Math.abs(pnlUsd), 2)}
+                                </span>
+                                {Math.abs(pnlSol) > 0.0001 && (
+                                  <div className="text-sm text-muted-foreground mt-1">
+                                    {formatNumber(Math.abs(pnlSol), 4)} SOL
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </Link>
                         );
