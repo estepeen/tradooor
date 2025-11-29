@@ -1488,10 +1488,23 @@ router.get('/:id/portfolio', async (req, res) => {
           return false;
         }
         // Musí mít firstBuyTimestamp a lastSellTimestamp (pro výpočet HOLD time)
+        // Pokud chybí v trades, zkusíme je doplnit z ClosedLot
+        if (!p.firstBuyTimestamp && closedLotsForToken.length > 0) {
+          // Najdi nejstarší entryTime
+          const firstEntryTime = closedLotsForToken
+            .map((lot: any) => new Date(lot.entryTime))
+            .sort((a: Date, b: Date) => a.getTime() - b.getTime())[0];
+          if (firstEntryTime) {
+            p.firstBuyTimestamp = firstEntryTime;
+            console.log(`   🔧 Patched firstBuyTimestamp from ClosedLot: ${firstEntryTime.toISOString()}`);
+          }
+        }
+        
         if (!p.firstBuyTimestamp) {
-          console.log(`   ⏭️  Skipping closed position: missing firstBuyTimestamp`);
+          console.log(`   ⏭️  Skipping closed position: missing firstBuyTimestamp (and not found in ClosedLots)`);
           return false;
         }
+
         if (!p.lastSellTimestamp) {
           // Pokud nemá lastSellTimestamp, použij poslední exitTime z ClosedLot
           const lastExitTime = closedLotsForToken
@@ -1499,11 +1512,19 @@ router.get('/:id/portfolio', async (req, res) => {
             .sort((a: Date, b: Date) => b.getTime() - a.getTime())[0];
           if (lastExitTime) {
             p.lastSellTimestamp = lastExitTime;
+            console.log(`   🔧 Patched lastSellTimestamp from ClosedLot: ${lastExitTime.toISOString()}`);
           } else {
             console.log(`   ⏭️  Skipping closed position: missing lastSellTimestamp and no exitTime in ClosedLot`);
             return false;
           }
         }
+        
+        // Recalculate holdTimeMinutes if we patched timestamps
+        if (p.firstBuyTimestamp && p.lastSellTimestamp) {
+          const holdTimeMs = p.lastSellTimestamp.getTime() - p.firstBuyTimestamp.getTime();
+          p.holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
+        }
+
         // Musí mít platný holdTimeMinutes (bylo vypočítáno výše) - povolujeme i 0 (stejný timestamp)
         if (p.holdTimeMinutes === null || p.holdTimeMinutes < 0) {
           console.log(`   ⏭️  Skipping closed position: invalid holdTimeMinutes (${p.holdTimeMinutes})`);
@@ -1564,6 +1585,11 @@ router.get('/:id/portfolio', async (req, res) => {
       console.log(`   📊 [Portfolio] Wallet ${wallet.id}: Found ${recentClosedPositions30d.length} closed positions in last 30 days`);
       console.log(`   ✅ [Portfolio] Wallet ${wallet.id}: totalPnl30d=${totalPnl30d.toFixed(2)}, totalCost30d=${totalCost30d.toFixed(2)}, pnlPercent30d=${pnlPercent30d.toFixed(2)}%`);
     }
+    
+    // Calculate 30d PnL from closed positions (same logic as detail page)
+    // This ensures consistency between homepage and detail page
+    const pnl30dFromPortfolio = recentClosedPositions30d.reduce((sum: number, p: any) => sum + (p.realizedPnlBase ?? 0), 0);
+    const pnl30dPercentFromPortfolio = recentClosedPositions30d.length > 0 ? pnlPercent30d : 0;
     
     // Debug: Log all positions with balance <= 0 to see why they're not in closed positions
     const allClosedCandidates = portfolio.filter(p => {

@@ -121,6 +121,7 @@ export class MetricsCalculatorService {
         avgHoldingTimeMin: 0,
         maxDrawdownPercent: 0,
         recentPnl30dPercent: 0,
+        recentPnl30dUsd: 0, // Reset SOL PnL
       });
       return;
     }
@@ -413,38 +414,6 @@ export class MetricsCalculatorService {
     return maxDrawdown * 100; // Convert to percentage
   }
 
-  private calculateRecentPnl30d(positions: Position[]): { percent: number; usd: number } {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    const recentPositions = positions.filter(
-      p => p.sellTimestamp && p.sellTimestamp >= thirtyDaysAgo
-    );
-
-    if (recentPositions.length === 0) {
-      return { percent: 0, usd: 0 };
-    }
-
-    // Vypočti celkový ROI správně (celková investice vs celkový výnos), ne sčítání procent
-    const totalBuyValue = recentPositions.reduce((sum, p) => {
-      return sum + Number(p.buyPrice) * Number(p.buyAmount);
-    }, 0);
-
-    const totalSellValue = recentPositions.reduce((sum, p) => {
-      return sum + Number(p.sellPrice!) * Number(p.sellAmount!);
-    }, 0);
-
-    // ROI v procentech
-    if (totalBuyValue <= 0) {
-      return { percent: 0, usd: 0 };
-    }
-    
-    const totalPnl = totalSellValue - totalBuyValue;
-    const pnlPercent = (totalPnl / totalBuyValue) * 100;
-
-    return { percent: pnlPercent, usd: totalPnl };
-  }
-
   /**
    * Sanitizuje objekt pro uložení do databáze - odstraní undefined, převede NaN na null
    */
@@ -548,10 +517,6 @@ export class MetricsCalculatorService {
     return { rolling, behaviour, scores };
   }
 
-  // ODSTRANĚNO: Metoda buildRollingWindowStatsFromTrades byla odstraněna
-  // PnL se nyní počítá POUZE z ClosedLot přes buildRollingWindowStats
-
-
   private async fetchTradeFeaturesSafe(walletId: string, fromDate: Date) {
     try {
       return await this.tradeFeatureRepo.findForWallet(walletId, { fromDate });
@@ -563,9 +528,6 @@ export class MetricsCalculatorService {
       return [];
     }
   }
-
-  // ODSTRANĚNO: Metoda buildRollingWindowStatsFromTrades byla odstraněna
-  // PnL se nyní počítá POUZE z ClosedLot přes buildRollingWindowStats
 
   // Keep old method for backward compatibility (used by closed lots)
   private async buildRollingWindowStats(lots: ClosedLotRecord[]): Promise<RollingWindowStats> {
@@ -970,4 +932,3 @@ export class MetricsCalculatorService {
     };
   }
 }
-
