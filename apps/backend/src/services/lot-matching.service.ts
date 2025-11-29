@@ -142,10 +142,10 @@ export class LotMatchingService {
         continue;
       }
 
-      // DŮLEŽITÉ: ADD se chová jako BUY (přidá do open lots)
-      // REM se chová jako SELL (uzavře část lotu pomocí FIFO)
+      // DŮLEŽITÉ: Closed position = BUY (počátek) + SELL (konec, balance = 0)
+      // ADD a REM jsou jen mezistupně - REM neuzavírá pozici, pouze SELL
       if (side === 'buy' || side === 'add') {
-        // BUY/ADD: Add new lot
+        // BUY/ADD: Add new lot (oba přidávají do open lots)
         openLots.push({
           remainingSize: amount,
           entryPrice: price,
@@ -154,8 +154,9 @@ export class LotMatchingService {
           isSynthetic: false,
           costKnown: true,
         });
-      } else if (side === 'sell' || side === 'remove') {
-        // SELL/REM: Match against open lots using FIFO
+      } else if (side === 'sell') {
+        // SELL: Match against open lots using FIFO a vytvoř closed lot
+        // SELL je finální prodej, který uzavírá pozici (balance = 0)
         let toSell = amount;
 
         while (toSell > 0 && openLots.length > 0) {
@@ -173,7 +174,7 @@ export class LotMatchingService {
             (timestamp.getTime() - lot.entryTime.getTime()) / (1000 * 60)
           );
 
-          // Create closed lot (pro SELL i REM)
+          // Create closed lot (POUZE pro SELL - finální prodej)
           closedLots.push({
             walletId,
             tokenId,
@@ -202,15 +203,37 @@ export class LotMatchingService {
           toSell -= consumed;
         }
 
-        // If we still have tokens to sell but no open lots, this is a SELL/REM without BUY (pre-history)
+        // If we still have tokens to sell but no open lots, this is a SELL without BUY (pre-history)
         // DŮLEŽITÉ: NEPŘIDÁVÁME synthetic lots do closedLots, protože:
         // 1. Neznáme cost basis (PnL = 0, nemá smysl zobrazovat)
         // 2. Nevíme, kdy byl skutečný buy (hold time je nepřesný)
-        // 3. Closed positions by měly obsahovat jen kompletní trades (BUY/ADD + SELL/REM)
-        // Pokud chceme trackovat sell bez buy, měl by se použít jiný mechanismus
+        // 3. Closed positions by měly obsahovat jen kompletní trades (BUY/ADD + SELL)
         if (toSell > 0) {
-          console.log(`   ⚠️  ${side.toUpperCase()} without matching BUY/ADD for token ${tokenId}: ${toSell} tokens sold at ${price} - skipping (pre-history, no cost basis)`);
+          console.log(`   ⚠️  SELL without matching BUY/ADD for token ${tokenId}: ${toSell} tokens sold at ${price} - skipping (pre-history, no cost basis)`);
           // Nepřidáváme do closedLots - není to kompletní trade
+        }
+      } else if (side === 'remove') {
+        // REM: Match against open lots using FIFO, ale NEVYTVÁŘÍ closed lot
+        // REM jen snižuje balance, ale neuzavírá pozici (není to finální prodej)
+        // REM se počítá do totalProceedsBase, ale ne do closed lots
+        let toRemove = amount;
+
+        while (toRemove > 0 && openLots.length > 0) {
+          const lot = openLots[0]; // FIFO: take first lot
+          const consumed = Math.min(toRemove, lot.remainingSize);
+
+          // Update lot (snížíme balance, ale NEVYTVÁŘÍME closed lot)
+          lot.remainingSize -= consumed;
+          if (lot.remainingSize <= 0.00000001) { // Small epsilon for floating point
+            openLots.shift(); // Remove fully consumed lot
+          }
+
+          toRemove -= consumed;
+        }
+
+        // If we still have tokens to remove but no open lots, this is a REM without BUY (pre-history)
+        if (toRemove > 0) {
+          console.log(`   ⚠️  REM without matching BUY/ADD for token ${tokenId}: ${toRemove} tokens removed at ${price} - skipping (pre-history, no cost basis)`);
         }
       }
     }
