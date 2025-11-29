@@ -793,9 +793,9 @@ export default function WalletDetailPage() {
                                 )}
                               </td>
                               <td className={`px-4 py-3 text-right text-sm font-mono ${
-                                closedPnlBase >= 0 ? 'text-green-400' : 'text-red-400'
+                                (closedPnlBase ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'
                               }`}>
-                                {closedPnlBase !== 0 ? (
+                                {closedPnlBase !== null && closedPnlBase !== undefined ? (
                                   <>
                                     {formatNumber(Math.abs(closedPnlBase), 2)} SOL ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent((closedPnlPercent || 0) / 100)})
                                   </>

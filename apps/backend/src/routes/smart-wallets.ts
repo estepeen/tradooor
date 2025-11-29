@@ -1338,27 +1338,24 @@ router.get('/:id/portfolio', async (req, res) => {
           if (closedLotsForToken.length > 0) {
             const totalRealizedPnl = closedLotsForToken.reduce((sum: number, lot: any) => {
               // Použij realizedPnl z ClosedLot (v SOL/base měně)
-              if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
-                return sum + Number(lot.realizedPnl);
+              const pnl = lot.realizedPnl !== null && lot.realizedPnl !== undefined ? Number(lot.realizedPnl) : 0;
+              if (wallet.id && Math.abs(pnl) > 0.0001) {
+                console.log(`   💰 [Portfolio] ClosedLot: tokenId=${lot.tokenId}, realizedPnl=${pnl.toFixed(4)} SOL, costBasis=${lot.costBasis?.toFixed(4) || 'N/A'}, proceeds=${lot.proceeds?.toFixed(4) || 'N/A'}`);
               }
-              return sum;
+              return sum + pnl;
             }, 0);
             
             // Použij fixní realizedPnl z ClosedLot (v SOL, nemění se s cenou SOL)
-            // Pokud totalRealizedPnl = 0, realizedPnlBase zůstane null (žádný fallback!)
-            if (totalRealizedPnl !== 0) {
-              realizedPnlBase = totalRealizedPnl; // PnL v SOL
-              realizedPnlPercent = position.totalCostBase > 0
-                ? (realizedPnlBase / position.totalCostBase) * 100
-                : null;
-              
-              if (wallet.id) {
-                console.log(`   💰 [Portfolio] Position: tokenId=${position.tokenId}, using FIXED realizedPnl=${realizedPnlBase.toFixed(4)} SOL from ${closedLotsForToken.length} ClosedLot(s)`);
-              }
-            } else {
-              // ClosedLot existují, ale realizedPnl = 0 → PnL = 0 (žádný fallback!)
-              realizedPnlBase = 0;
-              realizedPnlPercent = 0;
+            // Nastavíme realizedPnlBase i když je 0 (aby se zobrazilo, že PnL = 0, ne prázdné)
+            realizedPnlBase = totalRealizedPnl; // PnL v SOL (může být i 0)
+            realizedPnlPercent = position.totalCostBase > 0
+              ? (realizedPnlBase / position.totalCostBase) * 100
+              : (closedLotsForToken.length > 0 && closedLotsForToken[0].costBasis > 0)
+                ? (realizedPnlBase / closedLotsForToken[0].costBasis) * 100
+                : 0;
+            
+            if (wallet.id) {
+              console.log(`   💰 [Portfolio] Position: tokenId=${position.tokenId}, using FIXED realizedPnl=${realizedPnlBase.toFixed(4)} SOL from ${closedLotsForToken.length} ClosedLot(s), realizedPnlPercent=${realizedPnlPercent.toFixed(2)}%`);
             }
           } else {
             // Neexistují ClosedLot → PnL = 0 (žádný fallback!)
@@ -1476,14 +1473,23 @@ router.get('/:id/portfolio', async (req, res) => {
             
             const token = tokenDataMap.get(tokenId);
             const totalRealizedPnl = lotsForToken.reduce((sum: number, lot: any) => {
-              if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
-                return sum + Number(lot.realizedPnl);
+              // Použij realizedPnl z ClosedLot (v SOL/base měně)
+              const pnl = lot.realizedPnl !== null && lot.realizedPnl !== undefined ? Number(lot.realizedPnl) : 0;
+              if (wallet.id && Math.abs(pnl) > 0.0001) {
+                console.log(`   💰 [ClosedLot] tokenId=${lot.tokenId}, realizedPnl=${pnl.toFixed(4)} SOL, costBasis=${lot.costBasis?.toFixed(4) || 'N/A'}, proceeds=${lot.proceeds?.toFixed(4) || 'N/A'}`);
               }
-              return sum;
+              return sum + pnl;
             }, 0);
             
             const totalCostBase = lotsForToken.reduce((sum: number, lot: any) => sum + (lot.costBasis || 0), 0);
-            const realizedPnlPercent = totalCostBase > 0 ? (totalRealizedPnl / totalCostBase) * 100 : 0;
+            const totalProceedsBase = lotsForToken.reduce((sum: number, lot: any) => sum + (lot.proceeds || 0), 0);
+            // Pokud totalCostBase je 0, zkus použít totalProceedsBase - totalRealizedPnl jako cost
+            const effectiveCostBase = totalCostBase > 0 ? totalCostBase : (totalProceedsBase - totalRealizedPnl);
+            const realizedPnlPercent = effectiveCostBase > 0 ? (totalRealizedPnl / effectiveCostBase) * 100 : 0;
+            
+            if (wallet.id && lotsForToken.length > 0) {
+              console.log(`   💰 [ClosedLot Summary] tokenId=${tokenId}, lots=${lotsForToken.length}, totalRealizedPnl=${totalRealizedPnl.toFixed(4)} SOL, totalCostBase=${totalCostBase.toFixed(4)}, totalProceedsBase=${totalProceedsBase.toFixed(4)}, realizedPnlPercent=${realizedPnlPercent.toFixed(2)}%`);
+            }
             
             const entryTime = new Date(firstLot.entryTime);
             const exitTime = new Date(lastLot.exitTime);
