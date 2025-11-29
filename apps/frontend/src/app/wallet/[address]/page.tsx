@@ -647,8 +647,13 @@ export default function WalletDetailPage() {
                           const value = position.currentValue || (balance * (position.averageBuyPrice || 0));
                           // Use livePnl from API (if exists), otherwise fallback to pnl
                           const pnl = position.livePnl !== undefined ? position.livePnl : (position.pnl || 0);
-                          const pnlBase = position.livePnlBase !== undefined ? position.livePnlBase : 0; // PnL v SOL
+                          const pnlBase = position.livePnlBase !== undefined && position.livePnlBase !== null ? position.livePnlBase : 0; // PnL v SOL
                           const pnlPercent = position.livePnlPercent !== undefined ? position.livePnlPercent : (position.pnlPercent || 0);
+                          
+                          // Debug: log if pnlBase exists
+                          if (pnlBase !== 0 && Math.abs(pnlBase) > 0.0001) {
+                            console.log(`[Open Position] ${position.token?.symbol || position.tokenId}: pnlBase=${pnlBase}, pnl=${pnl}`);
+                          }
 
                           return (
                             <tr key={position.tokenId} className="border-t border-border hover:bg-muted/50">
@@ -682,7 +687,7 @@ export default function WalletDetailPage() {
                                 {pnl !== 0 ? (
                                   <>
                                     ${formatNumber(Math.abs(pnl), 2)} ({pnlPercent >= 0 ? '+' : ''}{formatPercent(pnlPercent / 100)})
-                                    {pnlBase !== 0 && (
+                                    {(pnlBase !== 0 && pnlBase !== null && pnlBase !== undefined && Math.abs(pnlBase) > 0.00001) && (
                                       <span className="text-muted-foreground ml-2">
                                         / {formatNumber(Math.abs(pnlBase), 4)} SOL
                                       </span>
@@ -763,9 +768,16 @@ export default function WalletDetailPage() {
                         return items.map((position: any) => {
                           const token = position.token;
                           const closedPnl = position.realizedPnlUsd ?? position.closedPnl ?? 0;
-                          const closedPnlBase = position.realizedPnlBase ?? position.closedPnlBase ?? 0; // PnL v SOL
+                          const closedPnlBase = (position.realizedPnlBase !== undefined && position.realizedPnlBase !== null) 
+                            ? position.realizedPnlBase 
+                            : ((position.closedPnlBase !== undefined && position.closedPnlBase !== null) ? position.closedPnlBase : 0); // PnL v SOL
                           const closedPnlPercent = position.realizedPnlPercent ?? position.closedPnlPercent ?? 0;
                           const holdTimeMinutes = position.holdTimeMinutes ?? null;
+                          
+                          // Debug: log if closedPnlBase exists
+                          if (closedPnlBase !== 0 && Math.abs(closedPnlBase) > 0.0001) {
+                            console.log(`[Closed Position] ${token?.symbol || position.tokenId}: closedPnlBase=${closedPnlBase}, closedPnl=${closedPnl}`);
+                          }
                           const sellDate = position.lastSellTimestamp
                             ? formatDate(new Date(position.lastSellTimestamp))
                             : '-';
@@ -799,7 +811,7 @@ export default function WalletDetailPage() {
                                 {closedPnl !== 0 ? (
                                   <>
                                     ${formatNumber(Math.abs(closedPnl), 2)} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent((closedPnlPercent || 0) / 100)})
-                                    {closedPnlBase !== 0 && (
+                                    {(closedPnlBase !== 0 && closedPnlBase !== null && closedPnlBase !== undefined && Math.abs(closedPnlBase) > 0.00001) && (
                                       <span className="text-muted-foreground ml-2">
                                         / {formatNumber(Math.abs(closedPnlBase), 4)} SOL
                                       </span>
