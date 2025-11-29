@@ -226,7 +226,7 @@ export class MetricsCalculatorService {
       avgHoldingTimeMin,
       maxDrawdownPercent,
       recentPnl30dPercent,
-      recentPnl30dUsd,
+      recentPnl30dUsd: recentPnl30dBase, // Mapujeme recentPnl30dBase (SOL) na recentPnl30dUsd (DB sloupec - pro zpětnou kompatibilitu)
       advancedStats,
     };
   }

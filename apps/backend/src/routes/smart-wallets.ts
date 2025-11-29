@@ -1565,11 +1565,6 @@ router.get('/:id/portfolio', async (req, res) => {
       console.log(`   ✅ [Portfolio] Wallet ${wallet.id}: totalPnl30d=${totalPnl30d.toFixed(2)}, totalCost30d=${totalCost30d.toFixed(2)}, pnlPercent30d=${pnlPercent30d.toFixed(2)}%`);
     }
     
-    // Calculate 30d PnL from closed positions (same logic as detail page)
-    // This ensures consistency between homepage and detail page
-    const pnl30dFromPortfolio = recentClosedPositions30d.reduce((sum: number, p: any) => sum + (p.realizedPnlBase ?? 0), 0);
-    const pnl30dPercentFromPortfolio = recentClosedPositions30d.length > 0 ? pnlPercent30d : 0;
-    
     // Debug: Log all positions with balance <= 0 to see why they're not in closed positions
     const allClosedCandidates = portfolio.filter(p => {
       const normalizedBalance = p.balance < 0 && Math.abs(p.balance) < 0.0001 ? 0 : p.balance;
