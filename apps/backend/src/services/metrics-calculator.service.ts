@@ -4,6 +4,7 @@ import { MetricsHistoryRepository } from '../repositories/metrics-history.reposi
 import { ClosedLotRepository, ClosedLotRecord } from '../repositories/closed-lot.repository.js';
 import { TradeFeatureRepository, TradeFeatureRecord } from '../repositories/trade-feature.repository.js';
 import { BinancePriceService } from './binance-price.service.js';
+import { PortfolioPnlService } from './portfolio-pnl.service.js';
 import { supabase, TABLES } from '../lib/supabase.js';
 
 interface Position {
@@ -92,6 +93,7 @@ const stdDeviation = (values: number[]): number => {
 
 export class MetricsCalculatorService {
   private binancePriceService: BinancePriceService;
+  private portfolioPnlService: PortfolioPnlService;
 
   constructor(
     private smartWalletRepo: SmartWalletRepository,
@@ -101,6 +103,7 @@ export class MetricsCalculatorService {
     private tradeFeatureRepo: TradeFeatureRepository = new TradeFeatureRepository()
   ) {
     this.binancePriceService = new BinancePriceService();
+    this.portfolioPnlService = new PortfolioPnlService(this.closedLotRepo);
   }
 
   /**
@@ -138,13 +141,16 @@ export class MetricsCalculatorService {
     const maxDrawdownPercent = this.calculateMaxDrawdown(positions);
 
     const legacyAdvancedStats = await this.calculateAdvancedStats(walletId);
-    const rollingInsights = await this.computeRollingStatsAndScores(walletId);
     
-    // Use rolling stats for recentPnl30d (from closed lots, same as detail page)
-    // This ensures consistency between homepage and detail page
+    // DŮLEŽITÉ: Použij portfolio endpoint logiku pro recentPnl30d (stejná hodnota jako v detailu tradera)
+    // Toto zajišťuje, že homepage/stats zobrazují stejné PnL jako detail tradera
+    const portfolioPnl30d = await this.portfolioPnlService.calculate30dPnlFromClosedPositions(walletId);
+    const recentPnl30dUsd = portfolioPnl30d.realizedPnlUsd;
+    const recentPnl30dPercent = portfolioPnl30d.realizedPnlPercent;
+    
+    // Compute rolling stats for other periods (7d, 90d) and scores
+    const rollingInsights = await this.computeRollingStatsAndScores(walletId);
     const rolling30d = rollingInsights.rolling['30d'];
-    const recentPnl30dUsd = rolling30d?.realizedPnlUsd ?? 0;
-    const recentPnl30dPercent = rolling30d?.realizedRoiPercent ?? 0;
 
     const legacyScore = this.calculateScore({
       totalTrades,
@@ -528,7 +534,29 @@ export class MetricsCalculatorService {
     }
 
     const rolling = {} as Record<RollingWindowLabel, RollingWindowStats>;
+    
+    // DŮLEŽITÉ: Pro 30d použij portfolio endpoint logiku (stejná hodnota jako v detailu tradera)
+    const portfolioPnl30d = await this.portfolioPnlService.calculate30dPnlFromClosedPositions(walletId);
+    rolling['30d'] = {
+      realizedPnlUsd: portfolioPnl30d.realizedPnlUsd,
+      realizedRoiPercent: portfolioPnl30d.realizedPnlPercent,
+      winRate: 0, // TODO: Calculate if needed
+      medianTradeRoiPercent: 0, // TODO: Calculate if needed
+      percentile5TradeRoiPercent: 0,
+      percentile95TradeRoiPercent: 0,
+      maxDrawdownPercent: 0,
+      volatilityPercent: 0,
+      medianHoldMinutesWinners: 0,
+      medianHoldMinutesLosers: 0,
+      numClosedTrades: portfolioPnl30d.numClosedPositions,
+      totalVolumeUsd: 0, // TODO: Calculate if needed
+      avgTradeSizeUsd: 0,
+    };
+    
+    // Pro ostatní periody (7d, 90d) použij stávající logiku
     for (const [label, days] of Object.entries(WINDOW_CONFIG) as Array<[RollingWindowLabel, number]>) {
+      if (label === '30d') continue; // Already calculated above
+      
       const cutoff = new Date(now);
       cutoff.setDate(cutoff.getDate() - days);
       
