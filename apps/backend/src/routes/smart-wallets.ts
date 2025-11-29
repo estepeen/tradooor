@@ -1424,7 +1424,9 @@ router.get('/:id/portfolio', async (req, res) => {
         return bValue - aValue;
       });
 
-    // Closed positions: balance <= 0 A musí mít alespoň jeden SELL trade (ne REM!)
+    // Closed positions: balance <= 0 A musí mít ClosedLot data (jednotný princip)
+    // DŮLEŽITÉ: Closed positions jsou založené na ClosedLot datech, ne na sellCount
+    // Pokud existují ClosedLot pro token, zobrazíme pozici jako closed (i když má jen REM trades)
     const closedPositions = portfolio
       .filter(p => {
         // Treat small negative balance (rounding errors) as 0 for closed positions
@@ -1435,20 +1437,38 @@ router.get('/:id/portfolio', async (req, res) => {
           console.log(`   ⏭️  Skipping closed position: balance > 0 (${p.balance}, normalized: ${normalizedBalance})`);
           return false;
         }
-        // Musí mít alespoň jeden BUY trade (známe první nákup)
+        // Musí mít alespoň jeden BUY/ADD trade (známe první nákup)
         if (p.buyCount === 0) {
-          console.log(`   ⏭️  Skipping closed position: no BUY trades`);
+          console.log(`   ⏭️  Skipping closed position: no BUY/ADD trades`);
           return false;
         }
-        // DŮLEŽITÉ: Musí mít alespoň jeden SELL trade (ne REM!) - SELL uzavírá pozici
-        if (p.sellCount === 0) {
-          console.log(`   ⏭️  Skipping closed position: no SELL trades (only REM trades don't close position)`);
+        // DŮLEŽITÉ: Musí mít ClosedLot data (jednotný princip - PnL se počítá POUZE z ClosedLot)
+        const closedLotsForToken = (closedLots || []).filter((lot: any) => 
+          lot.tokenId === p.tokenId && 
+          lot.exitTime && 
+          new Date(lot.exitTime) <= new Date()
+        );
+        if (closedLotsForToken.length === 0) {
+          console.log(`   ⏭️  Skipping closed position: no ClosedLot data for token ${p.tokenId}`);
           return false;
         }
         // Musí mít firstBuyTimestamp a lastSellTimestamp (pro výpočet HOLD time)
-        if (!p.firstBuyTimestamp || !p.lastSellTimestamp) {
-          console.log(`   ⏭️  Skipping closed position: missing timestamps (firstBuy: ${p.firstBuyTimestamp}, lastSell: ${p.lastSellTimestamp})`);
+        // Pokud nemá lastSellTimestamp, použij poslední exitTime z ClosedLot
+        if (!p.firstBuyTimestamp) {
+          console.log(`   ⏭️  Skipping closed position: missing firstBuyTimestamp`);
           return false;
+        }
+        // Pokud nemá lastSellTimestamp, použij poslední exitTime z ClosedLot
+        if (!p.lastSellTimestamp) {
+          const lastExitTime = closedLotsForToken
+            .map((lot: any) => new Date(lot.exitTime))
+            .sort((a: Date, b: Date) => b.getTime() - a.getTime())[0];
+          if (lastExitTime) {
+            p.lastSellTimestamp = lastExitTime;
+          } else {
+            console.log(`   ⏭️  Skipping closed position: missing lastSellTimestamp and no exitTime in ClosedLot`);
+            return false;
+          }
         }
         // Musí mít platný holdTimeMinutes (bylo vypočítáno výše) - povolujeme i 0 (stejný timestamp)
         if (p.holdTimeMinutes === null || p.holdTimeMinutes < 0) {
@@ -1460,7 +1480,7 @@ router.get('/:id/portfolio', async (req, res) => {
           console.log(`   ⏭️  Skipping closed position: no PnL data`);
           return false;
         }
-        console.log(`   ✅ Closed position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, holdTime=${p.holdTimeMinutes}min, closedPnl=${p.closedPnl}`);
+        console.log(`   ✅ Closed position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, holdTime=${p.holdTimeMinutes}min, closedPnl=${p.closedPnl}, closedLots=${closedLotsForToken.length}`);
         return true;
       })
       .map(p => ({
