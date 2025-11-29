@@ -333,7 +333,7 @@ export default function StatsPage() {
                               pnlBase >= 0 ? 'text-green-600' : 'text-red-600'
                             }`}>
                               <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                                {formatNumber(Math.abs(pnlBase), 4)} SOL
+                                {formatNumber(Math.abs(pnlBase), 2)} SOL
                               </span>
                             </div>
                           </Link>
@@ -399,7 +399,7 @@ export default function StatsPage() {
                           {(() => {
                             const rolling30d = (wallet.advancedStats as any)?.rolling?.['30d'];
                             const pnlBase = rolling30d?.realizedPnl ?? wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0; // PnL v SOL
-                            return `${formatNumber(pnlBase, 4)} SOL`;
+                            return `${formatNumber(pnlBase, 2)} SOL`;
                           })()}
                         </div>
                       </Link>

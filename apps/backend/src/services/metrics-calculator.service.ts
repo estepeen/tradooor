@@ -523,12 +523,21 @@ export class MetricsCalculatorService {
       cutoff.setDate(cutoff.getDate() - days);
       
       // Filtruj closed lots podle exitTime (kdy byl lot uzavřen)
+      // DŮLEŽITÉ: exitTime v ClosedLot = timestamp z SELL trade = lastSellTimestamp v portfolio
+      // Měly by být stejné, ale pro jistotu filtrujeme stejně jako portfolio endpoint
       const filteredLots = closedLots.filter(lot => {
+        if (!lot.exitTime) return false;
         const exitTime = new Date(lot.exitTime);
         return exitTime >= cutoff && exitTime <= now;
       });
       
-      // Použij buildRollingWindowStats - čistě jen sčítá realizedPnlUsd z ClosedLot
+      // DEBUG: Log filtered lots count for 30d period
+      if (label === '30d' && filteredLots.length > 0) {
+        const totalPnl = filteredLots.reduce((sum, lot) => sum + (lot.realizedPnl || 0), 0);
+        console.log(`   📊 [Rolling Stats] Wallet ${walletId}: Found ${filteredLots.length} closed lots in last 30d, totalPnl=${totalPnl.toFixed(2)} SOL`);
+      }
+      
+      // Použij buildRollingWindowStats - čistě jen sčítá realizedPnl z ClosedLot (v SOL)
       // Pokud neexistují ClosedLot, PnL = 0 (žádný fallback!)
       rolling[label] = await this.buildRollingWindowStats(filteredLots);
     }
