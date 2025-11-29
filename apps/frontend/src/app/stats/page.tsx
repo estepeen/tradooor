@@ -13,6 +13,15 @@ export default function StatsPage() {
     loadStats();
   }, []);
 
+  // Auto-refresh every 30 seconds (same as homepage)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      loadStats();
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, []);
+
   async function loadStats() {
     setLoading(true);
     try {

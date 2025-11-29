@@ -4,7 +4,6 @@ import { MetricsHistoryRepository } from '../repositories/metrics-history.reposi
 import { ClosedLotRepository, ClosedLotRecord } from '../repositories/closed-lot.repository.js';
 import { TradeFeatureRepository, TradeFeatureRecord } from '../repositories/trade-feature.repository.js';
 import { BinancePriceService } from './binance-price.service.js';
-import { PortfolioPnlService } from './portfolio-pnl.service.js';
 import { supabase, TABLES } from '../lib/supabase.js';
 
 interface Position {
@@ -93,7 +92,6 @@ const stdDeviation = (values: number[]): number => {
 
 export class MetricsCalculatorService {
   private binancePriceService: BinancePriceService;
-  private portfolioPnlService: PortfolioPnlService;
 
   constructor(
     private smartWalletRepo: SmartWalletRepository,
@@ -103,7 +101,6 @@ export class MetricsCalculatorService {
     private tradeFeatureRepo: TradeFeatureRepository = new TradeFeatureRepository()
   ) {
     this.binancePriceService = new BinancePriceService();
-    this.portfolioPnlService = new PortfolioPnlService(this.closedLotRepo);
   }
 
   /**
@@ -141,16 +138,13 @@ export class MetricsCalculatorService {
     const maxDrawdownPercent = this.calculateMaxDrawdown(positions);
 
     const legacyAdvancedStats = await this.calculateAdvancedStats(walletId);
-    
-    // DŮLEŽITÉ: Použij portfolio endpoint logiku pro recentPnl30d (stejná hodnota jako v detailu tradera)
-    // Toto zajišťuje, že homepage/stats zobrazují stejné PnL jako detail tradera
-    const portfolioPnl30d = await this.portfolioPnlService.calculate30dPnlFromClosedPositions(walletId);
-    const recentPnl30dUsd = portfolioPnl30d.realizedPnlUsd;
-    const recentPnl30dPercent = portfolioPnl30d.realizedPnlPercent;
-    
-    // Compute rolling stats for other periods (7d, 90d) and scores
     const rollingInsights = await this.computeRollingStatsAndScores(walletId);
+    
+    // Use rolling stats for recentPnl30d (from closed lots, same as detail page)
+    // This ensures consistency between homepage and detail page
     const rolling30d = rollingInsights.rolling['30d'];
+    const recentPnl30dUsd = rolling30d?.realizedPnlUsd ?? 0;
+    const recentPnl30dPercent = rolling30d?.realizedRoiPercent ?? 0;
 
     const legacyScore = this.calculateScore({
       totalTrades,
@@ -514,58 +508,27 @@ export class MetricsCalculatorService {
     const earliest = new Date(now);
     earliest.setDate(earliest.getDate() - MAX_WINDOW_DAYS);
 
-    // DŮLEŽITÉ: Použij ÚPLNĚ STEJNOU logiku jako portfolio endpoint
-    // 1. Vytvoř closed positions z trades (balance <= 0 && sellCount > 0)
-    // 2. Filtruj podle lastSellTimestamp (kdy byla pozice uzavřena)
-    // 3. Pro každou pozici sčítá realizedPnlUsd ze všech ClosedLot pro daný token
-    const [closedLots, tradeFeatures, allTrades] = await Promise.all([
+    // DŮLEŽITÉ: Použij ČISTOU logiku - pouze sčítání PnL z ClosedLot v databázi
+    // Stejně jako v detailu tradera - pouze sčítání/odčítání PnL z jednotlivých closed trades
+    // Filtrujeme podle exitTime (kdy byl lot uzavřen) - stejně jako portfolio endpoint filtruje podle lastSellTimestamp
+    const [closedLots, tradeFeatures] = await Promise.all([
       this.closedLotRepo.findByWallet(walletId, { fromDate: earliest }),
       this.fetchTradeFeaturesSafe(walletId, earliest),
-      this.tradeRepo.findByWalletId(walletId, { fromDate: earliest, page: 1, pageSize: 100000 }),
     ]);
 
-    // Group closed lots by tokenId for quick lookup
-    const closedLotsByToken = new Map<string, ClosedLotRecord[]>();
-    for (const lot of closedLots) {
-      if (!closedLotsByToken.has(lot.tokenId)) {
-        closedLotsByToken.set(lot.tokenId, []);
-      }
-      closedLotsByToken.get(lot.tokenId)!.push(lot);
-    }
-
     const rolling = {} as Record<RollingWindowLabel, RollingWindowStats>;
-    
-    // DŮLEŽITÉ: Pro 30d použij portfolio endpoint logiku (stejná hodnota jako v detailu tradera)
-    const portfolioPnl30d = await this.portfolioPnlService.calculate30dPnlFromClosedPositions(walletId);
-    rolling['30d'] = {
-      realizedPnlUsd: portfolioPnl30d.realizedPnlUsd,
-      realizedRoiPercent: portfolioPnl30d.realizedPnlPercent,
-      winRate: 0, // TODO: Calculate if needed
-      medianTradeRoiPercent: 0, // TODO: Calculate if needed
-      percentile5TradeRoiPercent: 0,
-      percentile95TradeRoiPercent: 0,
-      maxDrawdownPercent: 0,
-      volatilityPercent: 0,
-      medianHoldMinutesWinners: 0,
-      medianHoldMinutesLosers: 0,
-      numClosedTrades: portfolioPnl30d.numClosedPositions,
-      totalVolumeUsd: 0, // TODO: Calculate if needed
-      avgTradeSizeUsd: 0,
-    };
-    
-    // Pro ostatní periody (7d, 90d) použij stávající logiku
     for (const [label, days] of Object.entries(WINDOW_CONFIG) as Array<[RollingWindowLabel, number]>) {
-      if (label === '30d') continue; // Already calculated above
-      
       const cutoff = new Date(now);
       cutoff.setDate(cutoff.getDate() - days);
       
-      // POUŽIJ ÚPLNĚ STEJNOU LOGIKU JAKO PORTFOLIO ENDPOINT
-      rolling[label] = await this.buildRollingWindowStatsFromPortfolioLogic(
-        allTrades.trades || [],
-        closedLotsByToken,
-        cutoff
-      );
+      // Filtruj closed lots podle exitTime (kdy byl lot uzavřen) - STEJNÁ LOGIKA jako portfolio endpoint filtruje podle lastSellTimestamp
+      const filteredLots = closedLots.filter(lot => {
+        const exitTime = new Date(lot.exitTime);
+        return exitTime >= cutoff && exitTime <= now;
+      });
+      
+      // Použij buildRollingWindowStats - čistě jen sčítá realizedPnlUsd z ClosedLot
+      rolling[label] = await this.buildRollingWindowStats(filteredLots);
     }
 
     const behaviour = this.buildBehaviourStats(tradeFeatures);
@@ -574,208 +537,6 @@ export class MetricsCalculatorService {
     return { rolling, behaviour, scores };
   }
 
-  // ÚPLNĚ STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT - vytvoří pozice, filtruje podle lastSellTimestamp, sčítá realizedPnlUsd z ClosedLot
-  private async buildRollingWindowStatsFromPortfolioLogic(
-    trades: any[],
-    closedLotsByToken: Map<string, ClosedLotRecord[]>,
-    cutoff: Date
-  ): Promise<RollingWindowStats> {
-    if (trades.length === 0) {
-      return {
-        realizedPnlUsd: 0,
-        realizedRoiPercent: 0,
-        winRate: 0,
-        medianTradeRoiPercent: 0,
-        percentile5TradeRoiPercent: 0,
-        percentile95TradeRoiPercent: 0,
-        maxDrawdownPercent: 0,
-        volatilityPercent: 0,
-        medianHoldMinutesWinners: 0,
-        medianHoldMinutesLosers: 0,
-        numClosedTrades: 0,
-        totalVolumeUsd: 0,
-        avgTradeSizeUsd: 0,
-      };
-    }
-
-    // Build positions from trades (STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT)
-    const positionMap = new Map<string, { 
-      tokenId: string;
-      totalBought: number;
-      totalSold: number;
-      balance: number;
-      totalCostBase: number; 
-      totalProceedsBase: number; 
-      buyCount: number;
-      sellCount: number;
-      removeCount: number;
-      firstBuyTimestamp: Date | null;
-      lastSellTimestamp: Date | null;
-      baseToken: string;
-    }>();
-    
-    for (const trade of trades) {
-      const tokenId = trade.tokenId;
-      const amount = Number(trade.amountToken || 0);
-      const amountBase = Number(trade.amountBase || 0);
-      const baseToken = (trade.meta as any)?.baseToken || 'SOL';
-      const tradeTimestamp = new Date(trade.timestamp);
-      
-      if (!positionMap.has(tokenId)) {
-        positionMap.set(tokenId, { 
-          tokenId,
-          totalBought: 0,
-          totalSold: 0,
-          balance: 0,
-          totalCostBase: 0, 
-          totalProceedsBase: 0, 
-          buyCount: 0,
-          sellCount: 0,
-          removeCount: 0,
-          firstBuyTimestamp: null,
-          lastSellTimestamp: null,
-          baseToken
-        });
-      }
-      
-      const position = positionMap.get(tokenId)!;
-      
-      // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT
-      if (trade.side === 'buy' || trade.side === 'add') {
-        position.totalBought += amount;
-        position.balance += amount;
-        position.totalCostBase += amountBase;
-        position.buyCount++;
-        if (!position.firstBuyTimestamp || tradeTimestamp < position.firstBuyTimestamp) {
-          position.firstBuyTimestamp = tradeTimestamp;
-        }
-      } else if (trade.side === 'sell' || trade.side === 'remove') {
-        position.totalSold += amount;
-        position.balance -= amount;
-        position.totalProceedsBase += amountBase;
-        if (trade.side === 'sell') {
-          position.sellCount++;
-          if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
-            position.lastSellTimestamp = tradeTimestamp;
-          }
-        } else {
-          position.removeCount++;
-        }
-      }
-    }
-
-    // Filter closed positions (STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT)
-    const closedPositions = Array.from(positionMap.values())
-      .filter(p => {
-        const normalizedBalance = p.balance < 0 && Math.abs(p.balance) < 0.0001 ? 0 : p.balance;
-        return normalizedBalance <= 0 && p.buyCount > 0 && p.sellCount > 0 && 
-               p.firstBuyTimestamp && p.lastSellTimestamp;
-      });
-
-    // Filter by lastSellTimestamp (STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT)
-    const recentClosedPositions = closedPositions.filter(p => {
-      if (!p.lastSellTimestamp) return false;
-      return p.lastSellTimestamp >= cutoff && p.lastSellTimestamp <= new Date();
-    });
-
-    // Calculate PnL from ClosedLot (STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT)
-    let totalRealizedPnlUsd = 0;
-    const positionPnls: Array<{ pnlUsd: number; roiPercent: number; holdTimeMinutes: number }> = [];
-
-    for (const position of recentClosedPositions) {
-      // Calculate hold time
-      const holdTimeMs = position.lastSellTimestamp!.getTime() - position.firstBuyTimestamp!.getTime();
-      const holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
-      if (holdTimeMinutes < 0) continue;
-
-      // Get all ClosedLot for this token (STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT)
-      const closedLotsForToken = (closedLotsByToken.get(position.tokenId) || []).filter((lot: any) => 
-        lot.exitTime && 
-        new Date(lot.exitTime) <= new Date()
-      );
-      
-      // Sum realizedPnlUsd from all lots (STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT)
-      const totalRealizedPnlUsdForToken = closedLotsForToken.reduce((sum: number, lot: any) => {
-        if (lot.realizedPnlUsd !== null && lot.realizedPnlUsd !== undefined) {
-          return sum + Number(lot.realizedPnlUsd);
-        }
-        return sum;
-      }, 0);
-
-      if (totalRealizedPnlUsdForToken !== 0) {
-        totalRealizedPnlUsd += totalRealizedPnlUsdForToken;
-        
-        // Calculate ROI percent
-        const costBase = position.totalCostBase;
-        let costUsd = 0;
-        if (position.baseToken === 'SOL') {
-          // For ROI calculation, we'd need historical SOL price, but for consistency
-          // we'll use a simplified approach - portfolio endpoint does this too
-          costUsd = costBase * 150; // Approximate - portfolio endpoint uses current price
-        } else if (position.baseToken === 'USDC' || position.baseToken === 'USDT') {
-          costUsd = costBase;
-        } else {
-          costUsd = costBase * 150;
-        }
-        
-        const roiPercent = costUsd > 0 ? (totalRealizedPnlUsdForToken / costUsd) * 100 : 0;
-        positionPnls.push({ pnlUsd: totalRealizedPnlUsdForToken, roiPercent, holdTimeMinutes });
-      }
-    }
-
-    const wins = positionPnls.filter(p => p.pnlUsd > 0).length;
-    const roiValues = positionPnls.map(p => p.roiPercent);
-    const winnersHold = positionPnls.filter(p => p.pnlUsd > 0).map(p => p.holdTimeMinutes);
-    const losersHold = positionPnls.filter(p => p.pnlUsd <= 0).map(p => p.holdTimeMinutes);
-
-    const totalCostUsd = positionPnls.reduce((sum, p) => {
-      if (p.roiPercent !== 0) {
-        return sum + Math.abs(p.pnlUsd / (p.roiPercent / 100));
-      }
-      return sum;
-    }, 0);
-
-    const realizedRoiPercent = totalCostUsd > 0 ? (totalRealizedPnlUsd / totalCostUsd) * 100 : 0;
-
-    return {
-      realizedPnlUsd: totalRealizedPnlUsd,
-      realizedRoiPercent,
-      winRate: positionPnls.length ? wins / positionPnls.length : 0,
-      medianTradeRoiPercent: median(roiValues),
-      percentile5TradeRoiPercent: percentile(roiValues, 0.05),
-      percentile95TradeRoiPercent: percentile(roiValues, 0.95),
-      maxDrawdownPercent: this.calculateDrawdownPercentFromPositions(positionPnls),
-      volatilityPercent: 0, // TODO: Calculate if needed
-      medianHoldMinutesWinners: median(winnersHold),
-      medianHoldMinutesLosers: median(losersHold),
-      numClosedTrades: positionPnls.length,
-      totalVolumeUsd: totalCostUsd + totalRealizedPnlUsd,
-      avgTradeSizeUsd: positionPnls.length > 0 ? totalCostUsd / positionPnls.length : 0,
-    };
-  }
-
-  private calculateDrawdownPercentFromPositions(positions: Array<{ pnlUsd: number; roiPercent: number }>): number {
-    if (!positions.length) return 0;
-    
-    const sorted = [...positions].sort((a, b) => 
-      (a.pnlUsd / Math.abs(b.roiPercent)) - (b.pnlUsd / Math.abs(a.roiPercent))
-    );
-    
-    let cumulative = 0;
-    let peak = 0;
-    let maxDrawdown = 0;
-
-    for (const pos of sorted) {
-      cumulative += pos.roiPercent;
-      peak = Math.max(peak, cumulative);
-      const drawdown = peak - cumulative;
-      if (drawdown > maxDrawdown) {
-        maxDrawdown = drawdown;
-      }
-    }
-
-    return maxDrawdown;
-  }
 
   private async fetchTradeFeaturesSafe(walletId: string, fromDate: Date) {
     try {
