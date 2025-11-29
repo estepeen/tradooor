@@ -1862,14 +1862,28 @@ router.delete('/:id/positions/:tokenId', async (req, res) => {
     const closedLots = await lotMatchingService.processTradesForWallet(walletId);
     await lotMatchingService.saveClosedLots(closedLots);
 
-    // 7. Recalculate metrics
-    console.log(`   🔄 Recalculating metrics...`);
+    // 7. Recalculate metrics (this updates totalTrades, PnL, score, etc.)
+    console.log(`   🔄 Recalculating metrics (totalTrades, PnL, score, etc.)...`);
     await metricsCalculator.calculateMetricsForWallet(walletId);
+
+    // 8. Fetch updated wallet data to ensure metrics are saved
+    const updatedWallet = await smartWalletRepo.findById(walletId);
+    if (!updatedWallet) {
+      throw new Error('Failed to fetch updated wallet data');
+    }
+
+    console.log(`   ✅ Metrics updated: totalTrades=${updatedWallet.totalTrades}, recentPnl30dUsd=${updatedWallet.recentPnl30dUsd}`);
 
     res.json({
       success: true,
       deletedTrades,
       deletedClosedLots: deletedClosedLots || 0,
+      updatedMetrics: {
+        totalTrades: updatedWallet.totalTrades,
+        recentPnl30dUsd: updatedWallet.recentPnl30dUsd,
+        recentPnl30dPercent: updatedWallet.recentPnl30dPercent,
+        score: updatedWallet.score,
+      },
       message: sequenceNumber !== undefined
         ? `Closed position (cycle ${sequenceNumber}) deleted successfully`
         : 'Open position deleted successfully',

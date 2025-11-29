@@ -344,9 +344,10 @@ export default function WalletDetailPage() {
     
     setDeletingPosition(positionKey);
     try {
-      await deletePosition(wallet.id, tokenId, sequenceNumber);
-      // Reload data after deletion
+      const result = await deletePosition(wallet.id, tokenId, sequenceNumber);
+      // Reload all data after deletion to update totalTrades, PnL, etc.
       await loadData();
+      console.log('Position deleted, metrics updated:', result.updatedMetrics);
     } catch (error: any) {
       alert(`Failed to delete position: ${error.message || 'Unknown error'}`);
     } finally {
