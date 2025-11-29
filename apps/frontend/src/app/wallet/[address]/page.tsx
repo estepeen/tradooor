@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio } from '@/lib/api';
+import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio, deletePosition } from '@/lib/api';
 import { formatAddress, formatPercent, formatNumber, formatDate, formatDateTimeCZ, formatHoldTime } from '@/lib/utils';
 import { computePositionMetricsFromPercent } from '@/lib/positions';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -185,6 +185,7 @@ export default function WalletDetailPage() {
   const [showAllClosedPositions, setShowAllClosedPositions] = useState(false);
   const [tokenFilter, setTokenFilter] = useState<string>('');
   const [timeframeFilter, setTimeframeFilter] = useState<string>('all');
+  const [deletingPosition, setDeletingPosition] = useState<string | null>(null);
   const [pnlTimeframe, setPnlTimeframe] = useState<'7d' | '30d' | '90d' | '1y'>('30d');
   const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic');
   const [portfolioLastUpdated, setPortfolioLastUpdated] = useState<Date | null>(null);
@@ -326,6 +327,30 @@ export default function WalletDetailPage() {
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDeletePosition(tokenId: string, sequenceNumber?: number) {
+    if (!wallet?.id) return;
+    
+    const positionKey = sequenceNumber !== undefined 
+      ? `${tokenId}-${sequenceNumber}` 
+      : tokenId;
+    
+    // Show confirmation dialog
+    if (!confirm(`Are you sure you want to delete this position? This will permanently delete all related trades from the database.`)) {
+      return;
+    }
+    
+    setDeletingPosition(positionKey);
+    try {
+      await deletePosition(wallet.id, tokenId, sequenceNumber);
+      // Reload data after deletion
+      await loadData();
+    } catch (error: any) {
+      alert(`Failed to delete position: ${error.message || 'Unknown error'}`);
+    } finally {
+      setDeletingPosition(null);
     }
   }
 
@@ -625,6 +650,7 @@ export default function WalletDetailPage() {
                         <th className="px-4 py-3 text-right text-sm font-medium">BALANCE</th>
                         <th className="px-4 py-3 text-right text-sm font-medium">VALUE</th>
                         <th className="px-4 py-3 text-right text-sm font-medium">Live PnL</th>
+                        <th className="px-4 py-3 text-center text-sm font-medium">ACTIONS</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -690,6 +716,25 @@ export default function WalletDetailPage() {
                                   </>
                                 ) : '-'}
                               </td>
+                              <td className="px-4 py-3 text-center">
+                                <button
+                                  onClick={() => handleDeletePosition(position.tokenId)}
+                                  disabled={deletingPosition === position.tokenId}
+                                  className="text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="Delete position"
+                                >
+                                  {deletingPosition === position.tokenId ? (
+                                    <svg className="h-3 w-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                                    </svg>
+                                  ) : (
+                                    <svg className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  )}
+                                </button>
+                              </td>
                             </tr>
                           );
                         });
@@ -731,6 +776,7 @@ export default function WalletDetailPage() {
                         <th className="px-4 py-3 text-left text-sm font-medium">TOKEN</th>
                         <th className="px-4 py-3 text-right text-sm font-medium">PnL</th>
                         <th className="px-4 py-3 text-right text-sm font-medium">HOLD TIME</th>
+                        <th className="px-4 py-3 text-center text-sm font-medium">ACTIONS</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -752,7 +798,7 @@ export default function WalletDetailPage() {
                         if (closedPositions.length === 0) {
                           return (
                             <tr className="border-t border-border">
-                              <td colSpan={4} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                              <td colSpan={5} className="px-4 py-6 text-center text-sm text-muted-foreground">
                                 No closed positions
                               </td>
                             </tr>
@@ -817,6 +863,25 @@ export default function WalletDetailPage() {
                               </td>
                               <td className="px-4 py-3 text-right text-sm font-mono">
                                 {holdTimeMinutes !== null ? formatHoldTime(holdTimeMinutes) : '-'}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                <button
+                                  onClick={() => handleDeletePosition(position.tokenId, sequenceNumber ?? undefined)}
+                                  disabled={deletingPosition === positionKey}
+                                  className="text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title="Delete position"
+                                >
+                                  {deletingPosition === positionKey ? (
+                                    <svg className="h-3 w-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                                    </svg>
+                                  ) : (
+                                    <svg className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                    </svg>
+                                  )}
+                                </button>
                               </td>
                             </tr>
                           );

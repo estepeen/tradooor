@@ -156,3 +156,17 @@ export async function fetchRecentTrades(params?: {
   return res.json();
 }
 
+export async function deletePosition(walletId: string, tokenId: string, sequenceNumber?: number) {
+  const url = `${API_BASE_URL}/smart-wallets/${walletId}/positions/${tokenId}${sequenceNumber !== undefined ? `?sequenceNumber=${sequenceNumber}` : ''}`;
+  const res = await fetch(url, {
+    method: 'DELETE',
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Failed to delete position' }));
+    throw new Error(error.error || error.message || 'Failed to delete position');
+  }
+  return res.json();
+}
+

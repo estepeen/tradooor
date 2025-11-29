@@ -240,4 +240,48 @@ export class TradeRepository {
 
     return result;
   }
+
+  async deleteById(tradeId: string): Promise<void> {
+    const { error } = await supabase
+      .from(TABLES.TRADE)
+      .delete()
+      .eq('id', tradeId);
+
+    if (error) {
+      throw new Error(`Failed to delete trade: ${error.message}`);
+    }
+  }
+
+  async deleteByWalletAndToken(walletId: string, tokenId: string): Promise<number> {
+    const { data, error } = await supabase
+      .from(TABLES.TRADE)
+      .delete()
+      .eq('walletId', walletId)
+      .eq('tokenId', tokenId)
+      .select('id');
+
+    if (error) {
+      throw new Error(`Failed to delete trades: ${error.message}`);
+    }
+
+    return data?.length || 0;
+  }
+
+  async deleteByIds(tradeIds: string[]): Promise<number> {
+    if (tradeIds.length === 0) {
+      return 0;
+    }
+
+    const { data, error } = await supabase
+      .from(TABLES.TRADE)
+      .delete()
+      .in('id', tradeIds)
+      .select('id');
+
+    if (error) {
+      throw new Error(`Failed to delete trades: ${error.message}`);
+    }
+
+    return data?.length || 0;
+  }
 }

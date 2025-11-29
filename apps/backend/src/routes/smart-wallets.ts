@@ -1759,5 +1759,129 @@ router.get('/:id/pnl', async (req, res) => {
   }
 });
 
+// DELETE /api/smart-wallets/:id/positions/:tokenId - Delete a position (open or closed)
+// Query params: sequenceNumber (optional) - if provided, deletes specific closed position cycle
+router.delete('/:id/positions/:tokenId', async (req, res) => {
+  try {
+    const walletId = req.params.id;
+    const tokenId = req.params.tokenId;
+    const sequenceNumber = req.query.sequenceNumber ? parseInt(req.query.sequenceNumber as string) : undefined;
+
+    // Find wallet
+    const wallet = await smartWalletRepo.findById(walletId);
+    if (!wallet) {
+      return res.status(404).json({ error: 'Wallet not found' });
+    }
+
+    const { ClosedLotRepository } = await import('../repositories/closed-lot.repository.js');
+    const closedLotRepo = new ClosedLotRepository();
+    const { LotMatchingService } = await import('../services/lot-matching.service.js');
+    const { TradeFeatureRepository } = await import('../repositories/trade-feature.repository.js');
+    const lotMatchingService = new LotMatchingService(new TradeFeatureRepository());
+
+    let deletedTrades = 0;
+    let deletedClosedLots = 0;
+
+    if (sequenceNumber !== undefined && sequenceNumber !== null) {
+      // DELETE CLOSED POSITION (specific cycle)
+      console.log(`🗑️  Deleting closed position: walletId=${walletId}, tokenId=${tokenId}, sequenceNumber=${sequenceNumber}`);
+
+      // 1. Find ClosedLots for this cycle
+      const closedLots = await closedLotRepo.findByWallet(walletId);
+      const lotsToDelete = closedLots.filter(
+        (lot) => lot.tokenId === tokenId && lot.sequenceNumber === sequenceNumber
+      );
+
+      if (lotsToDelete.length === 0) {
+        return res.status(404).json({ error: 'Closed position not found' });
+      }
+
+      // 2. Collect all trade IDs from these ClosedLots
+      const tradeIdsToDelete = new Set<string>();
+      for (const lot of lotsToDelete) {
+        if (lot.buyTradeId) tradeIdsToDelete.add(lot.buyTradeId);
+        if (lot.sellTradeId) tradeIdsToDelete.add(lot.sellTradeId);
+      }
+
+      // 3. Find all trades for this token and wallet in the time range of this cycle
+      // (to catch ADD/REM trades between BUY and SELL)
+      const firstEntryTime = lotsToDelete.reduce(
+        (min, lot) => (lot.entryTime < min ? lot.entryTime : min),
+        lotsToDelete[0].entryTime
+      );
+      const lastExitTime = lotsToDelete.reduce(
+        (max, lot) => (lot.exitTime > max ? lot.exitTime : max),
+        lotsToDelete[0].exitTime
+      );
+
+      const allTrades = await tradeRepo.findByWalletId(walletId, {
+        tokenId,
+        fromDate: new Date(firstEntryTime.getTime() - 60000), // 1 minute before
+        toDate: new Date(lastExitTime.getTime() + 60000), // 1 minute after
+      });
+
+      // Add trades that are between firstEntryTime and lastExitTime
+      for (const trade of allTrades.trades) {
+        const tradeTime = new Date(trade.timestamp);
+        if (tradeTime >= firstEntryTime && tradeTime <= lastExitTime) {
+          tradeIdsToDelete.add(trade.id);
+        }
+      }
+
+      // 4. Delete ClosedLots
+      deletedClosedLots = await closedLotRepo.deleteByWalletAndToken(walletId, tokenId, sequenceNumber);
+      console.log(`   ✅ Deleted ${deletedClosedLots} closed lots`);
+
+      // 5. Delete trades
+      deletedTrades = await tradeRepo.deleteByIds(Array.from(tradeIdsToDelete));
+      console.log(`   ✅ Deleted ${deletedTrades} trades`);
+    } else {
+      // DELETE OPEN POSITION
+      console.log(`🗑️  Deleting open position: walletId=${walletId}, tokenId=${tokenId}`);
+
+      // 1. Find all trades for this token and wallet
+      const allTrades = await tradeRepo.findByWalletId(walletId, { tokenId });
+
+      // 2. Filter to only open position trades (BUY, ADD, REM - but not SELL, because SELL closes position)
+      const openPositionTrades = allTrades.trades.filter(
+        (trade) => trade.side === 'buy' || trade.side === 'add' || trade.side === 'remove'
+      );
+
+      if (openPositionTrades.length === 0) {
+        return res.status(404).json({ error: 'Open position not found or already closed' });
+      }
+
+      // 3. Delete trades
+      const tradeIds = openPositionTrades.map((t) => t.id);
+      deletedTrades = await tradeRepo.deleteByIds(tradeIds);
+      console.log(`   ✅ Deleted ${deletedTrades} trades for open position`);
+    }
+
+    // 6. Recalculate closed lots (to update any remaining positions)
+    console.log(`   🔄 Recalculating closed lots...`);
+    const closedLots = await lotMatchingService.processTradesForWallet(walletId);
+    await lotMatchingService.saveClosedLots(closedLots);
+
+    // 7. Recalculate metrics
+    console.log(`   🔄 Recalculating metrics...`);
+    await metricsCalculator.calculateMetricsForWallet(walletId);
+
+    res.json({
+      success: true,
+      deletedTrades,
+      deletedClosedLots: deletedClosedLots || 0,
+      message: sequenceNumber !== undefined
+        ? `Closed position (cycle ${sequenceNumber}) deleted successfully`
+        : 'Open position deleted successfully',
+    });
+  } catch (error: any) {
+    console.error('❌ Error deleting position:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error?.message || 'Unknown error',
+    });
+  }
+});
+
 export { router as smartWalletRouter };
 

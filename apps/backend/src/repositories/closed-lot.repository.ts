@@ -77,6 +77,41 @@ export class ClosedLotRepository {
       sequenceNumber: row.sequenceNumber !== null && row.sequenceNumber !== undefined ? toNumber(row.sequenceNumber) : null,
     };
   }
+
+  async deleteByWalletAndToken(walletId: string, tokenId: string, sequenceNumber?: number): Promise<number> {
+    let query = supabase
+      .from(TABLES.CLOSED_LOT)
+      .delete()
+      .eq('walletId', walletId)
+      .eq('tokenId', tokenId)
+      .select('id');
+
+    if (sequenceNumber !== undefined && sequenceNumber !== null) {
+      query = query.eq('sequenceNumber', sequenceNumber);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      throw new Error(`Failed to delete closed lots: ${error.message}`);
+    }
+
+    return data?.length || 0;
+  }
+
+  async deleteBySellTradeId(sellTradeId: string): Promise<number> {
+    const { data, error } = await supabase
+      .from(TABLES.CLOSED_LOT)
+      .delete()
+      .eq('sellTradeId', sellTradeId)
+      .select('id');
+
+    if (error) {
+      throw new Error(`Failed to delete closed lots: ${error.message}`);
+    }
+
+    return data?.length || 0;
+  }
 }
 
 
