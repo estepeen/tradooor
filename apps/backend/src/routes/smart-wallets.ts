@@ -1439,7 +1439,7 @@ router.get('/:id/portfolio', async (req, res) => {
           console.log(`   ⏭️  Skipping open position: value too small (${value})`);
           return false;
         }
-        console.log(`   ✅ Open position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, value=${value}, buyCount=${p.buyCount}, addCount=${p.buyCount - (p.side === 'buy' ? 1 : 0)}, removeCount=${p.removeCount || 0}, sellCount=${p.sellCount} (SELL není součástí open positions)`);
+        console.log(`   ✅ Open position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, value=${value}, buyCount=${p.buyCount}, removeCount=${p.removeCount || 0}, sellCount=${p.sellCount} (SELL není součástí open positions)`);
         return true;
       })
       .sort((a, b) => {
@@ -1495,7 +1495,7 @@ router.get('/:id/portfolio', async (req, res) => {
             .map((lot: any) => new Date(lot.entryTime))
             .sort((a: Date, b: Date) => a.getTime() - b.getTime())[0];
           if (firstEntryTime) {
-            p.firstBuyTimestamp = firstEntryTime;
+            p.firstBuyTimestamp = firstEntryTime.toISOString();
             console.log(`   🔧 Patched firstBuyTimestamp from ClosedLot: ${firstEntryTime.toISOString()}`);
           }
         }
@@ -1511,7 +1511,7 @@ router.get('/:id/portfolio', async (req, res) => {
             .map((lot: any) => new Date(lot.exitTime))
             .sort((a: Date, b: Date) => b.getTime() - a.getTime())[0];
           if (lastExitTime) {
-            p.lastSellTimestamp = lastExitTime;
+            p.lastSellTimestamp = lastExitTime.toISOString();
             console.log(`   🔧 Patched lastSellTimestamp from ClosedLot: ${lastExitTime.toISOString()}`);
           } else {
             console.log(`   ⏭️  Skipping closed position: missing lastSellTimestamp and no exitTime in ClosedLot`);
@@ -1521,7 +1521,9 @@ router.get('/:id/portfolio', async (req, res) => {
         
         // Recalculate holdTimeMinutes if we patched timestamps
         if (p.firstBuyTimestamp && p.lastSellTimestamp) {
-          const holdTimeMs = p.lastSellTimestamp.getTime() - p.firstBuyTimestamp.getTime();
+          const firstBuyDate = typeof p.firstBuyTimestamp === 'string' ? new Date(p.firstBuyTimestamp) : p.firstBuyTimestamp;
+          const lastSellDate = typeof p.lastSellTimestamp === 'string' ? new Date(p.lastSellTimestamp) : p.lastSellTimestamp;
+          const holdTimeMs = lastSellDate.getTime() - firstBuyDate.getTime();
           p.holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
         }
 
@@ -1585,11 +1587,6 @@ router.get('/:id/portfolio', async (req, res) => {
       console.log(`   📊 [Portfolio] Wallet ${wallet.id}: Found ${recentClosedPositions30d.length} closed positions in last 30 days`);
       console.log(`   ✅ [Portfolio] Wallet ${wallet.id}: totalPnl30d=${totalPnl30d.toFixed(2)}, totalCost30d=${totalCost30d.toFixed(2)}, pnlPercent30d=${pnlPercent30d.toFixed(2)}%`);
     }
-    
-    // Calculate 30d PnL from closed positions (same logic as detail page)
-    // This ensures consistency between homepage and detail page
-    const pnl30dFromPortfolio = recentClosedPositions30d.reduce((sum: number, p: any) => sum + (p.realizedPnlBase ?? 0), 0);
-    const pnl30dPercentFromPortfolio = recentClosedPositions30d.length > 0 ? pnlPercent30d : 0;
     
     // Debug: Log all positions with balance <= 0 to see why they're not in closed positions
     const allClosedCandidates = portfolio.filter(p => {

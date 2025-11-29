@@ -5,6 +5,7 @@ import { TradeFeatureRepository } from '../repositories/trade-feature.repository
 import { TokenPriceService } from './token-price.service.js';
 import { BinancePriceService } from './binance-price.service.js';
 import { supabase, TABLES } from '../lib/supabase.js';
+import type { TraderCharacterizationService } from './trader-characterization.service.js';
 
 /**
  * Service pro výpočet AI/ML dat - sequence patterns, outcomes, market context
@@ -133,8 +134,8 @@ export class AiMlDataService {
       tokenId: currentTrade.tokenId,
       sequenceIndex,
       sequenceLength,
-      timeSinceLastTradeSeconds,
-      timeSinceLastTokenTradeSeconds,
+      timeSinceLastTradeSeconds: timeSinceLastTradeSeconds ?? undefined,
+      timeSinceLastTokenTradeSeconds: timeSinceLastTokenTradeSeconds ?? undefined,
       isTokenSwitch: isTokenSwitch || false,
       previousTokenId: previousTokenId || undefined,
       tokensInSequence,
@@ -214,7 +215,7 @@ export class AiMlDataService {
           realizedPnlUsd,
           realizedPnlPercent,
           positionClosedAt: new Date(closedLot.closedAt),
-          positionHoldTimeSeconds: closedLot.holdTimeMinutes ? closedLot.holdTimeMinutes * 60 : null,
+          positionHoldTimeSeconds: closedLot.holdTimeMinutes ? closedLot.holdTimeMinutes * 60 : undefined,
           positionFinalPnlUsd: realizedPnlUsd,
           positionFinalPnlPercent: realizedPnlPercent,
         };
@@ -258,9 +259,9 @@ export class AiMlDataService {
           tradeId: trade.id,
           walletId,
           tokenId: trade.tokenId,
-          tokenPriceChange1hPercent: null, // TODO: Implementovat historická data
-          tokenPriceChange24hPercent: null,
-          tokenPriceChange7dPercent: null,
+          tokenPriceChange1hPercent: undefined, // TODO: Implementovat historická data
+          tokenPriceChange24hPercent: undefined,
+          tokenPriceChange7dPercent: undefined,
           tokenOutcome,
         };
 

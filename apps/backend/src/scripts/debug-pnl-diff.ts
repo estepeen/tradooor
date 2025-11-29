@@ -7,6 +7,8 @@
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { ClosedLotRepository } from '../repositories/closed-lot.repository.js';
 import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
+import { TradeRepository } from '../repositories/trade.repository.js';
+import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
 import { supabase, TABLES } from '../lib/supabase.js';
 
 const walletAddress = process.argv[2];
@@ -21,7 +23,9 @@ async function main() {
 
   const smartWalletRepo = new SmartWalletRepository();
   const closedLotRepo = new ClosedLotRepository();
-  const metricsCalculator = new MetricsCalculatorService();
+  const tradeRepo = new TradeRepository();
+  const metricsHistoryRepo = new MetricsHistoryRepository();
+  const metricsCalculator = new MetricsCalculatorService(smartWalletRepo, tradeRepo, metricsHistoryRepo);
 
   // 1. Find wallet
   const wallet = await smartWalletRepo.findByAddress(walletAddress);
@@ -37,8 +41,8 @@ async function main() {
   console.log('📊 [HOME PAGE / STATS] Rolling stats calculation:');
   const rollingStats = await metricsCalculator['computeRollingStatsAndScores'](wallet.id);
   const rolling30d = rollingStats.rolling['30d'];
-  const homepagePnl = rolling30d?.realizedPnlUsd ?? 0;
-  console.log(`   realizedPnlUsd (30d): ${homepagePnl.toFixed(2)} USD`);
+  const homepagePnl = rolling30d?.realizedPnl ?? 0;
+  console.log(`   realizedPnl (30d): ${homepagePnl.toFixed(2)} SOL`);
   console.log(`   numClosedTrades (30d): ${rolling30d?.numClosedTrades ?? 0}`);
   console.log(`   winRate (30d): ${((rolling30d?.winRate ?? 0) * 100).toFixed(2)}%\n`);
 
@@ -47,7 +51,7 @@ async function main() {
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
   const closedLots30d = await closedLotRepo.findByWallet(wallet.id, { fromDate: thirtyDaysAgo });
   console.log(`📦 Closed lots (30d): ${closedLots30d.length}`);
-  console.log(`   Total realizedPnlUsd from lots: ${closedLots30d.reduce((sum, lot) => sum + (lot.realizedPnlUsd ?? 0), 0).toFixed(2)} USD\n`);
+  console.log(`   Total realizedPnl from lots: ${closedLots30d.reduce((sum, lot) => sum + (lot.realizedPnl ?? 0), 0).toFixed(2)} SOL\n`);
 
   // 4. Get portfolio endpoint calculation (detail page)
   console.log('📊 [DETAIL PAGE] Portfolio endpoint calculation:');
@@ -133,26 +137,26 @@ async function main() {
   let detailPnl = 0;
   for (const position of recentClosedPositions30d) {
     const closedLotsForToken = closedLots30d.filter(lot => lot.tokenId === position.tokenId);
-    const totalRealizedPnlUsd = closedLotsForToken.reduce((sum, lot) => {
-      if (lot.realizedPnlUsd !== null && lot.realizedPnlUsd !== undefined) {
-        return sum + Number(lot.realizedPnlUsd);
+    const totalRealizedPnl = closedLotsForToken.reduce((sum, lot) => {
+      if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
+        return sum + Number(lot.realizedPnl);
       }
       return sum;
     }, 0);
-    detailPnl += totalRealizedPnlUsd;
+    detailPnl += totalRealizedPnl;
     
-    console.log(`   - Token ${position.tokenId}: ${closedLotsForToken.length} lots, PnL: ${totalRealizedPnlUsd.toFixed(2)} USD`);
+    console.log(`   - Token ${position.tokenId}: ${closedLotsForToken.length} lots, PnL: ${totalRealizedPnl.toFixed(2)} SOL`);
   }
 
-  console.log(`   Total realizedPnlUsd (30d): ${detailPnl.toFixed(2)} USD\n`);
+  console.log(`   Total realizedPnl (30d): ${detailPnl.toFixed(2)} SOL\n`);
 
   // 5. Compare
   const diff = Math.abs(homepagePnl - detailPnl);
   const diffPercent = homepagePnl !== 0 ? (diff / Math.abs(homepagePnl)) * 100 : 0;
   
   console.log('🔍 COMPARISON:');
-  console.log(`   Homepage/Stats PnL: ${homepagePnl.toFixed(2)} USD`);
-  console.log(`   Detail Page PnL:    ${detailPnl.toFixed(2)} USD`);
+  console.log(`   Homepage/Stats PnL: ${homepagePnl.toFixed(2)} SOL`);
+  console.log(`   Detail Page PnL:    ${detailPnl.toFixed(2)} SOL`);
   console.log(`   Difference:         ${diff.toFixed(2)} USD (${diffPercent.toFixed(2)}%)`);
   
   if (diff > 0.01) {
@@ -163,7 +167,7 @@ async function main() {
     for (const lot of closedLots30d) {
       const exitDate = new Date(lot.exitTime);
       const isIn30d = exitDate >= thirtyDaysAgo;
-      console.log(`   - Lot ${lot.id.substring(0, 16)}...: tokenId=${lot.tokenId}, exitTime=${lot.exitTime}, realizedPnlUsd=${lot.realizedPnlUsd?.toFixed(2) ?? 'null'}, in30d=${isIn30d}`);
+      console.log(`   - Lot ${lot.id.substring(0, 16)}...: tokenId=${lot.tokenId}, exitTime=${lot.exitTime}, realizedPnl=${lot.realizedPnl?.toFixed(2) ?? 'null'}, in30d=${isIn30d}`);
     }
     
     // Debug: Show which positions are included in portfolio calculation

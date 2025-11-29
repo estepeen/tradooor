@@ -78,7 +78,7 @@ async function main() {
   console.log('📊 Checking rolling stats calculation:');
   const rollingInsights = await metricsCalculator['computeRollingStatsAndScores'](wallet.id);
   const rolling30d = rollingInsights.rolling['30d'];
-  console.log(`   rolling['30d'].realizedPnlUsd: ${rolling30d?.realizedPnlUsd?.toFixed(2) ?? 'null'}`);
+  console.log(`   rolling['30d'].realizedPnl: ${rolling30d?.realizedPnl?.toFixed(2) ?? 'null'}`);
   console.log(`   rolling['30d'].numClosedTrades: ${rolling30d?.numClosedTrades ?? 0}`);
   console.log(`   rolling['30d'].realizedRoiPercent: ${rolling30d?.realizedRoiPercent?.toFixed(2) ?? 'null'}%\n`);
 
@@ -86,16 +86,16 @@ async function main() {
   console.log('💾 Checking wallet database values:');
   console.log(`   wallet.recentPnl30dUsd: ${wallet.recentPnl30dUsd ?? 'null'}`);
   console.log(`   wallet.recentPnl30dPercent: ${wallet.recentPnl30dPercent ?? 'null'}`);
-  console.log(`   wallet.advancedStats?.rolling?.['30d']?.realizedPnlUsd: ${(wallet.advancedStats as any)?.rolling?.['30d']?.realizedPnlUsd ?? 'null'}\n`);
+  console.log(`   wallet.advancedStats?.rolling?.['30d']?.realizedPnl: ${(wallet.advancedStats as any)?.rolling?.['30d']?.realizedPnl ?? 'null'}\n`);
 
   // 5. Compare
   const dbPnl = wallet.recentPnl30dUsd ?? 0;
-  const rollingPnl = rolling30d?.realizedPnlUsd ?? 0;
+  const rollingPnl = rolling30d?.realizedPnl ?? 0;
   const diff = Math.abs(dbPnl - rollingPnl);
   
   console.log('🔍 COMPARISON:');
-  console.log(`   Database recentPnl30dUsd: ${dbPnl.toFixed(2)} USD`);
-  console.log(`   Calculated rolling['30d'].realizedPnlUsd: ${rollingPnl.toFixed(2)} USD`);
+  console.log(`   Database recentPnl30dUsd: ${dbPnl.toFixed(2)} SOL`);
+  console.log(`   Calculated rolling['30d'].realizedPnl: ${rollingPnl.toFixed(2)} SOL`);
   console.log(`   Difference: ${diff.toFixed(2)} USD`);
   
   if (diff > 0.01) {

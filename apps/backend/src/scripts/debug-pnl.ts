@@ -122,13 +122,17 @@ async function main() {
     const result = await metricsCalculator.calculateMetricsForWallet(wallet.id);
     
     console.log(`\n✅ After recalculation:`);
-    console.log(`   recentPnl30dUsd: ${result.recentPnl30dUsd}`);
-    console.log(`   recentPnl30dPercent: ${result.recentPnl30dPercent}`);
-    
-    if (result.advancedStats?.rolling?.['30d']) {
-      const rolling30d = result.advancedStats.rolling['30d'];
-      console.log(`   advancedStats.rolling['30d'].realizedPnlUsd: ${rolling30d.realizedPnlUsd}`);
-      console.log(`   advancedStats.rolling['30d'].realizedRoiPercent: ${rolling30d.realizedRoiPercent}`);
+    if (result) {
+      console.log(`   recentPnl30dUsd: ${result.recentPnl30dUsd}`);
+      console.log(`   recentPnl30dPercent: ${result.recentPnl30dPercent}`);
+      
+      if (result.advancedStats?.rolling?.['30d']) {
+        const rolling30d = result.advancedStats.rolling['30d'];
+        console.log(`   advancedStats.rolling['30d'].realizedPnl: ${rolling30d.realizedPnl}`);
+        console.log(`   advancedStats.rolling['30d'].realizedRoiPercent: ${rolling30d.realizedRoiPercent}`);
+      }
+    } else {
+      console.log(`   No result returned`);
     }
     console.log(`\n`);
 
