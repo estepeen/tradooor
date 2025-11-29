@@ -1263,6 +1263,7 @@ router.get('/:id/portfolio', async (req, res) => {
         
         let totalCostUsd = 0;
         let livePnl = 0;
+        let livePnlBase = 0; // Live PnL v base měně (SOL/USDC/USDT)
         let livePnlPercent = 0;
         
         // Převod nákladů pro aktuální balance z base měny na USD
@@ -1276,10 +1277,22 @@ router.get('/:id/portfolio', async (req, res) => {
           totalCostUsd = position.balance * averageCostUsd;
         }
         
-        // Vypočítej Live PnL
+        // Vypočítej Live PnL v USD
         if (currentValue > 0 && totalCostUsd > 0) {
           livePnl = currentValue - totalCostUsd;
           livePnlPercent = totalCostUsd > 0 ? (livePnl / totalCostUsd) * 100 : 0;
+        }
+        
+        // Vypočítej Live PnL v base měně (SOL) - převedeme z USD pomocí aktuální ceny SOL
+        if (livePnl !== 0 && currentSolPrice && currentSolPrice > 0) {
+          livePnlBase = livePnl / currentSolPrice;
+        } else if (costForCurrentBalance > 0 && currentPrice) {
+          // Alternativní výpočet: currentValue v base měně - costForCurrentBalance
+          // currentValue je v USD, převedeme na SOL a porovnáme s costForCurrentBalance
+          const currentValueBase = currentSolPrice && currentSolPrice > 0 
+            ? currentValue / currentSolPrice 
+            : 0;
+          livePnlBase = currentValueBase - costForCurrentBalance;
         }
         
         // Pro kompatibilitu zachováme staré výpočty
@@ -1368,6 +1381,7 @@ router.get('/:id/portfolio', async (req, res) => {
             currentValue, // Current value in USD
             totalCost: totalCostUsd, // Total cost v USD (z trades)
             livePnl, // Live PnL (unrealized) v USD
+            livePnlBase, // Live PnL (unrealized) v base měně (SOL/USDC/USDT)
             livePnlPercent, // Live PnL v %
             // Pro kompatibilitu zachováme staré názvy
             pnl: livePnl || pnl, // Profit/Loss in USD (for open positions)
@@ -1390,23 +1404,33 @@ router.get('/:id/portfolio', async (req, res) => {
       .filter((p): p is NonNullable<typeof p> => p !== null);
 
     // LOGIKA: Open/Closed positions z recent trades
-    // Open positions = BUY+ADD tradicional, které ještě nejsou uzavřené SELL tradeem
-    //   - balance > 0 NEBO (balance <= 0 ale nemá žádný SELL trade, jen REM)
-    // Closed positions = BUY tradicional, které jsou uzavřené SELL tradeem (balance <= 0 A má alespoň jeden SELL)
+    // 
+    // OPEN POSITIONS:
+    // - BUY (první nákup, balance z 0 na >0)
+    // - ADD (další nákupy, když balance > 0)
+    // - REM (částečný prodej, ale balance zůstává > 0)
+    // - SELL NENÍ součástí open positions (uzavírá pozici, balance = 0)
+    // Open position = balance > 0 NEBO (balance <= 0 ale nemá žádný SELL trade, jen REM)
+    //
+    // CLOSED POSITIONS:
+    // - BUY (počáteční nákup) + SELL (finální prodej, balance = 0)
+    // - ADD a REM jsou jen mezistupně
+    // Closed position = balance <= 0 A má alespoň jeden SELL trade
     
-    // Open positions: balance > 0 NEBO (balance <= 0 ale nemá žádný SELL trade)
+    // Open positions: BUY + ADD + REM (bez SELL)
     const openPositions = portfolio
       .filter(p => {
-        // Musí mít alespoň jeden BUY nebo ADD trade
+        // Musí mít alespoň jeden BUY nebo ADD trade (počáteční nákup nebo další nákup)
         if (p.buyCount === 0) {
           console.log(`   ⏭️  Skipping open position: no BUY/ADD trades`);
           return false;
         }
         
+        // DŮLEŽITÉ: SELL není součástí open positions (uzavírá pozici)
         // Open position = balance > 0 NEBO (balance <= 0 ale nemá žádný SELL trade, jen REM)
         const hasSellTrade = p.sellCount > 0;
         if (p.balance <= 0 && hasSellTrade) {
-          // balance <= 0 A má SELL trade → closed position
+          // balance <= 0 A má SELL trade → closed position (SELL uzavírá pozici)
           console.log(`   ⏭️  Skipping open position: balance <= 0 (${p.balance}) and has SELL trade (closed position)`);
           return false;
         }
@@ -1418,7 +1442,7 @@ router.get('/:id/portfolio', async (req, res) => {
           console.log(`   ⏭️  Skipping open position: value too small (${value})`);
           return false;
         }
-        console.log(`   ✅ Open position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, value=${value}, sellCount=${p.sellCount}, removeCount=${p.removeCount || 0}`);
+        console.log(`   ✅ Open position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, value=${value}, buyCount=${p.buyCount}, addCount=${p.buyCount - (p.side === 'buy' ? 1 : 0)}, removeCount=${p.removeCount || 0}, sellCount=${p.sellCount} (SELL není součástí open positions)`);
         return true;
       })
       .sort((a, b) => {

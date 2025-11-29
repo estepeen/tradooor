@@ -647,6 +647,7 @@ export default function WalletDetailPage() {
                           const value = position.currentValue || (balance * (position.averageBuyPrice || 0));
                           // Use livePnl from API (if exists), otherwise fallback to pnl
                           const pnl = position.livePnl !== undefined ? position.livePnl : (position.pnl || 0);
+                          const pnlBase = position.livePnlBase !== undefined ? position.livePnlBase : 0; // PnL v SOL
                           const pnlPercent = position.livePnlPercent !== undefined ? position.livePnlPercent : (position.pnlPercent || 0);
 
                           return (
@@ -681,6 +682,11 @@ export default function WalletDetailPage() {
                                 {pnl !== 0 ? (
                                   <>
                                     ${formatNumber(Math.abs(pnl), 2)} ({pnlPercent >= 0 ? '+' : ''}{formatPercent(pnlPercent / 100)})
+                                    {pnlBase !== 0 && (
+                                      <span className="text-muted-foreground ml-2">
+                                        / {formatNumber(Math.abs(pnlBase), 4)} SOL
+                                      </span>
+                                    )}
                                   </>
                                 ) : '-'}
                               </td>
@@ -756,8 +762,9 @@ export default function WalletDetailPage() {
                         const items = closedPositions.slice(0, showAllClosedPositions ? closedPositions.length : 10);
                         return items.map((position: any) => {
                           const token = position.token;
-                          const closedPnl = position.closedPnl ?? 0;
-                          const closedPnlPercent = position.closedPnlPercent ?? 0;
+                          const closedPnl = position.realizedPnlUsd ?? position.closedPnl ?? 0;
+                          const closedPnlBase = position.realizedPnlBase ?? position.closedPnlBase ?? 0; // PnL v SOL
+                          const closedPnlPercent = position.realizedPnlPercent ?? position.closedPnlPercent ?? 0;
                           const holdTimeMinutes = position.holdTimeMinutes ?? null;
                           const sellDate = position.lastSellTimestamp
                             ? formatDate(new Date(position.lastSellTimestamp))
@@ -792,6 +799,11 @@ export default function WalletDetailPage() {
                                 {closedPnl !== 0 ? (
                                   <>
                                     ${formatNumber(Math.abs(closedPnl), 2)} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent((closedPnlPercent || 0) / 100)})
+                                    {closedPnlBase !== 0 && (
+                                      <span className="text-muted-foreground ml-2">
+                                        / {formatNumber(Math.abs(closedPnlBase), 4)} SOL
+                                      </span>
+                                    )}
                                   </>
                                 ) : '-'}
                               </td>
