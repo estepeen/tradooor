@@ -508,37 +508,28 @@ export class MetricsCalculatorService {
     const earliest = new Date(now);
     earliest.setDate(earliest.getDate() - MAX_WINDOW_DAYS);
 
-    // DŮLEŽITÉ: Použij ÚPLNĚ STEJNOU logiku jako portfolio endpoint
-    // Vždy vytvoř closed positions z trades (stejně jako portfolio endpoint)
-    // Pokud existují ClosedLot, použij je pro optimalizaci (sčítání realizedPnlUsd)
-    // Pokud neexistují ClosedLot, počítaj z trades (totalProceedsBase - totalCostBase)
-    const [closedLots, tradeFeatures, allTrades] = await Promise.all([
+    // DŮLEŽITÉ: PnL se počítá POUZE z ClosedLot (jednotný princip)
+    // ClosedLot se vytváří v worker queue a metrics cron před výpočtem metrik
+    // Pokud ClosedLot neexistují, PnL = 0 (žádný fallback!)
+    const [closedLots, tradeFeatures] = await Promise.all([
       this.closedLotRepo.findByWallet(walletId, { fromDate: earliest }),
       this.fetchTradeFeaturesSafe(walletId, earliest),
-      this.tradeRepo.findByWalletId(walletId, { fromDate: earliest, page: 1, pageSize: 100000 }),
     ]);
-
-    // Group closed lots by tokenId for quick lookup (optimalizace)
-    const closedLotsByToken = new Map<string, ClosedLotRecord[]>();
-    for (const lot of closedLots) {
-      if (!closedLotsByToken.has(lot.tokenId)) {
-        closedLotsByToken.set(lot.tokenId, []);
-      }
-      closedLotsByToken.get(lot.tokenId)!.push(lot);
-    }
 
     const rolling = {} as Record<RollingWindowLabel, RollingWindowStats>;
     for (const [label, days] of Object.entries(WINDOW_CONFIG) as Array<[RollingWindowLabel, number]>) {
       const cutoff = new Date(now);
       cutoff.setDate(cutoff.getDate() - days);
       
-      // VŽDY použij trades (stejně jako portfolio endpoint) - vytvoř closed positions z trades
-      // Pokud existují ClosedLot, použij je pro optimalizaci
-      rolling[label] = await this.buildRollingWindowStatsFromTrades(
-        allTrades.trades || [],
-        closedLotsByToken,
-        cutoff
-      );
+      // Filtruj closed lots podle exitTime (kdy byl lot uzavřen)
+      const filteredLots = closedLots.filter(lot => {
+        const exitTime = new Date(lot.exitTime);
+        return exitTime >= cutoff && exitTime <= now;
+      });
+      
+      // Použij buildRollingWindowStats - čistě jen sčítá realizedPnlUsd z ClosedLot
+      // Pokud neexistují ClosedLot, PnL = 0 (žádný fallback!)
+      rolling[label] = await this.buildRollingWindowStats(filteredLots);
     }
 
     const behaviour = this.buildBehaviourStats(tradeFeatures);
@@ -547,13 +538,13 @@ export class MetricsCalculatorService {
     return { rolling, behaviour, scores };
   }
 
-  // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT - vytvoří closed positions z trades a počítá PnL
-  // Pokud existují ClosedLot, použij je (optimalizace), jinak počítaj z trades
-  private async buildRollingWindowStatsFromTrades(
-    trades: any[],
-    closedLotsByToken: Map<string, ClosedLotRecord[]>,
-    cutoff: Date
-  ): Promise<RollingWindowStats> {
+  // ODSTRANĚNO: Tato metoda už se nepoužívá - PnL se počítá POUZE z ClosedLot
+  // Ponecháno pro referenci, ale může být smazáno v budoucnu
+  // private async buildRollingWindowStatsFromTrades(
+  //   trades: any[],
+  //   closedLotsByToken: Map<string, ClosedLotRecord[]>,
+  //   cutoff: Date
+  // ): Promise<RollingWindowStats> {
     if (trades.length === 0) {
       return {
         realizedPnlUsd: 0,
@@ -984,15 +975,16 @@ export class MetricsCalculatorService {
       console.warn(`⚠️  Failed to fetch SOL price, using fallback: ${solPriceUsd}`);
     }
 
-    // DŮLEŽITÉ: Použij realizedPnlUsd z ClosedLot (fixní hodnota z doby uzavření)
+    // DŮLEŽITÉ: PnL se počítá POUZE z ClosedLot.realizedPnlUsd (fixní hodnota z doby uzavření)
     // Nechceme přepočítávat s aktuální cenou SOL - PnL by mělo být neměnné
+    // Pokud realizedPnlUsd neexistuje, PnL = 0 (žádný fallback!)
     const realizedPnlUsd = lots.reduce((sum, lot) => {
       // Použij realizedPnlUsd z ClosedLot pokud existuje (fixní hodnota)
       if (lot.realizedPnlUsd !== null && lot.realizedPnlUsd !== undefined) {
         return sum + lot.realizedPnlUsd;
       }
-      // Fallback: přepočítat s aktuální cenou SOL (jen pokud nemáme realizedPnlUsd)
-      return sum + lot.realizedPnl * solPriceUsd;
+      // Pokud realizedPnlUsd neexistuje, PnL = 0 (žádný fallback!)
+      return sum;
     }, 0);
     
     // Pro volume a invested capital použijeme přepočet (tyto hodnoty se mohou měnit)

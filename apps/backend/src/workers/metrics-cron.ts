@@ -5,6 +5,7 @@ import { SmartWalletRepository } from '../repositories/smart-wallet.repository.j
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
 import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
+import { LotMatchingService } from '../services/lot-matching.service.js';
 
 dotenv.config();
 
@@ -42,6 +43,7 @@ async function calculateAllMetrics() {
     tradeRepo,
     metricsHistoryRepo
   );
+  const lotMatchingService = new LotMatchingService();
 
   try {
     const { data: wallets, error } = await supabase
@@ -61,6 +63,24 @@ async function calculateAllMetrics() {
     for (const wallet of walletList) {
       try {
         console.log(`  Processing: ${wallet.address.substring(0, 8)}...`);
+        
+        // DŮLEŽITÉ: Vytvoř ClosedLot před výpočtem metrik (jednotný princip)
+        // Zajišťuje, že PnL se počítá POUZE z ClosedLot
+        const walletData = await smartWalletRepo.findById(wallet.id);
+        if (walletData) {
+          const trackingStartTime = walletData.createdAt ? new Date(walletData.createdAt) : undefined;
+          const closedLots = await lotMatchingService.processTradesForWallet(
+            wallet.id,
+            undefined, // Process all tokens
+            trackingStartTime
+          );
+          await lotMatchingService.saveClosedLots(closedLots);
+          if (closedLots.length > 0) {
+            console.log(`    ✅ Created ${closedLots.length} closed lots`);
+          }
+        }
+        
+        // Nyní přepočítej metriky (které používají POUZE ClosedLot)
         await metricsCalculator.calculateMetricsForWallet(wallet.id);
         successCount++;
       } catch (error) {
