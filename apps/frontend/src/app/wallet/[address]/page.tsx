@@ -506,14 +506,14 @@ export default function WalletDetailPage() {
             
             // Sum up PnL from closed positions (v SOL)
             const totalPnl = closedPositions.reduce((sum: number, p: any) => {
-              const pnl = p.realizedPnlBase ?? p.closedPnl ?? 0; // PnL v SOL
+              const pnl = p.realizedPnlBase ?? p.closedPnlBase ?? p.closedPnl ?? 0; // PnL v SOL
               return sum + (typeof pnl === 'number' ? pnl : 0);
             }, 0);
             
             // Calculate total cost for percentage calculation
             // Use realizedPnlBase and realizedPnlPercent to calculate totalCost for each position
             const totalCost = closedPositions.reduce((sum: number, p: any) => {
-              const pnl = p.realizedPnlBase ?? p.closedPnl ?? 0; // PnL v SOL
+              const pnl = p.realizedPnlBase ?? p.closedPnlBase ?? p.closedPnl ?? 0; // PnL v SOL
               const pnlPercent = p.realizedPnlPercent ?? p.closedPnlPercent ?? 0;
               
               // Calculate cost from PnL and PnL percent: cost = pnl / (pnlPercent / 100)
@@ -533,7 +533,7 @@ export default function WalletDetailPage() {
               console.log(`   ✅ [Frontend] Wallet ${walletAddress}: totalPnl=${totalPnl.toFixed(2)}, totalCost=${totalCost.toFixed(2)}, pnlPercent=${pnlPercent.toFixed(2)}%`);
               closedPositions.forEach((p: any, idx: number) => {
                 if (idx < 5) { // Log first 5 positions
-                  console.log(`   💰 [Frontend] Position ${idx + 1}: tokenId=${p.tokenId}, closedPnl=${p.closedPnl?.toFixed(2) || 'null'}, closedPnlPercent=${p.closedPnlPercent?.toFixed(2) || 'null'}%, lastSell=${p.lastSellTimestamp}`);
+                  console.log(`   💰 [Frontend] Position ${idx + 1}: tokenId=${p.tokenId}, realizedPnlBase=${(p.realizedPnlBase ?? p.closedPnlBase ?? p.closedPnl ?? 0).toFixed(4)} SOL, closedPnlPercent=${(p.realizedPnlPercent ?? p.closedPnlPercent ?? 0).toFixed(2)}%, lastSell=${p.lastSellTimestamp}`);
                 }
               });
             }
