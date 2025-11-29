@@ -1452,41 +1452,126 @@ router.get('/:id/portfolio', async (req, res) => {
     // DŮLEŽITÉ: Closed position = BUY jako počáteční nákup + SELL jako finální prodej (balance = 0)
     // ADD a REM jsou jen mezistupně - REM neuzavírá pozici, pouze SELL
     // Closed positions musí mít:
-    // 1. balance <= 0 (všechny tokeny prodány)
-    // 2. BUY trade (počáteční nákup)
-    // 3. SELL trade (finální prodej, uzavírá pozici)
+    // 1. balance <= 0 (všechny tokeny prodány) NEBO ClosedLot data (priorita - pokud máme ClosedLot, pozice je uzavřená)
+    // 2. BUY trade (počáteční nákup) NEBO ClosedLot data (priorita)
+    // 3. SELL trade (finální prodej, uzavírá pozici) NEBO ClosedLot data (priorita - ClosedLot znamená, že pozice byla uzavřena)
     // 4. ClosedLot data (jednotný princip - PnL se počítá POUZE z ClosedLot)
-    const closedPositions = portfolio
-      .filter(p => {
-        // Treat small negative balance (rounding errors) as 0 for closed positions
-        const normalizedBalance = p.balance < 0 && Math.abs(p.balance) < 0.0001 ? 0 : p.balance;
-        
-        // Musí mít balance <= 0 (uzavřená pozice - všechny tokeny prodány)
-        if (normalizedBalance > 0) {
-          console.log(`   ⏭️  Skipping closed position: balance > 0 (${p.balance}, normalized: ${normalizedBalance})`);
-          return false;
+    
+    // DŮLEŽITÉ: Pokud máme ClosedLot data pro token, který není v portfolio mapě (např. staré obchody),
+    // vytvoříme closed position přímo z ClosedLot dat
+    const closedPositionsFromLots: any[] = [];
+    if (closedLots) {
+      const tokensWithClosedLots = new Set(closedLots.map((lot: any) => lot.tokenId));
+      for (const tokenId of tokensWithClosedLots) {
+        // Zkontroluj, jestli už není v portfolio mapě
+        const existingInPortfolio = portfolio.find(p => p.tokenId === tokenId);
+        if (!existingInPortfolio) {
+          // Vytvoř closed position přímo z ClosedLot dat
+          const lotsForToken = closedLots.filter((lot: any) => lot.tokenId === tokenId);
+          if (lotsForToken.length > 0) {
+            const firstLot = lotsForToken[0];
+            const lastLot = lotsForToken.sort((a: any, b: any) => 
+              new Date(b.exitTime).getTime() - new Date(a.exitTime).getTime()
+            )[0];
+            
+            const token = tokenDataMap.get(tokenId);
+            const totalRealizedPnl = lotsForToken.reduce((sum: number, lot: any) => {
+              if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
+                return sum + Number(lot.realizedPnl);
+              }
+              return sum;
+            }, 0);
+            
+            const totalCostBase = lotsForToken.reduce((sum: number, lot: any) => sum + (lot.costBasis || 0), 0);
+            const realizedPnlPercent = totalCostBase > 0 ? (totalRealizedPnl / totalCostBase) * 100 : 0;
+            
+            const entryTime = new Date(firstLot.entryTime);
+            const exitTime = new Date(lastLot.exitTime);
+            const holdTimeMs = exitTime.getTime() - entryTime.getTime();
+            const holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
+            
+            closedPositionsFromLots.push({
+              tokenId,
+              token: token || null,
+              balance: 0,
+              totalBought: 0,
+              totalSold: 0,
+              totalInvested: 0,
+              totalSoldValue: 0,
+              totalCostBase,
+              totalProceedsBase: totalCostBase + totalRealizedPnl,
+              averageBuyPrice: 0,
+              buyCount: 1, // Odhad - máme ClosedLot, takže musel být BUY
+              sellCount: 1, // Odhad - máme ClosedLot, takže musel být SELL
+              removeCount: 0,
+              lastBuyPrice: 0,
+              lastSellPrice: 0,
+              firstBuyTimestamp: entryTime.toISOString(),
+              lastSellTimestamp: exitTime.toISOString(),
+              baseToken: 'SOL',
+              currentPrice: null,
+              currentValue: 0,
+              totalCost: 0,
+              livePnl: 0,
+              livePnlBase: 0,
+              livePnlPercent: 0,
+              pnl: 0,
+              pnlPercent: 0,
+              holdTimeMinutes: holdTimeMinutes >= 0 ? holdTimeMinutes : 0,
+              realizedPnlBase: totalRealizedPnl,
+              realizedPnlPercent,
+              closedPnl: totalRealizedPnl,
+              closedPnlBase: totalRealizedPnl,
+              closedPnlPercent: realizedPnlPercent,
+            });
+            
+            console.log(`   ✅ Created closed position from ClosedLot: tokenId=${tokenId}, realizedPnlBase=${totalRealizedPnl.toFixed(4)} SOL, holdTime=${holdTimeMinutes}min`);
+          }
         }
-        // Musí mít alespoň jeden BUY trade (počáteční nákup)
-        if (p.buyCount === 0) {
-          console.log(`   ⏭️  Skipping closed position: no BUY trades (počáteční nákup)`);
-          return false;
-        }
-        // DŮLEŽITÉ: Musí mít alespoň jeden SELL trade (finální prodej, uzavírá pozici)
-        // REM neuzavírá pozici - pouze SELL
-        if (p.sellCount === 0) {
-          console.log(`   ⏭️  Skipping closed position: no SELL trades (finální prodej) - REM neuzavírá pozici`);
-          return false;
-        }
-        // DŮLEŽITÉ: Musí mít ClosedLot data (jednotný princip - PnL se počítá POUZE z ClosedLot)
-        const closedLotsForToken = (closedLots || []).filter((lot: any) => 
-          lot.tokenId === p.tokenId && 
-          lot.exitTime && 
-          new Date(lot.exitTime) <= new Date()
-        );
-        if (closedLotsForToken.length === 0) {
-          console.log(`   ⏭️  Skipping closed position: no ClosedLot data for token ${p.tokenId}`);
-          return false;
-        }
+      }
+    }
+    
+    const closedPositions = [
+      ...portfolio
+        .filter(p => {
+          // Treat small negative balance (rounding errors) as 0 for closed positions
+          const normalizedBalance = p.balance < 0 && Math.abs(p.balance) < 0.0001 ? 0 : p.balance;
+          
+          // DŮLEŽITÉ: Pokud máme ClosedLot data, pozice je uzavřená (priorita nad balance)
+          const closedLotsForToken = (closedLots || []).filter((lot: any) => 
+            lot.tokenId === p.tokenId && 
+            lot.exitTime && 
+            new Date(lot.exitTime) <= new Date()
+          );
+          const hasClosedLot = closedLotsForToken.length > 0;
+          
+          // Musí mít balance <= 0 NEBO ClosedLot data (priorita)
+          if (normalizedBalance > 0 && !hasClosedLot) {
+            console.log(`   ⏭️  Skipping closed position: balance > 0 (${p.balance}, normalized: ${normalizedBalance}) and no ClosedLot data`);
+            return false;
+          }
+          
+          // Pokud máme ClosedLot data, akceptujeme pozici i když chybí buyCount/sellCount
+          if (hasClosedLot) {
+            // ClosedLot data existují → pozice je uzavřená, akceptujeme ji
+            console.log(`   ✅ Accepting closed position (has ClosedLot): tokenId=${p.tokenId}, balance=${p.balance}, buyCount=${p.buyCount}, sellCount=${p.sellCount}`);
+          } else {
+            // Nemáme ClosedLot data → musí mít buyCount a sellCount
+            if (p.buyCount === 0) {
+              console.log(`   ⏭️  Skipping closed position: no BUY trades (počáteční nákup) and no ClosedLot data`);
+              return false;
+            }
+            if (p.sellCount === 0) {
+              console.log(`   ⏭️  Skipping closed position: no SELL trades (finální prodej) and no ClosedLot data`);
+              return false;
+            }
+          }
+          
+          // DŮLEŽITÉ: Musí mít ClosedLot data (jednotný princip - PnL se počítá POUZE z ClosedLot)
+          if (closedLotsForToken.length === 0) {
+            console.log(`   ⏭️  Skipping closed position: no ClosedLot data for token ${p.tokenId}`);
+            return false;
+          }
         // Musí mít firstBuyTimestamp a lastSellTimestamp (pro výpočet HOLD time)
         // Pokud chybí v trades, zkusíme je doplnit z ClosedLot
         if (!p.firstBuyTimestamp && closedLotsForToken.length > 0) {
@@ -1537,9 +1622,9 @@ router.get('/:id/portfolio', async (req, res) => {
           console.log(`   ⏭️  Skipping closed position: no PnL data`);
           return false;
         }
-        console.log(`   ✅ Closed position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, holdTime=${p.holdTimeMinutes}min, realizedPnlBase=${p.realizedPnlBase} SOL, closedLots=${closedLotsForToken.length}, sellCount=${p.sellCount}`);
-        return true;
-      })
+          console.log(`   ✅ Closed position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, holdTime=${p.holdTimeMinutes}min, realizedPnlBase=${p.realizedPnlBase} SOL, closedLots=${closedLotsForToken.length}, sellCount=${p.sellCount}`);
+          return true;
+        })
         .map(p => ({
           ...p,
           // Ujisti se, že máme všechny potřebné pole
@@ -1552,6 +1637,9 @@ router.get('/:id/portfolio', async (req, res) => {
           closedPnlPercent: p.realizedPnlPercent ?? null, // Alias (deprecated)
           holdTimeMinutes: p.holdTimeMinutes ?? null,
         }))
+        .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes >= 0), // Finální kontrola - povolujeme i 0 (stejný timestamp)
+      ...closedPositionsFromLots // Přidej closed positions vytvořené přímo z ClosedLot dat
+    ]
       .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes >= 0) // Finální kontrola - povolujeme i 0 (stejný timestamp)
         .sort((a, b) => {
         // Seřaď podle lastSellTimestamp (nejnovější uzavřené pozice nahoře)
