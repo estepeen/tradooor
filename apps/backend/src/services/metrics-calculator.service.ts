@@ -508,12 +508,13 @@ export class MetricsCalculatorService {
     const earliest = new Date(now);
     earliest.setDate(earliest.getDate() - MAX_WINDOW_DAYS);
 
-    // DŮLEŽITÉ: Použij ČISTOU logiku - pouze sčítání PnL z ClosedLot v databázi
-    // Stejně jako v detailu tradera - pouze sčítání/odčítání PnL z jednotlivých closed trades
-    // Filtrujeme podle exitTime (kdy byl lot uzavřen) - stejně jako portfolio endpoint filtruje podle lastSellTimestamp
-    const [closedLots, tradeFeatures] = await Promise.all([
+    // DŮLEŽITÉ: Použij ÚPLNĚ STEJNOU logiku jako portfolio endpoint
+    // 1. Pokud existují ClosedLot, použij je (sčítání realizedPnlUsd)
+    // 2. Pokud neexistují ClosedLot, použij fallback - vytvoř closed positions z trades a počítaj z totalProceedsBase - totalCostBase
+    const [closedLots, tradeFeatures, allTrades] = await Promise.all([
       this.closedLotRepo.findByWallet(walletId, { fromDate: earliest }),
       this.fetchTradeFeaturesSafe(walletId, earliest),
+      this.tradeRepo.findByWalletId(walletId, { fromDate: earliest, page: 1, pageSize: 100000 }),
     ]);
 
     const rolling = {} as Record<RollingWindowLabel, RollingWindowStats>;
@@ -521,20 +522,222 @@ export class MetricsCalculatorService {
       const cutoff = new Date(now);
       cutoff.setDate(cutoff.getDate() - days);
       
-      // Filtruj closed lots podle exitTime (kdy byl lot uzavřen) - STEJNÁ LOGIKA jako portfolio endpoint filtruje podle lastSellTimestamp
+      // Filtruj closed lots podle exitTime (kdy byl lot uzavřen)
       const filteredLots = closedLots.filter(lot => {
         const exitTime = new Date(lot.exitTime);
         return exitTime >= cutoff && exitTime <= now;
       });
       
-      // Použij buildRollingWindowStats - čistě jen sčítá realizedPnlUsd z ClosedLot
-      rolling[label] = await this.buildRollingWindowStats(filteredLots);
+      // Pokud máme ClosedLot data, použij je (stejně jako portfolio endpoint)
+      if (filteredLots.length > 0) {
+        rolling[label] = await this.buildRollingWindowStats(filteredLots);
+      } else {
+        // FALLBACK: Pokud nemáme ClosedLot, použij stejnou logiku jako portfolio endpoint
+        // Vytvoř closed positions z trades a počítaj PnL z totalProceedsBase - totalCostBase
+        rolling[label] = await this.buildRollingWindowStatsFromTradesFallback(
+          allTrades.trades || [],
+          cutoff
+        );
+      }
     }
 
     const behaviour = this.buildBehaviourStats(tradeFeatures);
     const scores = this.buildScoreBreakdown(rolling, behaviour);
 
     return { rolling, behaviour, scores };
+  }
+
+  // FALLBACK: Stejná logika jako portfolio endpoint - vytvoří closed positions z trades a počítá PnL
+  private async buildRollingWindowStatsFromTradesFallback(
+    trades: any[],
+    cutoff: Date
+  ): Promise<RollingWindowStats> {
+    if (trades.length === 0) {
+      return {
+        realizedPnlUsd: 0,
+        realizedRoiPercent: 0,
+        winRate: 0,
+        medianTradeRoiPercent: 0,
+        percentile5TradeRoiPercent: 0,
+        percentile95TradeRoiPercent: 0,
+        maxDrawdownPercent: 0,
+        volatilityPercent: 0,
+        medianHoldMinutesWinners: 0,
+        medianHoldMinutesLosers: 0,
+        numClosedTrades: 0,
+        totalVolumeUsd: 0,
+        avgTradeSizeUsd: 0,
+      };
+    }
+
+    // Get current SOL price for conversion
+    let solPriceUsd = 150; // Default fallback
+    try {
+      solPriceUsd = await this.binancePriceService.getCurrentSolPrice();
+    } catch (error) {
+      console.warn(`⚠️  Failed to fetch SOL price, using fallback: ${solPriceUsd}`);
+    }
+
+    // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT - vytvoř pozice z trades
+    const positionMap = new Map<string, { 
+      tokenId: string;
+      totalBought: number;
+      totalSold: number;
+      balance: number;
+      totalCostBase: number; 
+      totalProceedsBase: number; 
+      buyCount: number;
+      sellCount: number;
+      removeCount: number;
+      firstBuyTimestamp: Date | null;
+      lastSellTimestamp: Date | null;
+      baseToken: string;
+    }>();
+    
+    for (const trade of trades) {
+      const tokenId = trade.tokenId;
+      const amount = Number(trade.amountToken || 0);
+      const amountBase = Number(trade.amountBase || 0);
+      const baseToken = (trade.meta as any)?.baseToken || 'SOL';
+      const tradeTimestamp = new Date(trade.timestamp);
+      
+      if (!positionMap.has(tokenId)) {
+        positionMap.set(tokenId, { 
+          tokenId,
+          totalBought: 0,
+          totalSold: 0,
+          balance: 0,
+          totalCostBase: 0, 
+          totalProceedsBase: 0, 
+          buyCount: 0,
+          sellCount: 0,
+          removeCount: 0,
+          firstBuyTimestamp: null,
+          lastSellTimestamp: null,
+          baseToken
+        });
+      }
+      
+      const position = positionMap.get(tokenId)!;
+      
+      if (trade.side === 'buy' || trade.side === 'add') {
+        position.totalBought += amount;
+        position.balance += amount;
+        position.totalCostBase += amountBase;
+        position.buyCount++;
+        if (!position.firstBuyTimestamp || tradeTimestamp < position.firstBuyTimestamp) {
+          position.firstBuyTimestamp = tradeTimestamp;
+        }
+      } else if (trade.side === 'sell' || trade.side === 'remove') {
+        position.totalSold += amount;
+        position.balance -= amount;
+        position.totalProceedsBase += amountBase;
+        if (trade.side === 'sell') {
+          position.sellCount++;
+          if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
+            position.lastSellTimestamp = tradeTimestamp;
+          }
+        } else {
+          position.removeCount++;
+        }
+      }
+    }
+
+    // Filter closed positions (STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT)
+    const closedPositions = Array.from(positionMap.values())
+      .filter(p => {
+        const normalizedBalance = p.balance < 0 && Math.abs(p.balance) < 0.0001 ? 0 : p.balance;
+        return normalizedBalance <= 0 && p.buyCount > 0 && p.sellCount > 0 && 
+               p.firstBuyTimestamp && p.lastSellTimestamp;
+      });
+
+    // Filter by lastSellTimestamp (STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT)
+    const recentClosedPositions = closedPositions.filter(p => {
+      if (!p.lastSellTimestamp) return false;
+      return p.lastSellTimestamp >= cutoff && p.lastSellTimestamp <= new Date();
+    });
+
+    // Calculate PnL from trades (STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT FALLBACK)
+    let totalRealizedPnlUsd = 0;
+    let totalInvestedCapitalUsd = 0;
+    const positionPnls: Array<{ pnlUsd: number; roiPercent: number; holdTimeMinutes: number }> = [];
+
+    for (const position of recentClosedPositions) {
+      // Calculate hold time
+      const holdTimeMs = position.lastSellTimestamp!.getTime() - position.firstBuyTimestamp!.getTime();
+      const holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
+      if (holdTimeMinutes < 0) continue;
+
+      // STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT FALLBACK: closedPnlBase = totalProceedsBase - totalCostBase
+      if (position.totalProceedsBase > 0 && position.totalCostBase > 0) {
+        const closedPnlBase = position.totalProceedsBase - position.totalCostBase;
+        
+        // Convert to USD (STEJNÁ LOGIKA JAKO PORTFOLIO ENDPOINT)
+        let closedPnlUsd = 0;
+        if (position.baseToken === 'SOL') {
+          closedPnlUsd = closedPnlBase * solPriceUsd;
+        } else if (position.baseToken === 'USDC' || position.baseToken === 'USDT') {
+          closedPnlUsd = closedPnlBase; // 1:1 with USD
+        } else {
+          closedPnlUsd = closedPnlBase * solPriceUsd; // Fallback
+        }
+        
+        const investedCapitalUsd = position.totalCostBase * (position.baseToken === 'SOL' ? solPriceUsd : 1);
+        const roiPercent = investedCapitalUsd > 0 ? (closedPnlUsd / investedCapitalUsd) * 100 : 0;
+        
+        totalRealizedPnlUsd += closedPnlUsd;
+        totalInvestedCapitalUsd += investedCapitalUsd;
+        positionPnls.push({ pnlUsd: closedPnlUsd, roiPercent, holdTimeMinutes });
+      }
+    }
+
+    const wins = positionPnls.filter(p => p.pnlUsd > 0).length;
+    const roiValues = positionPnls.map(p => p.roiPercent);
+    const winnersHold = positionPnls.filter(p => p.pnlUsd > 0).map(p => p.holdTimeMinutes);
+    const losersHold = positionPnls.filter(p => p.pnlUsd <= 0).map(p => p.holdTimeMinutes);
+
+    const realizedRoiPercent = totalInvestedCapitalUsd > 0 
+      ? (totalRealizedPnlUsd / totalInvestedCapitalUsd) * 100 
+      : 0;
+
+    return {
+      realizedPnlUsd: totalRealizedPnlUsd,
+      realizedRoiPercent,
+      winRate: positionPnls.length ? wins / positionPnls.length : 0,
+      medianTradeRoiPercent: median(roiValues),
+      percentile5TradeRoiPercent: percentile(roiValues, 0.05),
+      percentile95TradeRoiPercent: percentile(roiValues, 0.95),
+      maxDrawdownPercent: this.calculateDrawdownPercentFromPositions(positionPnls),
+      volatilityPercent: 0, // TODO: Calculate if needed
+      medianHoldMinutesWinners: median(winnersHold),
+      medianHoldMinutesLosers: median(losersHold),
+      numClosedTrades: positionPnls.length,
+      totalVolumeUsd: totalInvestedCapitalUsd + totalRealizedPnlUsd,
+      avgTradeSizeUsd: positionPnls.length > 0 ? totalInvestedCapitalUsd / positionPnls.length : 0,
+    };
+  }
+
+  private calculateDrawdownPercentFromPositions(positions: Array<{ pnlUsd: number; roiPercent: number }>): number {
+    if (!positions.length) return 0;
+    
+    const sorted = [...positions].sort((a, b) => 
+      (a.pnlUsd / Math.abs(b.roiPercent || 1)) - (b.pnlUsd / Math.abs(a.roiPercent || 1))
+    );
+    
+    let cumulative = 0;
+    let peak = 0;
+    let maxDrawdown = 0;
+
+    for (const pos of sorted) {
+      cumulative += pos.roiPercent;
+      peak = Math.max(peak, cumulative);
+      const drawdown = peak - cumulative;
+      if (drawdown > maxDrawdown) {
+        maxDrawdown = drawdown;
+      }
+    }
+
+    return maxDrawdown;
   }
 
 
