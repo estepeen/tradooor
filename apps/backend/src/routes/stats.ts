@@ -56,17 +56,18 @@ router.get('/overview', async (req, res) => {
       }
     }
 
-    // Add recentPnl30dUsd to wallets
-    // DŮLEŽITÉ: Použij recentPnl30dUsd z databáze (pokud existuje), jinak vypočítej z trades
-    const walletsWithUsd = (wallets || []).map(w => {
+    // Add recentPnl30dBase to wallets (PnL v SOL)
+    // DŮLEŽITÉ: Použij recentPnl30dBase z databáze (pokud existuje), jinak vypočítej z trades
+    const walletsWithBase = (wallets || []).map(w => {
       const pnl = walletPnLMap.get(w.id);
-      // Preferuj recentPnl30dUsd z DB (je to precomputed a přesnější), jinak vypočítej z trades
-      const recentPnl30dUsd = w.recentPnl30dUsd !== null && w.recentPnl30dUsd !== undefined
-        ? Number(w.recentPnl30dUsd)
-        : (pnl ? pnl.sellValue - pnl.buyValue : 0);
+      // Preferuj recentPnl30dBase z DB (je to precomputed a přesnější), jinak vypočítej z trades
+      // Mapujeme recentPnl30dUsd (DB sloupec) na recentPnl30dBase (SOL hodnota)
+      const recentPnl30dBase = w.recentPnl30dUsd !== null && w.recentPnl30dUsd !== undefined
+        ? Number(w.recentPnl30dUsd) // V DB je to SOL hodnota (i když se jmenuje Usd)
+        : (pnl ? (pnl.sellValue - pnl.buyValue) / 150 : 0); // Přibližný převod z USD na SOL
       return {
         ...w,
-        recentPnl30dUsd,
+        recentPnl30dBase, // PnL v SOL
       };
     });
 
@@ -74,7 +75,7 @@ router.get('/overview', async (req, res) => {
       throw new Error(`Failed to fetch wallets: ${error.message}`);
     }
 
-    const walletList = walletsWithUsd ?? [];
+    const walletList = walletsWithBase ?? [];
     const totalWallets = walletList.length;
     const totalTrades = actualTradeCount ?? 0; // Use actual count from trades table
     
@@ -177,43 +178,43 @@ router.get('/overview', async (req, res) => {
       const walletsWithPeriodPnl = walletList.map((wallet) => {
         // STEJNÁ LOGIKA JAKO NA HOMEPAGE: použij advancedStats.rolling pokud je dostupné
         const rolling = (wallet.advancedStats as any)?.rolling;
-        let pnlUsd = 0;
+        let pnlBase = 0; // PnL v SOL
         let pnlPercent = 0;
         
         if (rolling && rolling[period.rollingKey]) {
           // Použij rolling stats (stejně jako homepage)
           const rollingData = rolling[period.rollingKey];
-          pnlUsd = rollingData.realizedPnlUsd || 0;
+          pnlBase = rollingData.realizedPnl || 0; // PnL v SOL (změněno z realizedPnlUsd)
           pnlPercent = rollingData.realizedRoiPercent || 0;
         } else {
-          // Fallback: použij recentPnl30dUsd/recentPnl30dPercent (stejně jako homepage)
+          // Fallback: použij recentPnl30dBase/recentPnl30dPercent (stejně jako homepage)
           if (period.label === '30d' || period.rollingKey === '30d') {
-            pnlUsd = wallet.recentPnl30dUsd || 0;
+            pnlBase = wallet.recentPnl30dBase || wallet.recentPnl30dUsd || 0; // PnL v SOL
             pnlPercent = wallet.recentPnl30dPercent || 0;
           } else if (period.rollingKey === '7d') {
             // Pro 7d a 1d použij 30d jako fallback, pokud není 7d rolling data
-            pnlUsd = wallet.recentPnl30dUsd || 0;
+            pnlBase = wallet.recentPnl30dBase || wallet.recentPnl30dUsd || 0; // PnL v SOL
             pnlPercent = wallet.recentPnl30dPercent || 0;
           }
         }
         
         return {
           ...wallet,
-          periodPnlUsd: pnlUsd,
+          periodPnlBase: pnlBase, // PnL v SOL (změněno z periodPnlUsd)
           periodPnlPercent: pnlPercent,
         };
       });
       
-      // Sort by PnL USD and take top 5
+      // Sort by PnL SOL and take top 5
       topByPeriod[period.label] = walletsWithPeriodPnl
-        .sort((a, b) => (b.periodPnlUsd || 0) - (a.periodPnlUsd || 0))
+        .sort((a, b) => (b.periodPnlBase || 0) - (a.periodPnlBase || 0))
         .slice(0, 5)
         .map(w => ({
           id: w.id,
           address: w.address,
           label: w.label,
           totalTrades: w.totalTrades,
-          recentPnl30dUsd: w.periodPnlUsd, // Použij periodPnlUsd pro zobrazení
+          recentPnl30dBase: w.periodPnlBase, // PnL v SOL (změněno z recentPnl30dUsd)
           recentPnl30dPercent: w.periodPnlPercent, // Použij periodPnlPercent pro zobrazení
           advancedStats: w.advancedStats, // Keep for frontend - frontend použije rolling stats přímo
         }));

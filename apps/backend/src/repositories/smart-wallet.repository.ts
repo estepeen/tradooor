@@ -161,8 +161,14 @@ export class SmartWalletRepository {
 
     }
 
+    // Map recentPnl30dUsd (DB) to recentPnl30dBase (SOL) for all wallets
+    const mappedWallets = (wallets ?? []).map((wallet: any) => ({
+      ...wallet,
+      recentPnl30dBase: wallet.recentPnl30dUsd ?? 0, // Map DB column to code name (SOL value)
+    }));
+
     return {
-      wallets: wallets ?? [],
+      wallets: mappedWallets,
       total: count ?? 0,
       page,
       pageSize,
@@ -205,6 +211,7 @@ export class SmartWalletRepository {
 
     return {
       ...wallet,
+      recentPnl30dBase: wallet.recentPnl30dUsd ?? 0, // Map DB column to code name (SOL value)
       trades: trades ?? [],
     };
   }
@@ -227,7 +234,10 @@ export class SmartWalletRepository {
       }
 
       console.log(`✅ SmartWalletRepository.findByAddress - Found: yes`);
-      return result;
+      return {
+        ...result,
+        recentPnl30dBase: result.recentPnl30dUsd ?? 0, // Map DB column to code name (SOL value)
+      };
     } catch (error: any) {
       console.error('❌ SmartWalletRepository.findByAddress - Error:', error?.message);
       throw error;

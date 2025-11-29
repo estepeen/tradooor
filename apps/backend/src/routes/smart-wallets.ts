@@ -87,7 +87,7 @@ router.get('/', async (req, res) => {
     if (result.wallets && result.wallets.length > 0) {
       console.log(`📊 [Endpoint] Sample PnL values from repository:`);
       result.wallets.slice(0, 5).forEach((wallet: any) => {
-        console.log(`   💰 Wallet ${wallet.address}: recentPnl30dUsd=${wallet.recentPnl30dUsd}, recentPnl30dPercent=${wallet.recentPnl30dPercent}`);
+        console.log(`   💰 Wallet ${wallet.address}: recentPnl30dBase=${wallet.recentPnl30dBase}, recentPnl30dPercent=${wallet.recentPnl30dPercent}`);
       });
     }
     
@@ -519,12 +519,12 @@ router.get('/:id', async (req, res) => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const metricsHistory = await metricsHistoryRepo.findByWalletId(wallet.id, thirtyDaysAgo);
-    const recentPnl30dUsd = Number(wallet.recentPnl30dUsd || 0);
+    const recentPnl30dBase = Number(wallet.recentPnl30dBase || wallet.recentPnl30dUsd || 0); // PnL v SOL
 
     console.log(`✅ Returning wallet details with ${metricsHistory.length} history records`);
     res.json({
       ...wallet,
-      recentPnl30dUsd,
+      recentPnl30dBase, // PnL v SOL (změněno z recentPnl30dUsd)
       metricsHistory,
       advancedStats: wallet.advancedStats ?? null,
     });
@@ -1317,12 +1317,12 @@ router.get('/:id/portfolio', async (req, res) => {
           }
         }
 
-        // Calculate PnL for closed positions - jednotný princip: realizedPnlUsd z ClosedLot
+        // Calculate PnL for closed positions - jednotný princip: realizedPnl z ClosedLot (v SOL)
         // DŮLEŽITÉ: PnL se počítá POUZE z ClosedLot (jednotný princip)
         // ClosedLot se vytváří v worker queue a metrics cron před výpočtem metrik
         // Pokud ClosedLot neexistují, PnL = 0 (žádný fallback!)
+        // DŮLEŽITÉ: PnL je nyní v SOL/base měně, ne v USD
         let realizedPnlBase: number | null = null;
-        let realizedPnlUsd: number | null = null;
         let realizedPnlPercent: number | null = null;
         
         if (normalizedBalance <= 0) {
@@ -1333,37 +1333,35 @@ router.get('/:id/portfolio', async (req, res) => {
             new Date(lot.exitTime) <= new Date()
           );
           
-          // Sečti všechny realizedPnlUsd z closed lots pro tento token
+          // Sečti všechny realizedPnl z closed lots pro tento token (v SOL/base měně)
           // POUZE z ClosedLot - žádný fallback!
           if (closedLotsForToken.length > 0) {
-            const totalRealizedPnlUsd = closedLotsForToken.reduce((sum: number, lot: any) => {
-              if (lot.realizedPnlUsd !== null && lot.realizedPnlUsd !== undefined) {
-                return sum + Number(lot.realizedPnlUsd);
+            const totalRealizedPnl = closedLotsForToken.reduce((sum: number, lot: any) => {
+              // Použij realizedPnl z ClosedLot (v SOL/base měně)
+              if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
+                return sum + Number(lot.realizedPnl);
               }
               return sum;
             }, 0);
             
-            // Použij fixní realizedPnlUsd z ClosedLot (nemění se s cenou SOL)
-            // Pokud totalRealizedPnlUsd = 0, realizedPnlUsd zůstane null (žádný fallback!)
-            if (totalRealizedPnlUsd !== 0) {
-              realizedPnlUsd = totalRealizedPnlUsd;
-              realizedPnlBase = position.totalProceedsBase - position.totalCostBase;
+            // Použij fixní realizedPnl z ClosedLot (v SOL, nemění se s cenou SOL)
+            // Pokud totalRealizedPnl = 0, realizedPnlBase zůstane null (žádný fallback!)
+            if (totalRealizedPnl !== 0) {
+              realizedPnlBase = totalRealizedPnl; // PnL v SOL
               realizedPnlPercent = position.totalCostBase > 0
                 ? (realizedPnlBase / position.totalCostBase) * 100
                 : null;
               
               if (wallet.id) {
-                console.log(`   💰 [Portfolio] Position: tokenId=${position.tokenId}, using FIXED realizedPnlUsd=${realizedPnlUsd.toFixed(2)} from ${closedLotsForToken.length} ClosedLot(s)`);
+                console.log(`   💰 [Portfolio] Position: tokenId=${position.tokenId}, using FIXED realizedPnl=${realizedPnlBase.toFixed(4)} SOL from ${closedLotsForToken.length} ClosedLot(s)`);
               }
             } else {
-              // ClosedLot existují, ale realizedPnlUsd = 0 → PnL = 0 (žádný fallback!)
-              realizedPnlUsd = 0;
+              // ClosedLot existují, ale realizedPnl = 0 → PnL = 0 (žádný fallback!)
               realizedPnlBase = 0;
               realizedPnlPercent = 0;
             }
           } else {
             // Neexistují ClosedLot → PnL = 0 (žádný fallback!)
-            realizedPnlUsd = 0;
             realizedPnlBase = 0;
             realizedPnlPercent = 0;
           }
@@ -1387,11 +1385,10 @@ router.get('/:id/portfolio', async (req, res) => {
             pnl: livePnl || pnl, // Profit/Loss in USD (for open positions)
             pnlPercent: livePnlPercent || pnlPercent, // Profit/Loss percentage (for open positions)
             holdTimeMinutes, // Hold time in minutes (for closed positions) - from first BUY to last SELL
-            realizedPnlUsd, // Realized PnL in USD (from ClosedLot - fixed value)
-            realizedPnlBase, // Realized PnL in base currency (SOL/USDC/USDT)
+            realizedPnlBase, // Realized PnL in SOL/base currency (primární hodnota)
             realizedPnlPercent, // Realized PnL percent
             // Pro kompatibilitu s frontendem zachováme staré názvy
-            closedPnl: realizedPnlUsd, // Alias pro realizedPnlUsd (deprecated, použij realizedPnlUsd)
+            closedPnl: realizedPnlBase, // Alias pro realizedPnlBase (deprecated, použij realizedPnlBase)
             closedPnlBase: realizedPnlBase, // Alias pro realizedPnlBase (deprecated, použij realizedPnlBase)
             closedPnlPercent: realizedPnlPercent, // Alias pro realizedPnlPercent (deprecated, použij realizedPnlPercent)
             baseToken: position.baseToken, // Base token used (SOL, USDC, USDT)
@@ -1517,18 +1514,17 @@ router.get('/:id/portfolio', async (req, res) => {
           console.log(`   ⏭️  Skipping closed position: no PnL data`);
           return false;
         }
-        console.log(`   ✅ Closed position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, holdTime=${p.holdTimeMinutes}min, realizedPnlUsd=${p.realizedPnlUsd}, closedLots=${closedLotsForToken.length}, sellCount=${p.sellCount}`);
+        console.log(`   ✅ Closed position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, holdTime=${p.holdTimeMinutes}min, realizedPnlBase=${p.realizedPnlBase} SOL, closedLots=${closedLotsForToken.length}, sellCount=${p.sellCount}`);
         return true;
       })
         .map(p => ({
           ...p,
           // Ujisti se, že máme všechny potřebné pole
           totalSold: p.totalSold || 0,
-          realizedPnlUsd: p.realizedPnlUsd ?? null,
-          realizedPnlBase: p.realizedPnlBase ?? null,
+          realizedPnlBase: p.realizedPnlBase ?? null, // PnL v SOL (primární hodnota)
           realizedPnlPercent: p.realizedPnlPercent ?? null,
           // Pro kompatibilitu s frontendem zachováme staré názvy
-          closedPnl: p.realizedPnlUsd ?? null, // Alias (deprecated)
+          closedPnl: p.realizedPnlBase ?? null, // Alias (deprecated)
           closedPnlBase: p.realizedPnlBase ?? null, // Alias (deprecated)
           closedPnlPercent: p.realizedPnlPercent ?? null, // Alias (deprecated)
           holdTimeMinutes: p.holdTimeMinutes ?? null,
@@ -1553,9 +1549,9 @@ router.get('/:id/portfolio', async (req, res) => {
     });
     
     if (wallet.id && recentClosedPositions30d.length > 0) {
-      const totalPnl30d = recentClosedPositions30d.reduce((sum: number, p: any) => sum + (p.realizedPnlUsd ?? 0), 0);
+      const totalPnl30d = recentClosedPositions30d.reduce((sum: number, p: any) => sum + (p.realizedPnlBase ?? 0), 0);
       const totalCost30d = recentClosedPositions30d.reduce((sum: number, p: any) => {
-        const pnl = p.realizedPnlUsd ?? 0;
+        const pnl = p.realizedPnlBase ?? 0; // PnL v SOL
         const pnlPercent = p.realizedPnlPercent ?? 0;
         if (pnlPercent !== 0 && typeof pnl === 'number' && typeof pnlPercent === 'number') {
           const cost = pnl / (pnlPercent / 100);

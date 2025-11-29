@@ -316,11 +316,8 @@ export default function StatsPage() {
                           rollingKey = period; // Pro 7d a 30d použij přímo
                         }
                         const rollingData = rolling?.[rollingKey];
-                        const pnlUsd = rollingData?.realizedPnlUsd ?? wallet.recentPnl30dUsd ?? 0;
+                        const pnlBase = rollingData?.realizedPnl ?? wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0; // PnL v SOL
                         const pnlPercent = rollingData?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
-                        // Convert USD to SOL (approximate: 1 SOL ≈ 150 USD)
-                        const SOL_PRICE_APPROX = 150;
-                        const pnlSol = pnlUsd !== 0 ? pnlUsd / SOL_PRICE_APPROX : 0;
                         
                         return (
                           <Link
@@ -333,18 +330,11 @@ export default function StatsPage() {
                               <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
                             </div>
                             <div className={`text-right font-bold ${
-                              pnlUsd >= 0 ? 'text-green-600' : 'text-red-600'
+                              pnlBase >= 0 ? 'text-green-600' : 'text-red-600'
                             }`}>
-                              <div>
-                                <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                                  ${formatNumber(Math.abs(pnlUsd), 2)}
-                                </span>
-                                {Math.abs(pnlSol) > 0.0001 && (
-                                  <div className="text-sm text-muted-foreground mt-1">
-                                    {formatNumber(Math.abs(pnlSol), 4)} SOL
-                                  </div>
-                                )}
-                              </div>
+                              <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                                {formatNumber(Math.abs(pnlBase), 4)} SOL
+                              </span>
                             </div>
                           </Link>
                         );
@@ -408,8 +398,8 @@ export default function StatsPage() {
                           {/* STEJNÁ LOGIKA JAKO NA HOMEPAGE: použij advancedStats.rolling['30d'] pokud je dostupné */}
                           {(() => {
                             const rolling30d = (wallet.advancedStats as any)?.rolling?.['30d'];
-                            const pnlUsd = rolling30d?.realizedPnlUsd ?? wallet.recentPnl30dUsd ?? 0;
-                            return `$${formatNumber(pnlUsd, 2)}`;
+                            const pnlBase = rolling30d?.realizedPnl ?? wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0; // PnL v SOL
+                            return `${formatNumber(pnlBase, 4)} SOL`;
                           })()}
                         </div>
                       </Link>

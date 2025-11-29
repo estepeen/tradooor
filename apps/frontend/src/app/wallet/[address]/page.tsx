@@ -504,17 +504,17 @@ export default function WalletDetailPage() {
                 return sellDate >= fromDate && sellDate <= now;
               });
             
-            // Sum up PnL from closed positions
+            // Sum up PnL from closed positions (v SOL)
             const totalPnl = closedPositions.reduce((sum: number, p: any) => {
-              const pnl = p.closedPnl ?? 0;
+              const pnl = p.realizedPnlBase ?? p.closedPnl ?? 0; // PnL v SOL
               return sum + (typeof pnl === 'number' ? pnl : 0);
             }, 0);
             
             // Calculate total cost for percentage calculation
-            // Use closedPnl and closedPnlPercent to calculate totalCost for each position
+            // Use realizedPnlBase and realizedPnlPercent to calculate totalCost for each position
             const totalCost = closedPositions.reduce((sum: number, p: any) => {
-              const pnl = p.closedPnl ?? 0;
-              const pnlPercent = p.closedPnlPercent ?? 0;
+              const pnl = p.realizedPnlBase ?? p.closedPnl ?? 0; // PnL v SOL
+              const pnlPercent = p.realizedPnlPercent ?? p.closedPnlPercent ?? 0;
               
               // Calculate cost from PnL and PnL percent: cost = pnl / (pnlPercent / 100)
               if (pnlPercent !== 0 && typeof pnl === 'number' && typeof pnlPercent === 'number') {
@@ -539,7 +539,7 @@ export default function WalletDetailPage() {
             }
             
             return {
-              pnlUsd: totalPnl,
+              pnlBase: totalPnl, // PnL v SOL (změněno z pnlUsd)
               pnlPercent,
               trades: closedPositions.length,
             };
@@ -563,23 +563,13 @@ export default function WalletDetailPage() {
                     data.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'
                   }`}>
                           <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            ${formatNumber(Math.abs(data.pnlUsd), 2)}
+                            {formatNumber(Math.abs(data.pnlBase), 4)} SOL
                           </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
                             ({data.pnlPercent >= 0 ? '+' : ''}{formatPercent(data.pnlPercent / 100)})
                           </span>
                   </div>
-                  {/* Convert USD to SOL (approximate: 1 SOL ≈ 150 USD) */}
-                  {(() => {
-                    const SOL_PRICE_APPROX = 150;
-                    const pnlSol = data.pnlUsd !== 0 ? data.pnlUsd / SOL_PRICE_APPROX : 0;
-                    return Math.abs(pnlSol) > 0.0001 ? (
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {formatNumber(Math.abs(pnlSol), 4)} SOL
-                      </div>
-                    ) : null;
-                  })()}
                   <div className="text-xs text-muted-foreground mt-1">
                     {data.trades} trades
                   </div>
@@ -692,16 +682,11 @@ export default function WalletDetailPage() {
                                 {value > 0 ? `$${formatNumber(value, 2)}` : '-'}
                               </td>
                               <td className={`px-4 py-3 text-right text-sm font-mono ${
-                                pnl >= 0 ? 'text-green-400' : 'text-red-400'
+                                pnlBase >= 0 ? 'text-green-400' : 'text-red-400'
                               }`}>
-                                {pnl !== 0 ? (
+                                {pnlBase !== 0 ? (
                                   <>
-                                    ${formatNumber(Math.abs(pnl), 2)} ({pnlPercent >= 0 ? '+' : ''}{formatPercent(pnlPercent / 100)})
-                                    {(pnlBase !== 0 && pnlBase !== null && pnlBase !== undefined && Math.abs(pnlBase) > 0.00001) && (
-                                      <span className="text-muted-foreground ml-2">
-                                        / {formatNumber(Math.abs(pnlBase), 4)} SOL
-                                      </span>
-                                    )}
+                                    {formatNumber(Math.abs(pnlBase), 4)} SOL ({pnlPercent >= 0 ? '+' : ''}{formatPercent(pnlPercent / 100)})
                                   </>
                                 ) : '-'}
                               </td>
@@ -777,17 +762,9 @@ export default function WalletDetailPage() {
                         const items = closedPositions.slice(0, showAllClosedPositions ? closedPositions.length : 10);
                         return items.map((position: any) => {
                           const token = position.token;
-                          const closedPnl = position.realizedPnlUsd ?? position.closedPnl ?? 0;
-                          const closedPnlBase = (position.realizedPnlBase !== undefined && position.realizedPnlBase !== null) 
-                            ? position.realizedPnlBase 
-                            : ((position.closedPnlBase !== undefined && position.closedPnlBase !== null) ? position.closedPnlBase : 0); // PnL v SOL
+                          const closedPnlBase = position.realizedPnlBase ?? position.closedPnlBase ?? position.closedPnl ?? 0; // PnL v SOL
                           const closedPnlPercent = position.realizedPnlPercent ?? position.closedPnlPercent ?? 0;
                           const holdTimeMinutes = position.holdTimeMinutes ?? null;
-                          
-                          // Debug: log if closedPnlBase exists
-                          if (closedPnlBase !== 0 && Math.abs(closedPnlBase) > 0.0001) {
-                            console.log(`[Closed Position] ${token?.symbol || position.tokenId}: closedPnlBase=${closedPnlBase}, closedPnl=${closedPnl}`);
-                          }
                           const sellDate = position.lastSellTimestamp
                             ? formatDate(new Date(position.lastSellTimestamp))
                             : '-';
@@ -816,16 +793,11 @@ export default function WalletDetailPage() {
                                 )}
                               </td>
                               <td className={`px-4 py-3 text-right text-sm font-mono ${
-                                closedPnl >= 0 ? 'text-green-400' : 'text-red-400'
+                                closedPnlBase >= 0 ? 'text-green-400' : 'text-red-400'
                               }`}>
-                                {closedPnl !== 0 ? (
+                                {closedPnlBase !== 0 ? (
                                   <>
-                                    ${formatNumber(Math.abs(closedPnl), 2)} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent((closedPnlPercent || 0) / 100)})
-                                    {(closedPnlBase !== 0 && closedPnlBase !== null && closedPnlBase !== undefined && Math.abs(closedPnlBase) > 0.00001) && (
-                                      <span className="text-muted-foreground ml-2">
-                                        / {formatNumber(Math.abs(closedPnlBase), 4)} SOL
-                                      </span>
-                                    )}
+                                    {formatNumber(Math.abs(closedPnlBase), 4)} SOL ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent((closedPnlPercent || 0) / 100)})
                                   </>
                                 ) : '-'}
                               </td>

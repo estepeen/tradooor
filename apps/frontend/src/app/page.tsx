@@ -409,16 +409,16 @@ export default function Home() {
                       return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
                     }
                     if (sortBy === 'recentPnl30dUsd') {
-                      // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dUsd
-                      const getPnlUsd = (w: any) => {
+                      // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dBase
+                      const getPnlBase = (w: any) => {
                         const rolling30d = w.advancedStats?.rolling?.['30d'];
-                        return rolling30d?.realizedPnlUsd ?? w.recentPnl30dUsd ?? 0;
+                        return rolling30d?.realizedPnl ?? w.recentPnl30dBase ?? w.recentPnl30dUsd ?? 0; // PnL v SOL
                       };
-                      const aPnl = getPnlUsd(a);
-                      const bPnl = getPnlUsd(b);
+                      const aPnl = getPnlBase(a);
+                      const bPnl = getPnlBase(b);
                       // DEBUG: Log sorting values
-                      if (process.env.NODE_ENV === 'development' && Math.abs(aPnl) > 100 || Math.abs(bPnl) > 100) {
-                        console.log(`🔍 [Sort] ${a.address}: ${aPnl}, ${b.address}: ${bPnl}, order: ${sortOrder}`);
+                      if (process.env.NODE_ENV === 'development' && Math.abs(aPnl) > 0.1 || Math.abs(bPnl) > 0.1) {
+                        console.log(`🔍 [Sort] ${a.address}: ${aPnl} SOL, ${b.address}: ${bPnl} SOL, order: ${sortOrder}`);
                       }
                       return sortOrder === 'asc' ? aPnl - bPnl : bPnl - aPnl;
                     }
@@ -535,23 +535,15 @@ export default function Home() {
                         })()
                       }`}>
                         {(() => {
-                          // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dUsd
+                          // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dBase
                           const rolling30d = (wallet.advancedStats as any)?.rolling?.['30d'];
-                          const pnlUsd = rolling30d?.realizedPnlUsd ?? wallet.recentPnl30dUsd ?? 0;
+                          const pnlBase = rolling30d?.realizedPnl ?? wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0; // PnL v SOL
                           const pnlPercent = rolling30d?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
-                          // Convert USD to SOL (approximate: 1 SOL ≈ 150 USD)
-                          const SOL_PRICE_APPROX = 150;
-                          const pnlSol = pnlUsd !== 0 ? pnlUsd / SOL_PRICE_APPROX : 0;
                           
                           return (
                             <>
-                              ${formatNumber(Math.abs(pnlUsd), 2)}{' '}
+                              {formatNumber(Math.abs(pnlBase), 4)} SOL{' '}
                               ({(pnlPercent >= 0 ? '+' : '')}{formatPercent(pnlPercent / 100)})
-                              {Math.abs(pnlSol) > 0.0001 && (
-                                <span className="text-muted-foreground ml-1">
-                                  / {formatNumber(Math.abs(pnlSol), 4)} SOL
-                                </span>
-                              )}
                             </>
                           );
                         })()}

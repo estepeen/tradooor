@@ -33,7 +33,7 @@ interface ClosedLot {
   proceeds: number;
   realizedPnl: number;
   realizedPnlPercent: number;
-  realizedPnlUsd?: number; // USD value at time of closure (fixed, doesn't change with SOL price)
+  // realizedPnl je v SOL/base měně (primární hodnota)
   buyTradeId: string;
   sellTradeId: string;
   isPreHistory: boolean;
@@ -249,28 +249,9 @@ export class LotMatchingService {
       return;
     }
 
-    // Get current SOL price for USD conversion (use current price as approximation for exit time)
-    // This ensures realizedPnlUsd is fixed at time of lot creation, not recalculated later
-    let solPriceUsd = 1; // Fallback
-    try {
-      const { BinancePriceService } = await import('./binance-price.service.js');
-      const binancePriceService = new BinancePriceService();
-      solPriceUsd = await binancePriceService.getCurrentSolPrice();
-    } catch (error) {
-      console.warn('⚠️  Failed to fetch SOL price for realizedPnlUsd, using fallback:', (error as any)?.message || error);
-    }
-
     // Convert to database format
+    // DŮLEŽITÉ: PnL je nyní v SOL/base měně, ne v USD
     const dbLots = closedLots.map(lot => {
-      // Calculate realizedPnlUsd if not already set (use SOL price for SOL-based trades)
-      // For USDC/USDT, realizedPnl is already in USD (1:1)
-      let realizedPnlUsd = lot.realizedPnlUsd;
-      if (realizedPnlUsd === undefined) {
-        // Assume SOL-based trade (most common)
-        // TODO: Detect baseToken from trade meta if available
-        realizedPnlUsd = lot.realizedPnl * solPriceUsd;
-      }
-
       return {
         walletId: lot.walletId,
         tokenId: lot.tokenId,
@@ -282,9 +263,9 @@ export class LotMatchingService {
         holdTimeMinutes: lot.holdTimeMinutes,
         costBasis: lot.costBasis.toString(),
         proceeds: lot.proceeds.toString(),
-        realizedPnl: lot.realizedPnl.toString(),
+        realizedPnl: lot.realizedPnl.toString(), // PnL v SOL/base měně (primární hodnota)
         realizedPnlPercent: lot.realizedPnlPercent.toString(),
-        realizedPnlUsd: realizedPnlUsd.toString(), // Store fixed USD value
+        realizedPnlUsd: null, // Nepoužíváme USD, PnL je v SOL (zůstává v DB pro zpětnou kompatibilitu)
         buyTradeId: lot.buyTradeId === 'synthetic' ? null : lot.buyTradeId,
         sellTradeId: lot.sellTradeId,
         isPreHistory: lot.isPreHistory,

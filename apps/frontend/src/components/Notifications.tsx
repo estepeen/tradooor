@@ -29,9 +29,6 @@ interface Trade {
   dex: string;
 }
 
-const STORAGE_KEY_READ_TRADES = 'tradooor_read_trades';
-const STORAGE_KEY_NEW_TRADES_COUNT = 'tradooor_new_trades_count';
-
 export default function Notifications() {
   const [isOpen, setIsOpen] = useState(false);
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -42,44 +39,6 @@ export default function Notifications() {
   const sidebarRef = useRef<HTMLDivElement>(null);
   const ITEMS_PER_PAGE = 20;
   const MAX_TRADES = 100;
-
-  // Load persisted read trades and new trades count from localStorage
-  const getReadTradesIds = (): Set<string> => {
-    if (typeof window === 'undefined') return new Set();
-    try {
-      const stored = localStorage.getItem(STORAGE_KEY_READ_TRADES);
-      return stored ? new Set(JSON.parse(stored)) : new Set();
-    } catch {
-      return new Set();
-    }
-  };
-
-  const markTradesAsRead = (tradeIds: string[]) => {
-    if (typeof window === 'undefined') return;
-    try {
-      const readIds = getReadTradesIds();
-      tradeIds.forEach(id => readIds.add(id));
-      localStorage.setItem(STORAGE_KEY_READ_TRADES, JSON.stringify(Array.from(readIds)));
-      // Update new trades count based on unread trades
-      updateNewTradesCount();
-    } catch (error) {
-      console.error('Error marking trades as read:', error);
-    }
-  };
-
-  const updateNewTradesCount = () => {
-    if (typeof window === 'undefined' || trades.length === 0) return;
-    try {
-      const readIds = getReadTradesIds();
-      const unreadCount = trades.filter(t => !readIds.has(t.id)).length;
-      
-      // Persist to localStorage
-      localStorage.setItem(STORAGE_KEY_NEW_TRADES_COUNT, unreadCount.toString());
-      setNewTradesCount(unreadCount);
-    } catch (error) {
-      console.error('Error updating new trades count:', error);
-    }
-  };
 
   // Fetch recent trades
   const loadTrades = async (since?: Date) => {
@@ -101,29 +60,18 @@ export default function Notifications() {
         const trulyNew = newTrades.filter((t: Trade) => !existingIds.has(t.id));
         
         if (trulyNew.length > 0) {
+          setNewTradesCount(prev => prev + trulyNew.length);
           // Update trades list with new trades at the top
           setTrades(prev => {
             const prevIds = new Set(prev.map(t => t.id));
             const newOnes = newTrades.filter((t: Trade) => !prevIds.has(t.id));
-            const updated = [...newOnes, ...prev].slice(0, MAX_TRADES);
-            // Update count after state update
-            setTimeout(() => updateNewTradesCount(), 0);
-            return updated;
+            return [...newOnes, ...prev].slice(0, MAX_TRADES);
           });
-        } else {
-          // No new trades, but update count in case trades were marked as read
-          updateNewTradesCount();
         }
       } else {
-        // Initial load - calculate unread count based on read trades from localStorage
+        // Initial load
         setTrades(newTrades);
-        // Recalculate count after trades are set (async update)
-        setTimeout(() => {
-          const readIds = getReadTradesIds();
-          const unreadCount = newTrades.filter((t: Trade) => !readIds.has(t.id)).length;
-          localStorage.setItem(STORAGE_KEY_NEW_TRADES_COUNT, unreadCount.toString());
-          setNewTradesCount(unreadCount);
-        }, 100);
+        setNewTradesCount(0);
       }
       
       setLastFetchTime(new Date());
@@ -157,24 +105,15 @@ export default function Notifications() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastFetchTime]);
 
-  // Recalculate count when trades change
+  // Reset new trades count when sidebar opens
   useEffect(() => {
-    if (trades.length > 0) {
-      updateNewTradesCount();
+    if (isOpen) {
+      setNewTradesCount(0);
+      // Reload trades when opening
+      loadTrades();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trades]);
-
-  // Mark all visible trades as read when sidebar opens
-  useEffect(() => {
-    if (isOpen && trades.length > 0) {
-      // Mark all currently visible trades as read when sidebar opens
-      const visibleTradeIds = trades.slice(0, page * ITEMS_PER_PAGE).map(t => t.id);
-      markTradesAsRead(visibleTradeIds);
-      // Don't reload trades immediately - let user see them first
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, page]);
+  }, [isOpen]);
 
   // Close sidebar when clicking outside
   useEffect(() => {

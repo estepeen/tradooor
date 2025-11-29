@@ -29,7 +29,7 @@ const LOW_LIQUIDITY_THRESHOLD_USD = 10_000;
 const NEW_TOKEN_AGE_SECONDS = 30 * 60; // 30 minutes
 
 type RollingWindowStats = {
-  realizedPnlUsd: number;
+  realizedPnl: number; // PnL v SOL/base měně (změněno z realizedPnlUsd)
   realizedRoiPercent: number;
   winRate: number;
   medianTradeRoiPercent: number;
@@ -142,8 +142,9 @@ export class MetricsCalculatorService {
     
     // Use rolling stats for recentPnl30d (from closed lots, same as detail page)
     // This ensures consistency between homepage and detail page
+    // DŮLEŽITÉ: PnL je nyní v SOL/base měně, ne v USD
     const rolling30d = rollingInsights.rolling['30d'];
-    const recentPnl30dUsd = rolling30d?.realizedPnlUsd ?? 0;
+    const recentPnl30dBase = rolling30d?.realizedPnl ?? 0; // PnL v SOL
     const recentPnl30dPercent = rolling30d?.realizedRoiPercent ?? 0;
 
     const legacyScore = this.calculateScore({
@@ -196,7 +197,7 @@ export class MetricsCalculatorService {
       avgHoldingTimeMin,
       maxDrawdownPercent,
       recentPnl30dPercent,
-      recentPnl30dUsd,
+      recentPnl30dUsd: recentPnl30dBase, // Mapujeme recentPnl30dBase (SOL) na recentPnl30dUsd (DB sloupec - pro zpětnou kompatibilitu)
       advancedStats,
     });
 
@@ -561,7 +562,7 @@ export class MetricsCalculatorService {
   private async buildRollingWindowStats(lots: ClosedLotRecord[]): Promise<RollingWindowStats> {
     if (lots.length === 0) {
       return {
-        realizedPnlUsd: 0,
+        realizedPnl: 0, // PnL v SOL (změněno z realizedPnlUsd)
         realizedRoiPercent: 0,
         winRate: 0,
         medianTradeRoiPercent: 0,
@@ -585,15 +586,15 @@ export class MetricsCalculatorService {
       console.warn(`⚠️  Failed to fetch SOL price, using fallback: ${solPriceUsd}`);
     }
 
-    // DŮLEŽITÉ: PnL se počítá POUZE z ClosedLot.realizedPnlUsd (fixní hodnota z doby uzavření)
-    // Nechceme přepočítávat s aktuální cenou SOL - PnL by mělo být neměnné
-    // Pokud realizedPnlUsd neexistuje, PnL = 0 (žádný fallback!)
-    const realizedPnlUsd = lots.reduce((sum, lot) => {
-      // Použij realizedPnlUsd z ClosedLot pokud existuje (fixní hodnota)
-      if (lot.realizedPnlUsd !== null && lot.realizedPnlUsd !== undefined) {
-        return sum + lot.realizedPnlUsd;
+    // DŮLEŽITÉ: PnL se počítá POUZE z ClosedLot.realizedPnl (v SOL/base měně)
+    // PnL je v SOL, ne v USD - nemění se s cenou SOL
+    // Pokud realizedPnl neexistuje, PnL = 0 (žádný fallback!)
+    const realizedPnl = lots.reduce((sum, lot) => {
+      // Použij realizedPnl z ClosedLot (v SOL/base měně)
+      if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
+        return sum + lot.realizedPnl;
       }
-      // Pokud realizedPnlUsd neexistuje, PnL = 0 (žádný fallback!)
+      // Pokud realizedPnl neexistuje, PnL = 0 (žádný fallback!)
       return sum;
     }, 0);
     
@@ -601,7 +602,7 @@ export class MetricsCalculatorService {
     const totalVolumeUsd = lots.reduce((sum, lot) => sum + lot.proceeds * solPriceUsd, 0);
     const investedCapital = lots.reduce((sum, lot) => sum + Math.max(lot.costBasis, 0) * solPriceUsd, 0);
     const realizedRoiPercent =
-      investedCapital > 0 ? (realizedPnlUsd / investedCapital) * 100 : 0;
+      investedCapital > 0 ? (realizedPnl * solPriceUsd / investedCapital) * 100 : 0;
     const wins = lots.filter(lot => lot.realizedPnl > 0).length;
     const roiValues = lots.map(lot =>
       lot.costBasis > 0 ? (lot.realizedPnl / lot.costBasis) * 100 : lot.realizedPnlPercent
@@ -615,7 +616,7 @@ export class MetricsCalculatorService {
       .map(lot => lot.holdTimeMinutes);
 
     return {
-      realizedPnlUsd,
+      realizedPnl, // PnL v SOL (změněno z realizedPnlUsd)
       realizedRoiPercent,
       winRate: lots.length ? wins / lots.length : 0,
       medianTradeRoiPercent: median(roiValues),
