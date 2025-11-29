@@ -535,14 +535,19 @@ export default function Home() {
                         })()
                       }`}>
                         {(() => {
-                          // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dBase
+                          // DŮLEŽITÉ: Použij stejnou logiku jako detail tradera
+                          // Detail tradera počítá PnL z closed positions filtrovaných podle lastSellTimestamp
+                          // Homepage by mělo používat stejnou logiku - použij portfolio endpoint pokud je dostupné
+                          // Jinak fallback na rolling stats nebo recentPnl30dBase
                           const rolling30d = (wallet.advancedStats as any)?.rolling?.['30d'];
+                          // Pro konzistenci s detailem tradera použij rolling stats (které se počítají z ClosedLot stejně jako portfolio)
+                          // Pokud rolling stats nejsou dostupné, použij recentPnl30dBase
                           const pnlBase = rolling30d?.realizedPnl ?? wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0; // PnL v SOL
                           const pnlPercent = rolling30d?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
                           
                           return (
                             <>
-                              {formatNumber(Math.abs(pnlBase), 4)} SOL{' '}
+                              {formatNumber(Math.abs(pnlBase), 2)} SOL{' '}
                               ({(pnlPercent >= 0 ? '+' : '')}{formatPercent(pnlPercent / 100)})
                             </>
                           );
