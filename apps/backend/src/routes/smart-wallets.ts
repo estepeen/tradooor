@@ -1740,11 +1740,19 @@ router.get('/:id/pnl', async (req, res) => {
       }
       const pnlUsd = sellValueUsd - buyValueUsd;
 
+      // Calculate Volume for this period (sum of all amountBase from all trades)
+      const volumeBase = periodTrades.reduce((sum, trade) => {
+        const amountBase = Number(trade.amountBase || 0);
+        return sum + Math.abs(amountBase); // Use absolute value for volume
+      }, 0);
+
       pnlData[period] = {
         pnl,
         pnlUsd,
         pnlPercent,
         trades: periodPositions.length,
+        volumeBase, // Volume v SOL/base měně
+        volumeTrades: periodTrades.length, // Počet všech trades (BUY + SELL) v tomto období
       };
     }
 

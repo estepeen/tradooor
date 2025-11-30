@@ -663,54 +663,34 @@ export default function WalletDetailPage() {
           );
         })()}
 
-        {/* Volume Periods Overview - Calculated from All Trades */}
+        {/* Volume Periods Overview - From API (all trades in database) */}
         {(() => {
-          // Calculate Volume from all trades (BUY + SELL) for each period
-          const calculateVolumeForPeriod = (days: number) => {
-            const now = new Date();
-            const fromDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-            
-            // Filter trades by timestamp within the period
-            const tradesInPeriod = (allTrades || [])
-              .filter((trade: any) => {
-                const tradeDate = new Date(trade.timestamp);
-                return tradeDate >= fromDate && tradeDate <= now;
-              });
-            
-            // Sum up volume from all trades (amountBase in SOL)
-            // Volume = sum of all amountBase (both BUY and SELL)
-            const totalVolume = tradesInPeriod.reduce((sum: number, trade: any) => {
-              const amountBase = Number(trade.amountBase || 0);
-              return sum + Math.abs(amountBase); // Use absolute value to handle both BUY and SELL
-            }, 0);
-            
-            return {
-              volumeBase: totalVolume, // Volume v SOL
-              trades: tradesInPeriod.length,
-            };
-          };
-          
+          // Use Volume data from PnL API endpoint (calculated from all trades in database)
           const periods = [
-            { key: '1d', days: 1 },
-            { key: '7d', days: 7 },
-            { key: '14d', days: 14 },
-            { key: '30d', days: 30 },
+            { key: '1d' },
+            { key: '7d' },
+            { key: '14d' },
+            { key: '30d' },
           ];
           
           return (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-              {periods.map(({ key, days }) => {
-                const data = calculateVolumeForPeriod(days);
+              {periods.map(({ key }) => {
+                // Get Volume data from pnlData (loaded from API)
+                const volumeData = pnlData?.[key];
+                const volumeBase = volumeData?.volumeBase ?? 0;
+                const volumeTrades = volumeData?.volumeTrades ?? 0;
+                
                 return (
                   <div key={key} style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
                     <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Volume ({key})</div>
                     <div className="text-white">
                       <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                        {formatNumber(data.volumeBase, 2)} SOL
+                        {formatNumber(volumeBase, 2)} SOL
                       </span>
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
-                      {data.trades} trades
+                      {volumeTrades} trades
                     </div>
                   </div>
                 );
