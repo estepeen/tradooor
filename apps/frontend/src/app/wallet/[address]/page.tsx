@@ -1272,11 +1272,16 @@ export default function WalletDetailPage() {
                   hasMoreInLoaded,
                   hasMoreInApi,
                   hasMoreTrades,
+                  willShowButton: hasMoreTrades,
                 });
                 
+                // Zobraz tlačítko, pokud jsou ještě další trades k načtení
                 if (!hasMoreTrades) {
+                  console.log('[Load More] Button hidden - no more trades');
                   return null;
                 }
+                
+                console.log('[Load More] Button will be shown');
                 
                 return (
                   <div className="mt-4 flex justify-center">
