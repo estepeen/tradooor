@@ -928,12 +928,18 @@ router.get('/:id/portfolio', async (req, res) => {
     console.log('📊 Loading precomputed portfolio positions...');
     
     // Zkus načíst closed positions z ClosedLot (precomputed worker/cron)
-    const { data: closedLots } = await supabase
+    const { data: closedLots, error: closedLotsError } = await supabase
       .from('ClosedLot')
       .select('*')
       .eq('walletId', wallet.id)
       .order('exitTime', { ascending: false })
       .limit(1000); // Limit pro rychlost
+    
+    if (closedLotsError) {
+      console.warn(`⚠️  Failed to fetch ClosedLots for wallet ${wallet.id}:`, closedLotsError.message);
+    } else {
+      console.log(`   📊 [Portfolio] Loaded ${closedLots?.length || 0} ClosedLots for wallet ${wallet.id}`);
+    }
     
     // Get all trades for this wallet with token info (pouze pro open positions)
     const allTrades = await tradeRepo.findByWalletId(wallet.id, {
@@ -1458,6 +1464,7 @@ router.get('/:id/portfolio', async (req, res) => {
     // Tím zajistíme, že každý cyklus pro stejný token bude samostatná pozice s řadovým označením (1., 2., 3. atd.)
     const closedPositionsFromLots: any[] = [];
     if (closedLots && closedLots.length > 0) {
+      console.log(`   📊 [Portfolio] Found ${closedLots.length} ClosedLots for wallet ${wallet.id}`);
       // Seskupíme ClosedLots podle sellTradeId (každý SELL = jeden cyklus)
       const lotsBySellTradeId = new Map<string, any[]>();
       for (const lot of closedLots) {
@@ -1569,13 +1576,28 @@ router.get('/:id/portfolio', async (req, res) => {
     });
     
     // Calculate 30d PnL from closed positions (same logic as detail page)
+    // DŮLEŽITÉ: Použijeme přímo totalCostBase z closed positions, ne inverzní výpočet z PnL a PnL%
+    // Inverzní výpočet může být nepřesný, zejména když je PnL% 0 nebo velmi malé
     const totalPnl30d = recentClosedPositions30d.reduce((sum: number, p: any) => sum + (p.realizedPnlBase ?? 0), 0);
     const totalCost30d = recentClosedPositions30d.reduce((sum: number, p: any) => {
+      // Použij přímo totalCostBase z closed position, pokud je k dispozici
+      if (p.totalCostBase !== null && p.totalCostBase !== undefined && p.totalCostBase > 0) {
+        return sum + p.totalCostBase;
+      }
+      // Fallback: pokud nemáme totalCostBase, použijeme inverzní výpočet z PnL a PnL%
+      // Ale pouze pokud je PnL% nenulové a platné
       const pnl = p.realizedPnlBase ?? 0; // PnL v SOL
       const pnlPercent = p.realizedPnlPercent ?? 0;
-      if (pnlPercent !== 0 && typeof pnl === 'number' && typeof pnlPercent === 'number') {
+      if (pnlPercent !== 0 && Math.abs(pnlPercent) > 0.01 && typeof pnl === 'number' && typeof pnlPercent === 'number') {
         const cost = pnl / (pnlPercent / 100);
         return sum + Math.abs(cost);
+      }
+      // Pokud nemáme ani totalCostBase ani platný PnL%, použijeme proceeds - realizedPnl jako aproximaci
+      if (p.totalProceedsBase !== null && p.totalProceedsBase !== undefined && p.totalProceedsBase > 0) {
+        const estimatedCost = p.totalProceedsBase - pnl;
+        if (estimatedCost > 0) {
+          return sum + estimatedCost;
+        }
       }
       return sum;
     }, 0);
@@ -1583,7 +1605,7 @@ router.get('/:id/portfolio', async (req, res) => {
     
     if (wallet.id && recentClosedPositions30d.length > 0) {
       console.log(`   📊 [Portfolio] Wallet ${wallet.id}: Found ${recentClosedPositions30d.length} closed positions in last 30 days`);
-      console.log(`   ✅ [Portfolio] Wallet ${wallet.id}: totalPnl30d=${totalPnl30d.toFixed(2)}, totalCost30d=${totalCost30d.toFixed(2)}, pnlPercent30d=${pnlPercent30d.toFixed(2)}%`);
+      console.log(`   ✅ [Portfolio] Wallet ${wallet.id}: totalPnl30d=${totalPnl30d.toFixed(4)} SOL, totalCost30d=${totalCost30d.toFixed(4)} SOL, pnlPercent30d=${pnlPercent30d.toFixed(2)}%`);
     }
     
     // Debug: Log all positions with balance <= 0 to see why they're not in closed positions
@@ -1601,8 +1623,8 @@ router.get('/:id/portfolio', async (req, res) => {
     
     // Calculate 30d PnL from closed positions (same logic as detail page)
     // This ensures consistency between homepage and detail page
-    const pnl30dFromPortfolio = recentClosedPositions30d.reduce((sum: number, p: any) => sum + (p.realizedPnlBase ?? 0), 0);
-    const pnl30dPercentFromPortfolio = recentClosedPositions30d.length > 0 ? pnlPercent30d : 0;
+    const pnl30dFromPortfolio = totalPnl30d; // Už jsme to vypočítali výše, nemusíme znovu
+    const pnl30dPercentFromPortfolio = pnlPercent30d; // Už jsme to vypočítali výše, nemusíme znovu
     
     // Ulož do cache
     const now = new Date().toISOString();
