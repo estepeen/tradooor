@@ -191,9 +191,10 @@ export default function WalletDetailPage() {
   const [portfolioLastUpdated, setPortfolioLastUpdated] = useState<Date | null>(null);
   const [portfolioRefreshing, setPortfolioRefreshing] = useState(false);
   const [countdown, setCountdown] = useState<number>(0);
-  const [recentTradesPage, setRecentTradesPage] = useState<number>(1);
+  const [displayedTradesCount, setDisplayedTradesCount] = useState<number>(50); // Kolik trades se aktuálně zobrazuje
   const RECENT_TRADES_PER_PAGE = 50;
   const [tradesLoading, setTradesLoading] = useState<boolean>(true);
+  const [loadingMoreTrades, setLoadingMoreTrades] = useState<boolean>(false);
   const [pnlLoading, setPnlLoading] = useState<boolean>(true);
   const [portfolioLoading, setPortfolioLoading] = useState<boolean>(true);
 
@@ -203,9 +204,9 @@ export default function WalletDetailPage() {
     }
   }, [walletAddress, tokenFilter, timeframeFilter]);
 
-  // Reset page when filter changes
+  // Reset displayed trades count when filter changes
   useEffect(() => {
-    setRecentTradesPage(1);
+    setDisplayedTradesCount(50);
   }, [tokenFilter, timeframeFilter]);
 
   // OPTIMALIZACE: Portfolio se načte pouze jednou při načtení stránky
@@ -270,7 +271,7 @@ export default function WalletDetailPage() {
       setPnlLoading(true);
       setPortfolioLoading(true);
 
-      // Trades
+      // Trades - načti první 50 trades
       fetchTrades(actualWalletId, { 
         page: 1, 
         pageSize: 50, // Pouze první stránka pro rychlý render
@@ -279,10 +280,13 @@ export default function WalletDetailPage() {
       })
         .then((data) => {
           setTrades(data);
+          // Reset displayed count when loading new data
+          setDisplayedTradesCount(50);
         })
         .catch((err) => {
           console.error('Error fetching trades:', err);
           setTrades({ trades: [], total: 0 });
+          setDisplayedTradesCount(50);
         })
         .finally(() => {
           setTradesLoading(false);
@@ -327,6 +331,53 @@ export default function WalletDetailPage() {
       }
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadMoreTrades() {
+    if (!wallet?.id || !trades || loadingMoreTrades) return;
+    
+    const currentPage = Math.ceil(trades.trades.length / RECENT_TRADES_PER_PAGE);
+    const nextPage = currentPage + 1;
+    
+    // Calculate date range for timeframe filter
+    let fromDate: string | undefined;
+    const now = new Date();
+    switch (timeframeFilter) {
+      case '24h':
+        fromDate = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+        break;
+      case '7d':
+        fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+        break;
+      case '30d':
+        fromDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+        break;
+      default:
+        fromDate = undefined;
+    }
+    
+    setLoadingMoreTrades(true);
+    try {
+      const data = await fetchTrades(wallet.id, {
+        page: nextPage,
+        pageSize: RECENT_TRADES_PER_PAGE,
+        tokenId: tokenFilter || undefined,
+        fromDate,
+      });
+      
+      // Přidej nové trades k existujícím
+      setTrades({
+        trades: [...trades.trades, ...data.trades],
+        total: data.total, // Celkový počet zůstává stejný
+      });
+      
+      // Zvětši počet zobrazených trades
+      setDisplayedTradesCount(prev => prev + RECENT_TRADES_PER_PAGE);
+    } catch (err) {
+      console.error('Error loading more trades:', err);
+    } finally {
+      setLoadingMoreTrades(false);
     }
   }
 
@@ -992,11 +1043,8 @@ export default function WalletDetailPage() {
                         new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
                       );
                       
-                      // Stránkování - zobrazujeme po 50 záznamech
-                      const totalPages = Math.ceil(allTradesSorted.length / RECENT_TRADES_PER_PAGE);
-                      const startIndex = (recentTradesPage - 1) * RECENT_TRADES_PER_PAGE;
-                      const endIndex = startIndex + RECENT_TRADES_PER_PAGE;
-                      const recentTrades = allTradesSorted.slice(startIndex, endIndex);
+                      // Zobrazujeme pouze prvních displayedTradesCount trades
+                      const recentTrades = allTradesSorted.slice(0, displayedTradesCount);
                       
                       if (recentTrades.length === 0) {
                         return (
@@ -1160,7 +1208,7 @@ export default function WalletDetailPage() {
               </>
               )}
               
-              {/* Stránkování */}
+              {/* Load More button */}
               {(() => {
                 // Použij stejné filtrování jako v tabulce
                 let filteredTrades = [...allTrades];
@@ -1201,100 +1249,35 @@ export default function WalletDetailPage() {
                 const allTradesSorted = filteredTrades.sort((a, b) => 
                   new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
                 );
-                const totalPages = Math.ceil(allTradesSorted.length / RECENT_TRADES_PER_PAGE);
                 
-                if (totalPages <= 1) {
+                // Zkontroluj, zda jsou ještě další trades k načtení
+                // Buď máme více trades v načtených datech než zobrazujeme, nebo můžeme načíst další z API
+                const hasMoreTrades = displayedTradesCount < allTradesSorted.length || 
+                  (trades && trades.trades.length < trades.total);
+                
+                if (!hasMoreTrades) {
                   return null;
                 }
                 
-                // Zobrazíme maximálně 10 čísel stránek
-                const maxVisiblePages = 10;
-                let startPage = Math.max(1, recentTradesPage - Math.floor(maxVisiblePages / 2));
-                let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
-                
-                // Upravíme startPage, pokud jsme na konci
-                if (endPage - startPage < maxVisiblePages - 1) {
-                  startPage = Math.max(1, endPage - maxVisiblePages + 1);
-                }
-                
-                const pageNumbers = [];
-                for (let i = startPage; i <= endPage; i++) {
-                  pageNumbers.push(i);
-                }
-                
                 return (
-                  <div className="mt-4 flex justify-center items-center gap-2 flex-wrap">
+                  <div className="mt-4 flex justify-center">
                     <button
-                      onClick={() => setRecentTradesPage(1)}
-                      disabled={recentTradesPage === 1}
-                      className="px-3 py-1.5 text-sm border border-border rounded-md bg-background hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
+                      onClick={loadMoreTrades}
+                      disabled={loadingMoreTrades}
+                      className="px-6 py-2 text-sm font-medium border border-border rounded-md bg-background hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >
-                      «
+                      {loadingMoreTrades ? (
+                        <>
+                          <svg className="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                          </svg>
+                          Loading...
+                        </>
+                      ) : (
+                        `Load More (${RECENT_TRADES_PER_PAGE} more)`
+                      )}
                     </button>
-                    <button
-                      onClick={() => setRecentTradesPage(Math.max(1, recentTradesPage - 1))}
-                      disabled={recentTradesPage === 1}
-                      className="px-3 py-1.5 text-sm border border-border rounded-md bg-background hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      ‹
-                    </button>
-                    
-                    {startPage > 1 && (
-                      <>
-                        <button
-                          onClick={() => setRecentTradesPage(1)}
-                          className="px-3 py-1.5 text-sm border border-border rounded-md bg-background hover:bg-muted"
-                        >
-                          1
-                        </button>
-                        {startPage > 2 && <span className="px-2 text-muted-foreground">...</span>}
-                      </>
-                    )}
-                    
-                    {pageNumbers.map((pageNum) => (
-                      <button
-                        key={pageNum}
-                        onClick={() => setRecentTradesPage(pageNum)}
-                        className={`px-3 py-1.5 text-sm border rounded-md ${
-                          recentTradesPage === pageNum
-                            ? 'bg-primary text-primary-foreground border-primary'
-                            : 'bg-background border-border hover:bg-muted'
-                        }`}
-                      >
-                        {pageNum}
-                      </button>
-                    ))}
-                    
-                    {endPage < totalPages && (
-                      <>
-                        {endPage < totalPages - 1 && <span className="px-2 text-muted-foreground">...</span>}
-                        <button
-                          onClick={() => setRecentTradesPage(totalPages)}
-                          className="px-3 py-1.5 text-sm border border-border rounded-md bg-background hover:bg-muted"
-                        >
-                          {totalPages}
-                        </button>
-                      </>
-                    )}
-                    
-                    <button
-                      onClick={() => setRecentTradesPage(Math.min(totalPages, recentTradesPage + 1))}
-                      disabled={recentTradesPage === totalPages}
-                      className="px-3 py-1.5 text-sm border border-border rounded-md bg-background hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      ›
-                    </button>
-                    <button
-                      onClick={() => setRecentTradesPage(totalPages)}
-                      disabled={recentTradesPage === totalPages}
-                      className="px-3 py-1.5 text-sm border border-border rounded-md bg-background hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      »
-                    </button>
-                    
-                    <span className="ml-4 text-sm text-muted-foreground">
-                      Stránka {recentTradesPage} z {totalPages} ({allTradesSorted.length} celkem)
-                    </span>
                   </div>
                 );
               })()}
