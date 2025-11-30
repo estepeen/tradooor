@@ -279,6 +279,12 @@ export default function WalletDetailPage() {
         fromDate,
       })
         .then((data) => {
+          console.log('[Load Trades] API Response:', {
+            tradesCount: data.trades?.length || 0,
+            total: data.total || 0,
+            page: data.page || 1,
+            pageSize: data.pageSize || 50,
+          });
           setTrades(data);
           // Reset displayed count when loading new data
           setDisplayedTradesCount(50);
@@ -1256,6 +1262,17 @@ export default function WalletDetailPage() {
                 const hasMoreInLoaded = displayedTradesCount < allTradesSorted.length;
                 const hasMoreInApi = trades && trades.total > 0 && trades.trades.length < trades.total;
                 const hasMoreTrades = hasMoreInLoaded || hasMoreInApi;
+                
+                // Debug: zobraz vždy, pokud máme trades a total > loaded
+                console.log('[Load More Debug]', {
+                  displayedTradesCount,
+                  allTradesSortedLength: allTradesSorted.length,
+                  tradesLoaded: trades?.trades.length || 0,
+                  tradesTotal: trades?.total || 0,
+                  hasMoreInLoaded,
+                  hasMoreInApi,
+                  hasMoreTrades,
+                });
                 
                 if (!hasMoreTrades) {
                   return null;
