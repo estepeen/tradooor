@@ -1208,7 +1208,7 @@ export default function WalletDetailPage() {
               </>
               )}
               
-              {/* Load More button - zobrazit pouze pokud nejsou prázdné trades */}
+              {/* Load More button */}
               {trades && trades.trades.length > 0 && (() => {
                 // Použij stejné filtrování jako v tabulce
                 let filteredTrades = [...allTrades];
@@ -1256,19 +1256,6 @@ export default function WalletDetailPage() {
                 const hasMoreInLoaded = displayedTradesCount < allTradesSorted.length;
                 const hasMoreInApi = trades && trades.total > 0 && trades.trades.length < trades.total;
                 const hasMoreTrades = hasMoreInLoaded || hasMoreInApi;
-                
-                // Debug logy pro diagnostiku
-                if (trades) {
-                  console.log('[Load More] Debug:', {
-                    displayedTradesCount,
-                    allTradesSortedLength: allTradesSorted.length,
-                    tradesLoaded: trades.trades.length,
-                    tradesTotal: trades.total,
-                    hasMoreInLoaded,
-                    hasMoreInApi,
-                    hasMoreTrades,
-                  });
-                }
                 
                 if (!hasMoreTrades) {
                   return null;
