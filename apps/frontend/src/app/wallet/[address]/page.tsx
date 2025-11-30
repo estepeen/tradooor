@@ -343,6 +343,7 @@ export default function WalletDetailPage() {
   async function loadMoreTrades() {
     if (!wallet?.id || !trades || loadingMoreTrades) return;
     
+    // Vypočítej další stránku na základě počtu již načtených trades
     const currentPage = Math.ceil(trades.trades.length / RECENT_TRADES_PER_PAGE);
     const nextPage = currentPage + 1;
     
@@ -365,6 +366,7 @@ export default function WalletDetailPage() {
     
     setLoadingMoreTrades(true);
     try {
+      console.log(`[Load More Trades] Loading page ${nextPage} from API...`);
       const data = await fetchTrades(wallet.id, {
         page: nextPage,
         pageSize: RECENT_TRADES_PER_PAGE,
@@ -372,14 +374,20 @@ export default function WalletDetailPage() {
         fromDate,
       });
       
-      // Přidej nové trades k existujícím
+      console.log(`[Load More Trades] Received ${data.trades?.length || 0} new trades from API`);
+      
+      // Přidej nové trades k existujícím (z databáze)
       setTrades({
         trades: [...trades.trades, ...data.trades],
-        total: data.total, // Celkový počet zůstává stejný
+        total: data.total, // Celkový počet zůstává stejný z API
       });
       
       // Zvětši počet zobrazených trades
-      setDisplayedTradesCount(prev => prev + RECENT_TRADES_PER_PAGE);
+      setDisplayedTradesCount(prev => {
+        const newCount = prev + RECENT_TRADES_PER_PAGE;
+        console.log(`[Load More Trades] Displayed count: ${prev} -> ${newCount}`);
+        return newCount;
+      });
     } catch (err) {
       console.error('Error loading more trades:', err);
     } finally {
