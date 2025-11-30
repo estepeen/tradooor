@@ -1208,8 +1208,8 @@ export default function WalletDetailPage() {
               </>
               )}
               
-              {/* Load More button */}
-              {(() => {
+              {/* Load More button - zobrazit pouze pokud nejsou prázdné trades */}
+              {trades && trades.trades.length > 0 && (() => {
                 // Použij stejné filtrování jako v tabulce
                 let filteredTrades = [...allTrades];
                 
@@ -1251,9 +1251,24 @@ export default function WalletDetailPage() {
                 );
                 
                 // Zkontroluj, zda jsou ještě další trades k načtení
-                // Buď máme více trades v načtených datech než zobrazujeme, nebo můžeme načíst další z API
-                const hasMoreTrades = displayedTradesCount < allTradesSorted.length || 
-                  (trades && trades.trades.length < trades.total);
+                // 1. Jsou ještě další trades v načtených datech, které nejsou zobrazeny
+                // 2. NEBO můžeme načíst další trades z API (trades.trades.length < trades.total)
+                const hasMoreInLoaded = displayedTradesCount < allTradesSorted.length;
+                const hasMoreInApi = trades && trades.total > 0 && trades.trades.length < trades.total;
+                const hasMoreTrades = hasMoreInLoaded || hasMoreInApi;
+                
+                // Debug logy pro diagnostiku
+                if (trades) {
+                  console.log('[Load More] Debug:', {
+                    displayedTradesCount,
+                    allTradesSortedLength: allTradesSorted.length,
+                    tradesLoaded: trades.trades.length,
+                    tradesTotal: trades.total,
+                    hasMoreInLoaded,
+                    hasMoreInApi,
+                    hasMoreTrades,
+                  });
+                }
                 
                 if (!hasMoreTrades) {
                   return null;
@@ -1282,7 +1297,7 @@ export default function WalletDetailPage() {
                 );
               })()}
               
-              {(!trades || trades.trades.length === 0) && (
+              {(!trades || trades.trades.length === 0) && !tradesLoading && (
                 <div className="text-center py-12 text-muted-foreground">
                   No trades found
                 </div>
