@@ -140,10 +140,12 @@ function normalizeQuickNodeSwap(
       }
     }
 
-    // Debug: log token net changes
-    console.log(`   [QuickNode] Token net changes for wallet ${walletAddress.substring(0, 8)}...:`, 
-      Array.from(tokenNetByMint.entries()).map(([mint, delta]) => `${mint.substring(0, 8)}...: ${delta}`).join(', '));
-    console.log(`   [QuickNode] SOL net change: ${solNet}`);
+    // Debug: log token net changes (only if there are changes)
+    if (tokenNetByMint.size > 0 || Math.abs(solNet) > 0.001) {
+      console.log(`   [QuickNode] Token net changes for wallet ${walletAddress.substring(0, 8)}...:`, 
+        Array.from(tokenNetByMint.entries()).map(([mint, delta]) => `${mint.substring(0, 8)}...: ${delta}`).join(', '));
+      console.log(`   [QuickNode] SOL net change: ${solNet}`);
+    }
 
     // 3) Pick main traded (non-base) token by absolute net change
     let primaryMint: string | null = null;
@@ -158,11 +160,8 @@ function normalizeQuickNodeSwap(
     }
     if (!primaryMint || Math.abs(primaryDelta) < 1e-9) {
       // No clear non-base token movement for this wallet → not a trade we care about
-      console.log(`   [QuickNode] No non-base token movement detected (primaryMint=${primaryMint}, primaryDelta=${primaryDelta})`);
       return null;
     }
-    
-    console.log(`   [QuickNode] Primary token: ${primaryMint.substring(0, 8)}..., delta: ${primaryDelta}`);
 
     const side: 'buy' | 'sell' = primaryDelta > 0 ? 'buy' : 'sell';
     const amountToken = Math.abs(primaryDelta);
@@ -564,14 +563,15 @@ export class SolanaCollectorService {
     blockTime?: number
   ): Promise<{ saved: boolean; reason?: string }> {
     try {
-      console.log(`   [QuickNode] Processing transaction for wallet ${walletAddress.substring(0, 8)}...`);
       const normalized = normalizeQuickNodeSwap(tx, walletAddress, blockTime);
       if (!normalized) {
-        console.log(`   [QuickNode] Transaction not normalized (not a swap)`);
         return { saved: false, reason: 'not a swap' };
       }
       
-      console.log(`   [QuickNode] Normalized swap: ${normalized.side} ${normalized.amountToken} tokens for ${normalized.amountBase} ${normalized.baseToken}`);
+      // Only log if it's a significant trade (not tiny amounts)
+      if (normalized.amountBase >= 0.1) {
+        console.log(`   [QuickNode] Normalized swap: ${normalized.side} ${normalized.amountToken} tokens for ${normalized.amountBase} ${normalized.baseToken}`);
+      }
 
       // 1b. Filter out tiny SOL trades (likely just fees) - do not store trades with value < 0.03 SOL
       if (normalized.baseToken === 'SOL' && normalized.amountBase < 0.03) {
@@ -771,7 +771,6 @@ export class SolanaCollectorService {
         return { saved: false, reason: 'duplicate' };
       }
 
-      console.log(`   [QuickNode] Creating trade in DB: ${normalized.txSignature.substring(0, 16)}...`);
       const createdTrade = await this.tradeRepo.create({
         txSignature: normalized.txSignature,
         walletId: wallet.id,
@@ -791,11 +790,10 @@ export class SolanaCollectorService {
         },
       });
 
-      console.log(`   ✅ [QuickNode] Trade saved to DB: ${createdTrade.id}`);
+      console.log(`   ✅ [QuickNode] Trade saved: ${createdTrade.id.substring(0, 8)}... (${normalized.side} ${normalized.amountToken} tokens, ${normalized.amountBase} ${normalized.baseToken})`);
 
       try {
         await this.walletQueueRepo.enqueue(wallet.id);
-        console.log(`   ✅ [QuickNode] Wallet ${walletAddress.substring(0, 8)}... enqueued for metrics recalculation`);
       } catch (queueError: any) {
         console.warn(
           `⚠️  Failed to enqueue wallet ${walletAddress} for metrics recalculation: ${queueError.message}`

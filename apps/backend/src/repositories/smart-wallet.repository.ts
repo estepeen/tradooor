@@ -108,8 +108,15 @@ export class SmartWalletRepository {
           // If no trades found, that's OK - return null
           if (error.code === 'PGRST116') {
             return { walletId, timestamp: null };
-        }
-          console.error(`❌ Error fetching last trade for wallet ${walletId}:`, error);
+          }
+          // Don't log full HTML errors from Supabase/Cloudflare (too verbose)
+          const errorMsg = typeof error.message === 'string' && error.message.length > 200
+            ? error.message.substring(0, 200) + '...'
+            : error.message;
+          // Only log non-HTML errors (Supabase 500 errors are often HTML from Cloudflare)
+          if (!errorMsg?.includes('<!DOCTYPE html>') && !errorMsg?.includes('<html')) {
+            console.error(`❌ Error fetching last trade for wallet ${walletId}:`, errorMsg);
+          }
           return { walletId, timestamp: null };
         }
 

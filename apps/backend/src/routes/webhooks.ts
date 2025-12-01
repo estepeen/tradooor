@@ -265,20 +265,20 @@ export async function processQuickNodeWebhook(body: any) {
 
     for (const tx of txList) {
       try {
-        // Debug: log transaction structure
-        console.log('   Processing transaction, keys:', Object.keys(tx || {}));
-        if (tx.transaction) {
-          console.log('   tx.transaction keys:', Object.keys(tx.transaction));
-        }
-        if (tx.meta) {
-          console.log('   tx.meta keys:', Object.keys(tx.meta));
-        }
-
+        // Early filtering: QuickNode Streams/QuickAlerts may send different formats
+        // Check if this is a valid RPC-style transaction (has transaction.message and meta)
         const message = tx.transaction?.message;
         const meta = tx.meta;
+        
+        // Skip if not in expected format (silently - too many to log)
         if (!message || !meta) {
-          console.log(`   ⏭️  Skipping transaction: missing message or meta`);
-          console.log(`      Has message: ${!!message}, Has meta: ${!!meta}`);
+          skipped++;
+          continue;
+        }
+        
+        // Quick check: if transaction has 'raw' or 'wallets' keys, it's likely a different format
+        // (QuickNode Streams might send enriched data, not raw RPC format)
+        if (tx.raw || tx.wallets) {
           skipped++;
           continue;
         }
@@ -309,6 +309,7 @@ export async function processQuickNodeWebhook(body: any) {
         addOwnersFrom(meta.preTokenBalances || []);
         addOwnersFrom(meta.postTokenBalances || []);
 
+        // Early exit if no tracked wallets involved (silently - too many to log)
         if (candidateWallets.size === 0) {
           skipped++;
           continue;
@@ -324,6 +325,7 @@ export async function processQuickNodeWebhook(body: any) {
 
           if (result.saved) {
             saved++;
+            // Only log saved trades (important events)
             console.log(
               `✅ [QuickNode] Saved swap: ${
                 tx.transaction?.signatures?.[0]?.substring(0, 16) || 'unknown'
@@ -331,11 +333,12 @@ export async function processQuickNodeWebhook(body: any) {
             );
           } else {
             skipped++;
-            if (result.reason !== 'duplicate') {
+            // Only log non-duplicate skips with important reasons (not "not a swap" - too common)
+            if (result.reason && result.reason !== 'duplicate' && result.reason !== 'not a swap') {
               console.log(
-                `⏭️  [QuickNode] Skipped swap: ${
+                `⏭️  [QuickNode] Skipped: ${
                   tx.transaction?.signatures?.[0]?.substring(0, 16) || 'unknown'
-                }... (${result.reason || 'not a swap'})`
+                }... (${result.reason})`
               );
             }
           }
