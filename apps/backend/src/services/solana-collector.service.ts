@@ -161,6 +161,9 @@ function normalizeQuickNodeSwap(
     }
     if (!primaryMint || Math.abs(primaryDelta) < 1e-9) {
       // No clear non-base token movement for this wallet → not a trade we care about
+      console.log(`   ⚠️  [QuickNode] No primary token found for wallet ${walletAddress.substring(0, 8)}...`);
+      console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
+      console.log(`      SOL net change: ${solNet.toFixed(6)}`);
       return null;
     }
 
@@ -215,6 +218,10 @@ function normalizeQuickNodeSwap(
           baseToken = secondaryMint; // Použijeme mint address jako base token
         } else {
           // Not enough info about base leg
+          console.log(`   ⚠️  [QuickNode] No base token found for BUY swap (wallet ${walletAddress.substring(0, 8)}...)`);
+          console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
+          console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
+          console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
           return null;
         }
       } else {
@@ -250,6 +257,10 @@ function normalizeQuickNodeSwap(
           baseAmount = secondaryDelta;
           baseToken = secondaryMint; // Použijeme mint address jako base token
         } else {
+          console.log(`   ⚠️  [QuickNode] No base token found for SELL swap (wallet ${walletAddress.substring(0, 8)}...)`);
+          console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
+          console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
+          console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
           return null;
         }
       } else {
@@ -261,6 +272,10 @@ function normalizeQuickNodeSwap(
     }
 
     if (baseAmount <= 0 || amountToken <= 0) {
+      console.log(`   ⚠️  [QuickNode] Invalid baseAmount or amountToken for wallet ${walletAddress.substring(0, 8)}...`);
+      console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
+      console.log(`      Base amount: ${baseAmount.toFixed(6)}, Base token: ${baseToken}`);
+      console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
       return null;
     }
 
