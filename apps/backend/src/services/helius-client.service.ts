@@ -1989,16 +1989,26 @@ export class HeliusClient {
         }
       }
 
-      // Pokud je amountBase podezřele malý (≤ 0.1 SOL), je to velmi pravděpodobně jen fee a ne skutečná swap hodnota.
-      // V legacy větvi nemáme helper getLargestSolTransferForWallet, ale máme accountDataNativeChange,
-      // které reprezentuje celkovou netto změnu SOL pro wallet – použijeme ho jako konzervativní fallback.
-      if (amountBase > 0 && amountBase <= 0.1) {
+      // Pokud je amountBase podezřele malý ve srovnání s accountData.nativeBalanceChange,
+      // je velmi pravděpodobné, že jde jen o fee (např. 0.0x SOL), zatímco skutečná hodnota swapu
+      // je v accountData (např. 5–10 SOL). V takovém případě použijeme accountData jako konzervativní fallback.
+      //
+      // Příklad bugu:
+      // - nativeTransfers detekují jen ~0.10 SOL (fee)
+      // - accountData.nativeBalanceChange = ~10 SOL
+      // - amountBase bylo 0.102074 SOL místo 10.105000004 SOL
+      //
+      // Proto se díváme primárně na poměr accountData / amountBase a ne jen na absolutní hranici 0.1 SOL.
+      if (amountBase > 0) {
         const absAccountData = Math.abs(accountDataNativeChange);
-        if (absAccountData >= 0.1 && absAccountData > amountBase * 2) {
+        // accountData musí být zároveň:
+        // - aspoň 0.1 SOL (abychom ignorovali čisté fee)
+        // - výrazně větší než amountBase (např. 10x)
+        if (absAccountData >= 0.1 && absAccountData > amountBase * 10) {
           console.log(
             `   ✅ [NETTO CHANGE] Using accountData.nativeBalanceChange fallback: ${absAccountData.toFixed(
               6
-            )} SOL (was ${amountBase.toFixed(6)} SOL - likely fee)`
+            )} SOL (was ${amountBase.toFixed(6)} SOL - likely fee only)`
           );
           amountBase = absAccountData;
         }
