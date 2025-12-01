@@ -135,7 +135,8 @@ $JS_ARRAY
 
       if (!hasTrackedWallet) continue;
 
-      // 3. Zkontroluj, jestli swap obsahuje některý z base tokenů (SOL/WSOL/USDC/USDT)
+      // 3. Zkontroluj, jestli je to skutečný swap (ne jen transfer)
+      // Swap musí mít změnu v alespoň 2 různých tokenech (jeden jde dolů, druhý nahoru)
       const BASE_MINTS = new Set([
         'So11111111111111111111111111111111111111112', // WSOL/NATIVE_MINT
         'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
@@ -145,45 +146,97 @@ $JS_ARRAY
       const meta = tx.meta;
       if (!meta) continue;
 
-      // Sběr všech mintů z preTokenBalances a postTokenBalances
-      const mintsInTx = new Set();
-      
-      const addMintsFromBalances = (balances) => {
-        if (!Array.isArray(balances)) return;
-        for (const balance of balances) {
-          if (balance.mint) {
-            mintsInTx.add(balance.mint);
-          }
-        }
-      };
-
-      addMintsFromBalances(meta.preTokenBalances);
-      addMintsFromBalances(meta.postTokenBalances);
-
-      // Zkontroluj, jestli obsahuje některý base token
-      let hasBaseToken = false;
-      for (const mint of mintsInTx) {
-        if (BASE_MINTS.has(mint)) {
-          hasBaseToken = true;
+      // Najdi tracked wallet v transakci
+      let trackedWalletInTx = null;
+      for (const key of accountKeys) {
+        const pubkey = typeof key === 'string' ? key : key?.pubkey;
+        if (pubkey && TRACKED_WALLETS.has(pubkey)) {
+          trackedWalletInTx = pubkey;
           break;
         }
       }
 
-      // Také zkontroluj native SOL změny (preBalances/postBalances)
-      if (!hasBaseToken && Array.isArray(meta.preBalances) && Array.isArray(meta.postBalances)) {
-        // Pokud je změna v SOL balance, je to swap s SOL
-        for (let i = 0; i < Math.min(meta.preBalances.length, meta.postBalances.length); i++) {
-          const pre = meta.preBalances[i] || 0;
-          const post = meta.postBalances[i] || 0;
-          if (Math.abs(post - pre) > 1000) { // Více než 0.000001 SOL (1000 lamports)
-            hasBaseToken = true;
+      if (!trackedWalletInTx) {
+        // Zkontroluj token balances
+        const allBalances = [
+          ...(meta.preTokenBalances || []),
+          ...(meta.postTokenBalances || []),
+        ];
+        for (const balance of allBalances) {
+          if (balance.owner && TRACKED_WALLETS.has(balance.owner)) {
+            trackedWalletInTx = balance.owner;
             break;
           }
         }
       }
 
-      // Přidej transakci jen pokud obsahuje base token
-      if (hasBaseToken) {
+      if (!trackedWalletInTx) continue;
+
+      const trackedWalletLower = trackedWalletInTx.toLowerCase();
+
+      // Vypočítej změny v token balances
+      const preMap = new Map(); // mint -> amount
+      const postMap = new Map(); // mint -> amount
+
+      const processBalances = (balances, targetMap) => {
+        if (!Array.isArray(balances)) return;
+        for (const balance of balances) {
+          if (!balance.owner || balance.owner.toLowerCase() !== trackedWalletLower) continue;
+          if (!balance.mint) continue;
+          
+          const amount = balance.uiTokenAmount?.uiAmount || 
+                       (balance.uiTokenAmount?.amount ? 
+                        Number(balance.uiTokenAmount.amount) / Math.pow(10, balance.uiTokenAmount.decimals || 0) : 
+                        0);
+          if (amount > 0) {
+            targetMap.set(balance.mint, (targetMap.get(balance.mint) || 0) + amount);
+          }
+        }
+      };
+
+      processBalances(meta.preTokenBalances, preMap);
+      processBalances(meta.postTokenBalances, postMap);
+
+      // Vypočítej net changes
+      const allMints = new Set([...preMap.keys(), ...postMap.keys()]);
+      let tokensWithChange = 0;
+      let hasBaseToken = false;
+
+      for (const mint of allMints) {
+        const pre = preMap.get(mint) || 0;
+        const post = postMap.get(mint) || 0;
+        const change = Math.abs(post - pre);
+        
+        // Ignoruj velmi malé změny (mohou být zaokrouhlovací chyby)
+        if (change > 0.000001) {
+          tokensWithChange++;
+          if (BASE_MINTS.has(mint)) {
+            hasBaseToken = true;
+          }
+        }
+      }
+
+      // Také zkontroluj native SOL změny
+      if (!hasBaseToken && Array.isArray(meta.preBalances) && Array.isArray(meta.postBalances)) {
+        for (let i = 0; i < accountKeys.length; i++) {
+          const pk = accountKeys[i];
+          if (!pk || (typeof pk === 'string' ? pk : pk?.pubkey)?.toLowerCase() !== trackedWalletLower) continue;
+          
+          const pre = meta.preBalances[i] || 0;
+          const post = meta.postBalances[i] || 0;
+          const solChange = Math.abs(post - pre);
+          if (solChange > 1000) { // Více než 0.000001 SOL
+            hasBaseToken = true;
+            tokensWithChange++; // Počítáme SOL jako jeden token
+            break;
+          }
+        }
+      }
+
+      // Swap musí mít:
+      // 1. Alespoň 2 tokeny se změnou (jeden jde dolů, druhý nahoru)
+      // 2. Alespoň jeden z nich musí být base token (SOL/WSOL/USDC/USDT)
+      if (tokensWithChange >= 2 && hasBaseToken) {
         relevantTransactions.push(tx);
       }
     }
