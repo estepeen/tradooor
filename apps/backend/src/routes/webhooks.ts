@@ -452,6 +452,18 @@ router.get('/quicknode/test', (req, res) => {
 });
 
 /**
+ * POST /api/webhooks/quicknode/test
+ * Test endpoint (POST variant) - checks if QuickNode webhook endpoint is working
+ */
+router.post('/quicknode/test', (req, res) => {
+  res.json({
+    success: true,
+    message: 'QuickNode webhook endpoint is working!',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
  * POST /api/webhooks/quicknode
  *
  * Endpoint to receive webhook notifications from QuickNode Streams / QuickAlerts.
