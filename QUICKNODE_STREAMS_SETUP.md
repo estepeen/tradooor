@@ -22,12 +22,32 @@ Nejdřív potřebuješ mint adresy tokenů, které chceš sledovat:
 # TRUMP token mint address (najdi na Solscan nebo DexScreener)
 ```
 
-## Krok 2: Úprava filter funkce
+## Krok 2: Výběr typu filtru
+
+Máš 3 možnosti:
+
+### Varianta A: Filter podle token párů (TROLL/SOL, TRUMP/USDC)
 
 1. Otevři soubor `quicknode-streams-filter.js`
 2. Nahraď `YOUR_TROLL_MINT_ADDRESS_HERE` skutečnou TROLL mint adresou
 3. Nahraď `YOUR_TRUMP_MINT_ADDRESS_HERE` skutečnou TRUMP mint adresou
 4. Pokud chceš sledovat další token páry, přidej je do `TARGET_PAIRS` pole
+
+### Varianta B: Filter podle tracked wallets (doporučeno)
+
+Tato varianta posílá všechny swapy pro tracked wallets (z `wallets.csv`):
+
+1. Spusť skript pro generování filtru:
+   ```bash
+   ./generate-quicknode-filter.sh
+   ```
+2. Tím se vytvoří `quicknode-streams-filter-generated.js` s všemi adresami z `wallets.csv`
+3. Použij tento vygenerovaný soubor v QuickNode Dashboard
+
+### Varianta C: Ruční filter podle tracked wallets
+
+1. Otevři soubor `quicknode-streams-filter-wallets.js`
+2. Nahraď `TRACKED_WALLETS` pole skutečnými adresami z `wallets.csv`
 
 ## Krok 3: Nastavení v QuickNode Dashboard
 
