@@ -632,18 +632,26 @@ export class SolanaCollectorService {
       let amountBaseUsd = 0;
       let priceBasePerTokenUsd = 0;
       
+      // Debug: log původní hodnoty před konverzí
+      const originalAmountBase = normalized.amountBase;
+      const originalPriceBasePerToken = normalized.priceBasePerToken;
+      const originalBaseToken = normalized.baseToken;
+      
       try {
         if (normalized.baseToken === 'SOL') {
           // SOL -> USD pomocí Binance API
           const solPriceUsd = await this.binancePriceService.getSolPriceAtTimestamp(normalized.timestamp);
           amountBaseUsd = normalized.amountBase * solPriceUsd;
           priceBasePerTokenUsd = normalized.priceBasePerToken * solPriceUsd;
+          console.log(`   💵 [QuickNode USD] SOL conversion: ${originalAmountBase.toFixed(6)} SOL × $${solPriceUsd.toFixed(2)} = $${amountBaseUsd.toFixed(2)} USD`);
         } else if (normalized.baseToken === 'USDC' || normalized.baseToken === 'USDT') {
           // USDC/USDT jsou 1:1 s USD
           amountBaseUsd = normalized.amountBase;
           priceBasePerTokenUsd = normalized.priceBasePerToken;
+          console.log(`   💵 [QuickNode USD] ${normalized.baseToken} (1:1): ${originalAmountBase.toFixed(6)} ${normalized.baseToken} = $${amountBaseUsd.toFixed(2)} USD`);
         } else {
           // Token za token swap - získej cenu sekundárního tokenu v USD
+          console.log(`   💵 [QuickNode USD] Token-to-token swap: fetching USD price for secondary token ${normalized.baseToken.substring(0, 8)}...`);
           const secondaryTokenPrice = await this.tokenPriceService.getTokenPriceAtDate(
             normalized.baseToken, // mint address sekundárního tokenu
             normalized.timestamp
@@ -653,6 +661,7 @@ export class SolanaCollectorService {
             // Sekundární token má cenu v USD
             amountBaseUsd = normalized.amountBase * secondaryTokenPrice;
             priceBasePerTokenUsd = normalized.priceBasePerToken * secondaryTokenPrice;
+            console.log(`   💵 [QuickNode USD] Token-to-token: ${originalAmountBase.toFixed(6)} tokens × $${secondaryTokenPrice.toFixed(6)} = $${amountBaseUsd.toFixed(2)} USD`);
           } else {
             // Pokud nemůžeme získat cenu sekundárního tokenu, použijeme fallback na SOL price
             console.warn(`   ⚠️  [QuickNode] Cannot get USD price for secondary token ${normalized.baseToken.substring(0, 8)}..., using SOL price as fallback`);
@@ -660,6 +669,7 @@ export class SolanaCollectorService {
             // Odhad: předpokládáme, že sekundární token má podobnou hodnotu jako SOL (konzervativní odhad)
             amountBaseUsd = normalized.amountBase * solPriceUsd;
             priceBasePerTokenUsd = normalized.priceBasePerToken * solPriceUsd;
+            console.log(`   💵 [QuickNode USD] Fallback (SOL price): ${originalAmountBase.toFixed(6)} tokens × $${solPriceUsd.toFixed(2)} = $${amountBaseUsd.toFixed(2)} USD`);
           }
         }
       } catch (error: any) {
@@ -681,7 +691,9 @@ export class SolanaCollectorService {
       
       // Only log if it's a significant trade (not tiny amounts) - nyní v USD
       if (amountBaseUsd >= 1) { // $1 USD minimum
-        console.log(`   [QuickNode] Normalized swap: ${normalized.side} ${normalized.amountToken} tokens for $${amountBaseUsd.toFixed(2)} USD (${normalized.baseToken})`);
+        console.log(`   ✅ [QuickNode] Normalized swap: ${normalized.side.toUpperCase()} ${normalized.amountToken.toFixed(4)} tokens for $${amountBaseUsd.toFixed(2)} USD`);
+        console.log(`      Original: ${originalAmountBase.toFixed(6)} ${originalBaseToken} → Converted: $${amountBaseUsd.toFixed(2)} USD`);
+        console.log(`      Price: $${priceBasePerTokenUsd.toFixed(8)} USD per token`);
       }
 
       // 1b. Filter out tiny trades (likely just fees) - do not store trades with value < $0.10 USD
@@ -892,7 +904,11 @@ export class SolanaCollectorService {
         },
       });
 
-      console.log(`   ✅ [QuickNode] Trade saved: ${createdTrade.id.substring(0, 8)}... (${normalized.side} ${normalized.amountToken} tokens, ${normalized.amountBase} ${normalized.baseToken})`);
+      console.log(`   ✅ [QuickNode] Trade saved: ${createdTrade.id.substring(0, 8)}...`);
+      console.log(`      ${normalized.side.toUpperCase()}: ${normalized.amountToken.toFixed(4)} tokens`);
+      console.log(`      Value: $${normalized.amountBase.toFixed(2)} USD (original: ${originalAmountBase.toFixed(6)} ${originalBaseToken})`);
+      console.log(`      Price: $${normalized.priceBasePerToken.toFixed(8)} USD per token`);
+      console.log(`      Token: ${normalized.tokenMint.substring(0, 16)}...`);
 
       try {
         await this.walletQueueRepo.enqueue(wallet.id);
