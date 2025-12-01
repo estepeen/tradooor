@@ -193,29 +193,51 @@ export async function processQuickNodeWebhook(body: any) {
         console.log('   body.data[0] keys:', Object.keys(body.data[0] || {}));
       }
     }
+    if (Array.isArray(body) && body.length > 0) {
+      console.log('   body[0] keys:', Object.keys(body[0] || {}));
+      if (body[0]?.block) {
+        console.log('   body[0].block keys:', Object.keys(body[0].block || {}));
+      }
+    }
 
     // Try multiple payload formats that QuickNode might use
     let blockTime: number | undefined;
     let txList: any[] = [];
 
-    // Format 1: { data: [{ blockTime, transactions: [...] }] }
-    if (Array.isArray(body?.data) && body.data.length > 0) {
+    // Format 1: Array of blocks [{ block: { blockTime, ... }, transactions: [...] }, ...]
+    if (Array.isArray(body) && body.length > 0) {
+      const firstBlock = body[0];
+      // Check if it's a block structure
+      if (firstBlock?.block && firstBlock?.transactions) {
+        blockTime = firstBlock.block.blockTime;
+        txList = Array.isArray(firstBlock.transactions) ? firstBlock.transactions : [];
+        // Also check other blocks in the array
+        for (let i = 1; i < body.length; i++) {
+          if (body[i]?.transactions && Array.isArray(body[i].transactions)) {
+            txList.push(...body[i].transactions);
+          }
+        }
+      }
+      // Format 1b: Array of transactions directly (fallback)
+      else if (!firstBlock?.block && !firstBlock?.transactions) {
+        // Might be array of transactions directly
+        txList = body;
+      }
+    }
+    // Format 2: { data: [{ blockTime, transactions: [...] }] }
+    else if (Array.isArray(body?.data) && body.data.length > 0) {
       const firstEntry = body.data[0];
-      blockTime = firstEntry?.blockTime;
+      blockTime = firstEntry?.blockTime || firstEntry?.block?.blockTime;
       txList = Array.isArray(firstEntry?.transactions) ? firstEntry.transactions : [];
     }
-    // Format 2: { blockTime, transactions: [...] } (direct)
+    // Format 3: { blockTime, transactions: [...] } (direct)
     else if (body?.transactions && Array.isArray(body.transactions)) {
-      blockTime = body.blockTime;
+      blockTime = body.blockTime || body.block?.blockTime;
       txList = body.transactions;
-    }
-    // Format 3: Array of transactions directly
-    else if (Array.isArray(body)) {
-      txList = body;
     }
     // Format 4: { result: { blockTime, transactions: [...] } }
     else if (body?.result?.transactions && Array.isArray(body.result.transactions)) {
-      blockTime = body.result.blockTime;
+      blockTime = body.result.blockTime || body.result.block?.blockTime;
       txList = body.result.transactions;
     }
 
@@ -243,9 +265,20 @@ export async function processQuickNodeWebhook(body: any) {
 
     for (const tx of txList) {
       try {
+        // Debug: log transaction structure
+        console.log('   Processing transaction, keys:', Object.keys(tx || {}));
+        if (tx.transaction) {
+          console.log('   tx.transaction keys:', Object.keys(tx.transaction));
+        }
+        if (tx.meta) {
+          console.log('   tx.meta keys:', Object.keys(tx.meta));
+        }
+
         const message = tx.transaction?.message;
         const meta = tx.meta;
         if (!message || !meta) {
+          console.log(`   ⏭️  Skipping transaction: missing message or meta`);
+          console.log(`      Has message: ${!!message}, Has meta: ${!!meta}`);
           skipped++;
           continue;
         }
