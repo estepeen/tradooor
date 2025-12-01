@@ -234,10 +234,24 @@ $JS_ARRAY
       }
 
       // Swap musí mít alespoň 2 tokeny se změnou (jeden jde dolů, druhý nahoru)
-      // Může to být:
-      // - Token za base token (SOL/WSOL/USDC/USDT) - preferováno
-      // - Token za token (např. TRUMP za TROLL) - také trackujeme
-      if (tokensWithChange >= 2) {
+      // A alespoň jeden z nich musí být non-base token (ne jen SOL/USDC/USDT swap)
+      let hasNonBaseToken = false;
+      for (const mint of allMints) {
+        if (!BASE_MINTS.has(mint)) {
+          const pre = preMap.get(mint) || 0;
+          const post = postMap.get(mint) || 0;
+          const change = Math.abs(post - pre);
+          if (change > 0.000001) {
+            hasNonBaseToken = true;
+            break;
+          }
+        }
+      }
+      
+      // Swap musí mít:
+      // 1. Alespoň 2 tokeny se změnou (swap, ne transfer)
+      // 2. Alespoň jeden non-base token (ne jen SOL/USDC/USDT swap)
+      if (tokensWithChange >= 2 && hasNonBaseToken) {
         relevantTransactions.push(tx);
       }
     }
