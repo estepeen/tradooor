@@ -192,25 +192,71 @@ function normalizeQuickNodeSwap(
       const usdcSpent = usdcNet < 0 ? -usdcNet : 0;
       const usdtSpent = usdtNet < 0 ? -usdtNet : 0;
       baseAmount = Math.max(solSpent, usdcSpent, usdtSpent);
+      
+      // Pokud není base token (SOL/USDC/USDT), zkus najít sekundární token (token za token swap)
       if (baseAmount <= 0) {
-        // Not enough info about base leg
-        return null;
+        // Najdi sekundární token (ten, za který se kupuje primární token)
+        let secondaryMint: string | null = null;
+        let secondaryDelta = 0;
+        for (const [mint, delta] of tokenNetByMint.entries()) {
+          if (mint === primaryMint) continue; // Skip primární token
+          if (BASE_MINTS.has(mint)) continue; // Skip base tokeny (už jsme je zkontrolovali)
+          if (delta < 0 && Math.abs(delta) > Math.abs(secondaryDelta)) {
+            // Negativní delta = token se prodává (za něj se kupuje primární)
+            secondaryMint = mint;
+            secondaryDelta = delta;
+          }
+        }
+        
+        if (secondaryMint && Math.abs(secondaryDelta) > 1e-9) {
+          // Swap token za token - použij sekundární token jako "base"
+          baseAmount = Math.abs(secondaryDelta);
+          baseToken = secondaryMint; // Použijeme mint address jako base token
+        } else {
+          // Not enough info about base leg
+          return null;
+        }
+      } else {
+        // Máme base token (SOL/USDC/USDT)
+        if (baseAmount === usdcSpent) baseToken = 'USDC';
+        else if (baseAmount === usdtSpent) baseToken = 'USDT';
+        else baseToken = 'SOL';
       }
-      if (baseAmount === usdcSpent) baseToken = 'USDC';
-      else if (baseAmount === usdtSpent) baseToken = 'USDT';
-      else baseToken = 'SOL';
     } else {
       // SELL: user received base => positive net
       const solReceived = solTotalNet > 0 ? solTotalNet : 0;
       const usdcReceived = usdcNet > 0 ? usdcNet : 0;
       const usdtReceived = usdtNet > 0 ? usdtNet : 0;
       baseAmount = Math.max(solReceived, usdcReceived, usdtReceived);
+      
+      // Pokud není base token, zkus najít sekundární token (token za token swap)
       if (baseAmount <= 0) {
-        return null;
+        // Najdi sekundární token (ten, který se přijímá za primární token)
+        let secondaryMint: string | null = null;
+        let secondaryDelta = 0;
+        for (const [mint, delta] of tokenNetByMint.entries()) {
+          if (mint === primaryMint) continue; // Skip primární token
+          if (BASE_MINTS.has(mint)) continue; // Skip base tokeny
+          if (delta > 0 && delta > secondaryDelta) {
+            // Pozitivní delta = token se přijímá (za primární token)
+            secondaryMint = mint;
+            secondaryDelta = delta;
+          }
+        }
+        
+        if (secondaryMint && secondaryDelta > 1e-9) {
+          // Swap token za token - použij sekundární token jako "base"
+          baseAmount = secondaryDelta;
+          baseToken = secondaryMint; // Použijeme mint address jako base token
+        } else {
+          return null;
+        }
+      } else {
+        // Máme base token (SOL/USDC/USDT)
+        if (baseAmount === usdcReceived) baseToken = 'USDC';
+        else if (baseAmount === usdtReceived) baseToken = 'USDT';
+        else baseToken = 'SOL';
       }
-      if (baseAmount === usdcReceived) baseToken = 'USDC';
-      else if (baseAmount === usdtReceived) baseToken = 'USDT';
-      else baseToken = 'SOL';
     }
 
     if (baseAmount <= 0 || amountToken <= 0) {
@@ -245,6 +291,19 @@ function normalizeQuickNodeSwap(
       }
     }
 
+    // Pro token za token swapy použijeme mint address jako base token symbol
+    // Pro base tokeny (SOL/USDC/USDT) použijeme symbol
+    let baseTokenSymbol: string;
+    if (BASE_MINTS.has(baseToken)) {
+      // Je to base token - použij symbol
+      baseTokenSymbol = getBaseTokenSymbol(
+        baseToken === 'SOL' ? 'So11111111111111111111111111111111111111112' : baseToken
+      );
+    } else {
+      // Je to token za token swap - použij mint address (backend to může převést na symbol později)
+      baseTokenSymbol = baseToken;
+    }
+
     return {
       txSignature: signature,
       tokenMint: primaryMint,
@@ -252,9 +311,7 @@ function normalizeQuickNodeSwap(
       amountToken,
       amountBase: baseAmount,
       priceBasePerToken,
-      baseToken: getBaseTokenSymbol(
-        baseToken === 'SOL' ? 'So11111111111111111111111111111111111111112' : baseToken
-      ),
+      baseToken: baseTokenSymbol,
       timestamp,
       dex,
     };
@@ -786,6 +843,7 @@ export class SolanaCollectorService {
         meta: {
           source: 'quicknode-webhook',
           baseToken: normalized.baseToken,
+          isTokenToTokenSwap: !['SOL', 'USDC', 'USDT'].includes(normalized.baseToken), // Token za token swap
           quicknodeDebug: quicknodeDebugMeta,
         },
       });

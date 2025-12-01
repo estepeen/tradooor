@@ -209,10 +209,11 @@ function main(payload) {
         }
       }
 
-      // Swap musí mít:
-      // 1. Alespoň 2 tokeny se změnou (jeden jde dolů, druhý nahoru)
-      // 2. Alespoň jeden z nich musí být base token (SOL/WSOL/USDC/USDT)
-      if (tokensWithChange >= 2 && hasBaseToken) {
+      // Swap musí mít alespoň 2 tokeny se změnou (jeden jde dolů, druhý nahoru)
+      // Může to být:
+      // - Token za base token (SOL/WSOL/USDC/USDT) - preferováno
+      // - Token za token (např. TRUMP za TROLL) - také trackujeme
+      if (tokensWithChange >= 2) {
         relevantTransactions.push(tx);
       }
     }
