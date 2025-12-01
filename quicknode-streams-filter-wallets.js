@@ -50,18 +50,23 @@ function main(payload) {
       const accountKeys = message.accountKeys || [];
       const instructions = message.instructions || [];
       
-      // 1. Zkontroluj, jestli transakce volá některý DEX program
+      // 1. KRITICKÉ: Zkontroluj, jestli transakce volá některý DEX program
+      // Toto je NEJDŮLEŽITĚJŠÍ filtr - bez DEX programu to NENÍ swap!
       let hasDexProgram = false;
+      let dexProgramId = null;
+      
+      // Zkontroluj accountKeys (programy jsou v accountKeys)
       for (const key of accountKeys) {
         const pubkey = typeof key === 'string' ? key : key?.pubkey;
         if (pubkey && DEX_PROGRAMS.has(pubkey)) {
           hasDexProgram = true;
+          dexProgramId = pubkey;
           break;
         }
       }
 
-      // Alternativně zkontroluj instructions
-      if (!hasDexProgram) {
+      // Alternativně zkontroluj instructions (programIdIndex odkazuje na accountKeys)
+      if (!hasDexProgram && Array.isArray(instructions)) {
         for (const instruction of instructions) {
           const programIdIndex = instruction.programIdIndex;
           if (programIdIndex !== undefined && accountKeys[programIdIndex]) {
@@ -70,12 +75,14 @@ function main(payload) {
               : accountKeys[programIdIndex]?.pubkey;
             if (programId && DEX_PROGRAMS.has(programId)) {
               hasDexProgram = true;
+              dexProgramId = programId;
               break;
             }
           }
         }
       }
 
+      // BEZ DEX PROGRAMU = NENÍ SWAP = SKIP (šetří kredity!)
       if (!hasDexProgram) continue;
 
       // 2. Zkontroluj, jestli některá z tracked wallets je v transakci
@@ -213,7 +220,26 @@ function main(payload) {
       // Může to být:
       // - Token za base token (SOL/WSOL/USDC/USDT) - preferováno
       // - Token za token (např. TRUMP za TROLL) - také trackujeme
-      if (tokensWithChange >= 2) {
+      
+      // DŮLEŽITÉ: Musí být alespoň 2 tokeny se změnou (swap, ne transfer)
+      // A alespoň jeden z nich musí být non-base token (ne jen SOL/USDC/USDT swap)
+      let hasNonBaseToken = false;
+      for (const mint of allMints) {
+        if (!BASE_MINTS.has(mint)) {
+          const pre = preMap.get(mint) || 0;
+          const post = postMap.get(mint) || 0;
+          const change = Math.abs(post - pre);
+          if (change > 0.000001) {
+            hasNonBaseToken = true;
+            break;
+          }
+        }
+      }
+      
+      // Swap musí mít:
+      // 1. Alespoň 2 tokeny se změnou (swap, ne transfer)
+      // 2. Alespoň jeden non-base token (ne jen SOL/USDC/USDT swap)
+      if (tokensWithChange >= 2 && hasNonBaseToken) {
         relevantTransactions.push(tx);
       }
     }
