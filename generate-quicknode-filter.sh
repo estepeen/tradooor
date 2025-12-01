@@ -133,7 +133,57 @@ $JS_ARRAY
         }
       }
 
-      if (hasTrackedWallet) {
+      if (!hasTrackedWallet) continue;
+
+      // 3. Zkontroluj, jestli swap obsahuje některý z base tokenů (SOL/WSOL/USDC/USDT)
+      const BASE_MINTS = new Set([
+        'So11111111111111111111111111111111111111112', // WSOL/NATIVE_MINT
+        'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+        'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+      ]);
+
+      const meta = tx.meta;
+      if (!meta) continue;
+
+      // Sběr všech mintů z preTokenBalances a postTokenBalances
+      const mintsInTx = new Set();
+      
+      const addMintsFromBalances = (balances) => {
+        if (!Array.isArray(balances)) return;
+        for (const balance of balances) {
+          if (balance.mint) {
+            mintsInTx.add(balance.mint);
+          }
+        }
+      };
+
+      addMintsFromBalances(meta.preTokenBalances);
+      addMintsFromBalances(meta.postTokenBalances);
+
+      // Zkontroluj, jestli obsahuje některý base token
+      let hasBaseToken = false;
+      for (const mint of mintsInTx) {
+        if (BASE_MINTS.has(mint)) {
+          hasBaseToken = true;
+          break;
+        }
+      }
+
+      // Také zkontroluj native SOL změny (preBalances/postBalances)
+      if (!hasBaseToken && Array.isArray(meta.preBalances) && Array.isArray(meta.postBalances)) {
+        // Pokud je změna v SOL balance, je to swap s SOL
+        for (let i = 0; i < Math.min(meta.preBalances.length, meta.postBalances.length); i++) {
+          const pre = meta.preBalances[i] || 0;
+          const post = meta.postBalances[i] || 0;
+          if (Math.abs(post - pre) > 1000) { // Více než 0.000001 SOL (1000 lamports)
+            hasBaseToken = true;
+            break;
+          }
+        }
+      }
+
+      // Přidej transakci jen pokud obsahuje base token
+      if (hasBaseToken) {
         relevantTransactions.push(tx);
       }
     }
