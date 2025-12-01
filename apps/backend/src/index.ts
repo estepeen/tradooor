@@ -103,11 +103,15 @@ app.post('/api/webhooks/helius', express.raw({ type: 'application/json', limit: 
 // The actual route handler logic lives in routes/webhooks.ts; here we only ensure the body
 // size limit is large enough and respond as fast as possible.
 app.post('/api/webhooks/quicknode', express.raw({ type: 'application/json', limit: '5mb' }), (req, res, next) => {
-  // Hand off to the regular router mounted under /api/webhooks
-  // We attach the raw buffer to req.bodyRaw and let downstream parse as needed.
-  (req as any).bodyRaw = req.body;
-  // QuickNode endpoint itself is defined in webhookRouter; we just ensure body isn't rejected.
-  // Let express.json handle parsing after this middleware.
+  // Parse Buffer to JSON and attach to req.body for downstream handlers
+  try {
+    if (Buffer.isBuffer(req.body)) {
+      req.body = JSON.parse(req.body.toString('utf8'));
+    }
+  } catch (error) {
+    console.error('❌ Error parsing QuickNode webhook body:', error);
+    // Continue anyway, let router handle the error
+  }
   next();
 });
 

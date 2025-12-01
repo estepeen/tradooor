@@ -438,7 +438,16 @@ router.post('/quicknode', (req, res) => {
       console.log(`   IP: ${clientIp}`);
       console.log(`   User-Agent: ${req.headers['user-agent'] || 'unknown'}`);
 
-      await processQuickNodeWebhook(req.body);
+      // Parse Buffer to JSON if needed
+      let body = req.body;
+      if (Buffer.isBuffer(body)) {
+        body = JSON.parse(body.toString('utf8'));
+      } else if (typeof body === 'object' && body.type === 'Buffer' && Array.isArray(body.data)) {
+        // Handle case where Buffer was serialized as JSON
+        body = JSON.parse(Buffer.from(body.data).toString('utf8'));
+      }
+
+      await processQuickNodeWebhook(body);
     } catch (error: any) {
       console.error('❌ Error processing QuickNode webhook in background:', error);
       if (error.stack) {
