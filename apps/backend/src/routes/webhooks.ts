@@ -309,9 +309,13 @@ export async function processQuickNodeWebhook(body: any) {
         addOwnersFrom(meta.preTokenBalances || []);
         addOwnersFrom(meta.postTokenBalances || []);
 
-        // Early exit if no tracked wallets involved (silently - too many to log)
+        // Early exit if no tracked wallets involved
         if (candidateWallets.size === 0) {
           skipped++;
+          // Log occasionally (every 10th skip) to show it's working
+          if (skipped % 10 === 0) {
+            console.log(`   ⏭️  Skipped ${skipped} transactions (no tracked wallet involved)`);
+          }
           continue;
         }
 
@@ -333,14 +337,11 @@ export async function processQuickNodeWebhook(body: any) {
             );
           } else {
             skipped++;
-            // Only log non-duplicate skips with important reasons (not "not a swap" - too common)
-            if (result.reason && result.reason !== 'duplicate' && result.reason !== 'not a swap') {
-              console.log(
-                `⏭️  [QuickNode] Skipped: ${
-                  tx.transaction?.signatures?.[0]?.substring(0, 16) || 'unknown'
-                }... (${result.reason})`
-              );
-            }
+            // Log skip reason for debugging (including "not a swap" to see what's happening)
+            const sig = tx.transaction?.signatures?.[0]?.substring(0, 16) || 'unknown';
+            console.log(
+              `⏭️  [QuickNode] Skipped tx ${sig}... for wallet ${walletAddress.substring(0, 8)}...: ${result.reason || 'unknown reason'}`
+            );
           }
 
           processed++;
