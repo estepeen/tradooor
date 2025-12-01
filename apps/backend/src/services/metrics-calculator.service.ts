@@ -29,7 +29,7 @@ const LOW_LIQUIDITY_THRESHOLD_USD = 10_000;
 const NEW_TOKEN_AGE_SECONDS = 30 * 60; // 30 minutes
 
 type RollingWindowStats = {
-  realizedPnl: number; // PnL v SOL/base měně (změněno z realizedPnlUsd)
+  realizedPnl: number; // PnL v USD (amountBase a priceBasePerToken jsou nyní v USD)
   realizedRoiPercent: number;
   winRate: number;
   medianTradeRoiPercent: number;
@@ -145,7 +145,7 @@ export class MetricsCalculatorService {
     // This ensures consistency between homepage and detail page
     // DŮLEŽITÉ: PnL je nyní v SOL/base měně, ne v USD
     const rolling30d = rollingInsights.rolling['30d'];
-    const recentPnl30dBase = rolling30d?.realizedPnl ?? 0; // PnL v SOL
+      const recentPnl30dBase = rolling30d?.realizedPnl ?? 0; // PnL v USD (amountBase je nyní v USD)
     const recentPnl30dPercent = rolling30d?.realizedRoiPercent ?? 0;
 
     const legacyScore = this.calculateScore({
@@ -198,7 +198,7 @@ export class MetricsCalculatorService {
       avgHoldingTimeMin,
       maxDrawdownPercent,
       recentPnl30dPercent,
-      recentPnl30dUsd: recentPnl30dBase, // Mapujeme recentPnl30dBase (SOL) na recentPnl30dUsd (DB sloupec - pro zpětnou kompatibilitu)
+      recentPnl30dUsd: recentPnl30dBase, // PnL v USD (amountBase je nyní v USD)
       advancedStats,
     });
 
@@ -227,7 +227,7 @@ export class MetricsCalculatorService {
       avgHoldingTimeMin,
       maxDrawdownPercent,
       recentPnl30dPercent,
-      recentPnl30dUsd: recentPnl30dBase, // Mapujeme recentPnl30dBase (SOL) na recentPnl30dUsd (DB sloupec - pro zpětnou kompatibilitu)
+      recentPnl30dUsd: recentPnl30dBase, // PnL v USD (amountBase je nyní v USD)
       advancedStats,
     };
   }
@@ -244,8 +244,9 @@ export class MetricsCalculatorService {
     const positions: Position[] = [];
     const openPositions = new Map<string, Position>();
 
-    // Minimální hodnota v base měně pro považování za reálný trade (filtruj airdropy/transfery)
-    const MIN_BASE_VALUE = 0.0001; // 0.0001 SOL nebo base token
+    // Minimální hodnota v USD pro považování za reálný trade (filtruj airdropy/transfery)
+    // amountBase a priceBasePerToken jsou nyní v USD
+    const MIN_BASE_VALUE = 0.0001; // $0.0001 USD minimum
 
     for (const trade of trades) {
       const tokenId = trade.tokenId;
@@ -363,6 +364,7 @@ export class MetricsCalculatorService {
 
   private calculateTotalPnl(positions: Position[]): number {
     // Filtruj pozice s platnou cenou (vynech airdropy/transfery)
+    // buyPrice a sellPrice jsou nyní v USD (priceBasePerToken je v USD)
     const closedPositions = positions.filter(p => 
       p.sellAmount && 
       p.sellPrice && 
@@ -371,9 +373,9 @@ export class MetricsCalculatorService {
     );
     
     return closedPositions.reduce((sum, p) => {
-      const buyValue = p.buyAmount * p.buyPrice;
-      const sellValue = p.sellAmount! * p.sellPrice!;
-      return sum + (sellValue - buyValue);
+      const buyValue = p.buyAmount * p.buyPrice; // USD
+      const sellValue = p.sellAmount! * p.sellPrice!; // USD
+      return sum + (sellValue - buyValue); // PnL v USD
     }, 0);
   }
 
