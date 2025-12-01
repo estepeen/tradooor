@@ -746,7 +746,7 @@ export default function WalletDetailPage() {
                           <td className={`px-4 py-3 text-right text-sm font-mono ${
                             tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
                           }`}>
-                            {formatNumber(Number(trade.amountBase), 6)} SOL
+                            ${formatNumber(Number(trade.amountBase), 6)}
                           </td>
                         </tr>
                       );

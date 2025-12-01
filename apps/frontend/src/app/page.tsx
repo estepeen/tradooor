@@ -418,7 +418,7 @@ export default function Home() {
                       const bPnl = getPnlBase(b);
                       // DEBUG: Log sorting values
                       if (process.env.NODE_ENV === 'development' && Math.abs(aPnl) > 0.1 || Math.abs(bPnl) > 0.1) {
-                        console.log(`🔍 [Sort] ${a.address}: ${aPnl} SOL, ${b.address}: ${bPnl} SOL, order: ${sortOrder}`);
+                        console.log(`🔍 [Sort] ${a.address}: $${aPnl}, ${b.address}: $${bPnl}, order: ${sortOrder}`);
                       }
                       return sortOrder === 'asc' ? aPnl - bPnl : bPnl - aPnl;
                     }
@@ -547,7 +547,7 @@ export default function Home() {
                           
                           return (
                             <>
-                              {formatNumber(Math.abs(pnlBase), 2)} SOL{' '}
+                              ${formatNumber(Math.abs(pnlBase), 2)}{' '}
                               ({(pnlPercent >= 0 ? '+' : '')}{formatPercent(pnlPercent / 100)})
                             </>
                           );

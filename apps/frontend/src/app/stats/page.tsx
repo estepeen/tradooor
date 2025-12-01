@@ -333,7 +333,7 @@ export default function StatsPage() {
                               pnlBase >= 0 ? 'text-green-600' : 'text-red-600'
                             }`}>
                               <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                                {formatNumber(Math.abs(pnlBase), 2)} SOL
+                                ${formatNumber(Math.abs(pnlBase), 2)}
                               </span>
                             </div>
                           </Link>
@@ -370,8 +370,8 @@ export default function StatsPage() {
                           <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
                         </div>
                         <div className="text-right font-bold text-red-600">
-                          {/* Celkový PnL v base (SOL) – zatím necháváme v jednotkách base */}
-                          {formatNumber(wallet.pnlTotalBase || 0, 2)}
+                          {/* Celkový PnL v USD */}
+                          ${formatNumber(wallet.pnlTotalBase || 0, 2)}
                         </div>
                       </Link>
                     ))
@@ -398,8 +398,8 @@ export default function StatsPage() {
                           {/* STEJNÁ LOGIKA JAKO NA HOMEPAGE: použij advancedStats.rolling['30d'] pokud je dostupné */}
                           {(() => {
                             const rolling30d = (wallet.advancedStats as any)?.rolling?.['30d'];
-                            const pnlBase = rolling30d?.realizedPnl ?? wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0; // PnL v SOL
-                            return `${formatNumber(pnlBase, 2)} SOL`;
+                            const pnlBase = rolling30d?.realizedPnl ?? wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0; // PnL v USD
+                            return `$${formatNumber(pnlBase, 2)}`;
                           })()}
                         </div>
                       </Link>

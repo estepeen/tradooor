@@ -624,7 +624,7 @@ export default function WalletDetailPage() {
               console.log(`   ✅ [Frontend] Wallet ${walletAddress}: totalPnl=${totalPnl.toFixed(2)}, totalCost=${totalCost.toFixed(2)}, pnlPercent=${pnlPercent.toFixed(2)}%`);
               closedPositions.forEach((p: any, idx: number) => {
                 if (idx < 5) { // Log first 5 positions
-                  console.log(`   💰 [Frontend] Position ${idx + 1}: tokenId=${p.tokenId}, realizedPnlBase=${(p.realizedPnlBase ?? p.closedPnlBase ?? p.closedPnl ?? 0).toFixed(2)} SOL, closedPnlPercent=${(p.realizedPnlPercent ?? p.closedPnlPercent ?? 0).toFixed(2)}%, lastSell=${p.lastSellTimestamp}`);
+                  console.log(`   💰 [Frontend] Position ${idx + 1}: tokenId=${p.tokenId}, realizedPnlBase=$${(p.realizedPnlBase ?? p.closedPnlBase ?? p.closedPnl ?? 0).toFixed(2)}, closedPnlPercent=${(p.realizedPnlPercent ?? p.closedPnlPercent ?? 0).toFixed(2)}%, lastSell=${p.lastSellTimestamp}`);
                 }
               });
             }
@@ -654,7 +654,7 @@ export default function WalletDetailPage() {
                     data.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'
                   }`}>
                           <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            {formatNumber(Math.abs(data.pnlBase), 2)} SOL
+                            ${formatNumber(Math.abs(data.pnlBase), 2)}
                           </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
@@ -694,7 +694,7 @@ export default function WalletDetailPage() {
                     <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Volume ({key})</div>
                     <div className="text-white">
                       <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                        {formatNumber(volumeBase, 2)} SOL
+                        ${formatNumber(volumeBase, 2)}
                       </span>
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
@@ -814,7 +814,7 @@ export default function WalletDetailPage() {
                               }`}>
                                 {pnlBase !== 0 ? (
                                   <>
-                                    {formatNumber(Math.abs(pnlBase), 2)} SOL ({pnlPercent >= 0 ? '+' : ''}{formatPercent(pnlPercent / 100)})
+                                    ${formatNumber(Math.abs(pnlBase), 2)} ({pnlPercent >= 0 ? '+' : ''}{formatPercent(pnlPercent / 100)})
                                   </>
                                 ) : '-'}
                               </td>
@@ -959,7 +959,7 @@ export default function WalletDetailPage() {
                               }`}>
                                 {closedPnlBase !== null && closedPnlBase !== undefined ? (
                                   <>
-                                    {formatNumber(Math.abs(closedPnlBase), 2)} SOL ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent((closedPnlPercent || 0) / 100)})
+                                    ${formatNumber(Math.abs(closedPnlBase), 2)} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent((closedPnlPercent || 0) / 100)})
                                   </>
                                 ) : '-'}
                               </td>
@@ -1141,7 +1141,7 @@ export default function WalletDetailPage() {
                             const proceedsBase = (trade as any).proceedsBase || (trade.side === 'sell' || trade.side === 'remove' ? amountBase : null);
                             const amountDisplay = amountToken && amountToken > 0
                               ? `${formatNumber(amountToken, 2)} $${trade.token?.symbol || trade.token?.name || ''}`.trim()
-                              : `${formatNumber(Number(trade.amountBase), 2)} SOL`;
+                              : `$${formatNumber(Number(trade.amountBase), 2)}`;
 
                             return (
                               <tr key={trade.id} className="border-t border-border hover:bg-muted/50">
@@ -1214,14 +1214,14 @@ export default function WalletDetailPage() {
                                   {priceUsd !== null && priceUsd !== undefined && priceUsd > 0
                                     ? `$${formatNumber(priceUsd, 6)}`
                                     : entryPrice > 0
-                                    ? `${formatNumber(entryPrice, 6)} ${baseToken}`
+                                    ? `$${formatNumber(entryPrice, 6)}`
                                     : '-'}
                               </a>
                             ) : (
                                 priceUsd !== null && priceUsd !== undefined && priceUsd > 0
                                   ? `$${formatNumber(priceUsd, 6)}`
                                   : entryPrice > 0
-                                  ? `${formatNumber(entryPrice, 6)} ${baseToken}`
+                                  ? `$${formatNumber(entryPrice, 6)}`
                                   : '-'
                             )}
                           </td>
@@ -1244,7 +1244,7 @@ export default function WalletDetailPage() {
                             <td className={`px-4 py-3 text-right text-sm font-mono ${
                               tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
                             }`}>
-                              {amountBase > 0 ? `${formatNumber(amountBase, 6)} ${baseToken}` : '-'}
+                              {amountBase > 0 ? `$${formatNumber(amountBase, 6)}` : '-'}
                             </td>
                               </tr>
                             );

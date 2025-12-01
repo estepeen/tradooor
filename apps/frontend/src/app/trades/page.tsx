@@ -150,7 +150,7 @@ export default function TradesPage() {
                           {formatAmount(trade.amountToken)}
                         </td>
                         <td className="px-4 py-3 text-sm text-right">
-                          {formatAmount(trade.amountBase, 4)} SOL
+                          ${formatAmount(trade.amountBase, 4)}
                         </td>
                         <td className="px-4 py-3 text-sm text-muted-foreground">
                           {trade.dex}
