@@ -169,6 +169,138 @@ export async function processHeliusWebhook(body: any) {
 }
 
 /**
+ * Process QuickNode webhook payload (RPC-style block/transactions structure).
+ * Expects payload similar to:
+ * {
+ *   data: [{
+ *     blockTime: number;
+ *     transactions: [{ meta, transaction, version }, ...]
+ *   }]
+ * }
+ */
+export async function processQuickNodeWebhook(body: any) {
+  try {
+    console.log('📨 ===== QUICKNODE WEBHOOK PROCESSING STARTED =====');
+    console.log(`   Time: ${new Date().toISOString()}`);
+    console.log('   Body keys:', Object.keys(body || {}));
+
+    const firstEntry = Array.isArray(body?.data) ? body.data[0] : null;
+    const blockTime: number | undefined = firstEntry?.blockTime;
+    const txList: any[] = Array.isArray(firstEntry?.transactions) ? firstEntry.transactions : [];
+
+    if (txList.length === 0) {
+      console.warn('⚠️  Invalid QuickNode webhook payload - no transactions found');
+      return { processed: 0, saved: 0, skipped: 0 };
+    }
+
+    console.log(
+      `📨 Received QuickNode webhook: ${txList.length} transaction(s) at blockTime=${blockTime ?? 'n/a'}`
+    );
+
+    const backgroundStartTime = Date.now();
+
+    // Get all tracked wallet addresses from DB (for fast lookup)
+    const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
+    const trackedAddresses = new Set(allWallets.wallets.map(w => w.address.toLowerCase()));
+
+    let processed = 0;
+    let saved = 0;
+    let skipped = 0;
+
+    for (const tx of txList) {
+      try {
+        const message = tx.transaction?.message;
+        const meta = tx.meta;
+        if (!message || !meta) {
+          skipped++;
+          continue;
+        }
+
+        const candidateWallets = new Set<string>();
+
+        // 1) From accountKeys
+        for (const k of message.accountKeys || []) {
+          const pk = typeof k === 'string' ? k : k?.pubkey;
+          if (!pk) continue;
+          const lower = pk.toLowerCase();
+          if (trackedAddresses.has(lower)) {
+            candidateWallets.add(pk);
+          }
+        }
+
+        // 2) From token balances (owners)
+        const addOwnersFrom = (arr: any[]) => {
+          for (const b of arr || []) {
+            const owner: string | undefined = b.owner;
+            if (!owner) continue;
+            const lower = owner.toLowerCase();
+            if (trackedAddresses.has(lower)) {
+              candidateWallets.add(owner);
+            }
+          }
+        };
+        addOwnersFrom(meta.preTokenBalances || []);
+        addOwnersFrom(meta.postTokenBalances || []);
+
+        if (candidateWallets.size === 0) {
+          skipped++;
+          continue;
+        }
+
+        // Process tx separately for each tracked wallet involved
+        for (const walletAddress of candidateWallets) {
+          const result = await collectorService.processQuickNodeTransaction(
+            tx,
+            walletAddress,
+            blockTime
+          );
+
+          if (result.saved) {
+            saved++;
+            console.log(
+              `✅ [QuickNode] Saved swap: ${
+                tx.transaction?.signatures?.[0]?.substring(0, 16) || 'unknown'
+              }... for wallet ${walletAddress.substring(0, 8)}...`
+            );
+          } else {
+            skipped++;
+            if (result.reason !== 'duplicate') {
+              console.log(
+                `⏭️  [QuickNode] Skipped swap: ${
+                  tx.transaction?.signatures?.[0]?.substring(0, 16) || 'unknown'
+                }... (${result.reason || 'not a swap'})`
+              );
+            }
+          }
+
+          processed++;
+        }
+      } catch (error: any) {
+        console.warn(
+          `⚠️  Error processing QuickNode webhook transaction ${
+            tx.transaction?.signatures?.[0]?.substring(0, 16) || 'unknown'
+          }:`,
+          error.message
+        );
+      }
+    }
+
+    const backgroundTime = Date.now() - backgroundStartTime;
+    console.log(
+      `✅ QuickNode webhook processed: ${processed} logical transaction(s), ${saved} saved, ${skipped} skipped (took ${backgroundTime}ms)`
+    );
+
+    return { processed, saved, skipped };
+  } catch (error: any) {
+    console.error('❌ Error processing QuickNode webhook in background:', error);
+    if (error.stack) {
+      console.error('   Stack:', error.stack.split('\n').slice(0, 5).join('\n'));
+    }
+    throw error;
+  }
+}
+
+/**
  * GET /api/webhooks/helius/test
  * Test endpoint - checks if webhook endpoint is working
  */
@@ -229,6 +361,40 @@ router.post('/helius', (req, res) => {
       await processHeliusWebhook(req.body);
     } catch (error: any) {
       console.error('❌ Error processing webhook in background:', error);
+      if (error.stack) {
+        console.error('   Stack:', error.stack.split('\n').slice(0, 5).join('\n'));
+      }
+    }
+  });
+});
+
+/**
+ * POST /api/webhooks/quicknode
+ *
+ * Endpoint to receive webhook notifications from QuickNode Streams / QuickAlerts.
+ * Responds immediately and processes block/transactions in background.
+ */
+router.post('/quicknode', (req, res) => {
+  const startTime = Date.now();
+
+  const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
+  res.status(200).json({
+    success: true,
+    message: 'QuickNode webhook received, processing in background',
+    responseTimeMs: Date.now() - startTime,
+  });
+
+  setImmediate(async () => {
+    try {
+      console.log('📨 ===== QUICKNODE WEBHOOK REQUEST RECEIVED (FROM ROUTER) =====');
+      console.log(`   Time: ${new Date().toISOString()}`);
+      console.log(`   IP: ${clientIp}`);
+      console.log(`   User-Agent: ${req.headers['user-agent'] || 'unknown'}`);
+
+      await processQuickNodeWebhook(req.body);
+    } catch (error: any) {
+      console.error('❌ Error processing QuickNode webhook in background:', error);
       if (error.stack) {
         console.error('   Stack:', error.stack.split('\n').slice(0, 5).join('\n'));
       }
