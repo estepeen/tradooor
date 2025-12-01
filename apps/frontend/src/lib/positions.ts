@@ -74,7 +74,45 @@ export function computePositionMetricsFromPercent(
 
     const resolvedAction = resolveAction();
 
-    switch (resolvedAction) {
+    // Pokud máme positionChangePercent z backendu, použijeme ho jako primární zdroj pravdy
+    // pro výpočet pozice: afterX = beforeX + (positionChangePercent / 100).
+    const hasPercent =
+      trade.positionChangePercent !== null &&
+      trade.positionChangePercent !== undefined &&
+      Number.isFinite(Number(trade.positionChangePercent));
+
+    if (hasPercent) {
+      const pct = Number(trade.positionChangePercent);
+      action = resolvedAction;
+      beforeX = entry.positionX;
+      afterX = beforeX + pct / 100;
+      if (afterX < 0) afterX = 0; // bezpečnostní ořez
+
+      // Udržuj základní stav pro potenciální budoucí fallbacky / debug
+      switch (resolvedAction) {
+        case 'BUY':
+        case 'ADD': {
+          entry.balanceTokens += amount;
+          entry.totalCostBase += amountBase;
+          break;
+        }
+        case 'SELL':
+        case 'REM': {
+          entry.balanceTokens = Math.max(0, entry.balanceTokens - amount);
+          entry.totalCostBase = Math.max(0, entry.totalCostBase - amountBase);
+          if (resolvedAction === 'SELL') {
+            // Po SELL by měla být pozice nulová
+            entry.balanceTokens = 0;
+            entry.totalCostBase = 0;
+          }
+          break;
+        }
+        default:
+          break;
+      }
+    } else {
+      // Fallback: původní logika založená na amountBase/amountToken
+      switch (resolvedAction) {
       case 'BUY': {
         action = 'BUY';
         beforeX = entry.positionX; // Aktuální pozice před BUY (obvykle 0)
@@ -148,6 +186,7 @@ export function computePositionMetricsFromPercent(
       default: {
         action = 'NONE';
         break;
+      }
       }
     }
 
