@@ -53,7 +53,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// MINIMAL handler for webhook endpoint - responds immediately without any processing
+// MINIMAL handler for Helius webhook endpoint - responds immediately without any processing
 // Must be BEFORE JSON parser to avoid body parsing
 app.post('/api/webhooks/helius', express.raw({ type: 'application/json', limit: '10mb' }), (req, res) => {
   const startTime = Date.now();
@@ -99,7 +99,19 @@ app.post('/api/webhooks/helius', express.raw({ type: 'application/json', limit: 
   });
 });
 
-// Other routes use JSON parser
+// QuickNode webhook endpoint should also bypass the default JSON body limit by using raw body.
+// The actual route handler logic lives in routes/webhooks.ts; here we only ensure the body
+// size limit is large enough and respond as fast as possible.
+app.post('/api/webhooks/quicknode', express.raw({ type: 'application/json', limit: '5mb' }), (req, res, next) => {
+  // Hand off to the regular router mounted under /api/webhooks
+  // We attach the raw buffer to req.bodyRaw and let downstream parse as needed.
+  (req as any).bodyRaw = req.body;
+  // QuickNode endpoint itself is defined in webhookRouter; we just ensure body isn't rejected.
+  // Let express.json handle parsing after this middleware.
+  next();
+});
+
+// Other routes use JSON parser (including /api/webhooks mounted below)
 // Increase body size limit to handle larger QuickNode webhook payloads
 app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true, limit: '5mb' }));
