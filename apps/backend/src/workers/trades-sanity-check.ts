@@ -36,11 +36,15 @@ async function main() {
 
         const heliusDebug = trade.meta?.heliusDebug || {};
         const nativeChangeRaw = heliusDebug.walletAccountData?.nativeBalanceChange;
-        const accountDataNativeChange = typeof nativeChangeRaw === 'number'
-          ? nativeChangeRaw
-          : nativeChangeRaw !== undefined && nativeChangeRaw !== null
-          ? Number(nativeChangeRaw)
-          : 0;
+
+        // V Helius payloadu je nativeBalanceChange v lamports.
+        // Přepočítáme ho na SOL, aby se dal přímo porovnávat s amountBase (které je v SOL).
+        const accountDataNativeChangeLamports =
+          nativeChangeRaw !== undefined && nativeChangeRaw !== null
+            ? BigInt(String(nativeChangeRaw))
+            : 0n;
+        const accountDataNativeChange =
+          Number(accountDataNativeChangeLamports) / 1e9; // SOL
 
         const amountBase = Number(trade.amountBase);
         const amountToken = Number(trade.amountToken);
