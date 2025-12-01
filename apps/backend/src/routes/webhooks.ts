@@ -270,9 +270,13 @@ export async function processQuickNodeWebhook(body: any) {
         const message = tx.transaction?.message;
         const meta = tx.meta;
         
-        // Skip if not in expected format (silently - too many to log)
+        // Skip if not in expected format
         if (!message || !meta) {
           skipped++;
+          // Log occasionally to show filtering is working
+          if (skipped % 20 === 0) {
+            console.log(`   ⏭️  Skipped ${skipped} transactions (missing message or meta)`);
+          }
           continue;
         }
         
