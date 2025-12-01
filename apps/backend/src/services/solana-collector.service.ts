@@ -40,7 +40,7 @@ export class SolanaCollectorService {
       const normalized = await this.heliusClient.normalizeSwap(tx, walletAddress);
       if (!normalized) {
         return { saved: false, reason: 'not a swap' };
-  }
+      }
 
       // 1b. Filter out tiny SOL trades (likely just fees) - do not store trades with value < 0.03 SOL
       if (normalized.baseToken === 'SOL' && normalized.amountBase < 0.03) {
@@ -57,6 +57,69 @@ export class SolanaCollectorService {
       const wallet = await this.smartWalletRepo.findByAddress(walletAddress);
       if (!wallet) {
         return { saved: false, reason: 'wallet not found' };
+      }
+
+      // 2b. Připrav debug/meta data z raw Helius webhooku pro tuto wallet
+      //     Cíl: mít v DB dost informací pro přepočet SOL hodnot a PnL jen z databáze,
+      //     bez nutnosti zpětného volání Helius getTransaction.
+      const walletLower = walletAddress.toLowerCase();
+      const heliusDebugMeta: any = {
+        source: tx.source ?? null,
+        type: tx.type ?? null,
+      };
+
+      // Native transfers relevantní pro tuto wallet
+      if (Array.isArray(tx.nativeTransfers) && tx.nativeTransfers.length > 0) {
+        const walletNativeTransfers = tx.nativeTransfers.filter((t: any) => {
+          const from = typeof t.fromUserAccount === 'string' ? t.fromUserAccount.toLowerCase() : '';
+          const to = typeof t.toUserAccount === 'string' ? t.toUserAccount.toLowerCase() : '';
+          return from === walletLower || to === walletLower;
+        });
+        if (walletNativeTransfers.length > 0) {
+          heliusDebugMeta.walletNativeTransfers = walletNativeTransfers;
+        }
+      }
+
+      // AccountData položka pro tuto wallet (nativeBalanceChange apod.)
+      if (Array.isArray(tx.accountData) && tx.accountData.length > 0) {
+        const walletAccountData = tx.accountData.find((acc: any) => {
+          const account = typeof acc.account === 'string' ? acc.account.toLowerCase() : '';
+          return account === walletLower;
+        });
+        if (walletAccountData) {
+          heliusDebugMeta.walletAccountData = {
+            account: walletAccountData.account,
+            nativeBalanceChange: walletAccountData.nativeBalanceChange ?? null,
+            tokenBalanceChanges: walletAccountData.tokenBalanceChanges ?? null,
+          };
+        }
+      }
+
+      // Základní shrnutí swap eventu (zmenšené kvůli velikosti)
+      if (tx.events?.swap) {
+        const swap = tx.events.swap;
+        heliusDebugMeta.swapSummary = {
+          nativeInput: swap.nativeInput ?? null,
+          nativeOutput: swap.nativeOutput ?? null,
+          tokenInputs: Array.isArray(swap.tokenInputs)
+            ? swap.tokenInputs.map((ti: any) => ({
+                mint: ti.mint,
+                tokenAmount: ti.tokenAmount ?? null,
+                rawTokenAmount: ti.rawTokenAmount ?? null,
+                userAccount: ti.userAccount ?? null,
+                fromUserAccount: ti.fromUserAccount ?? null,
+              }))
+            : null,
+          tokenOutputs: Array.isArray(swap.tokenOutputs)
+            ? swap.tokenOutputs.map((to: any) => ({
+                mint: to.mint,
+                tokenAmount: to.tokenAmount ?? null,
+                rawTokenAmount: to.rawTokenAmount ?? null,
+                userAccount: to.userAccount ?? null,
+                toUserAccount: to.toUserAccount ?? null,
+              }))
+            : null,
+        };
       }
 
       // 3. Find or create token
@@ -212,6 +275,7 @@ export class SolanaCollectorService {
         meta: {
           source: 'helius-webhook',
           baseToken: normalized.baseToken,
+          heliusDebug: heliusDebugMeta,
         },
       });
 
