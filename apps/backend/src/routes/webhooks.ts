@@ -369,6 +369,18 @@ router.post('/helius', (req, res) => {
 });
 
 /**
+ * GET /api/webhooks/quicknode/test
+ * Test endpoint - checks if QuickNode webhook endpoint is working
+ */
+router.get('/quicknode/test', (req, res) => {
+  res.json({
+    success: true,
+    message: 'QuickNode webhook endpoint is working!',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
  * POST /api/webhooks/quicknode
  *
  * Endpoint to receive webhook notifications from QuickNode Streams / QuickAlerts.
