@@ -226,7 +226,7 @@ function normalizeQuickNodeSwap(
       tokenMint: primaryMint,
       side,
       amountToken,
-      amountBase,
+      amountBase: baseAmount,
       priceBasePerToken,
       baseToken: getBaseTokenSymbol(
         baseToken === 'SOL' ? 'So11111111111111111111111111111111111111112' : baseToken

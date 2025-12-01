@@ -1699,7 +1699,7 @@ router.get('/:id/pnl', async (req, res) => {
     // Get ALL trades for USD calculation (don't pre-filter by 1d)
     const trades = allTrades.trades;
     
-    const pnlData: Record<string, { pnl: number; pnlUsd: number; pnlPercent: number; trades: number }> = {};
+    const pnlData: Record<string, { pnl: number; pnlUsd: number; pnlPercent: number; trades: number; volumeBase: number; volumeTrades: number }> = {};
     
     for (const [period, fromDate] of Object.entries(periods)) {
       const periodPositions = positions.filter(
