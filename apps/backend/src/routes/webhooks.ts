@@ -183,13 +183,47 @@ export async function processQuickNodeWebhook(body: any) {
     console.log('📨 ===== QUICKNODE WEBHOOK PROCESSING STARTED =====');
     console.log(`   Time: ${new Date().toISOString()}`);
     console.log('   Body keys:', Object.keys(body || {}));
+    console.log('   Body type:', Array.isArray(body) ? 'array' : typeof body);
+    
+    // Debug: log structure of body
+    if (body?.data) {
+      console.log('   body.data is array?', Array.isArray(body.data));
+      console.log('   body.data length:', body.data?.length);
+      if (Array.isArray(body.data) && body.data.length > 0) {
+        console.log('   body.data[0] keys:', Object.keys(body.data[0] || {}));
+      }
+    }
 
-    const firstEntry = Array.isArray(body?.data) ? body.data[0] : null;
-    const blockTime: number | undefined = firstEntry?.blockTime;
-    const txList: any[] = Array.isArray(firstEntry?.transactions) ? firstEntry.transactions : [];
+    // Try multiple payload formats that QuickNode might use
+    let blockTime: number | undefined;
+    let txList: any[] = [];
+
+    // Format 1: { data: [{ blockTime, transactions: [...] }] }
+    if (Array.isArray(body?.data) && body.data.length > 0) {
+      const firstEntry = body.data[0];
+      blockTime = firstEntry?.blockTime;
+      txList = Array.isArray(firstEntry?.transactions) ? firstEntry.transactions : [];
+    }
+    // Format 2: { blockTime, transactions: [...] } (direct)
+    else if (body?.transactions && Array.isArray(body.transactions)) {
+      blockTime = body.blockTime;
+      txList = body.transactions;
+    }
+    // Format 3: Array of transactions directly
+    else if (Array.isArray(body)) {
+      txList = body;
+    }
+    // Format 4: { result: { blockTime, transactions: [...] } }
+    else if (body?.result?.transactions && Array.isArray(body.result.transactions)) {
+      blockTime = body.result.blockTime;
+      txList = body.result.transactions;
+    }
+
+    console.log(`   Found ${txList.length} transaction(s), blockTime=${blockTime ?? 'n/a'}`);
 
     if (txList.length === 0) {
       console.warn('⚠️  Invalid QuickNode webhook payload - no transactions found');
+      console.log('   Full body structure (first 500 chars):', JSON.stringify(body).substring(0, 500));
       return { processed: 0, saved: 0, skipped: 0 };
     }
 
