@@ -548,24 +548,41 @@ export class SolanaCollectorService {
         : Math.max(0, balanceBefore - normalized.amountToken);
       const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
 
+      // Get last trade for this token to prevent consecutive BUY/BUY or SELL/SELL
+      const lastTrade = tokenTrades.length > 0 ? tokenTrades[tokenTrades.length - 1] : null;
+      const lastSide = lastTrade?.side || null;
+
       // Determine correct TYPE
       let correctSide: 'buy' | 'sell' | 'add' | 'remove';
       if (isBuy) {
-        // BUY: balanceBefore === 0 a balanceAfter > 0 (první nákup)
-        // ADD: balanceBefore > 0 a balanceAfter > balanceBefore (další nákup)
+        // BUY logic: prevent consecutive BUY
         if (normalizedBalanceBefore === 0) {
-          correctSide = 'buy';
+          // Balance is 0 - check if last trade was also a buy
+          if (lastSide === 'buy' || lastSide === 'add') {
+            // Last trade was BUY/ADD, so this must be ADD (not BUY)
+            correctSide = 'add';
+          } else {
+            // Last trade was SELL/REMOVE or no previous trade - this is a new BUY
+            correctSide = 'buy';
+          }
         } else {
+          // Balance > 0 - this must be ADD
           correctSide = 'add';
         }
-        } else {
-        // SELL: balanceAfter === 0 nebo velmi blízko 0 (poslední prodej, kdy balance klesne na 0)
-        // REM: balanceAfter > 0 (částečný prodej, balance zůstává > 0)
-        // DŮLEŽITÉ: Použij tolerance pro zaokrouhlování (pokud je balanceAfter < 0.000001, považuj to za 0)
+      } else {
+        // SELL logic: prevent consecutive SELL
         const EPS = 0.000001;
         if (normalizedBalanceAfter < EPS) {
-          correctSide = 'sell';
+          // Balance after is 0 - check if last trade was also a sell
+          if (lastSide === 'sell' || lastSide === 'remove') {
+            // Last trade was SELL/REMOVE, so this must be REMOVE (not SELL)
+            correctSide = 'remove';
+          } else {
+            // Last trade was BUY/ADD or no previous trade - this is a new SELL
+            correctSide = 'sell';
+          }
         } else {
+          // Balance after > 0 - this must be REMOVE
           correctSide = 'remove';
         }
       }
@@ -858,18 +875,40 @@ export class SolanaCollectorService {
         : Math.max(0, balanceBefore - normalized.amountToken);
       const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
 
+      // Get last trade for this token to prevent consecutive BUY/BUY or SELL/SELL
+      const lastTrade = tokenTrades.length > 0 ? tokenTrades[tokenTrades.length - 1] : null;
+      const lastSide = lastTrade?.side || null;
+
       let correctSide: 'buy' | 'sell' | 'add' | 'remove';
       if (isBuy) {
+        // BUY logic: prevent consecutive BUY
         if (normalizedBalanceBefore === 0) {
-          correctSide = 'buy';
+          // Balance is 0 - check if last trade was also a buy
+          if (lastSide === 'buy' || lastSide === 'add') {
+            // Last trade was BUY/ADD, so this must be ADD (not BUY)
+            correctSide = 'add';
+          } else {
+            // Last trade was SELL/REMOVE or no previous trade - this is a new BUY
+            correctSide = 'buy';
+          }
         } else {
+          // Balance > 0 - this must be ADD
           correctSide = 'add';
         }
       } else {
+        // SELL logic: prevent consecutive SELL
         const EPS = 0.000001;
         if (normalizedBalanceAfter < EPS) {
-          correctSide = 'sell';
+          // Balance after is 0 - check if last trade was also a sell
+          if (lastSide === 'sell' || lastSide === 'remove') {
+            // Last trade was SELL/REMOVE, so this must be REMOVE (not SELL)
+            correctSide = 'remove';
+          } else {
+            // Last trade was BUY/ADD or no previous trade - this is a new SELL
+            correctSide = 'sell';
+          }
         } else {
+          // Balance after > 0 - this must be REMOVE
           correctSide = 'remove';
         }
       }

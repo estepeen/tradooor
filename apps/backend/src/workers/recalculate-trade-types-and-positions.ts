@@ -67,7 +67,8 @@ async function recalculateTypesAndPositions() {
 
           let balanceBefore = 0;
 
-          for (const trade of tokenTrades) {
+          for (let i = 0; i < tokenTrades.length; i++) {
+            const trade = tokenTrades[i];
             const normalizedBalanceBefore = Math.abs(balanceBefore) < 0.000001 ? 0 : balanceBefore;
             
             // Determine if this is a buy or sell based on original side (before we recalculate)
@@ -76,25 +77,44 @@ async function recalculateTypesAndPositions() {
             const isBuy = originalSide === 'buy' || originalSide === 'add';
             const balanceAfter = isBuy 
               ? balanceBefore + Number(trade.amountToken)
-              : balanceBefore - Number(trade.amountToken);
+              : Math.max(0, balanceBefore - Number(trade.amountToken));
             const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
 
-            // Determine TYPE
+            // Get last trade for this token to prevent consecutive BUY/BUY or SELL/SELL
+            const lastTrade = i > 0 ? tokenTrades[i - 1] : null;
+            const lastSide = lastTrade?.side || null;
+
+            // Determine TYPE with new logic to prevent consecutive BUY/BUY or SELL/SELL
             let newType: 'buy' | 'sell' | 'add' | 'remove';
             if (isBuy) {
-              // BUY: balanceBefore === 0 a balanceAfter > 0 (první nákup)
-              // ADD: balanceBefore > 0 a balanceAfter > balanceBefore (další nákup)
+              // BUY logic: prevent consecutive BUY
               if (normalizedBalanceBefore === 0) {
-                newType = 'buy';
+                // Balance is 0 - check if last trade was also a buy
+                if (lastSide === 'buy' || lastSide === 'add') {
+                  // Last trade was BUY/ADD, so this must be ADD (not BUY)
+                  newType = 'add';
+                } else {
+                  // Last trade was SELL/REMOVE or no previous trade - this is a new BUY
+                  newType = 'buy';
+                }
               } else {
+                // Balance > 0 - this must be ADD
                 newType = 'add';
               }
             } else {
-              // SELL: balanceAfter === 0 (poslední prodej, kdy balance klesne na 0)
-              // REM: balanceAfter > 0 (částečný prodej, balance zůstává > 0)
-              if (normalizedBalanceAfter === 0) {
-                newType = 'sell';
+              // SELL logic: prevent consecutive SELL
+              const EPS = 0.000001;
+              if (normalizedBalanceAfter < EPS) {
+                // Balance after is 0 - check if last trade was also a sell
+                if (lastSide === 'sell' || lastSide === 'remove') {
+                  // Last trade was SELL/REMOVE, so this must be REMOVE (not SELL)
+                  newType = 'remove';
+                } else {
+                  // Last trade was BUY/ADD or no previous trade - this is a new SELL
+                  newType = 'sell';
+                }
               } else {
+                // Balance after > 0 - this must be REMOVE
                 newType = 'remove';
               }
             }
