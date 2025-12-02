@@ -71,28 +71,42 @@ router.get('/', async (req, res) => {
         // Urči base token (SOL, USDC, USDT) z meta nebo použij default
         const meta = t.meta as any;
         const baseToken = meta?.baseToken || 'SOL'; // Čti z meta, default SOL
+        const source = meta?.source || '';
         
-        // Vypočítej USD cenu tokenu pomocí historické ceny SOL/USDT z Binance
-        // Vzorec: priceUsd = priceBasePerToken * solPriceUsd
         let priceUsd: number | null = null;
         const existingValueUsd = toNumber(t.valueUsd);
-        if (baseToken === 'SOL' && priceBasePerToken > 0) {
+        let computedValueUsd: number | null = existingValueUsd;
+
+        const setValueFromPrice = () => {
+          if (computedValueUsd === null && priceUsd !== null && amountToken > 0) {
+            computedValueUsd = priceUsd * amountToken;
+          }
+        };
+
+        if (source === 'quicknode-webhook') {
+          // QuickNode collector už ukládá hodnoty v USD
+          priceUsd = priceBasePerToken > 0 ? priceBasePerToken : null;
+          computedValueUsd = amountBase;
+        } else if (baseToken === 'SOL' && priceBasePerToken > 0) {
           try {
             const tradeTimestamp = new Date(t.timestamp);
             const solPriceUsd = await binancePriceService.getSolPriceAtTimestamp(tradeTimestamp);
             priceUsd = priceBasePerToken * solPriceUsd;
           } catch (error: any) {
             console.warn(`Failed to fetch SOL price from Binance for trade ${t.txSignature}: ${error.message}`);
-            // Použij existující valueUsd jako fallback, pokud je k dispozici
-            if (existingValueUsd !== null && amountToken > 0) {
-              priceUsd = existingValueUsd / amountToken;
-            } else {
-              priceUsd = null;
-            }
+            priceUsd = null;
           }
+          setValueFromPrice();
         } else if (baseToken === 'USDC' || baseToken === 'USDT') {
-          // Pro USDC/USDT: 1:1 s USD
           priceUsd = priceBasePerToken;
+          setValueFromPrice();
+        } else {
+          priceUsd = priceBasePerToken > 0 ? priceBasePerToken : null;
+          setValueFromPrice();
+        }
+        
+        if (computedValueUsd === null || computedValueUsd === undefined) {
+          computedValueUsd = amountBase;
         }
 
         // DŮLEŽITÉ: Explicitně přepiš amountBase, amountToken, priceBasePerToken jako čísla
@@ -113,7 +127,7 @@ router.get('/', async (req, res) => {
           // USD cena tokenu (vypočítaná pomocí Binance API)
           priceUsd, // Cena tokenu v USD z doby obchodu
           // USD hodnoty - pouze pro zobrazení
-          valueUsd: priceUsd && amountToken > 0 ? priceUsd * amountToken : existingValueUsd,
+          valueUsd: computedValueUsd,
           pnlUsd: toNumber(t.pnlUsd),
           pnlPercent: toNumber(t.pnlPercent),
           positionChangePercent: toNumber(t.positionChangePercent),
