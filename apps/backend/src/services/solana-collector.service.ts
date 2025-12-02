@@ -563,13 +563,13 @@ export class SolanaCollectorService {
             correctSide = 'add';
           } else {
             // Last trade was SELL/REMOVE or no previous trade - this is a new BUY
-            correctSide = 'buy';
+          correctSide = 'buy';
           }
         } else {
           // Balance > 0 - this must be ADD
           correctSide = 'add';
         }
-      } else {
+        } else {
         // SELL logic: prevent consecutive SELL
         const EPS = 0.000001;
         if (normalizedBalanceAfter < EPS) {
@@ -579,7 +579,7 @@ export class SolanaCollectorService {
             correctSide = 'remove';
           } else {
             // Last trade was BUY/ADD or no previous trade - this is a new SELL
-            correctSide = 'sell';
+          correctSide = 'sell';
           }
         } else {
           // Balance after > 0 - this must be REMOVE
@@ -703,6 +703,18 @@ export class SolanaCollectorService {
             // Sekundární token má cenu v USD
             amountBaseUsd = normalized.amountBase * secondaryTokenPrice;
             priceBasePerTokenUsd = normalized.priceBasePerToken * secondaryTokenPrice;
+            
+            // Validace: pokud je amountBaseUsd příliš velké (> $100,000), pravděpodobně je cena špatně
+            // Použijeme fallback na SOL price
+            if (amountBaseUsd > 100000) {
+              console.warn(`   ⚠️  [QuickNode] Calculated amountBaseUsd is too large ($${amountBaseUsd.toFixed(2)}), likely incorrect secondary token price. Using SOL price as fallback.`);
+              console.warn(`      Secondary token: ${normalized.baseToken.substring(0, 16)}..., price: $${secondaryTokenPrice}, amountBase: ${normalized.amountBase}`);
+              const solPriceUsd = await this.binancePriceService.getSolPriceAtTimestamp(normalized.timestamp);
+              amountBaseUsd = normalized.amountBase * solPriceUsd;
+              priceBasePerTokenUsd = normalized.priceBasePerToken * solPriceUsd;
+            } else {
+              console.log(`   [QuickNode] Token-to-token swap: ${normalized.amountBase} ${normalized.baseToken.substring(0, 8)}... @ $${secondaryTokenPrice} = $${amountBaseUsd.toFixed(2)}`);
+            }
           } else {
             // Pokud nemůžeme získat cenu sekundárního tokenu, použijeme fallback na SOL price
             console.warn(`   ⚠️  [QuickNode] Cannot get USD price for secondary token ${normalized.baseToken.substring(0, 8)}..., using SOL price as fallback`);
