@@ -75,7 +75,7 @@ async function recalculateTradesSolToUsd() {
           // Check if amountBase seems to be in SOL (not USD)
           // If amountBase * SOL price > $100,000, it's likely in SOL
           // We'll use current SOL price as a rough check, then use historical price for conversion
-          const currentSolPrice = await binancePriceService.getSolPriceUsd();
+          const currentSolPrice = await binancePriceService.getCurrentSolPrice();
           const estimatedUsdValue = amountBase * currentSolPrice;
 
           // If estimated USD value is > $10,000, it's likely in SOL (not USD)
