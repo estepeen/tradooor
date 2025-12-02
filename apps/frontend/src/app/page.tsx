@@ -587,7 +587,7 @@ export default function Home() {
         </div>
 
         {/* Pagination */}
-        {data && data.total > 0 && (
+        {data && data.total > 0 && Math.ceil(data.total / data.pageSize) > 1 && (
           <div className="mt-6 flex justify-center items-center space-x-4">
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
