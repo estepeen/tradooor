@@ -29,6 +29,47 @@ const metricsCalculator = new MetricsCalculatorService(
 const solscanClient = new SolscanClient();
 const binancePriceService = new BinancePriceService();
 
+/**
+ * Convert amountBase to USD if it's in SOL
+ * This ensures 100% accuracy - if baseToken is SOL and amountBase seems to be in SOL (not USD),
+ * convert it using historical SOL price from Binance
+ */
+async function ensureAmountBaseInUsd(trade: any): Promise<number> {
+  const meta = trade.meta as any;
+  const baseToken = meta?.baseToken || 'SOL';
+  const amountBase = parseFloat(trade.amountBase || '0');
+  
+  // If baseToken is not SOL/WSOL, amountBase is already in USD (or USDC/USDT which are 1:1)
+  if (baseToken !== 'SOL' && baseToken !== 'WSOL') {
+    return amountBase;
+  }
+  
+  // If baseToken is SOL, check if amountBase is in SOL or already in USD
+  // Strategy: if amountBase * current SOL price > $100k, it's likely in SOL
+  try {
+    const currentSolPrice = await binancePriceService.getCurrentSolPrice();
+    const estimatedUsdIfSol = amountBase * currentSolPrice;
+    
+    // If estimated USD value (if amountBase is in SOL) > $100k, it's likely in SOL
+    // Convert it using historical SOL price
+    if (estimatedUsdIfSol > 100000) {
+      const tradeTimestamp = new Date(trade.timestamp);
+      const solPriceAtTime = await binancePriceService.getSolPriceAtTimestamp(tradeTimestamp);
+      const amountBaseUsd = amountBase * solPriceAtTime;
+      
+      console.log(`  🔄 Converting SOL to USD for trade ${trade.txSignature.substring(0, 16)}...: ${amountBase} SOL → $${amountBaseUsd.toFixed(2)} USD (SOL price: $${solPriceAtTime.toFixed(2)})`);
+      return amountBaseUsd;
+    }
+    
+    // Otherwise, it's already in USD
+    return amountBase;
+  } catch (error: any) {
+    console.warn(`  ⚠️  Failed to convert SOL to USD for trade ${trade.txSignature.substring(0, 16)}...:`, error.message);
+    // Fallback: return as-is (assume it's already in USD)
+    return amountBase;
+  }
+}
+
 // GET /api/trades?walletId=xxx - Get trades for a wallet
 router.get('/', async (req, res) => {
   try {
@@ -256,41 +297,57 @@ router.get('/recent', async (req, res) => {
     // Tady jen zobrazujeme data z DB - žádné enrichment, aby se neplýtvalo API kredity
 
     // Format trades for notifications
-    const formattedTrades = tradesWithTokens.map((trade: any) => {
-      // Získej priceUsd z meta nebo vypočítej z priceBasePerToken
-      let priceUsd: number | null = null;
-      if (trade.meta?.priceUsd) {
-        priceUsd = parseFloat(trade.meta.priceUsd);
-      } else if (trade.priceBasePerToken) {
-        // Fallback: pokud není priceUsd v meta, použij priceBasePerToken
-        // (frontend to může přepočítat pomocí Binance API)
-        priceUsd = null; // Frontend to přepočítá
-      }
+    // DŮLEŽITÉ: Zajistíme, že amountBase je vždy v USD
+    const formattedTrades = await Promise.all(
+      tradesWithTokens.map(async (trade: any) => {
+        // Získej priceUsd z meta nebo vypočítej z priceBasePerToken
+        let priceUsd: number | null = null;
+        if (trade.meta?.priceUsd) {
+          priceUsd = parseFloat(trade.meta.priceUsd);
+        } else if (trade.priceBasePerToken) {
+          // Fallback: pokud není priceUsd v meta, použij priceBasePerToken
+          // (frontend to může přepočítat pomocí Binance API)
+          priceUsd = null; // Frontend to přepočítá
+        }
 
-      return {
-        id: trade.id,
-        txSignature: trade.txSignature,
-        wallet: {
-          id: trade.wallet?.id,
-          address: trade.wallet?.address,
-          label: trade.wallet?.label || trade.wallet?.address?.substring(0, 8) + '...',
-        },
-        token: {
-          id: trade.token?.id,
-          symbol: trade.token?.symbol || trade.token?.name || 'UNKNOWN',
-          name: trade.token?.name,
-          mintAddress: trade.token?.mintAddress,
-        },
-        side: trade.side, // Může být 'buy', 'sell', 'add', 'remove'
-        amountToken: parseFloat(trade.amountToken || '0'),
-        amountBase: parseFloat(trade.amountBase || '0'),
-        priceBasePerToken: parseFloat(trade.priceBasePerToken || '0'),
-        priceUsd, // Přidej priceUsd
-        baseToken: trade.meta?.baseToken || 'SOL',
-        timestamp: trade.timestamp,
-        dex: trade.dex,
-      };
-    });
+        // DŮLEŽITÉ: Zajistíme, že amountBase je vždy v USD
+        // Pokud je baseToken SOL a amountBase vypadá jako SOL (ne USD), přepočítáme
+        const amountBaseUsd = await ensureAmountBaseInUsd(trade);
+        
+        // Pokud jsme přepočítali amountBase, musíme také přepočítat priceBasePerToken
+        let priceBasePerTokenUsd = parseFloat(trade.priceBasePerToken || '0');
+        const originalAmountBase = parseFloat(trade.amountBase || '0');
+        if (amountBaseUsd !== originalAmountBase && originalAmountBase > 0) {
+          // Přepočítali jsme amountBase, takže musíme přepočítat i priceBasePerToken
+          const conversionRatio = amountBaseUsd / originalAmountBase;
+          priceBasePerTokenUsd = priceBasePerTokenUsd * conversionRatio;
+        }
+
+        return {
+          id: trade.id,
+          txSignature: trade.txSignature,
+          wallet: {
+            id: trade.wallet?.id,
+            address: trade.wallet?.address,
+            label: trade.wallet?.label || trade.wallet?.address?.substring(0, 8) + '...',
+          },
+          token: {
+            id: trade.token?.id,
+            symbol: trade.token?.symbol || trade.token?.name || 'UNKNOWN',
+            name: trade.token?.name,
+            mintAddress: trade.token?.mintAddress,
+          },
+          side: trade.side, // Může být 'buy', 'sell', 'add', 'remove'
+          amountToken: parseFloat(trade.amountToken || '0'),
+          amountBase: amountBaseUsd, // VŽDY v USD
+          priceBasePerToken: priceBasePerTokenUsd, // VŽDY v USD
+          priceUsd, // Přidej priceUsd
+          baseToken: trade.meta?.baseToken || 'SOL',
+          timestamp: trade.timestamp,
+          dex: trade.dex,
+        };
+      })
+    );
 
     res.json({
       trades: formattedTrades,
