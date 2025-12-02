@@ -76,29 +76,47 @@ function normalizeQuickNodeSwap(
     const addBalances = (arr: any[], target: Map<TokenKey, number>) => {
       for (const b of arr || []) {
         const owner = b.owner;
-        const mint = b.mint;
+        const mint = b.mint as string | undefined;
         if (!owner || !mint) continue;
         const key = `${owner.toLowerCase()}:${mint}`;
         const uiTokenAmount = b.uiTokenAmount;
         if (!uiTokenAmount) continue;
-        
-        // Try uiAmount first (already normalized), then uiAmountString, then calculate from raw amount
+
+        // Try uiAmount first (already normalized), then uiAmountString, then calculate from raw amount.
+        // QUICKNODE EDGE CASE:
+        //  - U některých tokenů (hlavně stablecoiny jako USDC/USDT) nemusí být vyplněné "decimals"
+        //  - Pokud bychom použili default 0, dostaneme o 10^6 větší hodnoty (např. 1 135.74 USDC -> 1 135 740 000)
+        //  - Proto defaultujeme na 6 pro base stablecoiny a 9 pro ostatní SPL tokeny.
         let amt: number | null = null;
         if (uiTokenAmount.uiAmount !== undefined && uiTokenAmount.uiAmount !== null) {
-          amt = typeof uiTokenAmount.uiAmount === 'string' 
-            ? parseFloat(uiTokenAmount.uiAmount) 
-            : Number(uiTokenAmount.uiAmount);
+          amt =
+            typeof uiTokenAmount.uiAmount === 'string'
+              ? parseFloat(uiTokenAmount.uiAmount)
+              : Number(uiTokenAmount.uiAmount);
         } else if (uiTokenAmount.uiAmountString) {
           amt = parseFloat(uiTokenAmount.uiAmountString);
         } else if (uiTokenAmount.amount) {
           // Raw amount as string, need to divide by 10^decimals
-          const rawAmount = typeof uiTokenAmount.amount === 'string' 
-            ? BigInt(uiTokenAmount.amount) 
-            : BigInt(uiTokenAmount.amount);
-          const decimals = uiTokenAmount.decimals ?? 0;
+          const rawAmount =
+            typeof uiTokenAmount.amount === 'string'
+              ? BigInt(uiTokenAmount.amount)
+              : BigInt(uiTokenAmount.amount);
+
+          // Lepší default pro případy, kdy QuickNode neposkytne decimals:
+          // - USDC/USDT mají 6 desetinných míst
+          // - Většina ostatních SPL tokenů má 9 desetinných míst
+          const explicitDecimals =
+            typeof uiTokenAmount.decimals === 'number'
+              ? uiTokenAmount.decimals
+              : undefined;
+          const defaultDecimals = BASE_MINTS.has(mint)
+            ? 6 // stabilní coiny (USDC/USDT/WSOL) – 6
+            : 9; // běžné SPL tokeny – 9
+          const decimals = explicitDecimals ?? defaultDecimals;
+
           amt = Number(rawAmount) / Math.pow(10, decimals);
         }
-        
+
         if (amt === null || !Number.isFinite(amt) || amt === 0) continue;
         target.set(key, (target.get(key) ?? 0) + amt);
       }
