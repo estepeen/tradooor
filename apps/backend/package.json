@@ -38,7 +38,8 @@
     "check:pnl-data": "tsx src/scripts/check-pnl-data.ts",
     "fix:wallet-types-positions": "tsx src/scripts/fix-wallet-types-positions.ts",
     "trades:sanity-check": "tsx src/workers/trades-sanity-check.ts",
-    "check:trade-value": "tsx src/scripts/check-trade-value.ts"
+    "check:trade-value": "tsx src/scripts/check-trade-value.ts",
+    "recalculate:trades-sol-to-usd": "tsx src/scripts/recalculate-trades-sol-to-usd.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.87.6",
