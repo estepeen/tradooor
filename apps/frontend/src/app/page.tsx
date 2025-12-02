@@ -52,7 +52,7 @@ export default function Home() {
   const [minScore, setMinScore] = useState<number | undefined>();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<'score' | 'winRate' | 'recentPnl30dUsd' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address'>('score');
+  const [sortBy, setSortBy] = useState<'score' | 'winRate' | 'recentPnl30dUsd' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address'>('recentPnl30dUsd');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -89,7 +89,7 @@ export default function Home() {
     try {
       const result = await fetchSmartWallets({
         page,
-        pageSize: 50,
+        pageSize: 100,
         search: search || undefined,
         minScore,
         tags: selectedTags.length > 0 ? selectedTags : undefined,
@@ -412,15 +412,37 @@ export default function Home() {
                       // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dBase
                       const getPnlBase = (w: any) => {
                         const rolling30d = w.advancedStats?.rolling?.['30d'];
-                        return rolling30d?.realizedPnl ?? w.recentPnl30dBase ?? w.recentPnl30dUsd ?? 0; // PnL v SOL
+                        return rolling30d?.realizedPnl ?? w.recentPnl30dBase ?? w.recentPnl30dUsd ?? 0; // PnL v USD
                       };
                       const aPnl = getPnlBase(a);
                       const bPnl = getPnlBase(b);
-                      // DEBUG: Log sorting values
-                      if (process.env.NODE_ENV === 'development' && Math.abs(aPnl) > 0.1 || Math.abs(bPnl) > 0.1) {
-                        console.log(`🔍 [Sort] ${a.address}: $${aPnl}, ${b.address}: $${bPnl}, order: ${sortOrder}`);
+                      
+                      // Custom sorting: positive first (desc), then negative (asc), then zero
+                      const EPS = 0.01; // Tolerance for "zero"
+                      const aIsPositive = aPnl > EPS;
+                      const aIsNegative = aPnl < -EPS;
+                      const aIsZero = !aIsPositive && !aIsNegative;
+                      const bIsPositive = bPnl > EPS;
+                      const bIsNegative = bPnl < -EPS;
+                      const bIsZero = !bIsPositive && !bIsNegative;
+                      
+                      // Priority: positive > negative > zero
+                      if (aIsPositive && !bIsPositive) return -1; // a is positive, b is not
+                      if (!aIsPositive && bIsPositive) return 1;  // b is positive, a is not
+                      if (aIsNegative && !bIsNegative && !bIsPositive) return -1; // a is negative, b is zero
+                      if (!aIsNegative && !aIsPositive && bIsNegative) return 1;  // a is zero, b is negative
+                      
+                      // Both in same category (both positive, both negative, or both zero)
+                      if (aIsPositive && bIsPositive) {
+                        // Both positive: sort descending (highest first)
+                        return bPnl - aPnl;
+                      } else if (aIsNegative && bIsNegative) {
+                        // Both negative: sort ascending (least negative first, i.e., -10 before -100)
+                        return aPnl - bPnl;
+                      } else {
+                        // Both zero: maintain original order
+                        return 0;
                       }
-                      return sortOrder === 'asc' ? aPnl - bPnl : bPnl - aPnl;
                     }
                     if (sortBy === 'recentPnl30dPercent') {
                       // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dPercent
