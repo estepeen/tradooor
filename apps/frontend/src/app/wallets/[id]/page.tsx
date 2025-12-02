@@ -63,7 +63,7 @@ export default function WalletDetailPage() {
         fetchSmartWallet(walletId),
         fetchTrades(walletId, { 
           page: 1, 
-          pageSize: 100,
+          pageSize: 200,
           tokenId: tokenFilter || undefined,
           fromDate,
         }),

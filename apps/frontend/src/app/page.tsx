@@ -89,7 +89,7 @@ export default function Home() {
     try {
       const result = await fetchSmartWallets({
         page,
-        pageSize: 100,
+        pageSize: 200,
         search: search || undefined,
         minScore,
         tags: selectedTags.length > 0 ? selectedTags : undefined,
