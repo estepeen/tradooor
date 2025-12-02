@@ -226,6 +226,9 @@ router.get('/recent', async (req, res) => {
         token:${TABLES.TOKEN}(*),
         wallet:${TABLES.SMART_WALLET}(id, address, label)
       `)
+      // Recent trades feed má sloužit primárně pro skutečné nákupy/prodeje,
+      // ne pro interní úpravy pozice. Proto zde filtrujeme pouze BUY/SELL.
+      .in('side', ['buy', 'sell'])
       .order('timestamp', { ascending: false })
       .limit(limit);
 

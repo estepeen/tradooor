@@ -736,7 +736,7 @@ export default function WalletDetailPage() {
                           <td className={`px-4 py-3 text-right text-sm font-mono ${
                             tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
                           }`}>
-                            {trade.valueUsd ? `$${formatNumber(Number(trade.valueUsd), 2)}` : '-'}
+                            {trade.valueUsd ? `$${formatNumber(Number(trade.valueUsd), 2)}` : (trade.amountBase ? `$${formatNumber(Number(trade.amountBase), 2)}` : '-')}
                           </td>
                           <td className={`px-4 py-3 text-right text-sm font-mono ${
                             tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'

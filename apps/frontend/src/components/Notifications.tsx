@@ -288,7 +288,7 @@ export default function Notifications() {
                             {' • '}
                             <span>{formatAmount(trade.amountToken)} tokens</span>
                             {' • '}
-                            <span>${formatAmount(trade.amountBase, 4)}</span>
+                            <span>${formatAmount(trade.amountBase, 2)}</span>
                           </div>
                           <div className="text-xs text-muted-foreground mt-1">
                             {formatTimeAgo(trade.timestamp)}

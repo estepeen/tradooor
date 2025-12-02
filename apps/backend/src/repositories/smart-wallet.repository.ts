@@ -108,7 +108,7 @@ export class SmartWalletRepository {
           // If no trades found, that's OK - return null
           if (error.code === 'PGRST116') {
             return { walletId, timestamp: null };
-          }
+        }
           // Don't log full HTML errors from Supabase/Cloudflare (too verbose)
           const errorMsg = typeof error.message === 'string' && error.message.length > 200
             ? error.message.substring(0, 200) + '...'

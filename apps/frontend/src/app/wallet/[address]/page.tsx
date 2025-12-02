@@ -1244,7 +1244,10 @@ export default function WalletDetailPage() {
                             <td className={`px-4 py-3 text-right text-sm font-mono ${
                               tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
                             }`}>
-                              {amountBase > 0 ? `$${formatNumber(amountBase, 6)}` : '-'}
+                              {(() => {
+                                const value = (trade as any).valueUsd || (trade as any).meta?.valueUsd || amountBase;
+                                return value > 0 ? `$${formatNumber(Number(value), 2)}` : '-';
+                              })()}
                             </td>
                               </tr>
                             );
