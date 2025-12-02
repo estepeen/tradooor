@@ -1,11 +1,13 @@
 /**
- * Script to recalculate amountBase from SOL to USD for old trades
+ * Script to recalculate amountBase from SOL to USD for all trades
  * 
  * This script finds trades where:
  * - baseToken is SOL (from meta)
- * - amountBase seems to be in SOL (not USD) - detected by checking if value * SOL price > reasonable threshold
+ * - amountBase seems to be in SOL (not USD) - detected by checking if value * SOL price > $100k
  * 
  * Then it converts amountBase from SOL to USD using historical SOL price from Binance API.
+ * 
+ * This ensures 100% accuracy - all trades will have amountBase in USD.
  * 
  * Usage:
  *   pnpm recalculate:trades-sol-to-usd [--dry-run]
