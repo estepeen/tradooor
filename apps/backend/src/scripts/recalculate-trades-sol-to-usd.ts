@@ -73,16 +73,25 @@ async function recalculateTradesSolToUsd() {
           }
 
           // Check if amountBase seems to be in SOL (not USD)
-          // If amountBase * SOL price > $100,000, it's likely in SOL
-          // We'll use current SOL price as a rough check, then use historical price for conversion
+          // Most trades from QuickNode webhook are already in USD, even if baseToken is 'SOL'
+          // We need to detect trades where amountBase is actually in SOL (unconverted)
+          
+          // Strategy:
+          // 1. Get current SOL price for rough estimation
+          // 2. Calculate what the USD value would be if amountBase is in SOL
+          // 3. If that value is unreasonably high (> $100k), it's likely in SOL and needs conversion
+          // 4. Otherwise, it's probably already in USD (just needs to be marked as USD, not converted)
+          
           const currentSolPrice = await binancePriceService.getCurrentSolPrice();
-          const estimatedUsdValue = amountBase * currentSolPrice;
-
-          // If estimated USD value is > $10,000, it's likely in SOL (not USD)
-          // But we need to be careful - some trades might legitimately be > $10,000
-          // So we'll check if the value seems unreasonably high (> $50,000)
-          if (estimatedUsdValue < 50000) {
-            // Probably already in USD or a small trade
+          const estimatedUsdValueIfSol = amountBase * currentSolPrice;
+          
+          // If estimated USD value (if amountBase is in SOL) is > $100k, it's likely in SOL
+          // This catches cases like 679 SOL * $136 = $92k USD (which should be ~$680 USD)
+          if (estimatedUsdValueIfSol > 100000) {
+            // This is likely in SOL and needs conversion
+            console.log(`  ⚠️  Trade with suspiciously high value: ${amountBase} (would be $${estimatedUsdValueIfSol.toFixed(2)} USD if in SOL, likely needs conversion)`);
+          } else {
+            // Probably already in USD - skip conversion
             totalSkipped++;
             continue;
           }
