@@ -95,7 +95,7 @@ async function recalculateTypesAndPositions() {
                   newType = 'add';
                 } else {
                   // Last trade was SELL/REMOVE or no previous trade - this is a new BUY
-                  newType = 'buy';
+                newType = 'buy';
                 }
               } else {
                 // Balance > 0 - this must be ADD
@@ -111,7 +111,7 @@ async function recalculateTypesAndPositions() {
                   newType = 'remove';
                 } else {
                   // Last trade was BUY/ADD or no previous trade - this is a new SELL
-                  newType = 'sell';
+                newType = 'sell';
                 }
               } else {
                 // Balance after > 0 - this must be REMOVE

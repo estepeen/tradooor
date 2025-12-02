@@ -12,7 +12,7 @@ import { BinancePriceService } from './binance-price.service.js';
  * Normalized trade shape used by collector – both Helius and QuickNode
  * normalizers should return this structure.
  */
-type NormalizedSwap = {
+export type NormalizedSwap = {
   txSignature: string;
   tokenMint: string;
   side: 'buy' | 'sell';
@@ -31,7 +31,7 @@ type NormalizedSwap = {
  * This is intentionally conservative: if we can't clearly detect a token ↔ base
  * trade for the given wallet, we return null and let the caller skip the tx.
  */
-function normalizeQuickNodeSwap(
+export function normalizeQuickNodeSwap(
   tx: any,
   walletAddress: string,
   blockTime?: number
