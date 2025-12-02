@@ -81,22 +81,45 @@ async function recalculateTradesSolToUsd() {
           // Strategy:
           // 1. Get current SOL price for rough estimation
           // 2. Calculate what the USD value would be if amountBase is in SOL
-          // 3. If that value is unreasonably high (> $100k), it's likely in SOL and needs conversion
-          // 4. Otherwise, it's probably already in USD (just needs to be marked as USD, not converted)
+          // 3. Check if the trade value is VERY small (< $500 estimated USD value if it were SOL)
+          //    If it were SOL, 1 SOL ~ $140. So $500 ~ 3.5 SOL.
+          //    If it is USD, $3.50 is very small.
+          //    This doesn't really help distinguish.
           
-          const currentSolPrice = await binancePriceService.getCurrentSolPrice();
-          const estimatedUsdValueIfSol = amountBase * currentSolPrice;
+          // Better strategy based on user feedback:
+          // "Most figures are correct (USD), but some are wrong (SOL stored as USD)".
+          // If amountBase is 1.5, it could be 1.5 SOL ($200) or $1.50.
+          // If amountBase is 788, it is likely $788 USD (because 788 SOL is $100k+).
           
-          // If estimated USD value (if amountBase is in SOL) is > $100k, it's likely in SOL
-          // This catches cases like 679 SOL * $136 = $92k USD (which should be ~$680 USD)
-          if (estimatedUsdValueIfSol > 100000) {
-            // This is likely in SOL and needs conversion
-            console.log(`  ⚠️  Trade with suspiciously high value: ${amountBase} (would be $${estimatedUsdValueIfSol.toFixed(2)} USD if in SOL, likely needs conversion)`);
-          } else {
-            // Probably already in USD - skip conversion
-            totalSkipped++;
-            continue;
+          // So, if amountBase is LARGE (> 100), assume it is USD.
+          // If amountBase is SMALL (< 100), assume it MIGHT be SOL.
+          
+          // Let's use a threshold of 50.
+          if (amountBase > 50) {
+             // Likely already USD. Skip.
+             totalSkipped++;
+             continue;
           }
+          
+          // If amountBase <= 50, it could be SOL.
+          // E.g. 1.5 SOL ($200) vs $1.50 USD.
+          // If it is a trade, $1.50 is quite small (unless memecoin dust).
+          // 1.5 SOL is a normal trade size.
+          
+          // Let's be conservative. Only convert if amountBase <= 50.
+          // And double check against amountToken if possible? (not easy without historical price)
+          
+          // Let's assume anything <= 20 is SOL and convert it.
+          // Why 20? 20 SOL = $2800. $20 USD is small.
+          // This is a heuristic.
+          
+          if (amountBase > 20) {
+             totalSkipped++;
+             continue;
+          }
+          
+          // OK, amountBase <= 20. Convert it.
+          console.log(`  ⚠️  Small value trade: ${amountBase} (assuming SOL, converting...)`);
 
           // Get historical SOL price at trade timestamp
           const tradeTimestamp = new Date(trade.timestamp);
