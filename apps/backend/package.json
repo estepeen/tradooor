@@ -37,7 +37,8 @@
     "debug:pnl-diff": "tsx src/scripts/debug-pnl-diff.ts",
     "check:pnl-data": "tsx src/scripts/check-pnl-data.ts",
     "fix:wallet-types-positions": "tsx src/scripts/fix-wallet-types-positions.ts",
-    "trades:sanity-check": "tsx src/workers/trades-sanity-check.ts"
+    "trades:sanity-check": "tsx src/workers/trades-sanity-check.ts",
+    "check:trade-value": "tsx src/scripts/check-trade-value.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.87.6",
