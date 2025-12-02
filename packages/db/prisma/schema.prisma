@@ -40,10 +40,6 @@ model SmartWallet {
   processingJobs        WalletProcessingQueue[]
   tradeSequences        TradeSequence[]
   tradeOutcomes         TradeOutcome[]
-  behaviorProfile       TraderBehaviorProfile?
-  correlationsAsWallet1 TraderCorrelation[] @relation("Wallet1Correlations")
-  correlationsAsWallet2 TraderCorrelation[] @relation("Wallet2Correlations")
-  
   @@index([address])
   @@index([score])
   @@index([updatedAt])
@@ -64,7 +60,6 @@ model Token {
   marketSnapshots       TokenMarketSnapshot[]
   tradeSequences        TradeSequence[]
   tradeOutcomes         TradeOutcome[]
-  correlations          TraderCorrelation[]
   
   @@index([mintAddress])
   @@index([symbol])
@@ -186,11 +181,6 @@ model TradeFeature {
   volumeSpike24hMultiplier      Decimal? @db.Decimal(36, 18) // Násobek průměrného objemu (24h)
   marketRegime                 String?  // 'bull' | 'bear' | 'sideways' (na základě SOL price)
   otherSmartWalletsTradingCount Int?     // Kolik dalších smart wallets tradeuje stejný token
-  otherSmartWalletsTradingSameTokenCount Int? // Total count of other smart wallets trading same token
-  otherSmartWalletsTradingSameTokenWithin1h Int? // Count within 1 hour
-  otherSmartWalletsTradingSameTokenWithin24h Int? // Count within 24 hours
-  avgTimeSinceOtherTradersTradeSeconds Int? // Average time since other traders traded same token
-  copyTraderScore              Decimal? @db.Decimal(5, 4) // Copy trading score (0-1)
   otherSmartWalletsTradingSameTokenCount Int? // Total count of other smart wallets trading same token
   otherSmartWalletsTradingSameTokenWithin1h Int? // Count within 1 hour
   otherSmartWalletsTradingSameTokenWithin24h Int? // Count within 24 hours
