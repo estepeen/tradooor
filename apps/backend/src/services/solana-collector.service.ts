@@ -2,6 +2,7 @@ import { SmartWalletRepository } from '../repositories/smart-wallet.repository.j
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
 import { WalletProcessingQueueRepository } from '../repositories/wallet-processing-queue.repository.js';
+import { NormalizedTradeRepository } from '../repositories/normalized-trade.repository.js';
 import { HeliusClient } from './helius-client.service.js';
 import { TokenMetadataBatchService } from './token-metadata-batch.service.js';
 import { TokenPriceService } from './token-price.service.js';
@@ -370,7 +371,8 @@ export class SolanaCollectorService {
     private smartWalletRepo: SmartWalletRepository,
     private tradeRepo: TradeRepository,
     private tokenRepo: TokenRepository,
-    private walletQueueRepo: WalletProcessingQueueRepository
+    private walletQueueRepo: WalletProcessingQueueRepository,
+    private normalizedTradeRepo: NormalizedTradeRepository = new NormalizedTradeRepository()
   ) {
     this.heliusClient = new HeliusClient();
     this.tokenMetadataBatchService = new TokenMetadataBatchService(this.heliusClient, this.tokenRepo);
@@ -671,7 +673,7 @@ export class SolanaCollectorService {
     tx: any,
     walletAddress: string,
     blockTime?: number
-  ): Promise<{ saved: boolean; reason?: string }> {
+  ): Promise<{ saved: boolean; reason?: string; normalizedTradeId?: string }> {
     try {
       const normalized = normalizeQuickNodeSwap(tx, walletAddress, blockTime);
       if (!normalized) {
@@ -956,37 +958,36 @@ export class SolanaCollectorService {
         return { saved: false, reason: 'duplicate' };
       }
 
-      const createdTrade = await this.tradeRepo.create({
+      const normalizedRecord = await this.normalizedTradeRepo.create({
         txSignature: normalized.txSignature,
         walletId: wallet.id,
         tokenId: token.id,
+        tokenMint: token.mintAddress,
         side: correctSide,
         amountToken: normalized.amountToken,
-        amountBase: normalized.amountBase,
-        priceBasePerToken: normalized.priceBasePerToken,
+        amountBaseRaw: normalized.amountBase,
+        baseToken: normalized.baseToken,
+        priceBasePerTokenRaw: normalized.priceBasePerToken,
         timestamp: normalized.timestamp,
         dex: normalized.dex,
-        valueUsd,
         positionChangePercent,
+        balanceBefore: normalizedBalanceBefore,
+        balanceAfter: normalizedBalanceAfter,
         meta: {
           source: 'quicknode-webhook',
           baseToken: normalized.baseToken,
-          isTokenToTokenSwap: !['SOL', 'USDC', 'USDT'].includes(normalized.baseToken), // Token za token swap
+          isTokenToTokenSwap: !['SOL', 'USDC', 'USDT'].includes(normalized.baseToken),
           quicknodeDebug: quicknodeDebugMeta,
+          walletAddress,
         },
+        rawPayload: tx,
       });
 
-      console.log(`   ✅ [QuickNode] Trade saved: ${createdTrade.id.substring(0, 8)}... (${normalized.side} ${normalized.amountToken} tokens, ${normalized.amountBase} ${normalized.baseToken})`);
+      console.log(
+        `   ✅ [QuickNode] Normalized trade stored: ${normalizedRecord.id.substring(0, 8)}... (${normalized.side} ${normalized.amountToken} tokens, ${normalized.amountBase} ${normalized.baseToken})`
+      );
 
-      try {
-        await this.walletQueueRepo.enqueue(wallet.id);
-      } catch (queueError: any) {
-        console.warn(
-          `⚠️  Failed to enqueue wallet ${walletAddress} for metrics recalculation: ${queueError.message}`
-        );
-      }
-
-      return { saved: true };
+      return { saved: true, normalizedTradeId: normalizedRecord.id };
     } catch (error: any) {
       console.error(`❌ Error processing QuickNode webhook transaction:`, error);
       return { saved: false, reason: error.message || 'unknown error' };

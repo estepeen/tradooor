@@ -25,6 +25,7 @@ export const supabase = createClient(supabaseUrl, supabaseKey, {
 export const TABLES = {
   SMART_WALLET: 'SmartWallet',
   TRADE: 'Trade',
+  NORMALIZED_TRADE: 'NormalizedTrade',
   TOKEN: 'Token',
   TOKEN_MARKET_SNAPSHOT: 'TokenMarketSnapshot',
   SMART_WALLET_METRICS_HISTORY: 'SmartWalletMetricsHistory',

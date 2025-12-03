@@ -40,6 +40,7 @@ model SmartWallet {
   processingJobs        WalletProcessingQueue[]
   tradeSequences        TradeSequence[]
   tradeOutcomes         TradeOutcome[]
+  normalizedTrades      NormalizedTrade[]
   @@index([address])
   @@index([score])
   @@index([updatedAt])
@@ -60,6 +61,7 @@ model Token {
   marketSnapshots       TokenMarketSnapshot[]
   tradeSequences        TradeSequence[]
   tradeOutcomes         TradeOutcome[]
+  normalizedTrades      NormalizedTrade[]
   
   @@index([mintAddress])
   @@index([symbol])
@@ -85,6 +87,7 @@ model Trade {
   features              TradeFeature?
   sequence              TradeSequence?
   outcome               TradeOutcome?
+  normalizedTrades      NormalizedTrade[]
   
   @@index([walletId])
   @@index([tokenId])
@@ -294,5 +297,43 @@ model TradeOutcome {
   @@index([tradeId])
   @@index([outcomeType])
   @@index([outcomeCategory])
+}
+
+model NormalizedTrade {
+  id                    String   @id @default(cuid())
+  txSignature           String
+  walletId              String
+  tokenId               String
+  tokenMint             String
+  side                  String
+  amountToken           Decimal  @db.Decimal(36, 18)
+  amountBaseRaw         Decimal  @db.Decimal(36, 18)
+  baseToken             String
+  priceBasePerTokenRaw  Decimal  @db.Decimal(36, 18)
+  timestamp             DateTime
+  dex                   String
+  positionChangePercent Float?
+  balanceBefore         Float?
+  balanceAfter          Float?
+  status                String   @default("pending")
+  error                 String?
+  meta                  Json?
+  rawPayload            Json?
+  amountBaseUsd         Decimal? @db.Decimal(36, 18)
+  priceUsdPerToken      Decimal? @db.Decimal(36, 18)
+  valuationSource       String?
+  valuationTimestamp    DateTime?
+  processedAt           DateTime?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  tradeId               String?
+
+  trade  Trade?       @relation(fields: [tradeId], references: [id], onDelete: SetNull)
+  wallet SmartWallet  @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  token  Token        @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+
+  @@unique([txSignature, walletId, side])
+  @@index([status, timestamp])
+  @@index([walletId, status])
 }
 

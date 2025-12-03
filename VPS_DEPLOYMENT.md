@@ -106,6 +106,9 @@ cd /opt/tradooor
 # Start backend as service
 pm2 start "pnpm --filter backend start" --name tradooor-backend
 
+# Start normalized trade ingestion worker
+pm2 start "pnpm --filter backend worker:normalized-trades" --name tradooor-trade-worker
+
 # Save PM2 configuration
 pm2 save
 
@@ -181,6 +184,7 @@ pnpm --filter backend build
 
 # Restart backend
 pm2 restart tradooor-backend
+pm2 restart tradooor-trade-worker
 
 # Check logs
 pm2 logs tradooor-backend --lines 50
