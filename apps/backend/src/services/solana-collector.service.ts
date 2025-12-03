@@ -510,19 +510,6 @@ export class SolanaCollectorService {
       }
 
       // 5. Calculate USD value
-      let valueUsd: number | undefined;
-      try {
-        if (normalized.baseToken === 'SOL') {
-          const solPrice = await this.solPriceService.getSolPriceUsd();
-          valueUsd = normalized.amountBase * solPrice;
-        } else {
-          // For USDC/USDT, 1:1 with USD
-          valueUsd = normalized.amountBase;
-        }
-        } catch (error: any) {
-        console.warn(`⚠️  Failed to calculate USD value:`, error.message);
-      }
-
       // 6. Determine correct TYPE (buy/add/remove/sell) based on balance before and after
       // Get all previous trades for this wallet and token to calculate balance
       const previousTrades = await this.tradeRepo.findAllForMetrics(wallet.id);
@@ -642,7 +629,7 @@ export class SolanaCollectorService {
         priceBasePerToken: normalized.priceBasePerToken,
         timestamp: normalized.timestamp,
         dex: normalized.dex,
-        valueUsd,
+        valueUsd: undefined,
         positionChangePercent, // Calculate and save positionChangePercent at save time
         meta: {
           source: 'helius-webhook',
@@ -680,84 +667,7 @@ export class SolanaCollectorService {
         return { saved: false, reason: 'not a swap' };
       }
       
-      // Převod amountBase a priceBasePerToken na USD
-      let amountBaseUsd = 0;
-      let priceBasePerTokenUsd = 0;
-      
-      try {
-        if (normalized.baseToken === 'SOL') {
-          // SOL -> USD pomocí Binance API
-          const solPriceUsd = await this.binancePriceService.getSolPriceAtTimestamp(normalized.timestamp);
-          amountBaseUsd = normalized.amountBase * solPriceUsd;
-          priceBasePerTokenUsd = normalized.priceBasePerToken * solPriceUsd;
-        } else if (normalized.baseToken === 'USDC' || normalized.baseToken === 'USDT') {
-          // USDC/USDT jsou 1:1 s USD
-          amountBaseUsd = normalized.amountBase;
-          priceBasePerTokenUsd = normalized.priceBasePerToken;
-        } else {
-          // Token za token swap - získej cenu sekundárního tokenu v USD
-          const secondaryTokenPrice = await this.tokenPriceService.getTokenPriceAtDate(
-            normalized.baseToken, // mint address sekundárního tokenu
-            normalized.timestamp
-          );
-          
-          if (secondaryTokenPrice && secondaryTokenPrice > 0) {
-            // Sekundární token má cenu v USD
-            amountBaseUsd = normalized.amountBase * secondaryTokenPrice;
-            priceBasePerTokenUsd = normalized.priceBasePerToken * secondaryTokenPrice;
-            
-            // Validace: pokud je amountBaseUsd příliš velké (> $100,000), pravděpodobně je cena špatně
-            // Použijeme fallback na SOL price
-            if (amountBaseUsd > 100000) {
-              console.warn(`   ⚠️  [QuickNode] Calculated amountBaseUsd is too large ($${amountBaseUsd.toFixed(2)}), likely incorrect secondary token price. Using SOL price as fallback.`);
-              console.warn(`      Secondary token: ${normalized.baseToken.substring(0, 16)}..., price: $${secondaryTokenPrice}, amountBase: ${normalized.amountBase}`);
-              const solPriceUsd = await this.binancePriceService.getSolPriceAtTimestamp(normalized.timestamp);
-              amountBaseUsd = normalized.amountBase * solPriceUsd;
-              priceBasePerTokenUsd = normalized.priceBasePerToken * solPriceUsd;
-            } else {
-              console.log(`   [QuickNode] Token-to-token swap: ${normalized.amountBase} ${normalized.baseToken.substring(0, 8)}... @ $${secondaryTokenPrice} = $${amountBaseUsd.toFixed(2)}`);
-            }
-          } else {
-            // Pokud nemůžeme získat cenu sekundárního tokenu, použijeme fallback na SOL price
-            console.warn(`   ⚠️  [QuickNode] Cannot get USD price for secondary token ${normalized.baseToken.substring(0, 8)}..., using SOL price as fallback`);
-            const solPriceUsd = await this.binancePriceService.getSolPriceAtTimestamp(normalized.timestamp);
-            // Odhad: předpokládáme, že sekundární token má podobnou hodnotu jako SOL (konzervativní odhad)
-            amountBaseUsd = normalized.amountBase * solPriceUsd;
-            priceBasePerTokenUsd = normalized.priceBasePerToken * solPriceUsd;
-          }
-        }
-      } catch (error: any) {
-        console.warn(`   ⚠️  [QuickNode] Failed to convert to USD:`, error.message);
-        // Fallback: použij SOL price
-        try {
-          const solPriceUsd = await this.binancePriceService.getSolPriceAtTimestamp(normalized.timestamp);
-          amountBaseUsd = normalized.amountBase * solPriceUsd;
-          priceBasePerTokenUsd = normalized.priceBasePerToken * solPriceUsd;
-        } catch (fallbackError: any) {
-          console.error(`   ❌ [QuickNode] Failed to get SOL price for USD conversion:`, fallbackError.message);
-          return { saved: false, reason: 'failed to convert to USD' };
-        }
-      }
-      
-      // Aktualizuj normalized s USD hodnotami
-      normalized.amountBase = amountBaseUsd;
-      normalized.priceBasePerToken = priceBasePerTokenUsd;
-      
-      // Only log if it's a significant trade (not tiny amounts) - nyní v USD
-      if (amountBaseUsd >= 1) { // $1 USD minimum
-        console.log(`   [QuickNode] Normalized swap: ${normalized.side} ${normalized.amountToken} tokens for $${amountBaseUsd.toFixed(2)} USD (${normalized.baseToken})`);
-      }
-
-      // 1b. Filter out tiny trades (likely just fees) - do not store trades with value < $0.10 USD
-      if (amountBaseUsd < 0.1) {
-        console.log(
-          `   ⚠️  [QuickNode] Skipping tiny trade (amountBase=$${amountBaseUsd.toFixed(2)} USD < $0.10) for wallet ${walletAddress.substring(
-            0,
-            8
-          )}...`
-        );
-        return { saved: false, reason: `amountBase < $0.10 USD ($${amountBaseUsd.toFixed(4)})` };
-      }
+      const amountBaseRaw = normalized.amountBase;
 
       // 2. Find or create wallet
       const wallet = await this.smartWalletRepo.findByAddress(walletAddress);
@@ -958,6 +868,10 @@ export class SolanaCollectorService {
         return { saved: false, reason: 'duplicate' };
       }
 
+      const baseTokenSymbol = normalized.baseToken?.toUpperCase?.() || '';
+      const isStableBase = baseTokenSymbol === 'SOL' || baseTokenSymbol === 'WSOL' || baseTokenSymbol === 'USDC' || baseTokenSymbol === 'USDT';
+      const secondaryTokenMint = isStableBase ? null : normalized.baseToken;
+
       const normalizedRecord = await this.normalizedTradeRepo.create({
         txSignature: normalized.txSignature,
         walletId: wallet.id,
@@ -965,7 +879,7 @@ export class SolanaCollectorService {
         tokenMint: token.mintAddress,
         side: correctSide,
         amountToken: normalized.amountToken,
-        amountBaseRaw: normalized.amountBase,
+        amountBaseRaw,
         baseToken: normalized.baseToken,
         priceBasePerTokenRaw: normalized.priceBasePerToken,
         timestamp: normalized.timestamp,
@@ -977,6 +891,7 @@ export class SolanaCollectorService {
           source: 'quicknode-webhook',
           baseToken: normalized.baseToken,
           isTokenToTokenSwap: !['SOL', 'USDC', 'USDT'].includes(normalized.baseToken),
+          secondaryTokenMint,
           quicknodeDebug: quicknodeDebugMeta,
           walletAddress,
         },
