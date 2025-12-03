@@ -429,17 +429,23 @@ export default function WalletDetailPage() {
     openPositions: portfolio?.openPositions || [],
     closedPositions: portfolio?.closedPositions || [],
   };
-  const positionMetrics = computePositionMetricsFromPercent(
-    allTrades.map((trade) => ({
-      id: trade.id,
-      tokenId: trade.tokenId,
-      amountToken: trade.amountToken,
-      amountBase: trade.amountBase, // Přidej amountBase pro správný výpočet ratio
-      side: trade.side as any,
-      timestamp: trade.timestamp,
-      positionChangePercent: trade.positionChangePercent, // Použij positionChangePercent z databáze
-    }))
+  const shouldComputeLegacyPositionMetrics = allTrades.some(
+    (trade) => trade.positionXAfter === null || trade.positionXAfter === undefined
   );
+
+  const positionMetrics = shouldComputeLegacyPositionMetrics
+    ? computePositionMetricsFromPercent(
+        allTrades.map((trade) => ({
+          id: trade.id,
+          tokenId: trade.tokenId,
+          amountToken: trade.amountToken,
+          amountBase: trade.amountBase,
+          side: trade.side as any,
+          timestamp: trade.timestamp,
+          positionChangePercent: trade.positionChangePercent,
+        }))
+      )
+    : {};
 
   if (loading) {
     return (
@@ -597,7 +603,13 @@ export default function WalletDetailPage() {
             
             // Sum up PnL from closed positions (v SOL)
             const totalPnl = closedPositions.reduce((sum: number, p: any) => {
-              const pnl = p.realizedPnlBase ?? p.closedPnlBase ?? p.closedPnl ?? 0; // PnL v SOL
+              const pnl =
+                p.realizedPnlUsd ??
+                p.closedPnlUsd ??
+                p.realizedPnlBase ??
+                p.closedPnlBase ??
+                p.closedPnl ??
+                0;
               return sum + (typeof pnl === 'number' ? pnl : 0);
             }, 0);
             
@@ -630,7 +642,7 @@ export default function WalletDetailPage() {
             }
             
             return {
-              pnlBase: totalPnl, // PnL v SOL (změněno z pnlUsd)
+              pnlBase: totalPnl, // nyní reprezentuje USD hodnotu
               pnlPercent,
               trades: closedPositions.length,
             };
@@ -910,7 +922,9 @@ export default function WalletDetailPage() {
                         const items = closedPositions.slice(0, showAllClosedPositions ? closedPositions.length : 10);
                         return items.map((position: any, index: number) => {
                           const token = position.token;
-                          const closedPnlBase = position.realizedPnlBase ?? position.closedPnlBase ?? position.closedPnl ?? 0; // PnL v SOL
+                          const closedPnlBase = position.realizedPnlBase ?? position.closedPnlBase ?? position.closedPnl ?? 0;
+                          const closedPnlUsd = position.realizedPnlUsd ?? position.closedPnlUsd ?? null;
+                          const closedPnlValue = closedPnlUsd ?? closedPnlBase;
                           const closedPnlPercent = position.realizedPnlPercent ?? position.closedPnlPercent ?? 0;
                           const holdTimeMinutes = position.holdTimeMinutes ?? null;
                           const sellDate = position.lastSellTimestamp
@@ -955,11 +969,11 @@ export default function WalletDetailPage() {
                                 )}
                               </td>
                               <td className={`px-4 py-3 text-right text-sm font-mono ${
-                                (closedPnlBase ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'
+                                (closedPnlValue ?? 0) >= 0 ? 'text-green-400' : 'text-red-400'
                               }`}>
-                                {closedPnlBase !== null && closedPnlBase !== undefined ? (
+                                {closedPnlValue !== null && closedPnlValue !== undefined ? (
                                   <>
-                                    ${formatNumber(Math.abs(closedPnlBase), 2)} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent((closedPnlPercent || 0) / 100)})
+                                    ${formatNumber(Math.abs(closedPnlValue), 2)} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent((closedPnlPercent || 0) / 100)})
                                   </>
                                 ) : '-'}
                               </td>
@@ -1122,11 +1136,32 @@ export default function WalletDetailPage() {
                               tradeType = 'REM';
                             }
                             
-                            const metrics = positionMetrics[trade.id];
-                            
-                            const positionDisplay = metrics
-                              ? `${metrics.positionXAfter.toFixed(2)}x (${metrics.deltaX >= 0 ? '+' : ''}${metrics.deltaX.toFixed(2)}x)`
-                              : '-';
+                            const hasServerMetric =
+                              trade.positionXAfter !== null && trade.positionXAfter !== undefined;
+                            const serverDelta =
+                              hasServerMetric
+                                ? trade.positionXDelta ??
+                                  (Number(trade.positionXAfter) -
+                                    Number(trade.positionXBefore ?? 0))
+                                : null;
+
+                            const backendPositionDisplay = hasServerMetric
+                              ? `${formatNumber(Number(trade.positionXAfter) || 0, 2)}x (${
+                                  (serverDelta ?? 0) >= 0 ? '+' : ''
+                                }${formatNumber(Math.abs(serverDelta ?? 0), 2)}x)`
+                              : null;
+
+                            const metrics = !hasServerMetric ? positionMetrics[trade.id] : null;
+                            const fallbackPositionDisplay = metrics
+                              ? `${metrics.positionXAfter.toFixed(2)}x (${
+                                  metrics.deltaX >= 0 ? '+' : ''
+                                }${metrics.deltaX.toFixed(2)}x)`
+                              : null;
+
+                            const positionDisplay =
+                              backendPositionDisplay || fallbackPositionDisplay || '-';
+                            const positionDelta =
+                              serverDelta ?? metrics?.deltaX ?? 0;
                             
                             const amountToken = Number(trade.amountToken);
                             const amountBase = Number(trade.amountBase);
@@ -1187,11 +1222,11 @@ export default function WalletDetailPage() {
                               )}
                             </td>
                             <td className="px-4 py-3 text-center text-sm font-mono">
-                              {metrics ? (
+                              {positionDisplay !== '-' ? (
                                 <span className={
-                                  metrics.deltaX > 0
+                                  positionDelta > 0
                                     ? 'text-green-400'
-                                    : metrics.deltaX < 0
+                                    : positionDelta < 0
                                     ? 'text-red-400'
                                     : 'text-muted-foreground'
                                 }>

@@ -947,6 +947,34 @@ router.get('/:id/portfolio', async (req, res) => {
       pageSize: 10000, // Get all trades for open positions calculation
     });
 
+    // Map tradeId -> USD per base unit (used later for closed position USD conversion)
+    const tradeUsdRatioMap = new Map<string, number>();
+    for (const trade of allTrades.trades || []) {
+      const amountBaseNum = Number((trade as any).amountBase ?? 0);
+      const valueUsdRaw =
+        (trade as any).valueUsd ??
+        (trade as any).meta?.valueUsd ??
+        null;
+      const valueUsdNum =
+        valueUsdRaw !== null && valueUsdRaw !== undefined
+          ? Number(valueUsdRaw)
+          : null;
+
+      let usdPerBase: number | null = null;
+      if (amountBaseNum > 0 && valueUsdNum && Number.isFinite(valueUsdNum)) {
+        usdPerBase = valueUsdNum / amountBaseNum;
+      } else {
+        const baseToken = ((trade as any).meta?.baseToken || 'SOL').toUpperCase();
+        if ((baseToken === 'USDC' || baseToken === 'USDT') && amountBaseNum > 0) {
+          usdPerBase = 1;
+        }
+      }
+
+      if (usdPerBase !== null && Number.isFinite(usdPerBase)) {
+        tradeUsdRatioMap.set((trade as any).id, usdPerBase);
+      }
+    }
+
     // Calculate portfolio positions
     const portfolioMap = new Map<string, {
       tokenId: string;
@@ -1160,7 +1188,7 @@ router.get('/:id/portfolio', async (req, res) => {
     // Získej všechny trades pro každý token seřazené podle času
     const { data: allTradesForFifo } = await supabase
       .from(TABLES.TRADE)
-      .select('tokenId, side, amountToken, amountBase, timestamp')
+      .select('tokenId, side, amountToken, amountBase, valueUsd, meta, timestamp')
       .eq('walletId', wallet.id)
       .order('timestamp', { ascending: true });
     
@@ -1181,36 +1209,39 @@ router.get('/:id/portfolio', async (req, res) => {
       
       // Pro každý token aplikuj FIFO
       for (const [tokenId, trades] of tradesByToken.entries()) {
-        // Queue nákupů: [{ amount: number, costBase: number }]
-        const buyQueue: Array<{ amount: number; costBase: number }> = [];
+        // Queue nákupů: [{ amount: number, costUsd: number }]
+        const buyQueue: Array<{ amount: number; costUsd: number }> = [];
         let currentBalance = 0;
         
         for (const trade of trades) {
           const amount = Number(trade.amountToken || 0);
-          const costBase = Number(trade.amountBase || 0);
+          const tradeValueUsd = Number((trade as any).valueUsd || 0);
+          const amountBase = Number(trade.amountBase || 0);
+          const costUsd = tradeValueUsd > 0 ? tradeValueUsd : amountBase;
           
           if (trade.side === 'buy' || trade.side === 'add') {
             // Přidej do queue
-            buyQueue.push({ amount, costBase });
+            buyQueue.push({ amount, costUsd });
             currentBalance += amount;
           } else if (trade.side === 'remove' || trade.side === 'sell') {
             // Odeber z queue podle FIFO
             let remainingToRemove = amount;
             while (remainingToRemove > 0 && buyQueue.length > 0) {
               const firstBuy = buyQueue[0];
-              const originalAmount = firstBuy.amount;
-              const costPerToken = firstBuy.costBase / originalAmount;
+              const originalAmount = firstBuy.amount || 0;
+              const costPerTokenUsd = originalAmount > 0 ? firstBuy.costUsd / originalAmount : 0;
+              const amountToRemove = Math.min(remainingToRemove, originalAmount);
               
-              if (firstBuy.amount <= remainingToRemove) {
-                // Odeber celý první nákup
-                remainingToRemove -= firstBuy.amount;
-                buyQueue.shift();
+              if (amountToRemove > 0) {
+                firstBuy.amount -= amountToRemove;
+                firstBuy.costUsd = Math.max(0, firstBuy.costUsd - amountToRemove * costPerTokenUsd);
+                remainingToRemove -= amountToRemove;
               } else {
-                // Odeber část prvního nákupu - sníž i costBase proporcionálně
-                const removedAmount = remainingToRemove;
-                firstBuy.amount -= removedAmount;
-                firstBuy.costBase -= removedAmount * costPerToken;
                 remainingToRemove = 0;
+              }
+              
+              if (firstBuy.amount <= 0.0000001 || firstBuy.costUsd <= 0.0000001) {
+                buyQueue.shift();
               }
             }
             currentBalance -= amount;
@@ -1218,19 +1249,14 @@ router.get('/:id/portfolio', async (req, res) => {
         }
         
         // Náklady pro aktuální balance = součet nákladů zbývajících tokenů v queue
-        // Každý nákup v queue už má správně upravené costBase po REM/SELL
+        // Každý nákup v queue už má správně upravené costUsd po REM/SELL
         const costForCurrentBalance = buyQueue.reduce((sum, buy) => {
-          return sum + buy.costBase;
+          return sum + buy.costUsd;
         }, 0);
         
         fifoCostMap.set(tokenId, costForCurrentBalance);
       }
     }
-    
-    // Import BinancePriceService pro konverzi SOL na USD
-    const { BinancePriceService } = await import('../services/binance-price.service.js');
-    const binancePriceService = new BinancePriceService();
-    const currentSolPrice = await binancePriceService.getCurrentSolPrice().catch(() => null);
     
     // Create a map of closed lots by tokenId for closed positions PnL calculation
     // This ensures consistency with rolling stats (both use closed lots)
@@ -1264,20 +1290,16 @@ router.get('/:id/portfolio', async (req, res) => {
           : position.balance * position.averageBuyPrice; // Fallback to average buy price if no current price
         
         // Vypočítej Live PnL pomocí FIFO metody (First In First Out)
-        // Náklady pro aktuální balance = součet nákladů zbývajících tokenů podle FIFO
-        const costForCurrentBalance = fifoCostMap.get(position.tokenId) || 0;
+        // Náklady pro aktuální balance = součet nákladů zbývajících tokenů podle FIFO (v USD)
+        const costForCurrentBalanceUsd = fifoCostMap.get(position.tokenId) || 0;
         
         let totalCostUsd = 0;
         let livePnl = 0;
-        let livePnlBase = 0; // Live PnL v base měně (SOL/USDC/USDT)
+        let livePnlBase = 0; // Live PnL (USD) - držíme alias kvůli kompatibilitě s FE
         let livePnlPercent = 0;
         
-        // Převod nákladů pro aktuální balance z base měny na USD
-        if (costForCurrentBalance > 0 && currentSolPrice) {
-          // Předpokládáme, že cost je v SOL (pro většinu tokenů)
-          // TODO: Detekovat baseToken z trades a použít správnou konverzi
-          totalCostUsd = costForCurrentBalance * currentSolPrice;
-        } else if (position.totalInvested > 0 && position.totalBought > 0) {
+        totalCostUsd = costForCurrentBalanceUsd;
+        if (totalCostUsd <= 0 && position.balance > 0 && position.totalBought > 0) {
           // Fallback: použij průměrný nákupní kurz v USD (pokud FIFO selže)
           const averageCostUsd = position.totalInvested / position.totalBought;
           totalCostUsd = position.balance * averageCostUsd;
@@ -1289,17 +1311,8 @@ router.get('/:id/portfolio', async (req, res) => {
           livePnlPercent = totalCostUsd > 0 ? (livePnl / totalCostUsd) * 100 : 0;
         }
         
-        // Vypočítej Live PnL v base měně (SOL) - převedeme z USD pomocí aktuální ceny SOL
-        if (livePnl !== 0 && currentSolPrice && currentSolPrice > 0) {
-          livePnlBase = livePnl / currentSolPrice;
-        } else if (costForCurrentBalance > 0 && currentPrice) {
-          // Alternativní výpočet: currentValue v base měně - costForCurrentBalance
-          // currentValue je v USD, převedeme na SOL a porovnáme s costForCurrentBalance
-          const currentValueBase = currentSolPrice && currentSolPrice > 0 
-            ? currentValue / currentSolPrice 
-            : 0;
-          livePnlBase = currentValueBase - costForCurrentBalance;
-        }
+        // FE historicky očekávalo livePnlBase – nyní vracíme rovnou USD hodnotu
+        livePnlBase = livePnl;
         
         // Pro kompatibilitu zachováme staré výpočty
         const pnl = currentValue - position.totalInvested;
@@ -1462,6 +1475,16 @@ router.get('/:id/portfolio', async (req, res) => {
     
     // DŮLEŽITÉ: Vytvoříme samostatnou closed position pro každý BUY-SELL cyklus (skupina ClosedLots se stejným sellTradeId)
     // Tím zajistíme, že každý cyklus pro stejný token bude samostatná pozice s řadovým označením (1., 2., 3. atd.)
+    const convertBaseToUsd = (
+      amountBase: number | null | undefined,
+      tradeId: string | null | undefined
+    ) => {
+      if (!amountBase || !tradeId) return null;
+      const ratio = tradeUsdRatioMap.get(tradeId);
+      if (!ratio || !Number.isFinite(ratio)) return null;
+      return amountBase * ratio;
+    };
+
     const closedPositionsFromLots: any[] = [];
     if (closedLots && closedLots.length > 0) {
       console.log(`   📊 [Portfolio] Found ${closedLots.length} ClosedLots for wallet ${wallet.id}`);
@@ -1502,6 +1525,28 @@ router.get('/:id/portfolio', async (req, res) => {
         const totalProceedsBase = lotsForSell.reduce((sum: number, lot: any) => sum + (lot.proceeds || 0), 0);
         const effectiveCostBase = totalCostBase > 0 ? totalCostBase : (totalProceedsBase - totalRealizedPnl);
         const realizedPnlPercent = effectiveCostBase > 0 ? (totalRealizedPnl / effectiveCostBase) * 100 : 0;
+
+        let totalCostUsd = 0;
+        let totalProceedsUsd = 0;
+        let costUsdCount = 0;
+        let proceedsUsdCount = 0;
+        for (const lot of lotsForSell) {
+          const costUsd = convertBaseToUsd(Number(lot.costBasis || 0), lot.buyTradeId);
+          if (costUsd !== null) {
+            totalCostUsd += costUsd;
+            costUsdCount++;
+          }
+          const proceedsUsd = convertBaseToUsd(Number(lot.proceeds || 0), lot.sellTradeId || sellTradeId);
+          if (proceedsUsd !== null) {
+            totalProceedsUsd += proceedsUsd;
+            proceedsUsdCount++;
+          }
+        }
+        const totalCostUsdValue = costUsdCount > 0 ? totalCostUsd : null;
+        const totalProceedsUsdValue = proceedsUsdCount > 0 ? totalProceedsUsd : null;
+        const realizedPnlUsd = totalCostUsdValue !== null && totalProceedsUsdValue !== null
+          ? totalProceedsUsdValue - totalCostUsdValue
+          : null;
         
         const entryTime = new Date(firstLot.entryTime);
         const exitTime = new Date(lastLot.exitTime);
@@ -1518,7 +1563,9 @@ router.get('/:id/portfolio', async (req, res) => {
           totalInvested: 0,
           totalSoldValue: 0,
           totalCostBase,
-          totalProceedsBase: totalCostBase + totalRealizedPnl,
+          totalProceedsBase,
+          totalCostUsd: totalCostUsdValue,
+          totalProceedsUsd: totalProceedsUsdValue,
           averageBuyPrice: 0,
           buyCount: lotsForSell.length, // Počet lots = počet BUY/ADD trades
           sellCount: 1, // Jeden SELL trade
@@ -1538,9 +1585,11 @@ router.get('/:id/portfolio', async (req, res) => {
           pnlPercent: 0,
           holdTimeMinutes: holdTimeMinutes >= 0 ? holdTimeMinutes : 0,
           realizedPnlBase: totalRealizedPnl,
+          realizedPnlUsd,
           realizedPnlPercent,
           closedPnl: totalRealizedPnl,
           closedPnlBase: totalRealizedPnl,
+          closedPnlUsd: realizedPnlUsd,
           closedPnlPercent: realizedPnlPercent,
         });
         
@@ -1554,15 +1603,14 @@ router.get('/:id/portfolio', async (req, res) => {
     const tokensWithClosedLots = new Set((closedLots || []).map((lot: any) => lot.tokenId));
     
     const closedPositions = [
-      ...closedPositionsFromLots // Všechny closed positions z ClosedLots (každý cyklus je samostatná pozice)
+      ...closedPositionsFromLots
     ]
-      .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes >= 0) // Finální kontrola - povolujeme i 0 (stejný timestamp)
-        .sort((a, b) => {
-        // Seřaď podle lastSellTimestamp (nejnovější uzavřené pozice nahoře)
-          const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
-          const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
-          return bTime - aTime;
-        });
+      .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes >= 0)
+      .sort((a, b) => {
+        const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
+        const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
+        return bTime - aTime;
+      });
 
     console.log(`✅ Portfolio calculated: ${openPositions.length} open positions, ${closedPositions.length} closed positions`);
     
