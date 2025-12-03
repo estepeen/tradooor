@@ -34,7 +34,19 @@ async function deleteAllTrades() {
       console.log('✅ Successfully deleted all trade features');
     }
 
-    // 3. Delete all trades
+    // 3. Delete normalized trades first (new ingestion pipeline)
+    console.log('🗑️  Deleting normalized trades...');
+    const { error: normalizedError } = await supabase
+      .from('NormalizedTrade')
+      .delete()
+      .neq('id', '00000000-0000-0000-0000-000000000000');
+    if (normalizedError) {
+      console.warn(`⚠️  Warning: Failed to delete normalized trades: ${normalizedError.message}`);
+    } else {
+      console.log('✅ Successfully deleted all normalized trades');
+    }
+
+    // 4. Delete all trades
     console.log('🗑️  Deleting trades...');
     const { error: tradesError } = await supabase
       .from(TABLES.TRADE)
@@ -45,7 +57,7 @@ async function deleteAllTrades() {
     }
     console.log('✅ Successfully deleted all trades');
 
-    // 4. Delete portfolio baseline cache
+    // 5. Delete portfolio baseline cache
     console.log('🗑️  Deleting portfolio baseline cache...');
     const { error: portfolioError } = await supabase
       .from('PortfolioBaseline')
@@ -57,7 +69,7 @@ async function deleteAllTrades() {
       console.log('✅ Successfully deleted portfolio baseline cache');
     }
 
-    // 5. Clear wallet processing queue
+    // 6. Clear wallet processing queue
     console.log('🗑️  Clearing wallet processing queue...');
     const { error: queueError } = await supabase
       .from('WalletProcessingQueue')
@@ -69,7 +81,7 @@ async function deleteAllTrades() {
       console.log('✅ Successfully cleared wallet processing queue');
     }
 
-    // 6. Delete metrics history
+    // 7. Delete metrics history
     console.log('🗑️  Deleting metrics history...');
     const { error: metricsHistoryError } = await supabase
       .from('SmartWalletMetricsHistory')
@@ -81,7 +93,7 @@ async function deleteAllTrades() {
       console.log('✅ Successfully deleted metrics history');
     }
 
-    // 7. Reset all wallet metrics (including score, PnL, and tags)
+    // 8. Reset all wallet metrics (including score, PnL, and tags)
     console.log('🔄 Resetting wallet metrics (including score, PnL, and tags)...');
     const { error: updateError } = await supabase
       .from(TABLES.SMART_WALLET)
