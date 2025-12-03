@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio, fetchWalletPortfolioRefresh } from '@/lib/api';
@@ -31,13 +31,8 @@ export default function WalletDetailPage() {
   const [portfolioRefreshing, setPortfolioRefreshing] = useState(false);
   const [portfolioRefreshMsg, setPortfolioRefreshMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
 
-  useEffect(() => {
-    if (walletId) {
-      loadData();
-    }
-  }, [walletId, tokenFilter, timeframeFilter]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
+    if (!walletId) return;
     setLoading(true);
     try {
       // Calculate date range for timeframe filter
@@ -80,7 +75,11 @@ export default function WalletDetailPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [walletId, timeframeFilter, tokenFilter]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   async function loadPortfolioLazy() {
     if (portfolioLoaded || portfolioLoading) return;

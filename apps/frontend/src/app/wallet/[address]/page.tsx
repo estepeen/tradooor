@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio, deletePosition } from '@/lib/api';
@@ -198,40 +198,8 @@ export default function WalletDetailPage() {
   const [pnlLoading, setPnlLoading] = useState<boolean>(true);
   const [portfolioLoading, setPortfolioLoading] = useState<boolean>(true);
 
-  useEffect(() => {
-    if (walletAddress) {
-      loadData();
-    }
-  }, [walletAddress, tokenFilter, timeframeFilter]);
-
-  // Reset displayed trades count when filter changes
-  useEffect(() => {
-    setDisplayedTradesCount(50);
-  }, [tokenFilter, timeframeFilter]);
-
-  // OPTIMALIZACE: Portfolio se načte pouze jednou při načtení stránky
-  // Worker/cron aktualizuje data na pozadí, takže není potřeba force refresh
-  // Automatický refresh pouze pokud uživatel explicitně klikne na tlačítko
-
-  // Countdown timer to show until next update
-  useEffect(() => {
-    if (!portfolioLastUpdated) return;
-
-    const updateCountdown = () => {
-      const now = Date.now();
-      const lastUpdate = portfolioLastUpdated.getTime();
-      const nextUpdate = lastUpdate + 60 * 1000; // 1 minute
-      const remaining = Math.max(0, Math.floor((nextUpdate - now) / 1000));
-      setCountdown(remaining);
-    };
-
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 1000);
-
-    return () => clearInterval(interval);
-  }, [portfolioLastUpdated]);
-
-  async function loadData() {
+  const loadData = useCallback(async () => {
+    if (!walletAddress) return;
     setLoading(true);
     try {
       // OPTIMALIZACE: Načti pouze kritická data (wallet info) synchronně pro rychlý první render
@@ -338,7 +306,39 @@ export default function WalletDetailPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [walletAddress, timeframeFilter, tokenFilter]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // Reset displayed trades count when filter changes
+  useEffect(() => {
+    setDisplayedTradesCount(50);
+  }, [tokenFilter, timeframeFilter]);
+
+  // OPTIMALIZACE: Portfolio se načte pouze jednou při načtení stránky
+  // Worker/cron aktualizuje data na pozadí, takže není potřeba force refresh
+  // Automatický refresh pouze pokud uživatel explicitně klikne na tlačítko
+
+  // Countdown timer to show until next update
+  useEffect(() => {
+    if (!portfolioLastUpdated) return;
+
+    const updateCountdown = () => {
+      const now = Date.now();
+      const lastUpdate = portfolioLastUpdated.getTime();
+      const nextUpdate = lastUpdate + 60 * 1000; // 1 minute
+      const remaining = Math.max(0, Math.floor((nextUpdate - now) / 1000));
+      setCountdown(remaining);
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+
+    return () => clearInterval(interval);
+  }, [portfolioLastUpdated]);
+
 
   async function loadMoreTrades() {
     if (!wallet?.id || !trades || loadingMoreTrades) return;

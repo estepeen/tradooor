@@ -129,6 +129,9 @@ export interface Trade {
   pnlUsd?: number | null;
   pnlPercent?: number | null;
   positionChangePercent?: number | null;
+  positionXBefore?: number | null;
+  positionXAfter?: number | null;
+  positionXDelta?: number | null;
   token?: Token | null;
   wallet?: SmartWallet | null;
   features?: TradeFeature | null;
