@@ -1316,7 +1316,7 @@ router.get('/:id/portfolio', async (req, res) => {
         
         // Calculate current value and PnL based on current market price
         // currentPrice je z Birdeye API, už v USD
-        const currentValue = currentPrice && position.balance > 0
+        const currentValue: number | null = currentPrice && position.balance > 0
           ? currentPrice * position.balance
           : (position.balance > 0 && position.averageBuyPrice > 0 
               ? position.balance * position.averageBuyPrice 
@@ -1339,7 +1339,7 @@ router.get('/:id/portfolio', async (req, res) => {
         }
         
         // Vypočítej Live PnL v USD
-        if (currentValue > 0 && totalCostUsd > 0) {
+        if (currentValue !== null && currentValue > 0 && totalCostUsd > 0) {
           livePnl = currentValue - totalCostUsd;
           livePnlPercent = totalCostUsd > 0 ? (livePnl / totalCostUsd) * 100 : 0;
         }
@@ -1348,7 +1348,7 @@ router.get('/:id/portfolio', async (req, res) => {
         livePnlBase = livePnl;
         
         // Pro kompatibilitu zachováme staré výpočty
-        const pnl = currentValue - position.totalInvested;
+        const pnl = currentValue !== null ? currentValue - position.totalInvested : 0;
         const pnlPercent = position.totalInvested > 0
           ? (pnl / position.totalInvested) * 100
           : 0;
