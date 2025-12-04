@@ -125,8 +125,9 @@ export class TradeRepository {
       .eq('walletId', walletId);
     
     // Vyloučit void trades z PnL výpočtů
+    // Použij .in() místo .neq() pro lepší kompatibilitu s Supabase
     if (excludeVoid) {
-      query = query.neq('side', 'void');
+      query = query.in('side', ['buy', 'sell']);
     }
     
     const { data: trades, error } = await query.order('timestamp', { ascending: true });
