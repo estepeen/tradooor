@@ -129,15 +129,22 @@ export class LotMatchingService {
     // Minimální hodnota v base měně pro považování za reálný trade
     const MIN_BASE_VALUE = 0.0001;
 
+    const normalizeSide = (side: string): 'buy' | 'sell' => {
+      const lower = (side || '').toLowerCase();
+      if (lower === 'add') return 'buy';
+      if (lower === 'remove') return 'sell';
+      return lower === 'sell' ? 'sell' : 'buy';
+    };
+
     for (const trade of trades) {
-      const side = trade.side;
+      const side = normalizeSide(trade.side);
       const amount = Number(trade.amountToken);
       const price = Number(trade.priceBasePerToken);
       const amountBase = Number(trade.amountBase || 0);
       const timestamp = new Date(trade.timestamp);
 
       // Filtruj airdropy/transfery
-      if ((side === 'buy' || side === 'add') && amountBase < MIN_BASE_VALUE) {
+      if (side === 'buy' && amountBase < MIN_BASE_VALUE) {
         continue;
       }
       if (price <= 0 || price < MIN_BASE_VALUE / amount) {
@@ -146,7 +153,7 @@ export class LotMatchingService {
 
       // DŮLEŽITÉ: Closed position = BUY (počátek) + SELL (konec, balance = 0)
       // ADD a REM jsou jen mezistupně - REM neuzavírá pozici, pouze SELL
-      if (side === 'buy' || side === 'add') {
+      if (side === 'buy') {
         // BUY/ADD: Add new lot (oba přidávají do open lots)
         openLots.push({
           remainingSize: amount,
@@ -269,29 +276,6 @@ export class LotMatchingService {
         if (toSell > 0) {
           console.log(`   ⚠️  SELL without matching BUY/ADD for token ${tokenId}: ${toSell} tokens sold at ${price} - skipping (pre-history, no cost basis)`);
           // Nepřidáváme do closedLots - není to kompletní trade
-        }
-      } else if (side === 'remove') {
-        // REM: Match against open lots using FIFO, ale NEVYTVÁŘÍ closed lot
-        // REM jen snižuje balance, ale neuzavírá pozici (není to finální prodej)
-        // REM se počítá do totalProceedsBase, ale ne do closed lots
-        let toRemove = amount;
-
-        while (toRemove > 0 && openLots.length > 0) {
-          const lot = openLots[0]; // FIFO: take first lot
-          const consumed = Math.min(toRemove, lot.remainingSize);
-
-          // Update lot (snížíme balance, ale NEVYTVÁŘÍME closed lot)
-          lot.remainingSize -= consumed;
-          if (lot.remainingSize <= 0.00000001) { // Small epsilon for floating point
-            openLots.shift(); // Remove fully consumed lot
-          }
-
-          toRemove -= consumed;
-        }
-
-        // If we still have tokens to remove but no open lots, this is a REM without BUY (pre-history)
-        if (toRemove > 0) {
-          console.log(`   ⚠️  REM without matching BUY/ADD for token ${tokenId}: ${toRemove} tokens removed at ${price} - skipping (pre-history, no cost basis)`);
         }
       }
     }

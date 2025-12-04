@@ -37,7 +37,6 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       timestamp: record.timestamp,
       dex: record.dex,
       valueUsd: valuation.amountBaseUsd,
-      positionChangePercent: record.positionChangePercent ?? undefined,
       meta: {
         ...record.meta,
         normalizedTradeId: record.id,

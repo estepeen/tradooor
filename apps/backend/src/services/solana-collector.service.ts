@@ -509,110 +509,6 @@ export class SolanaCollectorService {
         }
       }
 
-      // 5. Calculate USD value
-      // 6. Determine correct TYPE (buy/add/remove/sell) based on balance before and after
-      // Get all previous trades for this wallet and token to calculate balance
-      const previousTrades = await this.tradeRepo.findAllForMetrics(wallet.id);
-      const tokenTrades = previousTrades
-        .filter(t => t.tokenId === token.id)
-        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-      
-      // Calculate balance before this trade
-      let balanceBefore = 0;
-      for (const prevTrade of tokenTrades) {
-        const prevSide = prevTrade.side;
-        const prevAmount = Number(prevTrade.amountToken);
-        if (prevSide === 'buy' || prevSide === 'add') {
-          balanceBefore += prevAmount;
-        } else if (prevSide === 'sell' || prevSide === 'remove') {
-          balanceBefore = Math.max(0, balanceBefore - prevAmount);
-        }
-      }
-
-      // Calculate balance after this trade
-      const normalizedBalanceBefore = Math.abs(balanceBefore) < 0.000001 ? 0 : balanceBefore;
-      const isBuy = normalized.side === 'buy';
-      const balanceAfter = isBuy 
-        ? balanceBefore + normalized.amountToken
-        : Math.max(0, balanceBefore - normalized.amountToken);
-      const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
-
-      // Get last trade for this token to prevent consecutive BUY/BUY or SELL/SELL
-      const lastTrade = tokenTrades.length > 0 ? tokenTrades[tokenTrades.length - 1] : null;
-      const lastSide = lastTrade?.side || null;
-
-      // Determine correct TYPE
-      let correctSide: 'buy' | 'sell' | 'add' | 'remove';
-      if (isBuy) {
-        // BUY logic: prevent consecutive BUY
-        if (normalizedBalanceBefore === 0) {
-          // Balance is 0 - check if last trade was also a buy
-          if (lastSide === 'buy' || lastSide === 'add') {
-            // Last trade was BUY/ADD, so this must be ADD (not BUY)
-            correctSide = 'add';
-          } else {
-            // Last trade was SELL/REMOVE or no previous trade - this is a new BUY
-          correctSide = 'buy';
-          }
-        } else {
-          // Balance > 0 - this must be ADD
-          correctSide = 'add';
-        }
-        } else {
-        // SELL logic: prevent consecutive SELL
-        const EPS = 0.000001;
-        if (normalizedBalanceAfter < EPS) {
-          // Balance after is 0 - check if last trade was also a sell
-          if (lastSide === 'sell' || lastSide === 'remove') {
-            // Last trade was SELL/REMOVE, so this must be REMOVE (not SELL)
-            correctSide = 'remove';
-          } else {
-            // Last trade was BUY/ADD or no previous trade - this is a new SELL
-          correctSide = 'sell';
-          }
-        } else {
-          // Balance after > 0 - this must be REMOVE
-          correctSide = 'remove';
-        }
-      }
-
-      // Calculate positionChangePercent (procentuální změna pozice)
-      let positionChangePercent: number | undefined = undefined;
-      if (isBuy) {
-        // BUY nebo ADD
-        if (normalizedBalanceBefore === 0) {
-          // První nákup (BUY) - pozice se vytváří, takže 100% změna
-          positionChangePercent = 100;
-        } else {
-          // Další nákup (ADD) - počítáme % změnu z existující pozice
-          positionChangePercent = (normalized.amountToken / balanceBefore) * 100;
-          // Omezíme na rozumné hodnoty (max 1000%, pak ořízneme na 100%)
-          if (positionChangePercent > 1000) {
-            positionChangePercent = 100;
-          }
-        }
-        } else {
-        // REM nebo SELL
-        if (normalizedBalanceBefore === 0) {
-          // Nemůžeme prodávat, když nemáme pozici
-          positionChangePercent = 0;
-        } else if (normalizedBalanceAfter === 0) {
-          // SELL - prodáváme všechno, takže -100%
-          positionChangePercent = -100;
-        } else {
-          // REM - částečný prodej, počítáme % změnu z existující pozice
-          positionChangePercent = -(normalized.amountToken / balanceBefore) * 100;
-          // Omezíme na rozumné hodnoty (min -100%)
-          if (positionChangePercent < -100) {
-            positionChangePercent = -100;
-          }
-          // Pokud je změna větší než 1000%, ořízneme na -100%
-          if (Math.abs(positionChangePercent) > 1000) {
-            positionChangePercent = -100;
-          }
-        }
-      }
-
       // 7. Save trade
       const existing = await this.tradeRepo.findBySignature(normalized.txSignature);
       if (existing) {
@@ -623,14 +519,13 @@ export class SolanaCollectorService {
         txSignature: normalized.txSignature,
         walletId: wallet.id,
         tokenId: token.id,
-        side: correctSide, // Use calculated TYPE instead of normalized.side
+        side: normalized.side,
         amountToken: normalized.amountToken,
         amountBase: normalized.amountBase,
         priceBasePerToken: normalized.priceBasePerToken,
         timestamp: normalized.timestamp,
         dex: normalized.dex,
         valueUsd: undefined,
-        positionChangePercent, // Calculate and save positionChangePercent at save time
         meta: {
           source: 'helius-webhook',
           baseToken: normalized.baseToken,
@@ -772,97 +667,6 @@ export class SolanaCollectorService {
       // 5. USD value je už vypočítané v normalized.amountBase (v USD)
       const valueUsd = normalized.amountBase; // Už je v USD
 
-      // 6. SIDE / balance / positionChangePercent logic is identical to Helius path
-      const previousTrades = await this.tradeRepo.findAllForMetrics(wallet.id);
-      const tokenTrades = previousTrades
-        .filter(t => t.tokenId === token.id)
-        .sort(
-          (a, b) =>
-            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-        );
-
-      let balanceBefore = 0;
-      for (const prevTrade of tokenTrades) {
-        const prevSide = prevTrade.side;
-        const prevAmount = Number(prevTrade.amountToken);
-        if (prevSide === 'buy' || prevSide === 'add') {
-          balanceBefore += prevAmount;
-        } else if (prevSide === 'sell' || prevSide === 'remove') {
-          balanceBefore = Math.max(0, balanceBefore - prevAmount);
-        }
-      }
-
-      const normalizedBalanceBefore = Math.abs(balanceBefore) < 0.000001 ? 0 : balanceBefore;
-      const isBuy = normalized.side === 'buy';
-      const balanceAfter = isBuy
-        ? balanceBefore + normalized.amountToken
-        : Math.max(0, balanceBefore - normalized.amountToken);
-      const normalizedBalanceAfter = Math.abs(balanceAfter) < 0.000001 ? 0 : balanceAfter;
-
-      // Get last trade for this token to prevent consecutive BUY/BUY or SELL/SELL
-      const lastTrade = tokenTrades.length > 0 ? tokenTrades[tokenTrades.length - 1] : null;
-      const lastSide = lastTrade?.side || null;
-
-      let correctSide: 'buy' | 'sell' | 'add' | 'remove';
-      if (isBuy) {
-        // BUY logic: prevent consecutive BUY
-        if (normalizedBalanceBefore === 0) {
-          // Balance is 0 - check if last trade was also a buy
-          if (lastSide === 'buy' || lastSide === 'add') {
-            // Last trade was BUY/ADD, so this must be ADD (not BUY)
-            correctSide = 'add';
-          } else {
-            // Last trade was SELL/REMOVE or no previous trade - this is a new BUY
-            correctSide = 'buy';
-          }
-        } else {
-          // Balance > 0 - this must be ADD
-          correctSide = 'add';
-        }
-      } else {
-        // SELL logic: prevent consecutive SELL
-        const EPS = 0.000001;
-        if (normalizedBalanceAfter < EPS) {
-          // Balance after is 0 - check if last trade was also a sell
-          if (lastSide === 'sell' || lastSide === 'remove') {
-            // Last trade was SELL/REMOVE, so this must be REMOVE (not SELL)
-            correctSide = 'remove';
-          } else {
-            // Last trade was BUY/ADD or no previous trade - this is a new SELL
-            correctSide = 'sell';
-          }
-        } else {
-          // Balance after > 0 - this must be REMOVE
-          correctSide = 'remove';
-        }
-      }
-
-      let positionChangePercent: number | undefined = undefined;
-      if (isBuy) {
-        if (normalizedBalanceBefore === 0) {
-          positionChangePercent = 100;
-        } else {
-          positionChangePercent = (normalized.amountToken / balanceBefore) * 100;
-          if (positionChangePercent > 1000) {
-            positionChangePercent = 100;
-          }
-        }
-      } else {
-        if (normalizedBalanceBefore === 0) {
-          positionChangePercent = 0;
-        } else if (normalizedBalanceAfter === 0) {
-          positionChangePercent = -100;
-        } else {
-          positionChangePercent = -(normalized.amountToken / balanceBefore) * 100;
-          if (positionChangePercent < -100) {
-            positionChangePercent = -100;
-          }
-          if (Math.abs(positionChangePercent) > 1000) {
-            positionChangePercent = -100;
-          }
-        }
-      }
-
       const existing = await this.tradeRepo.findBySignature(normalized.txSignature);
       if (existing) {
         return { saved: false, reason: 'duplicate' };
@@ -877,16 +681,13 @@ export class SolanaCollectorService {
         walletId: wallet.id,
         tokenId: token.id,
         tokenMint: token.mintAddress,
-        side: correctSide,
+        side: normalized.side,
         amountToken: normalized.amountToken,
         amountBaseRaw,
         baseToken: normalized.baseToken,
         priceBasePerTokenRaw: normalized.priceBasePerToken,
         timestamp: normalized.timestamp,
         dex: normalized.dex,
-        positionChangePercent,
-        balanceBefore: normalizedBalanceBefore,
-        balanceAfter: normalizedBalanceAfter,
         meta: {
           source: 'quicknode-webhook',
           baseToken: normalized.baseToken,

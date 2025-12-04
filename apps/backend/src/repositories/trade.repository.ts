@@ -59,7 +59,7 @@ export class TradeRepository {
     txSignature: string;
     walletId: string;
     tokenId: string;
-    side: 'buy' | 'sell' | 'add' | 'remove';
+    side: 'buy' | 'sell';
     amountToken: number;
     amountBase: number;
     priceBasePerToken: number;
@@ -69,7 +69,6 @@ export class TradeRepository {
     valueUsd?: number;
     pnlUsd?: number;
     pnlPercent?: number;
-    positionChangePercent?: number;
     meta?: Record<string, any>;
   }) {
     // Prevent duplicates by txSignature (primary guard); DB has UNIQUE constraint too
@@ -94,7 +93,6 @@ export class TradeRepository {
       valueUsd: data.valueUsd?.toString() ?? null,
       pnlUsd: data.pnlUsd?.toString() ?? null,
       pnlPercent: data.pnlPercent?.toString() ?? null,
-      positionChangePercent: data.positionChangePercent?.toString() ?? null,
       meta: data.meta ?? null,
     };
 
@@ -195,13 +193,12 @@ export class TradeRepository {
    * Aktualizuje existující trade
    */
   async update(tradeId: string, data: {
-    side?: 'buy' | 'sell' | 'add' | 'remove';
+    side?: 'buy' | 'sell';
     amountBase?: number;
     priceBasePerToken?: number;
     valueUsd?: number;
     pnlUsd?: number;
     pnlPercent?: number;
-    positionChangePercent?: number;
   }) {
     const updateData: any = {};
     
@@ -222,9 +219,6 @@ export class TradeRepository {
     }
     if (data.pnlPercent !== undefined) {
       updateData.pnlPercent = data.pnlPercent !== null ? data.pnlPercent.toString() : null;
-    }
-    if (data.positionChangePercent !== undefined) {
-      updateData.positionChangePercent = data.positionChangePercent !== null ? data.positionChangePercent.toString() : null;
     }
 
     const { data: result, error } = await supabase

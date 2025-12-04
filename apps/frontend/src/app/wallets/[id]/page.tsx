@@ -604,7 +604,6 @@ export default function WalletDetailPage() {
                     <tr>
                       <th className="px-4 py-3 text-left text-sm font-medium">DATE</th>
                       <th className="px-4 py-3 text-center text-sm font-medium">TYPE</th>
-                      <th className="px-4 py-3 text-center text-sm font-medium">POSITION</th>
                       <th className="px-4 py-3 text-left text-sm font-medium">TOKEN</th>
                       <th className="px-4 py-3 text-right text-sm font-medium">Value</th>
                       <th className="px-4 py-3 text-right text-sm font-medium">PRICE</th>
@@ -613,67 +612,13 @@ export default function WalletDetailPage() {
                   </thead>
                   <tbody>
                     {(() => {
-                      // Calculate absolute position for each trade
-                      // Position starts at 0, first BUY sets it to 1.0x, then it changes cumulatively
-                      const allTrades = [...(trades?.trades || [])].sort((a, b) => 
-                        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+                      const allTrades = [...(trades?.trades || [])].sort(
+                        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
                       );
-                      
-                      // Calculate absolute position for each token
-                      // Position starts at 0, first BUY sets it to 1.0x, then it changes cumulatively
-                      const tokenAbsolutePositions = new Map<string, number>(); // tokenId -> current absolute position
-                      const tradeAbsolutePositions = new Map<string, number>(); // tradeId -> absolute position after this trade
-                      
-                      // First pass: calculate absolute positions for all trades
-                      // Logika: BUY = 1.0x, pak každý trade mění pozici podle positionChangePercent
-                      for (const trade of allTrades) {
-                        const tokenId = trade.tokenId;
-                        const currentAbsolutePosition = tokenAbsolutePositions.get(tokenId) || 0;
-                        const positionChangePercent = trade.positionChangePercent ?? 0;
-                        const changeMultiplier = positionChangePercent / 100; // Convert % to multiplier (e.g., -14% = -0.14)
-                        
-                        let newAbsolutePosition: number;
-                        if (trade.side === 'buy') {
-                          // BUY: always set to 1.0x (first purchase)
-                          newAbsolutePosition = 1.0;
-                        } else if (trade.side === 'add') {
-                          // ADD: increase position by percentage
-                          // Example: 1.0x + 7% = 1.0x * (1 + 0.07) = 1.07x
-                          newAbsolutePosition = currentAbsolutePosition * (1 + changeMultiplier);
-                        } else if (trade.side === 'sell') {
-                          // SELL: always set to 0.00x (complete sale)
-                          newAbsolutePosition = 0.0;
-                        } else if (trade.side === 'remove') {
-                          // REM: decrease position by percentage
-                          // Example: 1.0x - 14% = 1.0x * (1 - 0.14) = 0.86x
-                          // positionChangePercent is negative (e.g., -14), so changeMultiplier is -0.14
-                          // newPosition = oldPosition * (1 + (-0.14)) = oldPosition * 0.86
-                          newAbsolutePosition = currentAbsolutePosition * (1 + changeMultiplier);
-                        } else {
-                          // Fallback: use current position
-                          newAbsolutePosition = currentAbsolutePosition;
-                        }
-                        
-                        // Store absolute position after this trade
-                        tradeAbsolutePositions.set(trade.id, newAbsolutePosition);
-                        tokenAbsolutePositions.set(tokenId, newAbsolutePosition);
-                      }
-                      
-                      // Get last 10 trades (most recent) for display
                       const recentTrades = allTrades.slice(-10).reverse();
-                      
+
                       return recentTrades.map((trade) => {
-                        const absolutePosition = tradeAbsolutePositions.get(trade.id) || 0;
-                        const positionChangePercent = trade.positionChangePercent || 0;
-                        const changeMultiplier = positionChangePercent / 100;
-                        
-                        // Determine trade type from side
-                        let tradeType: 'BUY' | 'ADD' | 'SELL' | 'REM' = 'BUY';
-                        if (trade.side === 'buy') tradeType = 'BUY';
-                        else if (trade.side === 'add') tradeType = 'ADD';
-                        else if (trade.side === 'sell') tradeType = 'SELL';
-                        else if (trade.side === 'remove') tradeType = 'REM';
-                        
+                        const isBuy = (trade.side || '').toLowerCase() === 'buy';
                         return (
                           <tr key={trade.id} className="border-t border-border hover:bg-muted/50">
                             <td className="px-4 py-3 text-sm">
@@ -687,69 +632,60 @@ export default function WalletDetailPage() {
                               </a>
                             </td>
                             <td className="px-4 py-3 text-center">
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                tradeType === 'BUY' || tradeType === 'ADD'
-                                  ? 'bg-green-500/20 text-green-400'
-                                  : 'bg-red-500/20 text-red-400'
-                              }`}>
-                                {tradeType}
+                              <span
+                                className={`px-2 py-1 rounded text-xs font-medium ${
+                                  isBuy ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                                }`}
+                              >
+                                {isBuy ? 'BUY' : 'SELL'}
                               </span>
                             </td>
-                          <td className="px-4 py-3 text-center text-sm font-mono">
-                            {trade.positionChangePercent !== null && trade.positionChangePercent !== undefined ? (
-                              <span>
-                                <span className="text-foreground">{absolutePosition.toFixed(2)}x</span>
-                                {' '}
-                                <span className={
-                                  changeMultiplier > 0
-                                    ? 'text-green-400'
-                                    : changeMultiplier < 0
-                                    ? 'text-red-400'
-                                    : 'text-muted-foreground'
-                                }>
-                                  ({changeMultiplier >= 0 ? '+' : ''}{changeMultiplier.toFixed(2)}x)
-                                </span>
-                              </span>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-sm">
-                            {trade.token?.mintAddress ? (
-                              <a
-                                href={`https://solscan.io/token/${trade.token.mintAddress}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-white hover:opacity-80 hover:underline"
-                              >
-                                {trade.token.symbol 
-                                  ? `$${trade.token.symbol}` 
-                                  : trade.token.name 
-                                  ? trade.token.name 
-                                  : `${trade.token.mintAddress.slice(0, 6)}...${trade.token.mintAddress.slice(-6)}`}
-                              </a>
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </td>
-                          <td className={`px-4 py-3 text-right text-sm font-mono ${
-                            tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
-                          }`}>
-                            {trade.valueUsd ? `$${formatNumber(Number(trade.valueUsd), 2)}` : (trade.amountBase ? `$${formatNumber(Number(trade.amountBase), 2)}` : '-')}
-                          </td>
-                          <td className={`px-4 py-3 text-right text-sm font-mono ${
-                            tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
-                          }`}>
-                            ${formatNumber(Number(trade.priceBasePerToken), 6)}
-                          </td>
-                          <td className={`px-4 py-3 text-right text-sm font-mono ${
-                            tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
-                          }`}>
-                            ${formatNumber(Number(trade.amountBase), 6)}
-                          </td>
-                        </tr>
-                      );
-                    });
+                            <td className="px-4 py-3 text-sm">
+                              {trade.token?.mintAddress ? (
+                                <a
+                                  href={`https://solscan.io/token/${trade.token.mintAddress}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-white hover:opacity-80 hover:underline"
+                                >
+                                  {trade.token.symbol
+                                    ? `$${trade.token.symbol}`
+                                    : trade.token.name
+                                    ? trade.token.name
+                                    : `${trade.token.mintAddress.slice(0, 6)}...${trade.token.mintAddress.slice(-6)}`}
+                                </a>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </td>
+                            <td
+                              className={`px-4 py-3 text-right text-sm font-mono ${
+                                isBuy ? 'text-green-400' : 'text-red-400'
+                              }`}
+                            >
+                              {trade.valueUsd
+                                ? `$${formatNumber(Number(trade.valueUsd), 2)}`
+                                : trade.amountBase
+                                ? `$${formatNumber(Number(trade.amountBase), 2)}`
+                                : '-'}
+                            </td>
+                            <td
+                              className={`px-4 py-3 text-right text-sm font-mono ${
+                                isBuy ? 'text-green-400' : 'text-red-400'
+                              }`}
+                            >
+                              ${formatNumber(Number(trade.priceBasePerToken), 6)}
+                            </td>
+                            <td
+                              className={`px-4 py-3 text-right text-sm font-mono ${
+                                isBuy ? 'text-green-400' : 'text-red-400'
+                              }`}
+                            >
+                              ${formatNumber(Number(trade.amountBase), 6)}
+                            </td>
+                          </tr>
+                        );
+                      });
                     })()}
                   </tbody>
                 </table>

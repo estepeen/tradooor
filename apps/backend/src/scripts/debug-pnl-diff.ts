@@ -94,7 +94,9 @@ async function main() {
 
     const position = positionMap.get(tokenId)!;
 
-    if (trade.side === 'buy' || trade.side === 'add') {
+    const normalizedSide = trade.side === 'add' ? 'buy' : trade.side === 'remove' ? 'sell' : trade.side;
+
+    if (normalizedSide === 'buy') {
       position.totalBought += amount;
       position.balance += amount;
       position.totalCostBase += amountBase;
@@ -102,17 +104,13 @@ async function main() {
       if (!position.firstBuyTimestamp || tradeTimestamp < position.firstBuyTimestamp) {
         position.firstBuyTimestamp = tradeTimestamp;
       }
-    } else if (trade.side === 'sell' || trade.side === 'remove') {
+    } else if (normalizedSide === 'sell') {
       position.totalSold += amount;
       position.balance -= amount;
       position.totalProceedsBase += amountBase;
-      if (trade.side === 'sell') {
-        position.sellCount++;
-        if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
-          position.lastSellTimestamp = tradeTimestamp;
-        }
-      } else {
-        position.removeCount++;
+      position.sellCount++;
+      if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
+        position.lastSellTimestamp = tradeTimestamp;
       }
     }
   }

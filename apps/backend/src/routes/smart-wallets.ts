@@ -55,6 +55,16 @@ try {
   console.warn('⚠️  Helius webhook service not available:', error.message);
 }
 
+const normalizeTradeSide = (side?: string | null): 'buy' | 'sell' => {
+  if (!side) {
+    return 'buy';
+  }
+  const lower = side.toLowerCase();
+  if (lower === 'add') return 'buy';
+  if (lower === 'remove') return 'sell';
+  return lower === 'sell' ? 'sell' : 'buy';
+};
+
 
 // GET /api/smart-wallets - List all smart wallets with pagination and filters
 router.get('/', async (req, res) => {
@@ -998,6 +1008,7 @@ router.get('/:id/portfolio', async (req, res) => {
     }>();
 
     for (const trade of allTrades.trades) {
+      const normalizedSide = normalizeTradeSide(trade.side);
       const tokenId = trade.tokenId;
       // Handle both 'Token' (capital) and 'token' (lowercase) for compatibility
       const token = (trade as any).Token || (trade as any).token || null;
@@ -1038,7 +1049,7 @@ router.get('/:id/portfolio', async (req, res) => {
       position.baseToken = baseToken;
 
       // Handle all trade types: buy, sell, add, remove
-      if (trade.side === 'buy' || trade.side === 'add') {
+      if (normalizedSide === 'buy') {
         position.totalBought += amount;
         position.balance += amount;
         position.totalInvested += valueUsd || value;
@@ -1048,7 +1059,7 @@ router.get('/:id/portfolio', async (req, res) => {
         if (!position.firstBuyTimestamp || tradeTimestamp < position.firstBuyTimestamp) {
           position.firstBuyTimestamp = tradeTimestamp;
         }
-      } else if (trade.side === 'sell') {
+      } else if (normalizedSide === 'sell') {
         // SELL uzavírá pozici → closed position
         position.totalSold += amount;
         position.balance -= amount;
@@ -1059,19 +1070,11 @@ router.get('/:id/portfolio', async (req, res) => {
         if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
           position.lastSellTimestamp = tradeTimestamp;
         }
-      } else if (trade.side === 'remove') {
-        // REM jen snižuje balance, ale neuzavírá pozici → stále open position (pokud balance > 0)
-        position.totalSold += amount;
-        position.balance -= amount;
-        position.removeCount++;
-        position.totalSoldValue += valueUsd || value;
-        position.totalProceedsBase += amountBase; // REM také přispívá k proceeds (je to prodej)
-        // REM neaktualizuje lastSellTimestamp (není to uzavření pozice)
       }
       
       // Debug logging for balance calculation
-      if (trade.side === 'buy' || trade.side === 'sell' || trade.side === 'add' || trade.side === 'remove') {
-        console.log(`   Trade ${trade.side}: tokenId=${tokenId}, amount=${amount}, balance=${position.balance}, buyCount=${position.buyCount}, sellCount=${position.sellCount}, removeCount=${position.removeCount || 0}`);
+      if (trade.side) {
+        console.log(`   Trade ${normalizedSide}: tokenId=${tokenId}, amount=${amount}, balance=${position.balance}, buyCount=${position.buyCount}, sellCount=${position.sellCount}, removeCount=${position.removeCount || 0}`);
       }
     }
 
@@ -1214,16 +1217,17 @@ router.get('/:id/portfolio', async (req, res) => {
         let currentBalance = 0;
         
         for (const trade of trades) {
+          const normalizedSide = normalizeTradeSide(trade.side);
           const amount = Number(trade.amountToken || 0);
           const tradeValueUsd = Number((trade as any).valueUsd || 0);
           const amountBase = Number(trade.amountBase || 0);
           const costUsd = tradeValueUsd > 0 ? tradeValueUsd : amountBase;
           
-          if (trade.side === 'buy' || trade.side === 'add') {
+          if (normalizedSide === 'buy') {
             // Přidej do queue
             buyQueue.push({ amount, costUsd });
             currentBalance += amount;
-          } else if (trade.side === 'remove' || trade.side === 'sell') {
+          } else {
             // Odeber z queue podle FIFO
             let remainingToRemove = amount;
             while (remainingToRemove > 0 && buyQueue.length > 0) {
@@ -1922,7 +1926,7 @@ router.delete('/:id/positions/:tokenId', async (req, res) => {
 
       // 2. Filter to only open position trades (BUY, ADD, REM - but not SELL, because SELL closes position)
       const openPositionTrades = allTrades.trades.filter(
-        (trade) => trade.side === 'buy' || trade.side === 'add' || trade.side === 'remove'
+        (trade) => normalizeTradeSide(trade.side) === 'buy'
       );
 
       if (openPositionTrades.length === 0) {

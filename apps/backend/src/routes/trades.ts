@@ -52,9 +52,6 @@ router.get('/', async (req, res) => {
       toDate,
     });
 
-    const metricsTrades = await tradeRepo.findAllForMetrics(walletId);
-    const positionMetricsMap = computePositionMetrics(metricsTrades);
-
     // NOVÝ PŘÍSTUP: Použij base měnu (SOL/USDC/USDT) místo USD
     // - entryPrice = priceBasePerToken (cena v base měně za 1 token)
     // - entryCost = amountBase (pro BUY) / proceedsBase = amountBase (pro SELL)
@@ -115,9 +112,6 @@ router.get('/', async (req, res) => {
         // DŮLEŽITÉ: Explicitně přepiš amountBase, amountToken, priceBasePerToken jako čísla
         // aby se předešlo problémům s Prisma Decimal serializací
         const { amountBase: _, amountToken: __, priceBasePerToken: ___, ...rest } = t;
-        const { id } = t as any;
-        const positionMetric = positionMetricsMap[id] || null;
-
         return {
           ...rest,
           token,
@@ -136,10 +130,6 @@ router.get('/', async (req, res) => {
           valueUsd: computedValueUsd,
           pnlUsd: toNumber(t.pnlUsd),
           pnlPercent: toNumber(t.pnlPercent),
-          positionChangePercent: toNumber(t.positionChangePercent),
-          positionXBefore: positionMetric ? positionMetric.before : null,
-          positionXAfter: positionMetric ? positionMetric.after : null,
-          positionXDelta: positionMetric ? positionMetric.delta : null,
         };
       })
     );
@@ -304,7 +294,7 @@ router.get('/recent', async (req, res) => {
           name: trade.token?.name,
           mintAddress: trade.token?.mintAddress,
         },
-        side: trade.side, // Může být 'buy', 'sell', 'add', 'remove'
+        side: trade.side,
         amountToken: parseFloat(trade.amountToken || '0'),
         amountBase: parseFloat(trade.amountBase || '0'),
         priceBasePerToken: parseFloat(trade.priceBasePerToken || '0'),
@@ -326,124 +316,3 @@ router.get('/recent', async (req, res) => {
 });
 
 export { router as tradesRouter };
-
-const POSITION_EPS = 1e-9;
-
-function computePositionMetrics(trades: any[]) {
-  if (!trades || trades.length === 0) {
-    return {} as Record<string, { before: number; after: number; delta: number }>;
-  }
-
-  const metrics: Record<string, { before: number; after: number; delta: number }> = {};
-  const state = new Map<
-    string,
-    { positionX: number; balanceTokens: number; totalCostBase: number }
-  >();
-
-  const sorted = [...trades].sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-  );
-
-  for (const trade of sorted) {
-    const tokenId = trade.tokenId;
-    if (!tokenId) continue;
-
-    if (!state.has(tokenId)) {
-      state.set(tokenId, { positionX: 0, balanceTokens: 0, totalCostBase: 0 });
-    }
-
-    const entry = state.get(tokenId)!;
-    const side = (trade.side || '').toLowerCase();
-    const amountTokens = Math.abs(Number(trade.amountToken ?? 0));
-    const amountBase = Math.abs(Number(trade.amountBase ?? 0));
-
-    let before = entry.positionX;
-    let after = before;
-    let handled = false;
-
-    const pctRaw = trade.positionChangePercent;
-    if (pctRaw !== null && pctRaw !== undefined && Number.isFinite(Number(pctRaw))) {
-      const pct = Number(pctRaw);
-      after = before + pct / 100;
-      if (after < 0) after = 0;
-      handled = true;
-
-      if (side === 'buy' || side === 'add') {
-        entry.balanceTokens += amountTokens;
-        entry.totalCostBase += amountBase;
-      } else if (side === 'sell' || side === 'remove') {
-        entry.balanceTokens = Math.max(0, entry.balanceTokens - amountTokens);
-        entry.totalCostBase = Math.max(0, entry.totalCostBase - amountBase);
-        if (side === 'sell') {
-          entry.balanceTokens = 0;
-          entry.totalCostBase = 0;
-        }
-      }
-    } else {
-      switch (side) {
-        case 'buy':
-          after = 1;
-          entry.balanceTokens = amountTokens;
-          entry.totalCostBase = amountBase;
-          handled = true;
-          break;
-        case 'add':
-          if (entry.balanceTokens <= POSITION_EPS) {
-            after = 1;
-            entry.balanceTokens = amountTokens;
-            entry.totalCostBase = amountBase;
-          } else {
-            const ratio =
-              entry.totalCostBase > 0 ? amountBase / entry.totalCostBase : 0;
-            after = entry.positionX + ratio;
-            entry.balanceTokens += amountTokens;
-            entry.totalCostBase += amountBase;
-          }
-          handled = true;
-          break;
-        case 'sell':
-          after = 0;
-          entry.balanceTokens = 0;
-          entry.totalCostBase = 0;
-          handled = true;
-          break;
-        case 'remove':
-          if (entry.balanceTokens <= POSITION_EPS || entry.totalCostBase <= POSITION_EPS) {
-            after = 0;
-            entry.balanceTokens = 0;
-            entry.totalCostBase = 0;
-          } else {
-            const ratio =
-              entry.totalCostBase > 0
-                ? Math.min(1, amountBase / entry.totalCostBase)
-                : Math.min(1, amountTokens / entry.balanceTokens);
-            const balanceAfter = Math.max(0, entry.balanceTokens - amountTokens);
-            const costAfter = Math.max(0, entry.totalCostBase - amountBase);
-            if (balanceAfter <= POSITION_EPS || costAfter <= POSITION_EPS) {
-              after = 0;
-              entry.balanceTokens = 0;
-              entry.totalCostBase = 0;
-            } else {
-              after = entry.positionX * (1 - ratio);
-              entry.balanceTokens = balanceAfter;
-              entry.totalCostBase = costAfter;
-            }
-          }
-          handled = true;
-          break;
-        default:
-          break;
-      }
-    }
-
-    entry.positionX = after;
-
-    if (handled) {
-      const delta = after - before;
-      metrics[trade.id] = { before, after, delta };
-    }
-  }
-
-  return metrics;
-}
-

@@ -8,14 +8,13 @@ export interface NormalizedTradeRecord {
   walletId: string;
   tokenId: string;
   tokenMint: string;
-  side: 'buy' | 'sell' | 'add' | 'remove';
+  side: 'buy' | 'sell';
   amountToken: number;
   amountBaseRaw: number;
   baseToken: string;
   priceBasePerTokenRaw: number;
   timestamp: Date;
   dex: string;
-  positionChangePercent?: number | null;
   balanceBefore?: number | null;
   balanceAfter?: number | null;
   status: NormalizedTradeStatus;
@@ -62,7 +61,6 @@ export class NormalizedTradeRepository {
       priceBasePerTokenRaw: Number(row.priceBasePerTokenRaw),
       timestamp: new Date(row.timestamp),
       dex: row.dex,
-      positionChangePercent: row.positionChangePercent ?? null,
       balanceBefore: row.balanceBefore ?? null,
       balanceAfter: row.balanceAfter ?? null,
       status: row.status as NormalizedTradeStatus,
@@ -95,7 +93,6 @@ export class NormalizedTradeRepository {
       priceBasePerTokenRaw: data.priceBasePerTokenRaw.toString(),
       timestamp: data.timestamp.toISOString(),
       dex: data.dex,
-      positionChangePercent: data.positionChangePercent ?? null,
       balanceBefore: data.balanceBefore ?? null,
       balanceAfter: data.balanceAfter ?? null,
       meta: data.meta ?? null,

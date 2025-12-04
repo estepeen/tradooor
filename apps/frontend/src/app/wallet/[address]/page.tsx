@@ -5,7 +5,6 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio, deletePosition } from '@/lib/api';
 import { formatAddress, formatPercent, formatNumber, formatDate, formatDateTimeCZ, formatHoldTime } from '@/lib/utils';
-import { computePositionMetricsFromPercent } from '@/lib/positions';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { SmartWallet, Trade } from '@solbot/shared';
 import { Spinner } from '@/components/Spinner';
@@ -27,150 +26,6 @@ const TAG_TOOLTIPS: Record<string, string> = {
 
 const getTagTooltip = (tag: string) =>
   TAG_TOOLTIPS[tag.toLowerCase()] || 'User-defined tag pro kategorizaci tradera.';
-
-// Calculate positions from trades
-function calculatePositionsFromTrades(trades: Trade[]) {
-  const positionMap = new Map<string, {
-    tokenId: string;
-    token: any;
-    totalBought: number;
-    totalSold: number;
-    balance: number;
-    totalInvested: number;
-    totalSoldValue: number;
-    buyCount: number;
-    sellCount: number;
-    firstBuyTimestamp: Date | null;
-    lastSellTimestamp: Date | null;
-    lastBuyPrice: number;
-    lastSellPrice: number;
-  }>();
-
-  // Sort trades chronologically
-  const sortedTrades = [...trades].sort((a, b) => 
-    new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-  );
-
-  for (const trade of sortedTrades) {
-    const tokenId = trade.tokenId;
-    const token = trade.token || null;
-    const amount = Number(trade.amountToken);
-    const valueUsd = Number(trade.valueUsd || 0);
-    const price = Number(trade.priceBasePerToken);
-    const tradeTimestamp = new Date(trade.timestamp);
-
-    if (!positionMap.has(tokenId)) {
-      positionMap.set(tokenId, {
-        tokenId,
-        token,
-        totalBought: 0,
-        totalSold: 0,
-        balance: 0,
-        totalInvested: 0,
-        totalSoldValue: 0,
-        buyCount: 0,
-        sellCount: 0,
-        firstBuyTimestamp: null,
-        lastSellTimestamp: null,
-        lastBuyPrice: 0,
-        lastSellPrice: 0,
-      });
-    }
-
-    const position = positionMap.get(tokenId)!;
-
-    if (trade.side === 'buy') {
-      position.totalBought += amount;
-      position.balance += amount;
-      position.totalInvested += valueUsd || (amount * price);
-      position.buyCount++;
-      position.lastBuyPrice = price;
-      if (!position.firstBuyTimestamp || tradeTimestamp < position.firstBuyTimestamp) {
-        position.firstBuyTimestamp = tradeTimestamp;
-      }
-    } else if (trade.side === 'sell') {
-      position.totalSold += amount;
-      position.balance = Math.max(0, position.balance - amount);
-      position.sellCount++;
-      position.lastSellPrice = price;
-      position.totalSoldValue += valueUsd || (amount * price);
-      if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
-        position.lastSellTimestamp = tradeTimestamp;
-      }
-    }
-  }
-
-  // Separate open and closed positions
-  const openPositions: any[] = [];
-  const closedPositions: any[] = [];
-
-  for (const position of positionMap.values()) {
-    const averageBuyPrice = position.totalBought > 0 
-      ? position.totalInvested / position.totalBought 
-      : 0;
-
-    // Use current price from last trade or average buy price
-    const currentPrice = position.lastBuyPrice || averageBuyPrice;
-    const currentValue = position.balance > 0
-      ? position.balance * currentPrice
-      : 0;
-
-    const pnl = currentValue - (position.balance * averageBuyPrice);
-    const pnlPercent = (position.balance * averageBuyPrice) > 0
-      ? (pnl / (position.balance * averageBuyPrice)) * 100
-      : 0;
-
-    // Calculate closed position PnL
-    const closedPnl = position.balance <= 0 && position.totalSoldValue > 0
-      ? position.totalSoldValue - position.totalInvested
-      : null;
-    const closedPnlPercent = closedPnl !== null && position.totalInvested > 0
-      ? (closedPnl / position.totalInvested) * 100
-      : null;
-
-    // Calculate hold time for closed positions
-    const holdTimeMinutes = position.firstBuyTimestamp && position.lastSellTimestamp && position.balance <= 0
-      ? Math.round((position.lastSellTimestamp.getTime() - position.firstBuyTimestamp.getTime()) / (1000 * 60))
-      : null;
-
-    const positionData = {
-      ...position,
-      averageBuyPrice,
-      currentPrice,
-      currentValue,
-      pnl,
-      pnlPercent,
-      closedPnl,
-      closedPnlPercent,
-      holdTimeMinutes,
-      firstBuyTimestamp: position.firstBuyTimestamp?.toISOString() || null,
-      lastSellTimestamp: position.lastSellTimestamp?.toISOString() || null,
-    };
-
-    if (position.balance > 0 && currentValue > 1) {
-      // Open position with value > $1
-      openPositions.push(positionData);
-    } else if (position.balance <= 0 && position.sellCount > 0) {
-      // Closed position - DŮLEŽITÉ: Zobrazujeme pouze pozice s platným HOLD time (známe BUY i SELL)
-      // Musí mít alespoň jeden BUY a jeden SELL, a platný holdTimeMinutes (povolujeme i 0)
-      if (position.buyCount > 0 && position.sellCount > 0 && holdTimeMinutes !== null && holdTimeMinutes >= 0) {
-      closedPositions.push(positionData);
-      }
-    }
-  }
-
-  // Sort open positions by value (descending)
-  openPositions.sort((a, b) => b.currentValue - a.currentValue);
-
-  // Sort closed positions by last sell timestamp (most recent first)
-  closedPositions.sort((a, b) => {
-    const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
-    const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
-    return bTime - aTime;
-  });
-
-  return { openPositions, closedPositions };
-}
 
 export default function WalletDetailPage() {
   const params = useParams();
@@ -422,31 +277,10 @@ export default function WalletDetailPage() {
 
   const allTrades = trades?.trades || [];
   
-  // OPTIMALIZACE: Portfolio endpoint už má closed positions z precomputed dat (worker/cron)
-  // Nepotřebujeme počítat pozice z trades - použijeme pouze portfolio z API
-  // calculatePositionsFromTrades se použije pouze pro position metrics (POSITION sloupec v trades tabulce)
   const finalPortfolio = {
     openPositions: portfolio?.openPositions || [],
     closedPositions: portfolio?.closedPositions || [],
   };
-  const shouldComputeLegacyPositionMetrics = allTrades.some(
-    (trade) => trade.positionXAfter === null || trade.positionXAfter === undefined
-  );
-
-  const positionMetrics = shouldComputeLegacyPositionMetrics
-    ? computePositionMetricsFromPercent(
-        allTrades.map((trade) => ({
-          id: trade.id,
-          tokenId: trade.tokenId,
-          amountToken: trade.amountToken,
-          amountBase: trade.amountBase,
-          side: trade.side as any,
-          timestamp: trade.timestamp,
-          positionChangePercent: trade.positionChangePercent,
-        }))
-      )
-    : {};
-
   if (loading) {
     return (
       <div className="min-h-screen bg-background">
@@ -1058,7 +892,6 @@ export default function WalletDetailPage() {
                       <th className="px-4 py-3 text-left text-sm font-medium">DATE</th>
                       <th className="px-4 py-3 text-center text-sm font-medium">TYPE</th>
                       <th className="px-4 py-3 text-left text-sm font-medium">TOKEN</th>
-                      <th className="px-4 py-3 text-center text-sm font-medium">POSITION</th>
                       <th className="px-4 py-3 text-right text-sm font-medium">PRICE</th>
                       <th className="px-4 py-3 text-right text-sm font-medium">AMOUNT</th>
                       <th className="px-4 py-3 text-right text-sm font-medium">Value</th>
@@ -1113,7 +946,7 @@ export default function WalletDetailPage() {
                       if (recentTrades.length === 0) {
                         return (
                           <tr className="border-t border-border">
-                            <td colSpan={7} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                            <td colSpan={6} className="px-4 py-6 text-center text-sm text-muted-foreground">
                               No trades found
                             </td>
                           </tr>
@@ -1123,172 +956,117 @@ export default function WalletDetailPage() {
                       return (
                         <>
                           {recentTrades.map((trade) => {
-                            const tradeDate = new Date(trade.timestamp);
-                            // Použij side z backendu (může být 'buy', 'sell', 'add', 'remove')
-                            let tradeType: 'BUY' | 'ADD' | 'SELL' | 'REM' = 'BUY';
-                            if (trade.side === 'buy') {
-                              tradeType = 'BUY';
-                            } else if (trade.side === 'add') {
-                              tradeType = 'ADD';
-                            } else if (trade.side === 'sell') {
-                              tradeType = 'SELL';
-                            } else if (trade.side === 'remove') {
-                              tradeType = 'REM';
-                            }
-                            
-                            const hasServerMetric =
-                              trade.positionXAfter !== null && trade.positionXAfter !== undefined;
-                            const serverDelta =
-                              hasServerMetric
-                                ? trade.positionXDelta ??
-                                  (Number(trade.positionXAfter) -
-                                    Number(trade.positionXBefore ?? 0))
-                                : null;
-
-                            const backendPositionDisplay = hasServerMetric
-                              ? `${formatNumber(Number(trade.positionXAfter) || 0, 2)}x (${
-                                  (serverDelta ?? 0) >= 0 ? '+' : ''
-                                }${formatNumber(Math.abs(serverDelta ?? 0), 2)}x)`
-                              : null;
-
-                            const metrics = !hasServerMetric ? positionMetrics[trade.id] : null;
-                            const fallbackPositionDisplay = metrics
-                              ? `${metrics.positionXAfter.toFixed(2)}x (${
-                                  metrics.deltaX >= 0 ? '+' : ''
-                                }${metrics.deltaX.toFixed(2)}x)`
-                              : null;
-
-                            const positionDisplay =
-                              backendPositionDisplay || fallbackPositionDisplay || '-';
-                            const positionDelta =
-                              serverDelta ?? metrics?.deltaX ?? 0;
-                            
+                            const isBuy = (trade.side || '').toLowerCase() === 'buy';
                             const amountToken = Number(trade.amountToken);
                             const amountBase = Number(trade.amountBase);
                             const priceBasePerToken = Number(trade.priceBasePerToken);
-                            const baseToken = (trade as any).baseToken || (trade as any).meta?.baseToken || 'SOL'; // SOL, USDC, USDT
-                            
-                            // Use priceUsd from meta (calculated in backend: priceBasePerToken * historical SOL price from Binance)
-                            // If not available, use priceBasePerToken as fallback
-                            const priceUsd = (trade as any).priceUsd || (trade as any).meta?.priceUsd || null;
+                            const priceUsd =
+                              (trade as any).priceUsd || (trade as any).meta?.priceUsd || null;
                             const entryPrice = priceBasePerToken;
-                            const entryCost = (trade as any).entryCost || (trade.side === 'buy' || trade.side === 'add' ? amountBase : null);
-                            const proceedsBase = (trade as any).proceedsBase || (trade.side === 'sell' || trade.side === 'remove' ? amountBase : null);
-                            const amountDisplay = amountToken && amountToken > 0
-                              ? `${formatNumber(amountToken, 2)} $${trade.token?.symbol || trade.token?.name || ''}`.trim()
-                              : `$${formatNumber(Number(trade.amountBase), 2)}`;
+                            const amountDisplay =
+                              amountToken && amountToken > 0
+                                ? `${formatNumber(amountToken, 2)} $${trade.token?.symbol || trade.token?.name || ''}`.trim()
+                                : `$${formatNumber(Number(trade.amountBase), 2)}`;
 
                             return (
                               <tr key={trade.id} className="border-t border-border hover:bg-muted/50">
-                            <td className="px-4 py-3 text-sm">
-                              <a
-                                href={`https://solscan.io/tx/${trade.txSignature}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-400 hover:text-blue-300 hover:underline text-muted-foreground"
-                              >
-                                {formatDate(trade.timestamp)}
-                              </a>
-                            </td>
-                            <td className="px-4 py-3 text-center">
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                tradeType === 'BUY'
-                                  ? 'bg-green-500/20 text-green-400'
-                                  : tradeType === 'SELL'
-                                  ? 'bg-red-500/20 text-red-400'
-                                  : tradeType === 'ADD'
-                                  ? 'bg-transparent text-[rgb(75,222,127)] border border-[rgb(29,56,35)]'
-                                  : 'bg-transparent text-[rgb(248,113,112)] border border-[rgb(65,30,30)]'
-                              }`}>
-                                {tradeType}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-sm">
-                              {trade.token?.mintAddress ? (
-                                <a
-                                  href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-white hover:opacity-80 hover:underline"
+                                <td className="px-4 py-3 text-sm">
+                                  <a
+                                    href={`https://solscan.io/tx/${trade.txSignature}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-blue-400 hover:text-blue-300 hover:underline text-muted-foreground"
+                                  >
+                                    {formatDate(trade.timestamp)}
+                                  </a>
+                                </td>
+                                <td className="px-4 py-3 text-center">
+                                  <span
+                                    className={`px-2 py-1 rounded text-xs font-medium ${
+                                      isBuy ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                                    }`}
+                                  >
+                                    {isBuy ? 'BUY' : 'SELL'}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-3 text-sm">
+                                  {trade.token?.mintAddress ? (
+                                    <a
+                                      href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-white hover:opacity-80 hover:underline"
+                                    >
+                                      {trade.token.symbol
+                                        ? `$${trade.token.symbol}`
+                                        : trade.token.name
+                                        ? trade.token.name
+                                        : `${trade.token.mintAddress.slice(0, 6)}...${trade.token.mintAddress.slice(-6)}`}
+                                    </a>
+                                  ) : (
+                                    <span className="text-muted-foreground">-</span>
+                                  )}
+                                </td>
+                                <td
+                                  className={`px-4 py-3 text-right text-sm font-mono ${
+                                    isBuy ? 'text-green-400' : 'text-red-400'
+                                  }`}
                                 >
-                                  {trade.token.symbol 
-                                    ? `$${trade.token.symbol}` 
-                                    : trade.token.name 
-                                    ? trade.token.name 
-                                    : `${trade.token.mintAddress.slice(0, 6)}...${trade.token.mintAddress.slice(-6)}`}
-                                </a>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3 text-center text-sm font-mono">
-                              {positionDisplay !== '-' ? (
-                                <span className={
-                                  positionDelta > 0
-                                    ? 'text-green-400'
-                                    : positionDelta < 0
-                                    ? 'text-red-400'
-                                    : 'text-muted-foreground'
-                                }>
-                                  {positionDisplay}
-                                </span>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </td>
-                            <td className={`px-4 py-3 text-right text-sm font-mono ${
-                              tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
-                            }`}>
-                            {trade.token?.mintAddress ? (
-                              <a
-                                  href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                  className="hover:underline cursor-pointer"
-                              >
-                                  {priceUsd !== null && priceUsd !== undefined && priceUsd > 0
-                                    ? `$${formatNumber(priceUsd, 6)}`
-                                    : entryPrice > 0
-                                    ? `$${formatNumber(entryPrice, 6)}`
-                                    : '-'}
-                              </a>
-                            ) : (
-                                priceUsd !== null && priceUsd !== undefined && priceUsd > 0
+                                  {trade.token?.mintAddress ? (
+                                    <a
+                                      href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="hover:underline cursor-pointer"
+                                    >
+                                      {priceUsd !== null && priceUsd !== undefined && priceUsd > 0
+                                        ? `$${formatNumber(priceUsd, 6)}`
+                                        : entryPrice > 0
+                                        ? `$${formatNumber(entryPrice, 6)}`
+                                        : '-'}
+                                    </a>
+                                  ) : priceUsd !== null && priceUsd !== undefined && priceUsd > 0
                                   ? `$${formatNumber(priceUsd, 6)}`
                                   : entryPrice > 0
                                   ? `$${formatNumber(entryPrice, 6)}`
-                                  : '-'
-                            )}
-                          </td>
-                            <td className={`px-4 py-3 text-right text-sm font-mono ${
-                              tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
-                            }`}>
-                              {trade.token?.mintAddress ? (
-                                <a
-                                  href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="hover:underline cursor-pointer"
+                                  : '-'}
+                                </td>
+                                <td
+                                  className={`px-4 py-3 text-right text-sm font-mono ${
+                                    isBuy ? 'text-green-400' : 'text-red-400'
+                                  }`}
                                 >
-                                  {amountDisplay}
-                                </a>
-                              ) : (
-                                amountDisplay
-                              )}
-                            </td>
-                            <td className={`px-4 py-3 text-right text-sm font-mono ${
-                              tradeType === 'BUY' || tradeType === 'ADD' ? 'text-green-400' : 'text-red-400'
-                            }`}>
-                              {(() => {
-                                const value = (trade as any).valueUsd || (trade as any).meta?.valueUsd || amountBase;
-                                return value > 0 ? `$${formatNumber(Number(value), 2)}` : '-';
-                              })()}
-                            </td>
+                                  {trade.token?.mintAddress ? (
+                                    <a
+                                      href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="hover:underline cursor-pointer"
+                                    >
+                                      {amountDisplay}
+                                    </a>
+                                  ) : (
+                                    amountDisplay
+                                  )}
+                                </td>
+                                <td
+                                  className={`px-4 py-3 text-right text-sm font-mono ${
+                                    isBuy ? 'text-green-400' : 'text-red-400'
+                                  }`}
+                                >
+                                  {(() => {
+                                    const value =
+                                      (trade as any).valueUsd ||
+                                      (trade as any).meta?.valueUsd ||
+                                      amountBase;
+                                    return value > 0 ? `$${formatNumber(Number(value), 2)}` : '-';
+                                  })()}
+                                </td>
                               </tr>
                             );
                           })}
-                      </>
-                    );
+                        </>
+                      );
                   })()}
                   </tbody>
                 </table>

@@ -85,39 +85,8 @@ async function recalculateTypesAndPositions() {
             const lastSide = lastTrade?.side || null;
 
             // Determine TYPE with new logic to prevent consecutive BUY/BUY or SELL/SELL
-            let newType: 'buy' | 'sell' | 'add' | 'remove';
-            if (isBuy) {
-              // BUY logic: prevent consecutive BUY
-              if (normalizedBalanceBefore === 0) {
-                // Balance is 0 - check if last trade was also a buy
-                if (lastSide === 'buy' || lastSide === 'add') {
-                  // Last trade was BUY/ADD, so this must be ADD (not BUY)
-                  newType = 'add';
-                } else {
-                  // Last trade was SELL/REMOVE or no previous trade - this is a new BUY
-                newType = 'buy';
-                }
-              } else {
-                // Balance > 0 - this must be ADD
-                newType = 'add';
-              }
-            } else {
-              // SELL logic: prevent consecutive SELL
-              const EPS = 0.000001;
-              if (normalizedBalanceAfter < EPS) {
-                // Balance after is 0 - check if last trade was also a sell
-                if (lastSide === 'sell' || lastSide === 'remove') {
-                  // Last trade was SELL/REMOVE, so this must be REMOVE (not SELL)
-                  newType = 'remove';
-                } else {
-                  // Last trade was BUY/ADD or no previous trade - this is a new SELL
-                newType = 'sell';
-                }
-              } else {
-                // Balance after > 0 - this must be REMOVE
-                newType = 'remove';
-              }
-            }
+            let newType: 'buy' | 'sell';
+            newType = isBuy ? 'buy' : 'sell';
 
             // Calculate positionChangePercent
             let positionChangePercent: number | undefined = undefined;
@@ -165,7 +134,6 @@ async function recalculateTypesAndPositions() {
             if (needsUpdate) {
               await tradeRepo.update(trade.id, {
                 side: newType,
-                positionChangePercent,
               });
               totalUpdated++;
               console.log(`    ✅ Updated trade ${trade.txSignature.substring(0, 16)}...: ${trade.side} → ${newType}, position: ${positionChangePercent?.toFixed(2)}%`);

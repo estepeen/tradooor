@@ -1,6 +1,6 @@
 // Shared types between backend and frontend
 
-export type TradeSide = 'buy' | 'sell' | 'add' | 'remove';
+export type TradeSide = 'buy' | 'sell';
 
 export interface SmartWalletRollingStats {
   realizedPnl: number; // PnL v SOL/base měně (změněno z realizedPnlUsd)
@@ -128,10 +128,6 @@ export interface Trade {
   valueUsd?: number | null;
   pnlUsd?: number | null;
   pnlPercent?: number | null;
-  positionChangePercent?: number | null;
-  positionXBefore?: number | null;
-  positionXAfter?: number | null;
-  positionXDelta?: number | null;
   token?: Token | null;
   wallet?: SmartWallet | null;
   features?: TradeFeature | null;
