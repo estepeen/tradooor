@@ -660,10 +660,8 @@ export class SolanaCollectorService {
         return { saved: false, reason: 'duplicate' };
       }
 
-      const baseTokenSymbol = normalized.baseToken?.toUpperCase?.() || '';
-      const isStableBase = baseTokenSymbol === 'SOL' || baseTokenSymbol === 'WSOL' || baseTokenSymbol === 'USDC' || baseTokenSymbol === 'USDT';
-      const secondaryTokenMint = isStableBase ? null : normalized.baseToken;
-
+      // DŮLEŽITÉ: Po opravě normalizeQuickNodeSwap je baseToken VŽDY SOL/USDC/USDT
+      // Není potřeba ukládat secondaryTokenMint, protože už nepoužíváme token-to-token swapy
       const normalizedRecord = await this.normalizedTradeRepo.create({
         txSignature: normalized.txSignature,
         walletId: wallet.id,
@@ -679,8 +677,6 @@ export class SolanaCollectorService {
         meta: {
           source: 'quicknode-webhook',
           baseToken: normalized.baseToken,
-          isTokenToTokenSwap: !['SOL', 'USDC', 'USDT'].includes(normalized.baseToken),
-          secondaryTokenMint,
           quicknodeDebug: quicknodeDebugMeta,
           walletAddress,
         },

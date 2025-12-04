@@ -18,13 +18,15 @@ function sleep(ms: number) {
 
 async function processNormalizedTrade(record: Awaited<ReturnType<typeof normalizedTradeRepo.findPending>>[number]) {
   try {
+    // DŮLEŽITÉ: Po opravě normalizeQuickNodeSwap je baseToken VŽDY SOL/USDC/USDT
+    // secondaryTokenMint už není potřeba
     const valuation = await valuationService.valuate({
       baseToken: record.baseToken,
       amountBaseRaw: record.amountBaseRaw,
       amountToken: record.amountToken,
       priceBasePerTokenRaw: record.priceBasePerTokenRaw,
       timestamp: record.timestamp,
-      secondaryTokenMint: record.meta?.secondaryTokenMint || record.meta?.baseMint || null,
+      secondaryTokenMint: null, // Už nepoužíváme token-to-token swapy
     });
 
     const trade = await tradeRepo.create({
