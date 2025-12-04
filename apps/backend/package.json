@@ -40,6 +40,7 @@
     "fix:wallet-revalue": "tsx src/scripts/revalue-wallet-trades.ts",
     "process:wallet-normalized": "tsx src/scripts/process-wallet-normalized.ts",
     "debug:large-trades": "tsx src/scripts/find-large-trades.ts",
+    "debug:trade": "tsx src/scripts/debug-trade.ts",
     "trades:sanity-check": "tsx src/workers/trades-sanity-check.ts",
     "check:trade-value": "tsx src/scripts/check-trade-value.ts",
     "recalculate:trades-sol-to-usd": "tsx src/scripts/recalculate-trades-sol-to-usd.ts",
