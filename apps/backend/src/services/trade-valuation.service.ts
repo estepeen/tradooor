@@ -1,7 +1,7 @@
 import { BinancePriceService } from './binance-price.service.js';
 import { TokenPriceService } from './token-price.service.js';
 
-export type ValuationSource = 'binance' | 'birdeye' | 'jupiter' | 'coingecko' | 'dexscreener' | 'stable' | 'sol-fallback';
+export type ValuationSource = 'binance' | 'birdeye' | 'jupiter' | 'coingecko' | 'dexscreener' | 'stable';
 
 export interface TradeValuationResult {
   amountBaseUsd: number;
@@ -204,30 +204,12 @@ export class TradeValuationService {
         };
       }
 
-      // LAST RESORT: Use SOL price as fallback (better than failing completely)
-      // This assumes the token has similar value to SOL (not perfect, but better than random)
-      console.warn(
-        `⚠️  All price APIs failed for token ${input.secondaryTokenMint.substring(0, 8)}... at ${timestamp.toISOString()}, using SOL price as fallback`
+      // All price APIs failed - throw error instead of using fallback
+      // Trade will remain as "pending" and worker will retry later
+      // This is better than storing incorrect/random values
+      throw new Error(
+        `All price APIs failed for base token ${input.secondaryTokenMint.substring(0, 8)}... at ${timestamp.toISOString()}. Trade will be retried later.`
       );
-      
-      try {
-        const solPrice = await this.binancePriceService.getSolPriceAtTimestamp(timestamp);
-        const fallbackValue = input.amountBaseRaw * solPrice;
-        const fallbackPricePerToken = input.priceBasePerTokenRaw * solPrice;
-
-        return {
-          amountBaseUsd: fallbackValue,
-          priceUsdPerToken: fallbackPricePerToken,
-          source: 'sol-fallback',
-          timestamp,
-          warning: `All price APIs failed, using SOL price (${solPrice.toFixed(2)}) as approximation`,
-        };
-      } catch (error: any) {
-        // Even SOL price fetch failed - this is very rare
-        throw new Error(
-          `Failed to fetch SOL price for fallback: ${error.message}. Cannot determine USD value for base token ${input.secondaryTokenMint}`
-        );
-      }
     }
 
     throw new Error('Unsupported base token configuration – unable to determine USD value');

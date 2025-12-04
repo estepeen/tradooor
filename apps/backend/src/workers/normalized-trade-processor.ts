@@ -65,21 +65,20 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
                         valuation.source === 'jupiter' ? '🪐' :
                         valuation.source === 'coingecko' ? '🦎' :
                         valuation.source === 'dexscreener' ? '📈' :
-                        valuation.source === 'stable' ? '💵' :
-                        valuation.source === 'sol-fallback' ? '⚠️' : '❓';
+                        valuation.source === 'stable' ? '💵' : '❓';
     
-    const warningMsg = valuation.warning ? ` (${valuation.warning})` : '';
-    console.log(`${sourceEmoji} [NormalizedTradeWorker] Processed ${record.id} -> trade ${trade.id} (source: ${valuation.source}${warningMsg})`);
+    console.log(`${sourceEmoji} [NormalizedTradeWorker] Processed ${record.id} -> trade ${trade.id} (source: ${valuation.source})`);
   } catch (error: any) {
     const message = error?.message || 'Unknown error';
     console.error(`❌ [NormalizedTradeWorker] Failed to process ${record.id}: ${message}`);
     
-    // DŮLEŽITÉ: Pokud valuation selže, trade zůstane jako "pending" a worker ho zkusí znovu později
-    // To umožní retry, pokud API dočasně selže (rate limit, network error, atd.)
+    // DŮLEŽITÉ: Pokud valuation selže (všechny API selhaly), trade zůstane jako "pending"
+    // Worker ho zkusí znovu později - lepší než uložit špatnou hodnotu
+    // Pokud se nepodaří získat cenu po několika pokusech, trade zůstane pending/void
     await normalizedTradeRepo.markFailed(record.id, message);
     
-    // Log pro monitoring - kolik trades selže
-    console.error(`   📊 [Metrics] Valuation failure for trade ${record.id}, will retry later`);
+    // Log pro monitoring - kolik trades selže (všechny API selhaly)
+    console.error(`   📊 [Metrics] All price APIs failed for trade ${record.id}, will retry later (trade void until price is available)`);
   }
 }
 
