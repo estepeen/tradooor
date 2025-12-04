@@ -60,11 +60,26 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       console.warn(`⚠️  Failed to enqueue wallet ${record.walletId} after trade ingestion: ${enqueueError?.message || enqueueError}`);
     }
 
-    console.log(`✅ [NormalizedTradeWorker] Processed ${record.id} -> trade ${trade.id}`);
+    const sourceEmoji = valuation.source === 'binance' ? '📊' : 
+                        valuation.source === 'birdeye' ? '🐦' :
+                        valuation.source === 'jupiter' ? '🪐' :
+                        valuation.source === 'coingecko' ? '🦎' :
+                        valuation.source === 'dexscreener' ? '📈' :
+                        valuation.source === 'stable' ? '💵' :
+                        valuation.source === 'sol-fallback' ? '⚠️' : '❓';
+    
+    const warningMsg = valuation.warning ? ` (${valuation.warning})` : '';
+    console.log(`${sourceEmoji} [NormalizedTradeWorker] Processed ${record.id} -> trade ${trade.id} (source: ${valuation.source}${warningMsg})`);
   } catch (error: any) {
     const message = error?.message || 'Unknown error';
     console.error(`❌ [NormalizedTradeWorker] Failed to process ${record.id}: ${message}`);
+    
+    // DŮLEŽITÉ: Pokud valuation selže, trade zůstane jako "pending" a worker ho zkusí znovu později
+    // To umožní retry, pokud API dočasně selže (rate limit, network error, atd.)
     await normalizedTradeRepo.markFailed(record.id, message);
+    
+    // Log pro monitoring - kolik trades selže
+    console.error(`   📊 [Metrics] Valuation failure for trade ${record.id}, will retry later`);
   }
 }
 

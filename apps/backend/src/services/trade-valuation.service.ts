@@ -1,13 +1,14 @@
 import { BinancePriceService } from './binance-price.service.js';
 import { TokenPriceService } from './token-price.service.js';
 
-export type ValuationSource = 'binance' | 'birdeye' | 'stable';
+export type ValuationSource = 'binance' | 'birdeye' | 'jupiter' | 'coingecko' | 'dexscreener' | 'stable' | 'sol-fallback';
 
 export interface TradeValuationResult {
   amountBaseUsd: number;
   priceUsdPerToken: number;
   source: ValuationSource;
   timestamp: Date;
+  warning?: string; // Optional warning if fallback was used
 }
 
 interface NormalizedValuationInput {
@@ -28,6 +29,127 @@ export class TradeValuationService {
 
   private normalizeBaseTokenSymbol(symbol: string) {
     return symbol?.toUpperCase().trim();
+  }
+
+  /**
+   * Fetch token price from Jupiter API (free, Solana native)
+   * Jupiter API: https://api.jup.ag/price/v2
+   */
+  private async fetchPriceFromJupiter(mintAddress: string): Promise<number | null> {
+    try {
+      const url = `https://price.jup.ag/v4/price?ids=${mintAddress}`;
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json() as any;
+      if (data.data && data.data[mintAddress]) {
+        const priceData = data.data[mintAddress];
+        const priceUsd = parseFloat(priceData.price || '0');
+        if (priceUsd > 0) {
+          return priceUsd;
+        }
+      }
+      return null;
+    } catch (error: any) {
+      console.warn(`⚠️  Jupiter API error for ${mintAddress.substring(0, 8)}...: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Fetch token price from CoinGecko API (free tier: 10-50 calls/min)
+   * CoinGecko API: https://api.coingecko.com/api/v3/simple/token_price/solana
+   * Note: CoinGecko uses contract addresses, not mint addresses directly
+   */
+  private async fetchPriceFromCoinGecko(mintAddress: string): Promise<number | null> {
+    try {
+      // CoinGecko requires contract address format
+      // For Solana, we need to use the mint address directly
+      const url = `https://api.coingecko.com/api/v3/simple/token_price/solana?contract_addresses=${mintAddress}&vs_currencies=usd`;
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json() as any;
+      if (data && data[mintAddress.toLowerCase()] && data[mintAddress.toLowerCase()].usd) {
+        const priceUsd = parseFloat(data[mintAddress.toLowerCase()].usd);
+        if (priceUsd > 0) {
+          return priceUsd;
+        }
+      }
+      return null;
+    } catch (error: any) {
+      console.warn(`⚠️  CoinGecko API error for ${mintAddress.substring(0, 8)}...: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Try multiple price sources in order of preference
+   * Returns price in USD or null if all sources fail
+   */
+  private async fetchTokenPriceWithFallbacks(
+    mintAddress: string,
+    timestamp: Date
+  ): Promise<{ price: number | null; source: ValuationSource }> {
+    // 1. Try Birdeye historical price (most accurate for historical data)
+    try {
+      const birdeyePrice = await this.tokenPriceService.getTokenPriceAtDate(mintAddress, timestamp);
+      if (birdeyePrice && birdeyePrice > 0) {
+        return { price: birdeyePrice, source: 'birdeye' };
+      }
+    } catch (error: any) {
+      console.warn(`⚠️  Birdeye historical price failed for ${mintAddress.substring(0, 8)}...: ${error.message}`);
+    }
+
+    // 2. Try Jupiter API (free, Solana native, good for current prices)
+    // Note: Jupiter doesn't support historical prices, so we use current price as approximation
+    const jupiterPrice = await this.fetchPriceFromJupiter(mintAddress);
+    if (jupiterPrice && jupiterPrice > 0) {
+      return { price: jupiterPrice, source: 'jupiter' };
+    }
+
+    // 3. Try CoinGecko API (free tier, good coverage)
+    const coingeckoPrice = await this.fetchPriceFromCoinGecko(mintAddress);
+    if (coingeckoPrice && coingeckoPrice > 0) {
+      return { price: coingeckoPrice, source: 'coingecko' };
+    }
+
+    // 4. Try DexScreener (already in TokenPriceService, but try batch endpoint)
+    try {
+      const dexscreenerPrices = await this.tokenPriceService.getTokenPricesBatch([mintAddress]);
+      const dexscreenerPrice = dexscreenerPrices.get(mintAddress.toLowerCase());
+      if (dexscreenerPrice && dexscreenerPrice > 0) {
+        return { price: dexscreenerPrice, source: 'dexscreener' };
+      }
+    } catch (error: any) {
+      console.warn(`⚠️  DexScreener price failed for ${mintAddress.substring(0, 8)}...: ${error.message}`);
+    }
+
+    // 5. Try Birdeye current price as last resort
+    try {
+      const birdeyeCurrentPrice = await this.tokenPriceService.getTokenPrice(mintAddress);
+      if (birdeyeCurrentPrice && birdeyeCurrentPrice > 0) {
+        return { price: birdeyeCurrentPrice, source: 'birdeye' };
+      }
+    } catch (error: any) {
+      console.warn(`⚠️  Birdeye current price failed for ${mintAddress.substring(0, 8)}...: ${error.message}`);
+    }
+
+    return { price: null, source: 'birdeye' };
   }
 
   async valuate(input: NormalizedValuationInput): Promise<TradeValuationResult> {
@@ -55,41 +177,57 @@ export class TradeValuationService {
       };
     }
 
-    // Token-to-token swap → Birdeye price for secondary token (base leg)
+    // Token-to-token swap → Try multiple price sources
     if (input.secondaryTokenMint) {
-      let secondaryPrice = await this.tokenPriceService.getTokenPriceAtDate(
+      const { price: secondaryPrice, source: priceSource } = await this.fetchTokenPriceWithFallbacks(
         input.secondaryTokenMint,
         timestamp
       );
 
-      if (!secondaryPrice || secondaryPrice <= 0) {
-        const fallbackPrices = await this.tokenPriceService.getTokenPricesBatch([
-          input.secondaryTokenMint,
-        ]);
-        secondaryPrice = fallbackPrices.get(input.secondaryTokenMint.toLowerCase()) ?? null;
-      }
-
       if (secondaryPrice && secondaryPrice > 0) {
         const usdValue = input.amountBaseRaw * secondaryPrice;
+        
+        // Sanity check: warn if value seems unusually large
         if (usdValue > 10_000_000) {
           console.warn(
             `⚠️  Trade valuation: computed value $${usdValue.toFixed(
               2
-            )} for base token ${input.secondaryTokenMint.substring(0, 8)}... looks unusually large`
+            )} for base token ${input.secondaryTokenMint.substring(0, 8)}... looks unusually large (source: ${priceSource})`
           );
         }
 
         return {
           amountBaseUsd: usdValue,
           priceUsdPerToken: input.priceBasePerTokenRaw * secondaryPrice,
-          source: 'birdeye',
+          source: priceSource,
           timestamp,
         };
       }
 
-      throw new Error(
-        `Missing USD price for base token ${input.secondaryTokenMint} at ${timestamp.toISOString()}`
+      // LAST RESORT: Use SOL price as fallback (better than failing completely)
+      // This assumes the token has similar value to SOL (not perfect, but better than random)
+      console.warn(
+        `⚠️  All price APIs failed for token ${input.secondaryTokenMint.substring(0, 8)}... at ${timestamp.toISOString()}, using SOL price as fallback`
       );
+      
+      try {
+        const solPrice = await this.binancePriceService.getSolPriceAtTimestamp(timestamp);
+        const fallbackValue = input.amountBaseRaw * solPrice;
+        const fallbackPricePerToken = input.priceBasePerTokenRaw * solPrice;
+
+        return {
+          amountBaseUsd: fallbackValue,
+          priceUsdPerToken: fallbackPricePerToken,
+          source: 'sol-fallback',
+          timestamp,
+          warning: `All price APIs failed, using SOL price (${solPrice.toFixed(2)}) as approximation`,
+        };
+      } catch (error: any) {
+        // Even SOL price fetch failed - this is very rare
+        throw new Error(
+          `Failed to fetch SOL price for fallback: ${error.message}. Cannot determine USD value for base token ${input.secondaryTokenMint}`
+        );
+      }
     }
 
     throw new Error('Unsupported base token configuration – unable to determine USD value');
