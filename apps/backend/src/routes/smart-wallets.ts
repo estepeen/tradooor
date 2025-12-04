@@ -1052,8 +1052,14 @@ router.get('/:id/portfolio', async (req, res) => {
       const amount = Number(trade.amountToken);
       const price = Number(trade.priceBasePerToken);
       const amountBase = Number(trade.amountBase || 0);
-      const value = amount * price;
-
+      const meta = (trade as any).meta || {};
+      const valuationSource = meta.valuationSource;
+      
+      // DŮLEŽITÉ: Pokud má trade valuationSource, pak amountBase a priceBasePerToken jsou už v USD!
+      // NormalizedTradeProcessor ukládá: amountBase = valuation.amountBaseUsd, priceBasePerToken = valuation.priceUsdPerToken
+      // Pro výpočet totalInvested použij valueUsd (pokud existuje), jinak amountBase (pokud má valuationSource), jinak přepočítej
+      const tradeValueUsd = valueUsd > 0 ? valueUsd : (valuationSource ? amountBase : null);
+      
       // Get base token from trade meta
       position.baseToken = baseToken;
 
@@ -1061,7 +1067,8 @@ router.get('/:id/portfolio', async (req, res) => {
       if (normalizedSide === 'buy') {
         position.totalBought += amount;
         position.balance += amount;
-        position.totalInvested += valueUsd || value;
+        // Použij valueUsd pokud existuje, jinak amountBase (pokud má valuationSource = už je v USD)
+        position.totalInvested += tradeValueUsd !== null ? tradeValueUsd : amountBase;
         position.totalCostBase += amountBase; // Add to total cost in base currency
         position.buyCount++;
         position.lastBuyPrice = price;
@@ -1074,7 +1081,8 @@ router.get('/:id/portfolio', async (req, res) => {
         position.balance -= amount;
         position.sellCount++;
         position.lastSellPrice = price;
-        position.totalSoldValue += valueUsd || value;
+        // Použij valueUsd pokud existuje, jinak amountBase (pokud má valuationSource = už je v USD)
+        position.totalSoldValue += tradeValueUsd !== null ? tradeValueUsd : amountBase;
         position.totalProceedsBase += amountBase; // Add to total proceeds in base currency
         if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
           position.lastSellTimestamp = tradeTimestamp;
@@ -1230,7 +1238,14 @@ router.get('/:id/portfolio', async (req, res) => {
           const amount = Number(trade.amountToken || 0);
           const tradeValueUsd = Number((trade as any).valueUsd || 0);
           const amountBase = Number(trade.amountBase || 0);
-          const costUsd = tradeValueUsd > 0 ? tradeValueUsd : amountBase;
+          const meta = (trade as any).meta || {};
+          const valuationSource = meta.valuationSource;
+          
+          // DŮLEŽITÉ: Pokud má trade valuationSource, pak amountBase je už v USD!
+          // NormalizedTradeProcessor ukládá: amountBase = valuation.amountBaseUsd
+          const costUsd = tradeValueUsd > 0 
+            ? tradeValueUsd 
+            : (valuationSource ? amountBase : amountBase); // Pokud má valuationSource, amountBase je USD, jinak může být base měna
           
           if (normalizedSide === 'buy') {
             // Přidej do queue
@@ -1290,17 +1305,22 @@ router.get('/:id/portfolio', async (req, res) => {
         // Use current token data from database instead of stale data from trades
         const currentToken = tokenDataMap.get(position.tokenId) || position.token;
         
+        // DŮLEŽITÉ: averageBuyPrice by měl být v USD (cena za 1 token v USD)
+        // totalInvested je nyní v USD (pokud má trades valuationSource), takže averageBuyPrice bude správně
         position.averageBuyPrice = position.totalBought > 0 
           ? position.totalInvested / position.totalBought 
           : 0;
         
-        // Get current price for this token
+        // Get current price for this token (z Birdeye API, už v USD)
         const currentPrice = priceMap.get(position.tokenId);
         
         // Calculate current value and PnL based on current market price
+        // currentPrice je z Birdeye API, už v USD
         const currentValue = currentPrice && position.balance > 0
           ? currentPrice * position.balance
-          : position.balance * position.averageBuyPrice; // Fallback to average buy price if no current price
+          : (position.balance > 0 && position.averageBuyPrice > 0 
+              ? position.balance * position.averageBuyPrice 
+              : null); // Fallback to average buy price if no current price, nebo null pokud nemáme cenu
         
         // Vypočítej Live PnL pomocí FIFO metody (First In First Out)
         // Náklady pro aktuální balance = součet nákladů zbývajících tokenů podle FIFO (v USD)

@@ -72,39 +72,50 @@ router.get('/', async (req, res) => {
         const meta = t.meta as any;
         const baseToken = meta?.baseToken || 'SOL'; // Čti z meta, default SOL
         const source = meta?.source || '';
+        const valuationSource = meta?.valuationSource; // 'binance' | 'birdeye' | 'stable'
         
         let priceUsd: number | null = null;
         const existingValueUsd = toNumber(t.valueUsd);
         let computedValueUsd: number | null = existingValueUsd;
 
-        const setValueFromPrice = () => {
-          if (computedValueUsd === null && priceUsd !== null && amountToken > 0) {
-            computedValueUsd = priceUsd * amountToken;
-          }
-        };
-
-        if (source === 'quicknode-webhook') {
-          // QuickNode collector už ukládá hodnoty v USD
+        // DŮLEŽITÉ: Pokud má trade valuationSource, pak amountBase a priceBasePerToken jsou už v USD!
+        // NormalizedTradeProcessor ukládá: amountBase = valuation.amountBaseUsd, priceBasePerToken = valuation.priceUsdPerToken
+        if (valuationSource) {
+          // Trade už byl zpracován valuation service → amountBase a priceBasePerToken jsou v USD
           priceUsd = priceBasePerToken > 0 ? priceBasePerToken : null;
-          computedValueUsd = amountBase;
+          computedValueUsd = existingValueUsd !== null ? existingValueUsd : amountBase;
+        } else if (source === 'quicknode-webhook') {
+          // QuickNode webhook bez valuation → může být v base měně, použij valueUsd pokud existuje
+          priceUsd = priceBasePerToken > 0 ? priceBasePerToken : null;
+          computedValueUsd = existingValueUsd !== null ? existingValueUsd : amountBase;
         } else if (baseToken === 'SOL' && priceBasePerToken > 0) {
+          // Staré trades bez valuation → přepočítej z SOL na USD
           try {
             const tradeTimestamp = new Date(t.timestamp);
             const solPriceUsd = await binancePriceService.getSolPriceAtTimestamp(tradeTimestamp);
             priceUsd = priceBasePerToken * solPriceUsd;
+            if (computedValueUsd === null && priceUsd !== null && amountToken > 0) {
+              computedValueUsd = priceUsd * amountToken;
+            }
           } catch (error: any) {
             console.warn(`Failed to fetch SOL price from Binance for trade ${t.txSignature}: ${error.message}`);
-              priceUsd = null;
+            priceUsd = null;
           }
-          setValueFromPrice();
         } else if (baseToken === 'USDC' || baseToken === 'USDT') {
+          // Stablecoins → 1:1 USD
           priceUsd = priceBasePerToken;
-          setValueFromPrice();
+          if (computedValueUsd === null && priceUsd !== null && amountToken > 0) {
+            computedValueUsd = priceUsd * amountToken;
+          }
         } else {
+          // Neznámý base token → použij priceBasePerToken jako USD (pokud existuje)
           priceUsd = priceBasePerToken > 0 ? priceBasePerToken : null;
-          setValueFromPrice();
+          if (computedValueUsd === null && priceUsd !== null && amountToken > 0) {
+            computedValueUsd = priceUsd * amountToken;
+          }
         }
         
+        // Fallback: pokud stále nemáme valueUsd, použij amountBase (může být už v USD nebo v base měně)
         if (computedValueUsd === null || computedValueUsd === undefined) {
           computedValueUsd = amountBase;
         }
