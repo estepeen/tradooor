@@ -1,6 +1,6 @@
 // Shared types between backend and frontend
 
-export type TradeSide = 'buy' | 'sell';
+export type TradeSide = 'buy' | 'sell' | 'void';
 
 export interface SmartWalletRollingStats {
   realizedPnl: number; // PnL v SOL/base měně (změněno z realizedPnlUsd)

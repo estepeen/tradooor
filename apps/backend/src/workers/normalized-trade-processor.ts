@@ -18,8 +18,41 @@ function sleep(ms: number) {
 
 async function processNormalizedTrade(record: Awaited<ReturnType<typeof normalizedTradeRepo.findPending>>[number]) {
   try {
-    // DŮLEŽITÉ: Po opravě normalizeQuickNodeSwap je baseToken VŽDY SOL/USDC/USDT
-    // secondaryTokenMint už není potřeba
+    // Void trades (token-to-token swapy) - přeskočit valuation, uložit s hodnotou 0
+    if (record.side === 'void') {
+      const trade = await tradeRepo.create({
+        txSignature: record.txSignature,
+        walletId: record.walletId,
+        tokenId: record.tokenId,
+        side: 'void',
+        amountToken: record.amountToken,
+        amountBase: 0,
+        priceBasePerToken: 0,
+        timestamp: record.timestamp,
+        dex: record.dex,
+        valueUsd: null, // Void trade nemá hodnotu
+        meta: {
+          ...record.meta,
+          normalizedTradeId: record.id,
+          amountBaseRaw: record.amountBaseRaw,
+          priceBasePerTokenRaw: record.priceBasePerTokenRaw,
+          isVoid: true,
+        },
+      });
+
+      await normalizedTradeRepo.markProcessed(record.id, {
+        tradeId: trade.id,
+        amountBaseUsd: 0,
+        priceUsdPerToken: 0,
+        valuationSource: 'void',
+        valuationTimestamp: record.timestamp,
+      });
+
+      console.log(`🟣 [NormalizedTradeWorker] Processed VOID trade ${record.id} -> trade ${trade.id} (token-to-token swap)`);
+      return;
+    }
+
+    // Normální trade - provést valuation
     const valuation = await valuationService.valuate({
       baseToken: record.baseToken,
       amountBaseRaw: record.amountBaseRaw,

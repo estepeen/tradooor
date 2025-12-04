@@ -618,7 +618,9 @@ export default function WalletDetailPage() {
                       const recentTrades = allTrades.slice(-10).reverse();
                       
                       return recentTrades.map((trade) => {
-                        const isBuy = (trade.side || '').toLowerCase() === 'buy';
+                        const side = (trade.side || '').toLowerCase();
+                        const isBuy = side === 'buy';
+                        const isVoid = side === 'void';
                         return (
                           <tr key={trade.id} className="border-t border-border hover:bg-muted/50">
                             <td className="px-4 py-3 text-sm">
@@ -634,10 +636,14 @@ export default function WalletDetailPage() {
                             <td className="px-4 py-3 text-center">
                               <span
                                 className={`px-2 py-1 rounded text-xs font-medium ${
-                                  isBuy ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                                  isVoid 
+                                    ? 'bg-purple-500/20 text-purple-400' 
+                                    : isBuy 
+                                    ? 'bg-green-500/20 text-green-400' 
+                                    : 'bg-red-500/20 text-red-400'
                                 }`}
                               >
-                                {isBuy ? 'BUY' : 'SELL'}
+                                {isVoid ? 'VOID' : isBuy ? 'BUY' : 'SELL'}
                               </span>
                           </td>
                           <td className="px-4 py-3 text-sm">
@@ -660,10 +666,16 @@ export default function WalletDetailPage() {
                           </td>
                             <td
                               className={`px-4 py-3 text-right text-sm font-mono ${
-                                isBuy ? 'text-green-400' : 'text-red-400'
+                                isVoid 
+                                  ? 'text-purple-400' 
+                                  : isBuy 
+                                  ? 'text-green-400' 
+                                  : 'text-red-400'
                               }`}
                             >
-                              {trade.valueUsd
+                              {isVoid 
+                                ? 'void' 
+                                : trade.valueUsd
                                 ? `$${formatNumber(Number(trade.valueUsd), 2)}`
                                 : trade.amountBase
                                 ? `$${formatNumber(Number(trade.amountBase), 2)}`
@@ -671,17 +683,25 @@ export default function WalletDetailPage() {
                           </td>
                             <td
                               className={`px-4 py-3 text-right text-sm font-mono ${
-                                isBuy ? 'text-green-400' : 'text-red-400'
+                                isVoid 
+                                  ? 'text-purple-400' 
+                                  : isBuy 
+                                  ? 'text-green-400' 
+                                  : 'text-red-400'
                               }`}
                             >
-                            ${formatNumber(Number(trade.priceBasePerToken), 6)}
+                            {isVoid ? '-' : `$${formatNumber(Number(trade.priceBasePerToken), 6)}`}
                           </td>
                             <td
                               className={`px-4 py-3 text-right text-sm font-mono ${
-                                isBuy ? 'text-green-400' : 'text-red-400'
+                                isVoid 
+                                  ? 'text-purple-400' 
+                                  : isBuy 
+                                  ? 'text-green-400' 
+                                  : 'text-red-400'
                               }`}
                             >
-                              ${formatNumber(Number(trade.amountBase), 6)}
+                              {isVoid ? '-' : `$${formatNumber(Number(trade.amountBase), 6)}`}
                           </td>
                         </tr>
                       );

@@ -59,7 +59,7 @@ export class TradeRepository {
     txSignature: string;
     walletId: string;
     tokenId: string;
-    side: 'buy' | 'sell';
+    side: 'buy' | 'sell' | 'void';
     amountToken: number;
     amountBase: number;
     priceBasePerToken: number;
@@ -115,15 +115,21 @@ export class TradeRepository {
     return result;
   }
 
-  async findAllForMetrics(walletId: string) {
-    const { data: trades, error } = await supabase
+  async findAllForMetrics(walletId: string, excludeVoid: boolean = true) {
+    let query = supabase
       .from(TABLES.TRADE)
       .select(`
         *,
         token:${TABLES.TOKEN}(*)
       `)
-      .eq('walletId', walletId)
-      .order('timestamp', { ascending: true });
+      .eq('walletId', walletId);
+    
+    // Vyloučit void trades z PnL výpočtů
+    if (excludeVoid) {
+      query = query.neq('side', 'void');
+    }
+    
+    const { data: trades, error } = await query.order('timestamp', { ascending: true });
 
     if (error) {
       throw new Error(`Failed to fetch trades for metrics: ${error.message}`);

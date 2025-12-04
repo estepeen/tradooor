@@ -16,11 +16,11 @@ import { BinancePriceService } from './binance-price.service.js';
 export type NormalizedSwap = {
   txSignature: string;
   tokenMint: string;
-  side: 'buy' | 'sell';
+  side: 'buy' | 'sell' | 'void';
   amountToken: number;
-  amountBase: number; // V USD (přepočteno z SOL/USDC/USDT nebo sekundárního tokenu)
-  priceBasePerToken: number; // V USD za 1 token
-  baseToken: string; // SOL, USDC, USDT, nebo mint address pro token za token swap
+  amountBase: number; // V USD (přepočteno z SOL/USDC/USDT nebo sekundárního tokenu), 0 pro void trades
+  priceBasePerToken: number; // V USD za 1 token, 0 pro void trades
+  baseToken: string; // SOL, USDC, USDT, nebo 'VOID' pro token-to-token swapy
   timestamp: Date;
   dex: string;
 };
@@ -244,12 +244,16 @@ export function normalizeQuickNodeSwap(
       baseAmount = Math.max(solSpent, usdcSpent, usdtSpent);
       
       if (baseAmount <= 0) {
-        // Žádná změna v SOL/USDC/USDT - to je podezřelé, možná to není swap
-        console.log(`   ⚠️  [QuickNode] No SOL/USDC/USDT change for BUY swap (wallet ${walletAddress.substring(0, 8)}...)`);
+        // Token-to-token swap bez SOL/USDC/USDT změny → označit jako VOID
+        console.log(`   🟣 [QuickNode] Token-to-token swap detected (no SOL/USDC/USDT change) - marking as VOID (wallet ${walletAddress.substring(0, 8)}...)`);
         console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
         console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
         console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
-        return null;
+        
+        // Vrať trade s side='void' - bude zobrazen, ale nepočítá se do PnL
+        side = 'void';
+        baseAmount = 0; // Žádná hodnota
+        baseToken = 'VOID';
       }
       
       // Urči base token podle největší změny
@@ -264,12 +268,16 @@ export function normalizeQuickNodeSwap(
       baseAmount = Math.max(solReceived, usdcReceived, usdtReceived);
       
       if (baseAmount <= 0) {
-        // Žádná změna v SOL/USDC/USDT - to je podezřelé, možná to není swap
-        console.log(`   ⚠️  [QuickNode] No SOL/USDC/USDT change for SELL swap (wallet ${walletAddress.substring(0, 8)}...)`);
+        // Token-to-token swap bez SOL/USDC/USDT změny → označit jako VOID
+        console.log(`   🟣 [QuickNode] Token-to-token swap detected (no SOL/USDC/USDT change) - marking as VOID (wallet ${walletAddress.substring(0, 8)}...)`);
         console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
         console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
         console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
-        return null;
+        
+        // Vrať trade s side='void' - bude zobrazen, ale nepočítá se do PnL
+        side = 'void';
+        baseAmount = 0; // Žádná hodnota
+        baseToken = 'VOID';
       }
       
       // Urči base token podle největší změny
