@@ -286,15 +286,25 @@ export function normalizeQuickNodeSwap(
       else baseToken = 'SOL';
     }
 
-    if (baseAmount <= 0 || amountToken <= 0) {
-      console.log(`   ⚠️  [QuickNode] Invalid baseAmount or amountToken for wallet ${walletAddress.substring(0, 8)}...`);
-      console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
-      console.log(`      Base amount: ${baseAmount.toFixed(6)}, Base token: ${baseToken}`);
-      console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
-      return null;
+    // Pro void trades (token-to-token swapy) povolíme baseAmount = 0
+    if (side === 'void') {
+      // Void trade - nemá hodnotu, ale má amountToken
+      if (amountToken <= 0) {
+        console.log(`   ⚠️  [QuickNode] Invalid amountToken for VOID trade (wallet ${walletAddress.substring(0, 8)}...)`);
+        return null;
+      }
+    } else {
+      // Normální trade - musí mít baseAmount > 0
+      if (baseAmount <= 0 || amountToken <= 0) {
+        console.log(`   ⚠️  [QuickNode] Invalid baseAmount or amountToken for wallet ${walletAddress.substring(0, 8)}...`);
+        console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
+        console.log(`      Base amount: ${baseAmount.toFixed(6)}, Base token: ${baseToken}`);
+        console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
+        return null;
+      }
     }
 
-    const priceBasePerToken = baseAmount / amountToken;
+    const priceBasePerToken = side === 'void' ? 0 : baseAmount / amountToken;
 
     // Signature & timestamp
     const signature = tx.transaction?.signatures?.[0];
