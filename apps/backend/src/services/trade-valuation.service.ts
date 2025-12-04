@@ -13,6 +13,7 @@ export interface TradeValuationResult {
 interface NormalizedValuationInput {
   baseToken: string;
   amountBaseRaw: number;
+  amountToken: number; // Počet tokenů v trade
   priceBasePerTokenRaw: number;
   timestamp: Date;
   secondaryTokenMint?: string | null;
@@ -168,9 +169,15 @@ export class TradeValuationService {
     // SOL → Binance price
     if (normalizedBaseToken === 'SOL' || normalizedBaseToken === 'WSOL') {
       const solPrice = await this.binancePriceService.getSolPriceAtTimestamp(timestamp);
+      // 1. Najít cenu SOL v danou dobu
+      // 2. Vynásobit počet SOL v trade (amountBaseRaw) * solPrice → USD hodnota
+      const usdValue = input.amountBaseRaw * solPrice;
+      // 3. Token price = USD hodnota / počet tokenů
+      const priceUsdPerToken = input.amountToken > 0 ? usdValue / input.amountToken : 0;
+      
       return {
-        amountBaseUsd: input.amountBaseRaw * solPrice,
-        priceUsdPerToken: input.priceBasePerTokenRaw * solPrice,
+        amountBaseUsd: usdValue,
+        priceUsdPerToken,
         source: 'binance',
         timestamp,
       };
@@ -179,19 +186,19 @@ export class TradeValuationService {
     // Token-to-token swap → Try multiple price sources
     if (input.secondaryTokenMint) {
       // DŮLEŽITÉ: Pokud je base token SOL, můžeme vypočítat cenu přímo z trade dat!
-      // priceBasePerTokenRaw = amountBaseRaw / amountToken (už máme z normalized trade)
-      // Pak stačí vynásobit SOL cenou v USD z Binance
+      // 1. Najít cenu SOL v danou dobu
+      // 2. Vynásobit počet SOL v trade (amountBaseRaw) * solPrice → USD hodnota
+      // 3. Token price = USD hodnota / počet tokenů
       if (normalizedBaseToken === 'SOL' || normalizedBaseToken === 'WSOL') {
         try {
           const solPrice = await this.binancePriceService.getSolPriceAtTimestamp(timestamp);
-          // priceBasePerTokenRaw je už cena v SOL za 1 token (vypočítaná z trade dat)
-          // amountBaseRaw je hodnota v SOL (z trade dat)
-          // Stačí vynásobit SOL cenou v USD
-          const priceUsdPerToken = input.priceBasePerTokenRaw * solPrice;
-          const amountBaseUsd = input.amountBaseRaw * solPrice;
+          // USD hodnota = amountBaseRaw * solPrice
+          const usdValue = input.amountBaseRaw * solPrice;
+          // Token price = USD hodnota / počet tokenů
+          const priceUsdPerToken = input.amountToken > 0 ? usdValue / input.amountToken : 0;
 
           return {
-            amountBaseUsd,
+            amountBaseUsd: usdValue,
             priceUsdPerToken,
             source: 'binance',
             timestamp,
