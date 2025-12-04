@@ -32,6 +32,15 @@ export class TradeValuationService {
   }
 
   /**
+   * Check if baseToken is actually SOL/WSOL (not a token mint address)
+   */
+  private isSolBaseToken(baseToken: string): boolean {
+    const normalized = this.normalizeBaseTokenSymbol(baseToken);
+    return normalized === 'SOL' || normalized === 'WSOL' || 
+           baseToken === 'So11111111111111111111111111111111111111112';
+  }
+
+  /**
    * Fetch token price from Jupiter API (free, Solana native)
    * Jupiter API: https://api.jup.ag/price/v2
    */
@@ -184,12 +193,17 @@ export class TradeValuationService {
     }
 
     // Token-to-token swap → Try multiple price sources
+    // DŮLEŽITÉ: secondaryTokenMint je base token (token, za který se kupuje/prodává primární token)
     if (input.secondaryTokenMint) {
       // DŮLEŽITÉ: Pokud je base token SOL, můžeme vypočítat cenu přímo z trade dat!
       // 1. Najít cenu SOL v danou dobu
       // 2. Vynásobit počet SOL v trade (amountBaseRaw) * solPrice → USD hodnota
       // 3. Token price = USD hodnota / počet tokenů
-      if (normalizedBaseToken === 'SOL' || normalizedBaseToken === 'WSOL') {
+      // POZOR: Zkontroluj i secondaryTokenMint - pokud je to SOL mint address, použij SOL cenu
+      const isSolBase = this.isSolBaseToken(normalizedBaseToken) || 
+                        this.isSolBaseToken(input.secondaryTokenMint);
+      
+      if (isSolBase) {
         try {
           const solPrice = await this.binancePriceService.getSolPriceAtTimestamp(timestamp);
           // USD hodnota = amountBaseRaw * solPrice
@@ -210,14 +224,19 @@ export class TradeValuationService {
         }
       }
 
-      // Pro non-SOL base tokeny zkusíme najít cenu z API
-      const { price: secondaryPrice, source: priceSource } = await this.fetchTokenPriceWithFallbacks(
-        input.secondaryTokenMint,
+      // Pro non-SOL base tokeny MUSÍME najít cenu base tokenu z API
+      // NIKDY nepoužívej SOL cenu jako fallback pro non-SOL base tokeny!
+      const { price: baseTokenPrice, source: priceSource } = await this.fetchTokenPriceWithFallbacks(
+        input.secondaryTokenMint, // base token mint address
         timestamp
       );
 
-      if (secondaryPrice && secondaryPrice > 0) {
-        const usdValue = input.amountBaseRaw * secondaryPrice;
+      if (baseTokenPrice && baseTokenPrice > 0) {
+        // USD hodnota = amountBaseRaw (v base tokenu) * baseTokenPrice (USD za 1 base token)
+        const usdValue = input.amountBaseRaw * baseTokenPrice;
+        
+        // Token price = (USD hodnota) / počet tokenů
+        const priceUsdPerToken = input.amountToken > 0 ? usdValue / input.amountToken : 0;
         
         // Sanity check: warn if value seems unusually large
         if (usdValue > 10_000_000) {
@@ -230,14 +249,14 @@ export class TradeValuationService {
 
         return {
           amountBaseUsd: usdValue,
-          priceUsdPerToken: input.priceBasePerTokenRaw * secondaryPrice,
+          priceUsdPerToken,
           source: priceSource,
           timestamp,
         };
       }
 
       // Všechny API selhaly - trade zůstane void/pending
-      // Lepší než uložit špatnou hodnotu
+      // NIKDY nepoužívej SOL cenu jako fallback - to by vedlo k špatným hodnotám!
       throw new Error(
         `All price APIs failed for base token ${input.secondaryTokenMint.substring(0, 8)}... at ${timestamp.toISOString()}. Trade will be retried later.`
       );

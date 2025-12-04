@@ -167,6 +167,29 @@ export function normalizeQuickNodeSwap(
       console.log(`   [QuickNode] SOL net change: ${solNet}`);
     }
 
+    // DETECT LIQUIDITY OPERATIONS: ADD/REMOVE LIQUIDITY
+    // Liquidity operations typically involve:
+    // - Multiple tokens changing simultaneously (both sides of LP pair)
+    // - Both tokens going in same direction (both increasing for ADD, both decreasing for REMOVE)
+    // - Or one token increasing and one decreasing (which is a swap, not liquidity)
+    const nonBaseTokenChanges = Array.from(tokenNetByMint.entries())
+      .filter(([mint]) => !BASE_MINTS.has(mint))
+      .filter(([, delta]) => Math.abs(delta) > 1e-9);
+    
+    // If we have 2+ non-base tokens changing, it's likely a liquidity operation
+    // ADD LIQUIDITY: both tokens increase (user adds both to pool)
+    // REMOVE LIQUIDITY: both tokens decrease (user removes both from pool)
+    if (nonBaseTokenChanges.length >= 2) {
+      const allPositive = nonBaseTokenChanges.every(([, delta]) => delta > 0);
+      const allNegative = nonBaseTokenChanges.every(([, delta]) => delta < 0);
+      
+      if (allPositive || allNegative) {
+        console.log(`   ⚠️  [QuickNode] Detected ${allPositive ? 'ADD' : 'REMOVE'} LIQUIDITY operation - skipping (wallet ${walletAddress.substring(0, 8)}...)`);
+        console.log(`      Token changes: ${nonBaseTokenChanges.map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ')}`);
+        return null;
+      }
+    }
+
     // 3) Pick main traded (non-base) token by absolute net change
     let primaryMint: string | null = null;
     let primaryDelta = 0;
