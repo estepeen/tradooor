@@ -11,6 +11,8 @@
 import { supabase, TABLES } from '../lib/supabase.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 
+const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
+
 interface Lot {
   remainingSize: number;
   entryPrice: number;
@@ -98,6 +100,7 @@ export class LotMatchingService {
     }
 
     const allClosedLots: ClosedLot[] = [];
+    const tokensWithoutClosedLots = new Set<string>();
 
     // Process each token separately
     for (const [tid, tokenTrades] of tradesByToken.entries()) {
@@ -107,7 +110,25 @@ export class LotMatchingService {
         tokenTrades,
         trackingStartTime
       );
-      allClosedLots.push(...closedLots);
+      if (closedLots.length === 0) {
+        tokensWithoutClosedLots.add(tid);
+      } else {
+        allClosedLots.push(...closedLots);
+      }
+    }
+
+    if (tokensWithoutClosedLots.size > 0) {
+      const { error } = await supabase
+        .from(TABLES.CLOSED_LOT)
+        .delete()
+        .eq('walletId', walletId)
+        .in('tokenId', Array.from(tokensWithoutClosedLots));
+
+      if (error) {
+        console.warn(
+          `⚠️  Failed to delete closed lots for tokens without stable valuations: ${error.message}`
+        );
+      }
     }
 
     return allClosedLots;
@@ -137,6 +158,11 @@ export class LotMatchingService {
     };
 
     for (const trade of trades) {
+      const baseToken = ((trade as any).meta?.baseToken || 'SOL').toUpperCase();
+      if (!STABLE_BASES.has(baseToken)) {
+        continue;
+      }
+
       const side = normalizeSide(trade.side);
       const amount = Number(trade.amountToken);
       const price = Number(trade.priceBasePerToken);

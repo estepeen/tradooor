@@ -57,39 +57,42 @@ export class TradeValuationService {
 
     // Token-to-token swap → Birdeye price for secondary token (base leg)
     if (input.secondaryTokenMint) {
-      const secondaryPrice = await this.tokenPriceService.getTokenPriceAtDate(
+      let secondaryPrice = await this.tokenPriceService.getTokenPriceAtDate(
         input.secondaryTokenMint,
         timestamp
       );
 
+      if (!secondaryPrice || secondaryPrice <= 0) {
+        const fallbackPrices = await this.tokenPriceService.getTokenPricesBatch([
+          input.secondaryTokenMint,
+        ]);
+        secondaryPrice = fallbackPrices.get(input.secondaryTokenMint.toLowerCase()) ?? null;
+      }
+
       if (secondaryPrice && secondaryPrice > 0) {
         const usdValue = input.amountBaseRaw * secondaryPrice;
-        // Guard unrealistic valuations (> $10M) – fallback to SOL pricing
         if (usdValue > 10_000_000) {
           console.warn(
             `⚠️  Trade valuation: computed value $${usdValue.toFixed(
               2
-            )} seems too large, falling back to SOL pricing`
+            )} for base token ${input.secondaryTokenMint.substring(0, 8)}... looks unusually large`
           );
-        } else {
-          return {
-            amountBaseUsd: usdValue,
-            priceUsdPerToken: input.priceBasePerTokenRaw * secondaryPrice,
-            source: 'birdeye',
-            timestamp,
-          };
         }
+
+        return {
+          amountBaseUsd: usdValue,
+          priceUsdPerToken: input.priceBasePerTokenRaw * secondaryPrice,
+          source: 'birdeye',
+          timestamp,
+        };
       }
+
+      throw new Error(
+        `Missing USD price for base token ${input.secondaryTokenMint} at ${timestamp.toISOString()}`
+      );
     }
 
-    // Fallback: treat as SOL exposure if all else fails
-    const fallbackSolPrice = await this.binancePriceService.getSolPriceAtTimestamp(timestamp);
-    return {
-      amountBaseUsd: input.amountBaseRaw * fallbackSolPrice,
-      priceUsdPerToken: input.priceBasePerTokenRaw * fallbackSolPrice,
-      source: 'binance',
-      timestamp,
-    };
+    throw new Error('Unsupported base token configuration – unable to determine USD value');
   }
 }
 

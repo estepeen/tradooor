@@ -139,6 +139,37 @@ export class NormalizedTradeRepository {
     return this.mapRow(data);
   }
 
+  async findById(id: string): Promise<NormalizedTradeRecord | null> {
+    const { data, error } = await supabase
+      .from(TABLES.NORMALIZED_TRADE)
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null;
+      }
+      throw new Error(`Failed to fetch normalized trade: ${error.message}`);
+    }
+
+    return this.mapRow(data);
+  }
+
+  async findPendingByWallet(walletId: string): Promise<NormalizedTradeRecord[]> {
+    const { data, error } = await supabase
+      .from(TABLES.NORMALIZED_TRADE)
+      .select('*')
+      .eq('walletId', walletId)
+      .eq('status', 'pending');
+
+    if (error) {
+      throw new Error(`Failed to fetch pending normalized trades: ${error.message}`);
+    }
+
+    return (data ?? []).map(row => this.mapRow(row));
+  }
+
   async findPending(limit = 25): Promise<NormalizedTradeRecord[]> {
     const { data, error } = await supabase
       .from(TABLES.NORMALIZED_TRADE)

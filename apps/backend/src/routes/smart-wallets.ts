@@ -55,6 +55,8 @@ try {
   console.warn('⚠️  Helius webhook service not available:', error.message);
 }
 
+const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
+
 const normalizeTradeSide = (side?: string | null): 'buy' | 'sell' => {
   if (!side) {
     return 'buy';
@@ -961,6 +963,11 @@ router.get('/:id/portfolio', async (req, res) => {
     // Map tradeId -> USD per base unit (used later for closed position USD conversion)
     const tradeUsdRatioMap = new Map<string, number>();
     for (const trade of allTradesForRatios || []) {
+      const baseToken = ((trade as any).meta?.baseToken || 'SOL').toUpperCase();
+      if (!STABLE_BASES.has(baseToken)) {
+        continue;
+      }
+
       const amountBaseNum = Number((trade as any).amountBase ?? 0);
       const valueUsdRaw =
         (trade as any).valueUsd ??
@@ -974,11 +981,8 @@ router.get('/:id/portfolio', async (req, res) => {
       let usdPerBase: number | null = null;
       if (amountBaseNum > 0 && valueUsdNum && Number.isFinite(valueUsdNum)) {
         usdPerBase = valueUsdNum / amountBaseNum;
-      } else {
-        const baseToken = ((trade as any).meta?.baseToken || 'SOL').toUpperCase();
-        if ((baseToken === 'USDC' || baseToken === 'USDT') && amountBaseNum > 0) {
-          usdPerBase = 1;
-        }
+      } else if ((baseToken === 'USDC' || baseToken === 'USDT') && amountBaseNum > 0) {
+        usdPerBase = 1;
       }
 
       if (usdPerBase !== null && Number.isFinite(usdPerBase)) {
@@ -1009,6 +1013,11 @@ router.get('/:id/portfolio', async (req, res) => {
     }>();
 
     for (const trade of allTrades.trades) {
+      const baseToken = ((trade as any).meta?.baseToken || 'SOL').toUpperCase();
+      if (!STABLE_BASES.has(baseToken)) {
+        continue;
+      }
+
       const normalizedSide = normalizeTradeSide(trade.side);
       const tokenId = trade.tokenId;
       // Handle both 'Token' (capital) and 'token' (lowercase) for compatibility
@@ -1046,7 +1055,6 @@ router.get('/:id/portfolio', async (req, res) => {
       const value = amount * price;
 
       // Get base token from trade meta
-      const baseToken = (trade as any).meta?.baseToken || 'SOL';
       position.baseToken = baseToken;
 
       // Handle all trade types: buy, sell, add, remove
@@ -1778,7 +1786,8 @@ router.get('/:id/pnl', async (req, res) => {
       // Calculate PnL in USD from trades - filter directly by fromDate (same as repository)
       const periodTrades = trades.filter(t => {
         const tradeDate = new Date(t.timestamp);
-        return tradeDate >= fromDate;
+        const baseToken = ((t as any).meta?.baseToken || 'SOL').toUpperCase();
+        return tradeDate >= fromDate && STABLE_BASES.has(baseToken);
       });
 
       let buyValueUsd = 0;
