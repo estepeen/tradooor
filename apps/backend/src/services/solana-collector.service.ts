@@ -230,48 +230,32 @@ export function normalizeQuickNodeSwap(
     // Effective SOL exposure = native SOL + WSOL
     const solTotalNet = solNet + wsolNet;
 
-    // For BUY: user spent base => negative net
+    // DŮLEŽITÉ: VŽDY použij SOL/USDC/USDT hodnotu z balance changes
+    // NIKDY nepoužívej sekundární token jako base - to vede k špatným hodnotám!
+    // Pro token-to-token swapy musíme najít ekvivalentní SOL hodnotu
     let baseAmount = 0;
     let baseToken = 'SOL';
+    
     if (side === 'buy') {
+      // BUY: user spent base => negative net
       const solSpent = solTotalNet < 0 ? -solTotalNet : 0;
       const usdcSpent = usdcNet < 0 ? -usdcNet : 0;
       const usdtSpent = usdtNet < 0 ? -usdtNet : 0;
       baseAmount = Math.max(solSpent, usdcSpent, usdtSpent);
       
-      // Pokud není base token (SOL/USDC/USDT), zkus najít sekundární token (token za token swap)
       if (baseAmount <= 0) {
-        // Najdi sekundární token (ten, za který se kupuje primární token)
-        let secondaryMint: string | null = null;
-        let secondaryDelta = 0;
-        for (const [mint, delta] of tokenNetByMint.entries()) {
-          if (mint === primaryMint) continue; // Skip primární token
-          if (BASE_MINTS.has(mint)) continue; // Skip base tokeny (už jsme je zkontrolovali)
-          if (delta < 0 && Math.abs(delta) > Math.abs(secondaryDelta)) {
-            // Negativní delta = token se prodává (za něj se kupuje primární)
-            secondaryMint = mint;
-            secondaryDelta = delta;
-          }
-        }
-        
-        if (secondaryMint && Math.abs(secondaryDelta) > 1e-9) {
-          // Swap token za token - použij sekundární token jako "base"
-          baseAmount = Math.abs(secondaryDelta);
-          baseToken = secondaryMint; // Použijeme mint address jako base token
-        } else {
-          // Not enough info about base leg
-          console.log(`   ⚠️  [QuickNode] No base token found for BUY swap (wallet ${walletAddress.substring(0, 8)}...)`);
-          console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
-          console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
-          console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
-          return null;
-        }
-      } else {
-        // Máme base token (SOL/USDC/USDT)
-        if (baseAmount === usdcSpent) baseToken = 'USDC';
-        else if (baseAmount === usdtSpent) baseToken = 'USDT';
-        else baseToken = 'SOL';
+        // Žádná změna v SOL/USDC/USDT - to je podezřelé, možná to není swap
+        console.log(`   ⚠️  [QuickNode] No SOL/USDC/USDT change for BUY swap (wallet ${walletAddress.substring(0, 8)}...)`);
+        console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
+        console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
+        console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
+        return null;
       }
+      
+      // Urči base token podle největší změny
+      if (baseAmount === usdcSpent) baseToken = 'USDC';
+      else if (baseAmount === usdtSpent) baseToken = 'USDT';
+      else baseToken = 'SOL';
     } else {
       // SELL: user received base => positive net
       const solReceived = solTotalNet > 0 ? solTotalNet : 0;
@@ -279,38 +263,19 @@ export function normalizeQuickNodeSwap(
       const usdtReceived = usdtNet > 0 ? usdtNet : 0;
       baseAmount = Math.max(solReceived, usdcReceived, usdtReceived);
       
-      // Pokud není base token, zkus najít sekundární token (token za token swap)
       if (baseAmount <= 0) {
-        // Najdi sekundární token (ten, který se přijímá za primární token)
-        let secondaryMint: string | null = null;
-        let secondaryDelta = 0;
-        for (const [mint, delta] of tokenNetByMint.entries()) {
-          if (mint === primaryMint) continue; // Skip primární token
-          if (BASE_MINTS.has(mint)) continue; // Skip base tokeny
-          if (delta > 0 && delta > secondaryDelta) {
-            // Pozitivní delta = token se přijímá (za primární token)
-            secondaryMint = mint;
-            secondaryDelta = delta;
-          }
-        }
-        
-        if (secondaryMint && secondaryDelta > 1e-9) {
-          // Swap token za token - použij sekundární token jako "base"
-          baseAmount = secondaryDelta;
-          baseToken = secondaryMint; // Použijeme mint address jako base token
-        } else {
-          console.log(`   ⚠️  [QuickNode] No base token found for SELL swap (wallet ${walletAddress.substring(0, 8)}...)`);
-          console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
-          console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
-          console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
-          return null;
-        }
-      } else {
-        // Máme base token (SOL/USDC/USDT)
-        if (baseAmount === usdcReceived) baseToken = 'USDC';
-        else if (baseAmount === usdtReceived) baseToken = 'USDT';
-        else baseToken = 'SOL';
+        // Žádná změna v SOL/USDC/USDT - to je podezřelé, možná to není swap
+        console.log(`   ⚠️  [QuickNode] No SOL/USDC/USDT change for SELL swap (wallet ${walletAddress.substring(0, 8)}...)`);
+        console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
+        console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
+        console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
+        return null;
       }
+      
+      // Urči base token podle největší změny
+      if (baseAmount === usdcReceived) baseToken = 'USDC';
+      else if (baseAmount === usdtReceived) baseToken = 'USDT';
+      else baseToken = 'SOL';
     }
 
     if (baseAmount <= 0 || amountToken <= 0) {

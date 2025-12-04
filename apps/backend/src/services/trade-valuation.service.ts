@@ -192,74 +192,32 @@ export class TradeValuationService {
       };
     }
 
-    // Token-to-token swap → Try multiple price sources
-    // DŮLEŽITÉ: secondaryTokenMint je base token (token, za který se kupuje/prodává primární token)
+    // DŮLEŽITÉ: Po změně v normalizeQuickNodeSwap už NIKDY nepřichází secondaryTokenMint
+    // Všechny swapy teď mají baseToken = SOL/USDC/USDT (z balance changes)
+    // Pokud by secondaryTokenMint přišlo, je to stará data nebo bug - ignoruj to
     if (input.secondaryTokenMint) {
-      // DŮLEŽITÉ: Pokud je base token SOL, můžeme vypočítat cenu přímo z trade dat!
-      // 1. Najít cenu SOL v danou dobu
-      // 2. Vynásobit počet SOL v trade (amountBaseRaw) * solPrice → USD hodnota
-      // 3. Token price = USD hodnota / počet tokenů
-      // POZOR: Zkontroluj i secondaryTokenMint - pokud je to SOL mint address, použij SOL cenu
-      const isSolBase = this.isSolBaseToken(normalizedBaseToken) || 
-                        this.isSolBaseToken(input.secondaryTokenMint);
-      
-      if (isSolBase) {
-        try {
-          const solPrice = await this.binancePriceService.getSolPriceAtTimestamp(timestamp);
-          // USD hodnota = amountBaseRaw * solPrice
-          const usdValue = input.amountBaseRaw * solPrice;
-          // Token price = USD hodnota / počet tokenů
-          const priceUsdPerToken = input.amountToken > 0 ? usdValue / input.amountToken : 0;
+      console.warn(
+        `⚠️  [TradeValuation] Unexpected secondaryTokenMint: ${input.secondaryTokenMint.substring(0, 8)}... for baseToken: ${normalizedBaseToken}. This should not happen after normalizeQuickNodeSwap fix.`
+      );
+      // Fallback: pokud baseToken není SOL/USDC/USDT, zkus najít cenu
+      if (!this.isSolBaseToken(normalizedBaseToken) && !USD_STABLES.has(normalizedBaseToken)) {
+        // Toto by se nemělo stát, ale pro jistotu zkus najít cenu
+        const { price: baseTokenPrice, source: priceSource } = await this.fetchTokenPriceWithFallbacks(
+          input.secondaryTokenMint,
+          timestamp
+        );
 
+        if (baseTokenPrice && baseTokenPrice > 0) {
+          const usdValue = input.amountBaseRaw * baseTokenPrice;
+          const priceUsdPerToken = input.amountToken > 0 ? usdValue / input.amountToken : 0;
           return {
             amountBaseUsd: usdValue,
             priceUsdPerToken,
-            source: 'binance',
+            source: priceSource,
             timestamp,
           };
-        } catch (error: any) {
-          throw new Error(
-            `Failed to fetch SOL price for token-to-token swap: ${error.message}. Cannot determine USD value for base token ${input.secondaryTokenMint}`
-          );
         }
       }
-
-      // Pro non-SOL base tokeny MUSÍME najít cenu base tokenu z API
-      // NIKDY nepoužívej SOL cenu jako fallback pro non-SOL base tokeny!
-      const { price: baseTokenPrice, source: priceSource } = await this.fetchTokenPriceWithFallbacks(
-        input.secondaryTokenMint, // base token mint address
-        timestamp
-      );
-
-      if (baseTokenPrice && baseTokenPrice > 0) {
-        // USD hodnota = amountBaseRaw (v base tokenu) * baseTokenPrice (USD za 1 base token)
-        const usdValue = input.amountBaseRaw * baseTokenPrice;
-        
-        // Token price = (USD hodnota) / počet tokenů
-        const priceUsdPerToken = input.amountToken > 0 ? usdValue / input.amountToken : 0;
-        
-        // Sanity check: warn if value seems unusually large
-        if (usdValue > 10_000_000) {
-          console.warn(
-            `⚠️  Trade valuation: computed value $${usdValue.toFixed(
-              2
-            )} for base token ${input.secondaryTokenMint.substring(0, 8)}... looks unusually large (source: ${priceSource})`
-          );
-        }
-
-        return {
-          amountBaseUsd: usdValue,
-          priceUsdPerToken,
-          source: priceSource,
-          timestamp,
-        };
-      }
-
-      // Všechny API selhaly - trade zůstane void/pending
-      // NIKDY nepoužívej SOL cenu jako fallback - to by vedlo k špatným hodnotám!
-      throw new Error(
-        `All price APIs failed for base token ${input.secondaryTokenMint.substring(0, 8)}... at ${timestamp.toISOString()}. Trade will be retried later.`
-      );
     }
 
     throw new Error('Unsupported base token configuration – unable to determine USD value');

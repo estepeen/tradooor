@@ -1059,7 +1059,7 @@ router.get('/:id/portfolio', async (req, res) => {
       // NormalizedTradeProcessor ukládá: amountBase = valuation.amountBaseUsd, priceBasePerToken = valuation.priceUsdPerToken
       // Pro výpočet totalInvested použij valueUsd (pokud existuje), jinak amountBase (pokud má valuationSource), jinak přepočítej
       const tradeValueUsd = valueUsd > 0 ? valueUsd : (valuationSource ? amountBase : null);
-      
+
       // Get base token from trade meta
       position.baseToken = baseToken;
 
@@ -1639,11 +1639,11 @@ router.get('/:id/portfolio', async (req, res) => {
       ...closedPositionsFromLots
     ]
       .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes >= 0)
-      .sort((a, b) => {
-        const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
-        const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
-        return bTime - aTime;
-      });
+        .sort((a, b) => {
+          const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
+          const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
+          return bTime - aTime;
+        });
 
     console.log(`✅ Portfolio calculated: ${openPositions.length} open positions, ${closedPositions.length} closed positions`);
     
