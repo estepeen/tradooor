@@ -1,6 +1,8 @@
 /**
- * Script to fix TYPE and POSITION for a specific wallet
- * Usage: pnpm fix:wallet-types-positions <walletAddress>
+ * Script to fix TYPE values for trades so that only BUY/SELL remain.
+ * Usage:
+ *   pnpm fix:wallet-types-positions <walletAddress>
+ *   pnpm fix:wallet-types-positions --all
  */
 
 import 'dotenv/config';
@@ -8,10 +10,10 @@ import { TradeRepository } from '../repositories/trade.repository.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { WalletProcessingQueueRepository } from '../repositories/wallet-processing-queue.repository.js';
 
-const WALLET_ADDRESS = process.argv[2];
+const TARGET_ARG = process.argv[2];
 
-if (!WALLET_ADDRESS) {
-  console.error('❌ Usage: pnpm fix:wallet-types-positions <walletAddress>');
+if (!TARGET_ARG) {
+  console.error('❌ Usage: pnpm fix:wallet-types-positions <walletAddress> | --all');
   process.exit(1);
 }
 
@@ -19,15 +21,15 @@ const tradeRepo = new TradeRepository();
 const smartWalletRepo = new SmartWalletRepository();
 const walletQueueRepo = new WalletProcessingQueueRepository();
 
-async function fixWalletTypesAndPositions() {
-  console.log(`🔄 Fixing TYPE and POSITION for wallet: ${WALLET_ADDRESS}\n`);
+async function processWallet(address: string) {
+  console.log(`\n🔄 Fixing TYPE for wallet: ${address}\n`);
 
   try {
     // 1. Find wallet
-    const wallet = await smartWalletRepo.findByAddress(WALLET_ADDRESS);
+    const wallet = await smartWalletRepo.findByAddress(address);
     if (!wallet) {
-      console.error(`❌ Wallet not found: ${WALLET_ADDRESS}`);
-      process.exit(1);
+      console.error(`❌ Wallet not found: ${address}`);
+      return;
     }
 
     console.log(`✅ Found wallet: ${wallet.id}\n`);
@@ -129,7 +131,7 @@ async function fixWalletTypesAndPositions() {
       }
     }
 
-    console.log(`\n✅ Fix completed!`);
+    console.log(`\n✅ Fix completed for wallet ${address}!`);
     console.log(`   Updated: ${totalUpdated} trades`);
     console.log(`   Skipped: ${totalSkipped} trades (no changes needed)`);
 
@@ -143,17 +145,50 @@ async function fixWalletTypesAndPositions() {
 
   } catch (error: any) {
     console.error('❌ Error fixing wallet:', error);
-    process.exit(1);
   }
 }
 
-fixWalletTypesAndPositions()
-  .then(() => {
-    console.log('\n✅ Script completed successfully');
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error('❌ Script failed:', error);
-    process.exit(1);
-  });
+async function processAllWallets() {
+  console.log('🔄 Running fix for ALL wallets...\n');
 
+  const pageSize = 200;
+  let page = 1;
+  let processed = 0;
+
+  while (true) {
+    const { wallets, total } = await smartWalletRepo.findAll({ page, pageSize });
+    const batch = wallets || [];
+
+    if (!batch.length) {
+      break;
+    }
+
+    for (const wallet of batch) {
+      if (!wallet.address) continue;
+      await processWallet(wallet.address);
+      processed++;
+    }
+
+    if (processed >= (total ?? 0)) {
+      break;
+    }
+
+    page++;
+  }
+
+  console.log(`\n✅ Completed fix for ${processed} wallets`);
+}
+
+(async () => {
+  if (TARGET_ARG === '--all') {
+    await processAllWallets();
+  } else {
+    await processWallet(TARGET_ARG);
+  }
+
+  console.log('\n✅ Script completed successfully');
+  process.exit(0);
+})().catch((error) => {
+  console.error('❌ Script failed:', error);
+  process.exit(1);
+});
