@@ -956,10 +956,11 @@ router.get('/:id/portfolio', async (req, res) => {
       page: 1,
       pageSize: 10000, // Get all trades for open positions calculation
     });
+    const allTradesForRatios = await tradeRepo.findAllForMetrics(wallet.id);
 
     // Map tradeId -> USD per base unit (used later for closed position USD conversion)
     const tradeUsdRatioMap = new Map<string, number>();
-    for (const trade of allTrades.trades || []) {
+    for (const trade of allTradesForRatios || []) {
       const amountBaseNum = Number((trade as any).amountBase ?? 0);
       const valueUsdRaw =
         (trade as any).valueUsd ??

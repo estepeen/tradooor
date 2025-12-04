@@ -275,9 +275,19 @@ router.get('/recent', async (req, res) => {
       if (trade.meta?.priceUsd) {
         priceUsd = parseFloat(trade.meta.priceUsd);
       } else if (trade.priceBasePerToken) {
-        // Fallback: pokud není priceUsd v meta, použij priceBasePerToken
-        // (frontend to může přepočítat pomocí Binance API)
-        priceUsd = null; // Frontend to přepočítá
+        const valuationSource = trade.meta?.valuationSource;
+        const baseToken = (trade.meta?.baseToken || '').toUpperCase();
+        if (
+          valuationSource ||
+          baseToken === 'SOL' ||
+          baseToken === 'WSOL' ||
+          baseToken === 'USDC' ||
+          baseToken === 'USDT'
+        ) {
+          priceUsd = parseFloat(trade.priceBasePerToken || '0');
+        } else {
+          priceUsd = null;
+        }
       }
 
       return {
