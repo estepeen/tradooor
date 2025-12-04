@@ -616,7 +616,7 @@ export default function WalletDetailPage() {
                         (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
                       );
                       const recentTrades = allTrades.slice(-10).reverse();
-
+                      
                       return recentTrades.map((trade) => {
                         const isBuy = (trade.side || '').toLowerCase() === 'buy';
                         return (
@@ -639,25 +639,25 @@ export default function WalletDetailPage() {
                               >
                                 {isBuy ? 'BUY' : 'SELL'}
                               </span>
-                            </td>
-                            <td className="px-4 py-3 text-sm">
-                              {trade.token?.mintAddress ? (
-                                <a
-                                  href={`https://solscan.io/token/${trade.token.mintAddress}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-white hover:opacity-80 hover:underline"
-                                >
-                                  {trade.token.symbol
-                                    ? `$${trade.token.symbol}`
-                                    : trade.token.name
-                                    ? trade.token.name
-                                    : `${trade.token.mintAddress.slice(0, 6)}...${trade.token.mintAddress.slice(-6)}`}
-                                </a>
-                              ) : (
-                                <span className="text-muted-foreground">-</span>
-                              )}
-                            </td>
+                          </td>
+                          <td className="px-4 py-3 text-sm">
+                            {trade.token?.mintAddress ? (
+                              <a
+                                href={`https://solscan.io/token/${trade.token.mintAddress}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-white hover:opacity-80 hover:underline"
+                              >
+                                {trade.token.symbol 
+                                  ? `$${trade.token.symbol}` 
+                                  : trade.token.name 
+                                  ? trade.token.name 
+                                  : `${trade.token.mintAddress.slice(0, 6)}...${trade.token.mintAddress.slice(-6)}`}
+                              </a>
+                            ) : (
+                              <span className="text-muted-foreground">-</span>
+                            )}
+                          </td>
                             <td
                               className={`px-4 py-3 text-right text-sm font-mono ${
                                 isBuy ? 'text-green-400' : 'text-red-400'
@@ -668,24 +668,24 @@ export default function WalletDetailPage() {
                                 : trade.amountBase
                                 ? `$${formatNumber(Number(trade.amountBase), 2)}`
                                 : '-'}
-                            </td>
+                          </td>
                             <td
                               className={`px-4 py-3 text-right text-sm font-mono ${
                                 isBuy ? 'text-green-400' : 'text-red-400'
                               }`}
                             >
-                              ${formatNumber(Number(trade.priceBasePerToken), 6)}
-                            </td>
+                            ${formatNumber(Number(trade.priceBasePerToken), 6)}
+                          </td>
                             <td
                               className={`px-4 py-3 text-right text-sm font-mono ${
                                 isBuy ? 'text-green-400' : 'text-red-400'
                               }`}
                             >
                               ${formatNumber(Number(trade.amountBase), 6)}
-                            </td>
-                          </tr>
-                        );
-                      });
+                          </td>
+                        </tr>
+                      );
+                    });
                     })()}
                   </tbody>
                 </table>

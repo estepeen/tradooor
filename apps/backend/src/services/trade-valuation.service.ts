@@ -8,7 +8,6 @@ export interface TradeValuationResult {
   priceUsdPerToken: number;
   source: ValuationSource;
   timestamp: Date;
-  warning?: string; // Optional warning if fallback was used
 }
 
 interface NormalizedValuationInput {
@@ -179,6 +178,32 @@ export class TradeValuationService {
 
     // Token-to-token swap → Try multiple price sources
     if (input.secondaryTokenMint) {
+      // DŮLEŽITÉ: Pokud je base token SOL, můžeme vypočítat cenu přímo z trade dat!
+      // priceBasePerTokenRaw = amountBaseRaw / amountToken (už máme z normalized trade)
+      // Pak stačí vynásobit SOL cenou v USD z Binance
+      if (normalizedBaseToken === 'SOL' || normalizedBaseToken === 'WSOL') {
+        try {
+          const solPrice = await this.binancePriceService.getSolPriceAtTimestamp(timestamp);
+          // priceBasePerTokenRaw je už cena v SOL za 1 token (vypočítaná z trade dat)
+          // amountBaseRaw je hodnota v SOL (z trade dat)
+          // Stačí vynásobit SOL cenou v USD
+          const priceUsdPerToken = input.priceBasePerTokenRaw * solPrice;
+          const amountBaseUsd = input.amountBaseRaw * solPrice;
+
+          return {
+            amountBaseUsd,
+            priceUsdPerToken,
+            source: 'binance',
+            timestamp,
+          };
+        } catch (error: any) {
+          throw new Error(
+            `Failed to fetch SOL price for token-to-token swap: ${error.message}. Cannot determine USD value for base token ${input.secondaryTokenMint}`
+          );
+        }
+      }
+
+      // Pro non-SOL base tokeny zkusíme najít cenu z API
       const { price: secondaryPrice, source: priceSource } = await this.fetchTokenPriceWithFallbacks(
         input.secondaryTokenMint,
         timestamp
@@ -204,9 +229,8 @@ export class TradeValuationService {
         };
       }
 
-      // All price APIs failed - throw error instead of using fallback
-      // Trade will remain as "pending" and worker will retry later
-      // This is better than storing incorrect/random values
+      // Všechny API selhaly - trade zůstane void/pending
+      // Lepší než uložit špatnou hodnotu
       throw new Error(
         `All price APIs failed for base token ${input.secondaryTokenMint.substring(0, 8)}... at ${timestamp.toISOString()}. Trade will be retried later.`
       );

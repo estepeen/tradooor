@@ -99,7 +99,7 @@ router.get('/', async (req, res) => {
             }
           } catch (error: any) {
             console.warn(`Failed to fetch SOL price from Binance for trade ${t.txSignature}: ${error.message}`);
-            priceUsd = null;
+              priceUsd = null;
           }
         } else if (baseToken === 'USDC' || baseToken === 'USDT') {
           // Stablecoins → 1:1 USD

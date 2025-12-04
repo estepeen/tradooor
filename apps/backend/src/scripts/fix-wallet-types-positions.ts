@@ -117,9 +117,9 @@ async function processWallet(address: string) {
           Math.abs(Number(trade.positionChangePercent || 0) - (positionChangePercent || 0)) > 0.01;
 
         if (needsUpdate) {
-            await tradeRepo.update(trade.id, {
-              side: newType,
-            });
+          await tradeRepo.update(trade.id, {
+            side: newType,
+          });
           totalUpdated++;
           console.log(`  ✅ Updated trade ${trade.txSignature.substring(0, 16)}...: ${trade.side} → ${newType}, position: ${positionChangePercent?.toFixed(2)}%`);
         } else {
@@ -186,9 +186,9 @@ async function processAllWallets() {
     await processWallet(TARGET_ARG);
   }
 
-  console.log('\n✅ Script completed successfully');
-  process.exit(0);
+    console.log('\n✅ Script completed successfully');
+    process.exit(0);
 })().catch((error) => {
-  console.error('❌ Script failed:', error);
-  process.exit(1);
-});
+    console.error('❌ Script failed:', error);
+    process.exit(1);
+  });

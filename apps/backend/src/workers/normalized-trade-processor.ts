@@ -72,13 +72,12 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
     const message = error?.message || 'Unknown error';
     console.error(`❌ [NormalizedTradeWorker] Failed to process ${record.id}: ${message}`);
     
-    // DŮLEŽITÉ: Pokud valuation selže (všechny API selhaly), trade zůstane jako "pending"
-    // Worker ho zkusí znovu později - lepší než uložit špatnou hodnotu
-    // Pokud se nepodaří získat cenu po několika pokusech, trade zůstane pending/void
+    // DŮLEŽITÉ: Pokud valuation selže, trade zůstane jako "pending" a worker ho zkusí znovu později
+    // To umožní retry, pokud API dočasně selže (rate limit, network error, atd.)
     await normalizedTradeRepo.markFailed(record.id, message);
     
-    // Log pro monitoring - kolik trades selže (všechny API selhaly)
-    console.error(`   📊 [Metrics] All price APIs failed for trade ${record.id}, will retry later (trade void until price is available)`);
+    // Log pro monitoring - kolik trades selže
+    console.error(`   📊 [Metrics] Valuation failure for trade ${record.id}, will retry later`);
   }
 }
 

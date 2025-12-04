@@ -965,90 +965,90 @@ export default function WalletDetailPage() {
                             const entryPrice = priceBasePerToken;
                             const amountDisplay =
                               amountToken && amountToken > 0
-                                ? `${formatNumber(amountToken, 2)} $${trade.token?.symbol || trade.token?.name || ''}`.trim()
+                              ? `${formatNumber(amountToken, 2)} $${trade.token?.symbol || trade.token?.name || ''}`.trim()
                                 : `$${formatNumber(Number(trade.amountBase), 2)}`;
 
                             return (
                               <tr key={trade.id} className="border-t border-border hover:bg-muted/50">
-                                <td className="px-4 py-3 text-sm">
-                                  <a
-                                    href={`https://solscan.io/tx/${trade.txSignature}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-blue-400 hover:text-blue-300 hover:underline text-muted-foreground"
-                                  >
-                                    {formatDate(trade.timestamp)}
-                                  </a>
-                                </td>
-                                <td className="px-4 py-3 text-center">
+                            <td className="px-4 py-3 text-sm">
+                              <a
+                                href={`https://solscan.io/tx/${trade.txSignature}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-400 hover:text-blue-300 hover:underline text-muted-foreground"
+                              >
+                                {formatDate(trade.timestamp)}
+                              </a>
+                            </td>
+                            <td className="px-4 py-3 text-center">
                                   <span
                                     className={`px-2 py-1 rounded text-xs font-medium ${
                                       isBuy ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
                                     }`}
                                   >
                                     {isBuy ? 'BUY' : 'SELL'}
-                                  </span>
-                                </td>
-                                <td className="px-4 py-3 text-sm">
-                                  {trade.token?.mintAddress ? (
-                                    <a
-                                      href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="text-white hover:opacity-80 hover:underline"
-                                    >
-                                      {trade.token.symbol
-                                        ? `$${trade.token.symbol}`
-                                        : trade.token.name
-                                        ? trade.token.name
-                                        : `${trade.token.mintAddress.slice(0, 6)}...${trade.token.mintAddress.slice(-6)}`}
-                                    </a>
-                                  ) : (
-                                    <span className="text-muted-foreground">-</span>
-                                  )}
-                                </td>
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-sm">
+                              {trade.token?.mintAddress ? (
+                                <a
+                                  href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-white hover:opacity-80 hover:underline"
+                                >
+                                  {trade.token.symbol 
+                                    ? `$${trade.token.symbol}` 
+                                    : trade.token.name 
+                                    ? trade.token.name 
+                                    : `${trade.token.mintAddress.slice(0, 6)}...${trade.token.mintAddress.slice(-6)}`}
+                                </a>
+                              ) : (
+                                <span className="text-muted-foreground">-</span>
+                              )}
+                            </td>
                                 <td
                                   className={`px-4 py-3 text-right text-sm font-mono ${
                                     isBuy ? 'text-green-400' : 'text-red-400'
                                   }`}
                                 >
-                                  {trade.token?.mintAddress ? (
-                                    <a
-                                      href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="hover:underline cursor-pointer"
-                                    >
-                                      {priceUsd !== null && priceUsd !== undefined && priceUsd > 0
-                                        ? `$${formatNumber(priceUsd, 6)}`
-                                        : entryPrice > 0
+                            {trade.token?.mintAddress ? (
+                              <a
+                                  href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                  className="hover:underline cursor-pointer"
+                              >
+                                  {priceUsd !== null && priceUsd !== undefined && priceUsd > 0
+                                    ? `$${formatNumber(priceUsd, 6)}`
+                                    : entryPrice > 0
                                         ? `$${formatNumber(entryPrice, 6)}`
-                                        : '-'}
-                                    </a>
+                                    : '-'}
+                              </a>
                                   ) : priceUsd !== null && priceUsd !== undefined && priceUsd > 0
                                   ? `$${formatNumber(priceUsd, 6)}`
                                   : entryPrice > 0
                                   ? `$${formatNumber(entryPrice, 6)}`
                                   : '-'}
-                                </td>
+                          </td>
                                 <td
                                   className={`px-4 py-3 text-right text-sm font-mono ${
                                     isBuy ? 'text-green-400' : 'text-red-400'
                                   }`}
                                 >
-                                  {trade.token?.mintAddress ? (
-                                    <a
-                                      href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
-                                      target="_blank"
-                                      rel="noopener noreferrer"
-                                      className="hover:underline cursor-pointer"
-                                    >
-                                      {amountDisplay}
-                                    </a>
-                                  ) : (
-                                    amountDisplay
-                                  )}
-                                </td>
+                              {trade.token?.mintAddress ? (
+                                <a
+                                  href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="hover:underline cursor-pointer"
+                                >
+                                  {amountDisplay}
+                                </a>
+                              ) : (
+                                amountDisplay
+                              )}
+                            </td>
                                 <td
                                   className={`px-4 py-3 text-right text-sm font-mono ${
                                     isBuy ? 'text-green-400' : 'text-red-400'
@@ -1061,12 +1061,12 @@ export default function WalletDetailPage() {
                                       amountBase;
                                     return value > 0 ? `$${formatNumber(Number(value), 2)}` : '-';
                                   })()}
-                                </td>
+                            </td>
                               </tr>
                             );
                           })}
-                        </>
-                      );
+                      </>
+                    );
                   })()}
                   </tbody>
                 </table>
