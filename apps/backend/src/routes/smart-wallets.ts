@@ -1808,7 +1808,9 @@ router.get('/:id/pnl', async (req, res) => {
         const tradeDate = new Date(t.timestamp);
         const side = (t.side || '').toLowerCase();
         // Exclude void trades (token-to-token swaps without SOL/USDC/USDT)
-        return tradeDate >= fromDate && side !== 'void';
+        const isInPeriod = tradeDate >= fromDate;
+        const isNotVoid = side !== 'void';
+        return isInPeriod && isNotVoid;
       });
 
       let buyValueUsd = 0;
@@ -1828,9 +1830,35 @@ router.get('/:id/pnl', async (req, res) => {
       // Volume = sum of all trade values (valueUsd column)
       const volumeBase = periodTrades.reduce((sum, trade) => {
         // Použij valueUsd (sloupec VALUE) - pokud není, použij amountBase jako fallback
-        const tradeValue = Number(trade.valueUsd || trade.amountBase || 0);
-        return sum + tradeValue; // Součet hodnot (ne absolute, protože chceme skutečný objem)
+        const valueUsd = trade.valueUsd != null ? Number(trade.valueUsd) : null;
+        const amountBase = trade.amountBase != null ? Number(trade.amountBase) : null;
+        const tradeValue = valueUsd ?? amountBase ?? 0;
+        
+        // Debug logging pro první trade v každém období
+        if (periodTrades.length > 0 && trade === periodTrades[0]) {
+          console.log(`[Volume Debug ${period}] Trade:`, {
+            txSignature: trade.txSignature?.substring(0, 16),
+            timestamp: trade.timestamp,
+            side: trade.side,
+            valueUsd,
+            amountBase,
+            tradeValue,
+            fromDate: fromDate.toISOString(),
+            isInPeriod: new Date(trade.timestamp) >= fromDate,
+          });
+        }
+        
+        return sum + tradeValue; // Součet hodnot
       }, 0);
+      
+      // Debug logging pro celkové volume
+      if (periodTrades.length > 0) {
+        console.log(`[Volume Debug ${period}] Total:`, {
+          periodTradesCount: periodTrades.length,
+          volumeBase,
+          allTradesCount: trades.length,
+        });
+      }
 
       pnlData[period] = {
         pnl,

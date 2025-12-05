@@ -530,8 +530,9 @@ export default function WalletDetailPage() {
           return (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               {periods.map(({ key }) => {
-                // Get Volume data from pnlData (loaded from API)
-                const volumeData = pnlData?.[key];
+                // Get Volume data from pnlData.periods (loaded from API)
+                // Backend returns { periods: { '1d': {...}, '7d': {...}, ... }, daily: [...] }
+                const volumeData = pnlData?.periods?.[key];
                 const volumeBase = volumeData?.volumeBase ?? 0;
                 const volumeTrades = volumeData?.volumeTrades ?? 0;
                 
