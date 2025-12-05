@@ -325,6 +325,32 @@ export function normalizeQuickNodeSwap(
       { id: 'PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY', name: 'phoenix' },
       { id: 'pump9xNzDDnyWJ1cg9CHG9g9o6CWGt77CajND4xqJcf', name: 'pump_fun' },
     ];
+    
+    // LIQUIDITY PROGRAMS - tyto programy se typicky používají pro ADD/REMOVE LIQUIDITY
+    // Pokud vidíme tyto programy + detekovali jsme liquidity pattern, je to téměř jistě ADD/REMOVE
+    const LIQUIDITY_PROGRAMS = new Set([
+      '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8', // Raydium AMM
+      'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK', // Raydium CLMM
+      '9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP', // Orca Whirlpool
+      'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc', // Orca Whirlpool (legacy)
+      'DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1', // Orca
+      '9KEPoZmtHUrBbhWN1v1KWLMkkwY6WtG6c3qP9EcX4bL1', // Orca V2
+    ]);
+    
+    // Zkontroluj, jestli transakce obsahuje liquidity programy
+    const hasLiquidityProgram = Array.from(keySet).some(key => LIQUIDITY_PROGRAMS.has(key));
+    
+    // Pokud máme liquidity program + detekovali jsme liquidity pattern (2+ tokeny stejným směrem),
+    // je to téměř jistě ADD/REMOVE LIQUIDITY - už jsme to filtrovali výše, ale můžeme to ještě potvrdit
+    if (hasLiquidityProgram && nonBaseTokenChanges.length >= 2) {
+      const allPositive = nonBaseTokenChanges.every(([, delta]) => delta > 0);
+      const allNegative = nonBaseTokenChanges.every(([, delta]) => delta < 0);
+      if (allPositive || allNegative) {
+        // Už jsme to filtrovali výše, ale můžeme přidat další log
+        console.log(`   ⚠️  [QuickNode] Confirmed ${allPositive ? 'ADD' : 'REMOVE'} LIQUIDITY via liquidity program (wallet ${walletAddress.substring(0, 8)}...)`);
+      }
+    }
+    
     for (const { id, name } of DEX_PROGRAMS) {
       if (keySet.has(id)) {
         dex = name;
