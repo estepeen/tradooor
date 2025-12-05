@@ -20,11 +20,15 @@ interface Trade {
     name?: string;
     mintAddress: string;
   };
-  side: 'buy' | 'sell';
+  side: 'buy' | 'sell' | 'void';
   amountToken: number;
   amountBase: number;
   timestamp: string;
   dex: string;
+  meta?: {
+    liquidityType?: 'ADD' | 'REMOVE';
+    [key: string]: any;
+  };
 }
 
 export default function TradesPage() {
@@ -126,15 +130,32 @@ export default function TradesPage() {
                           </Link>
                         </td>
                         <td className="px-4 py-3 text-sm">
-                          <span
-                            className={`text-xs font-semibold px-2 py-1 rounded ${
-                              trade.side === 'buy'
-                                ? 'bg-green-500/20 text-green-400'
-                                : 'bg-red-500/20 text-red-400'
-                            }`}
-                          >
-                            {trade.side.toUpperCase()}
-                          </span>
+                          {(() => {
+                            const normalizedSide = (trade.side || '').toLowerCase();
+                            const isBuy = normalizedSide === 'buy';
+                            const isVoid = normalizedSide === 'void';
+                            const liquidityType = (trade.meta as any)?.liquidityType; // 'ADD' or 'REMOVE'
+                            const isLiquidity = isVoid && (liquidityType === 'ADD' || liquidityType === 'REMOVE');
+                            
+                            let label = isBuy ? 'BUY' : isVoid ? 'VOID' : 'SELL';
+                            if (isLiquidity) {
+                              label = `${liquidityType} LIQUIDITY`;
+                            }
+                            
+                            return (
+                              <span
+                                className={`text-xs font-semibold px-2 py-1 rounded ${
+                                  isLiquidity || isVoid
+                                    ? 'bg-purple-500/20 text-purple-400'
+                                    : isBuy
+                                    ? 'bg-green-500/20 text-green-400'
+                                    : 'bg-red-500/20 text-red-400'
+                                }`}
+                              >
+                                {label}
+                              </span>
+                            );
+                          })()}
                         </td>
                         <td className="px-4 py-3 text-sm">
                           <div className="flex flex-col">
@@ -149,8 +170,25 @@ export default function TradesPage() {
                         <td className="px-4 py-3 text-sm text-right">
                           {formatAmount(trade.amountToken)}
                         </td>
-                        <td className="px-4 py-3 text-sm text-right">
-                          ${formatAmount(trade.amountBase, 2)}
+                        <td className={`px-4 py-3 text-sm text-right ${
+                          (() => {
+                            const normalizedSide = (trade.side || '').toLowerCase();
+                            const isVoid = normalizedSide === 'void';
+                            const liquidityType = (trade.meta as any)?.liquidityType;
+                            const isLiquidity = isVoid && (liquidityType === 'ADD' || liquidityType === 'REMOVE');
+                            return isLiquidity || isVoid ? 'text-purple-400' : '';
+                          })()
+                        }`}>
+                          {(() => {
+                            const normalizedSide = (trade.side || '').toLowerCase();
+                            const isVoid = normalizedSide === 'void';
+                            const liquidityType = (trade.meta as any)?.liquidityType;
+                            const isLiquidity = isVoid && (liquidityType === 'ADD' || liquidityType === 'REMOVE');
+                            if (isLiquidity || isVoid) {
+                              return <span className="text-purple-400">void</span>;
+                            }
+                            return `$${formatAmount(trade.amountBase, 2)}`;
+                          })()}
                         </td>
                         <td className="px-4 py-3 text-sm text-muted-foreground">
                           {trade.dex}
