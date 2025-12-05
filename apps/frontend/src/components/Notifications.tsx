@@ -33,6 +33,9 @@ interface Trade {
   dex: string;
 }
 
+const STORAGE_KEY_LAST_SEEN_TRADE_ID = 'tradooor_last_seen_trade_id';
+const STORAGE_KEY_NEW_TRADES_COUNT = 'tradooor_new_trades_count';
+
 export default function Notifications() {
   const [isOpen, setIsOpen] = useState(false);
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -43,6 +46,30 @@ export default function Notifications() {
   const sidebarRef = useRef<HTMLDivElement>(null);
   const ITEMS_PER_PAGE = 20;
   const MAX_TRADES = 100;
+
+  // Load persisted new trades count from localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const savedCount = localStorage.getItem(STORAGE_KEY_NEW_TRADES_COUNT);
+      if (savedCount) {
+        const count = parseInt(savedCount, 10);
+        if (!isNaN(count) && count > 0) {
+          setNewTradesCount(count);
+        }
+      }
+    }
+  }, []);
+
+  // Save new trades count to localStorage whenever it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (newTradesCount > 0) {
+        localStorage.setItem(STORAGE_KEY_NEW_TRADES_COUNT, newTradesCount.toString());
+      } else {
+        localStorage.removeItem(STORAGE_KEY_NEW_TRADES_COUNT);
+      }
+    }
+  }, [newTradesCount]);
 
   // Fetch recent trades
   const loadTrades = async (since?: Date) => {
@@ -73,9 +100,29 @@ export default function Notifications() {
           });
         }
       } else {
-        // Initial load
+        // Initial load - check for new trades since last seen
+        if (typeof window !== 'undefined' && newTrades.length > 0) {
+          const lastSeenTradeId = localStorage.getItem(STORAGE_KEY_LAST_SEEN_TRADE_ID);
+          if (lastSeenTradeId) {
+            // Find index of last seen trade
+            const lastSeenIndex = newTrades.findIndex((t: Trade) => t.id === lastSeenTradeId);
+            if (lastSeenIndex > 0) {
+              // There are new trades before the last seen one
+              const newCount = lastSeenIndex;
+              setNewTradesCount(newCount);
+            } else if (lastSeenIndex === -1) {
+              // Last seen trade not found - might be old, count all as new
+              setNewTradesCount(newTrades.length);
+            }
+            // If lastSeenIndex === 0, no new trades
+          } else {
+            // First time - no new trades to show
+            setNewTradesCount(0);
+          }
+        } else {
+          setNewTradesCount(0);
+        }
         setTrades(newTrades);
-        setNewTradesCount(0);
       }
       
       setLastFetchTime(new Date());
@@ -109,10 +156,18 @@ export default function Notifications() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lastFetchTime]);
 
-  // Reset new trades count when sidebar opens
+  // Reset new trades count when sidebar opens and save last seen trade ID
   useEffect(() => {
     if (isOpen) {
+      // Reset count and save the first (most recent) trade ID as last seen
       setNewTradesCount(0);
+      if (typeof window !== 'undefined' && trades.length > 0) {
+        const mostRecentTradeId = trades[0]?.id;
+        if (mostRecentTradeId) {
+          localStorage.setItem(STORAGE_KEY_LAST_SEEN_TRADE_ID, mostRecentTradeId);
+        }
+        localStorage.removeItem(STORAGE_KEY_NEW_TRADES_COUNT);
+      }
       // Reload trades when opening
       loadTrades();
     }
