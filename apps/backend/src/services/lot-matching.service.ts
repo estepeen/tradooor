@@ -146,6 +146,7 @@ export class LotMatchingService {
     const openLots: Lot[] = [];
     const closedLots: ClosedLot[] = [];
     let sequenceNumber = 0; // Počítadlo BUY-SELL cyklů pro tento token
+    let totalOriginalPosition = 0; // Celková původní pozice (suma všech buy trades)
 
     // Minimální hodnota v base měně pro považování za reálný trade
     const MIN_BASE_VALUE = 0.0001;
@@ -189,6 +190,8 @@ export class LotMatchingService {
           isSynthetic: false,
           costKnown: true,
         });
+        // Sleduj celkovou původní pozici (pro dust threshold)
+        totalOriginalPosition += amount;
       } else if (side === 'sell') {
         // SELL: Match against open lots using FIFO a vytvoř closed lot
         // SELL je finální prodej, který uzavírá pozici (balance = 0)
@@ -303,6 +306,76 @@ export class LotMatchingService {
           console.log(`   ⚠️  SELL without matching BUY/ADD for token ${tokenId}: ${toSell} tokens sold at ${price} - skipping (pre-history, no cost basis)`);
           // Nepřidáváme do closedLots - není to kompletní trade
         }
+      }
+    }
+
+    // NOVÉ: Po zpracování všech trades zkontroluj zbývající open lots
+    // Pokud je balance < 2% původní pozice, vytvoř synthetic closed lot (dust position)
+    if (openLots.length > 0 && totalOriginalPosition > 0) {
+      // Vypočítej zbývající balance (suma zbývajících open lots)
+      const remainingBalance = openLots.reduce((sum, lot) => sum + lot.remainingSize, 0);
+      
+      // Threshold: 2% původní pozice
+      const DUST_THRESHOLD_PERCENT = 0.02; // 2%
+      const balancePercent = remainingBalance / totalOriginalPosition;
+      const isDust = remainingBalance > 0 && balancePercent < DUST_THRESHOLD_PERCENT;
+      
+      if (isDust) {
+        // Získej aktuální cenu tokenu (z posledního trade nebo použij průměrnou entry price jako fallback)
+        const lastTrade = trades.length > 0 ? trades[trades.length - 1] : null;
+        let exitPrice = 0;
+        
+        if (lastTrade) {
+          const lastTradePrice = Number(lastTrade.priceBasePerToken || 0);
+          if (lastTradePrice > 0) {
+            exitPrice = lastTradePrice;
+          }
+        }
+        
+        // Pokud nemáme aktuální cenu z posledního trade, použij průměrnou entry price (unrealized PnL = 0)
+        if (exitPrice <= 0) {
+          const totalCostBasis = openLots.reduce((sum, lot) => sum + (lot.remainingSize * lot.entryPrice), 0);
+          exitPrice = remainingBalance > 0 ? totalCostBasis / remainingBalance : 0;
+        }
+        
+        // Vytvoř synthetic closed lot pro zbývající balance
+        const totalCostBasis = openLots.reduce((sum, lot) => sum + (lot.remainingSize * lot.entryPrice), 0);
+        const totalProceeds = remainingBalance * exitPrice;
+        const realizedPnl = totalProceeds - totalCostBasis;
+        const realizedPnlPercent = totalCostBasis > 0 ? (realizedPnl / totalCostBasis) * 100 : 0;
+        
+        // Použij čas prvního buy jako entry time
+        const entryTime = openLots[0].entryTime;
+        const exitTime = new Date(); // Aktuální čas
+        const holdTimeMinutes = Math.round((exitTime.getTime() - entryTime.getTime()) / (1000 * 60));
+        
+        // Zvýš sequenceNumber pro synthetic closed lot
+        sequenceNumber++;
+        if (sequenceNumber === 0) {
+          sequenceNumber = 1;
+        }
+        
+        closedLots.push({
+          walletId,
+          tokenId,
+          size: remainingBalance,
+          entryPrice: totalCostBasis / remainingBalance, // Průměrná entry price
+          exitPrice,
+          entryTime,
+          exitTime,
+          holdTimeMinutes,
+          costBasis: totalCostBasis,
+          proceeds: totalProceeds,
+          realizedPnl,
+          realizedPnlPercent,
+          buyTradeId: 'synthetic', // Označ jako synthetic
+          sellTradeId: 'synthetic', // Označ jako synthetic
+          isPreHistory: false, // Není pre-history, je to dust
+          costKnown: true,
+          sequenceNumber,
+        });
+        
+        console.log(`   🧹 [Dust] Created synthetic closed lot for token ${tokenId}: ${remainingBalance.toFixed(6)} tokens (${(balancePercent * 100).toFixed(2)}% of original position)`);
       }
     }
 
