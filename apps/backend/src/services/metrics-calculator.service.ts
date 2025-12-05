@@ -250,7 +250,13 @@ export class MetricsCalculatorService {
 
     for (const trade of trades) {
       const tokenId = trade.tokenId;
-      const side = trade.side;
+      const side = (trade.side || '').toLowerCase();
+      
+      // DŮLEŽITÉ: Vyloučit void trades (token-to-token swapy, ADD/REMOVE LIQUIDITY) z positions
+      if (side === 'void') {
+        continue; // Přeskoč void trades - nepočítají se do positions
+      }
+      
       const amount = Number(trade.amountToken);
       const price = Number(trade.priceBasePerToken);
       const amountBase = Number(trade.amountBase || 0);

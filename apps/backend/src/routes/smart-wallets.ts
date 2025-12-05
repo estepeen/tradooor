@@ -1013,6 +1013,12 @@ router.get('/:id/portfolio', async (req, res) => {
     }>();
 
     for (const trade of allTrades.trades) {
+      // DŮLEŽITÉ: Vyloučit void trades (token-to-token swapy, ADD/REMOVE LIQUIDITY) z open/closed positions
+      const side = (trade.side || '').toLowerCase();
+      if (side === 'void') {
+        continue; // Přeskoč void trades - nepočítají se do positions
+      }
+
       const baseToken = ((trade as any).meta?.baseToken || 'SOL').toUpperCase();
       if (!STABLE_BASES.has(baseToken)) {
         continue;

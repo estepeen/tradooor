@@ -159,6 +159,12 @@ export class LotMatchingService {
     };
 
     for (const trade of trades) {
+      // DŮLEŽITÉ: Vyloučit void trades (token-to-token swapy, ADD/REMOVE LIQUIDITY) z closed lots
+      const tradeSide = (trade.side || '').toLowerCase();
+      if (tradeSide === 'void') {
+        continue; // Přeskoč void trades - nepočítají se do closed lots
+      }
+
       const baseToken = ((trade as any).meta?.baseToken || 'SOL').toUpperCase();
       if (!STABLE_BASES.has(baseToken)) {
         continue;
