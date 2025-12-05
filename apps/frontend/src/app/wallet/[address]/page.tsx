@@ -251,7 +251,7 @@ export default function WalletDetailPage() {
   }
 
   async function handleDeletePosition(tokenId: string, sequenceNumber?: number) {
-    if (!wallet?.id) return;
+    if (!walletAddress) return;
     
     const positionKey = sequenceNumber !== undefined 
       ? `${tokenId}-${sequenceNumber}` 
@@ -264,11 +264,14 @@ export default function WalletDetailPage() {
     
     setDeletingPosition(positionKey);
     try {
-      const result = await deletePosition(wallet.id, tokenId, sequenceNumber);
+      // Use wallet.id if available, otherwise use walletAddress (backend supports both)
+      const walletIdentifier = wallet?.id || walletAddress;
+      const result = await deletePosition(walletIdentifier, tokenId, sequenceNumber);
       // Reload all data after deletion to update totalTrades, PnL, etc.
       await loadData();
       console.log('Position deleted, metrics updated:', result.updatedMetrics);
     } catch (error: any) {
+      console.error('Error deleting position:', error);
       alert(`Failed to delete position: ${error.message || 'Unknown error'}`);
     } finally {
       setDeletingPosition(null);
