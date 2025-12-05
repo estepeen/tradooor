@@ -323,6 +323,7 @@ router.get('/recent', async (req, res) => {
         baseToken: trade.meta?.baseToken || 'SOL',
         timestamp: trade.timestamp,
         dex: trade.dex,
+        meta: trade.meta, // Přidej meta pro liquidityType
       };
     });
 

@@ -19,7 +19,11 @@ interface Trade {
     name?: string;
     mintAddress: string;
   };
-  side: 'buy' | 'sell';
+  side: 'buy' | 'sell' | 'void';
+  meta?: {
+    liquidityType?: 'ADD' | 'REMOVE';
+    [key: string]: any;
+  };
   amountToken: number;
   amountBase: number;
   priceBasePerToken?: number;
@@ -253,13 +257,26 @@ export default function Notifications() {
                           {(() => {
                             const normalizedSide = (trade.side || '').toLowerCase();
                             const isBuy = normalizedSide === 'buy';
+                            const isVoid = normalizedSide === 'void';
+                            const liquidityType = (trade.meta as any)?.liquidityType; // 'ADD' or 'REMOVE'
+                            const isLiquidity = isVoid && (liquidityType === 'ADD' || liquidityType === 'REMOVE');
+                            
+                            let label = isBuy ? 'BUY' : isVoid ? 'VOID' : 'SELL';
+                            if (isLiquidity) {
+                              label = `${liquidityType} LIQUIDITY`;
+                            }
+                            
                             return (
                               <span
                                 className={`text-xs font-semibold px-2 py-0.5 rounded ${
-                                  isBuy ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
+                                  isLiquidity || isVoid
+                                    ? 'bg-purple-500/20 text-purple-400'
+                                    : isBuy
+                                    ? 'bg-green-500/20 text-green-400'
+                                    : 'bg-red-500/20 text-red-400'
                                 }`}
                               >
-                                {isBuy ? 'BUY' : 'SELL'}
+                                {label}
                               </span>
                             );
                           })()}
@@ -271,7 +288,13 @@ export default function Notifications() {
                               {trade.wallet.label}
                             </Link>
                           </div>
-                          <div className="text-sm text-muted-foreground">
+                          <div className={`text-sm ${(() => {
+                            const normalizedSide = (trade.side || '').toLowerCase();
+                            const isVoid = normalizedSide === 'void';
+                            const liquidityType = (trade.meta as any)?.liquidityType;
+                            const isLiquidity = isVoid && (liquidityType === 'ADD' || liquidityType === 'REMOVE');
+                            return isLiquidity || isVoid ? 'text-purple-400' : 'text-muted-foreground';
+                          })()}`}>
                             {trade.token.mintAddress ? (
                               <a
                                 href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
@@ -288,7 +311,16 @@ export default function Notifications() {
                             {' • '}
                             <span>{formatAmount(trade.amountToken)} tokens</span>
                             {' • '}
-                            <span>${formatAmount(trade.amountBase, 2)}</span>
+                            {(() => {
+                              const normalizedSide = (trade.side || '').toLowerCase();
+                              const isVoid = normalizedSide === 'void';
+                              const liquidityType = (trade.meta as any)?.liquidityType;
+                              const isLiquidity = isVoid && (liquidityType === 'ADD' || liquidityType === 'REMOVE');
+                              if (isLiquidity || isVoid) {
+                                return <span className="text-purple-400">void</span>;
+                              }
+                              return <span>${formatAmount(trade.amountBase, 2)}</span>;
+                            })()}
                           </div>
                           <div className="text-xs text-muted-foreground mt-1">
                             {formatTimeAgo(trade.timestamp)}
