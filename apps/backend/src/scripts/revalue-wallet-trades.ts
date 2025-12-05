@@ -17,6 +17,7 @@ async function processRecord(
     const valuation = await valuationService.valuate({
       baseToken: record.baseToken,
       amountBaseRaw: record.amountBaseRaw,
+      amountToken: record.amountToken,
       priceBasePerTokenRaw: record.priceBasePerTokenRaw,
       timestamp: record.timestamp,
       secondaryTokenMint: record.meta?.secondaryTokenMint || record.meta?.baseMint || null,

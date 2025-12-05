@@ -30,7 +30,7 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
         priceBasePerToken: 0,
         timestamp: record.timestamp,
         dex: record.dex,
-        valueUsd: null, // Void trade nemá hodnotu
+        valueUsd: undefined, // Void trade nemá hodnotu
         meta: {
           ...record.meta,
           normalizedTradeId: record.id,

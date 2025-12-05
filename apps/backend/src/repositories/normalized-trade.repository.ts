@@ -8,7 +8,7 @@ export interface NormalizedTradeRecord {
   walletId: string;
   tokenId: string;
   tokenMint: string;
-  side: 'buy' | 'sell';
+  side: 'buy' | 'sell' | 'void';
   amountToken: number;
   amountBaseRaw: number;
   baseToken: string;

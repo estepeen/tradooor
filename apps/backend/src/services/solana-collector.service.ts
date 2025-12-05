@@ -209,7 +209,7 @@ export function normalizeQuickNodeSwap(
       return null;
     }
 
-    const side: 'buy' | 'sell' = primaryDelta > 0 ? 'buy' : 'sell';
+    let side: 'buy' | 'sell' | 'void' = primaryDelta > 0 ? 'buy' : 'sell';
     const amountToken = Math.abs(primaryDelta);
 
     // 4) Compute base side (SOL / USDC / USDT / WSOL) net amounts
