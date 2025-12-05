@@ -1833,32 +1833,8 @@ router.get('/:id/pnl', async (req, res) => {
         const valueUsd = trade.valueUsd != null ? Number(trade.valueUsd) : null;
         const amountBase = trade.amountBase != null ? Number(trade.amountBase) : null;
         const tradeValue = valueUsd ?? amountBase ?? 0;
-        
-        // Debug logging pro první trade v každém období
-        if (periodTrades.length > 0 && trade === periodTrades[0]) {
-          console.log(`[Volume Debug ${period}] Trade:`, {
-            txSignature: trade.txSignature?.substring(0, 16),
-            timestamp: trade.timestamp,
-            side: trade.side,
-            valueUsd,
-            amountBase,
-            tradeValue,
-            fromDate: fromDate.toISOString(),
-            isInPeriod: new Date(trade.timestamp) >= fromDate,
-          });
-        }
-        
         return sum + tradeValue; // Součet hodnot
       }, 0);
-      
-      // Debug logging pro celkové volume
-      if (periodTrades.length > 0) {
-        console.log(`[Volume Debug ${period}] Total:`, {
-          periodTradesCount: periodTrades.length,
-          volumeBase,
-          allTradesCount: trades.length,
-        });
-      }
 
       pnlData[period] = {
         pnl,
