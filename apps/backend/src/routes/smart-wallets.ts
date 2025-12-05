@@ -1883,15 +1883,21 @@ router.get('/:id/pnl', async (req, res) => {
 // Query params: sequenceNumber (optional) - if provided, deletes specific closed position cycle
 router.delete('/:id/positions/:tokenId', async (req, res) => {
   try {
-    const walletId = req.params.id;
+    const identifier = req.params.id;
     const tokenId = req.params.tokenId;
     const sequenceNumber = req.query.sequenceNumber ? parseInt(req.query.sequenceNumber as string) : undefined;
 
-    // Find wallet
-    const wallet = await smartWalletRepo.findById(walletId);
+    // Find wallet - support both ID and address (same as GET endpoint)
+    let wallet = await smartWalletRepo.findById(identifier);
+    if (!wallet) {
+      // If not found by ID, try by address
+      wallet = await smartWalletRepo.findByAddress(identifier);
+    }
     if (!wallet) {
       return res.status(404).json({ error: 'Wallet not found' });
     }
+    
+    const walletId = wallet.id;
 
     const { ClosedLotRepository } = await import('../repositories/closed-lot.repository.js');
     const closedLotRepo = new ClosedLotRepository();
