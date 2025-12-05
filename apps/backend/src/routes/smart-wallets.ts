@@ -1807,7 +1807,6 @@ router.get('/:id/pnl', async (req, res) => {
       const periodTrades = trades.filter(t => {
         const tradeDate = new Date(t.timestamp);
         const side = (t.side || '').toLowerCase();
-        // Include all trades (not just stable bases) - amountBase is already in USD after our fixes
         // Exclude void trades (token-to-token swaps without SOL/USDC/USDT)
         return tradeDate >= fromDate && side !== 'void';
       });
@@ -1825,12 +1824,12 @@ router.get('/:id/pnl', async (req, res) => {
       }
       const pnlUsd = sellValueUsd - buyValueUsd;
 
-      // Calculate Volume for this period (sum of all trade values in USD)
-      // Volume = sum of absolute values of all trades (buy + sell)
+      // Volume = jednoduše součet všech VALUE (valueUsd) trades v daném období
+      // Volume = sum of all trade values (valueUsd column)
       const volumeBase = periodTrades.reduce((sum, trade) => {
-        // Use valueUsd if available, otherwise amountBase (both are in USD now)
+        // Použij valueUsd (sloupec VALUE) - pokud není, použij amountBase jako fallback
         const tradeValue = Number(trade.valueUsd || trade.amountBase || 0);
-        return sum + Math.abs(tradeValue); // Use absolute value for volume
+        return sum + tradeValue; // Součet hodnot (ne absolute, protože chceme skutečný objem)
       }, 0);
 
       pnlData[period] = {
