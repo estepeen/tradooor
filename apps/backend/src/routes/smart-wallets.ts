@@ -1803,17 +1803,20 @@ router.get('/:id/pnl', async (req, res) => {
         ? ((pnl / totalBuyValue) * 100)
         : 0;
 
-      // Calculate PnL in USD from trades - filter directly by fromDate (same as repository)
+      // Calculate PnL in USD from trades - filter by date and exclude void trades
       const periodTrades = trades.filter(t => {
         const tradeDate = new Date(t.timestamp);
-        const baseToken = ((t as any).meta?.baseToken || 'SOL').toUpperCase();
-        return tradeDate >= fromDate && STABLE_BASES.has(baseToken);
+        const side = (t.side || '').toLowerCase();
+        // Include all trades (not just stable bases) - amountBase is already in USD after our fixes
+        // Exclude void trades (token-to-token swaps without SOL/USDC/USDT)
+        return tradeDate >= fromDate && side !== 'void';
       });
 
       let buyValueUsd = 0;
       let sellValueUsd = 0;
       for (const trade of periodTrades) {
-        const valueUsd = Number(trade.valueUsd || 0);
+        // Use valueUsd if available (preferred), otherwise amountBase (which is now in USD)
+        const valueUsd = Number(trade.valueUsd || trade.amountBase || 0);
         if (trade.side === 'buy') {
           buyValueUsd += valueUsd;
         } else if (trade.side === 'sell') {
@@ -1822,10 +1825,12 @@ router.get('/:id/pnl', async (req, res) => {
       }
       const pnlUsd = sellValueUsd - buyValueUsd;
 
-      // Calculate Volume for this period (sum of all amountBase from all trades)
+      // Calculate Volume for this period (sum of all trade values in USD)
+      // Volume = sum of absolute values of all trades (buy + sell)
       const volumeBase = periodTrades.reduce((sum, trade) => {
-        const amountBase = Number(trade.amountBase || 0);
-        return sum + Math.abs(amountBase); // Use absolute value for volume
+        // Use valueUsd if available, otherwise amountBase (both are in USD now)
+        const tradeValue = Number(trade.valueUsd || trade.amountBase || 0);
+        return sum + Math.abs(tradeValue); // Use absolute value for volume
       }, 0);
 
       pnlData[period] = {
