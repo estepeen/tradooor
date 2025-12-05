@@ -23,6 +23,7 @@ export type NormalizedSwap = {
   baseToken: string; // SOL, USDC, USDT, nebo 'VOID' pro token-to-token swapy
   timestamp: Date;
   dex: string;
+  liquidityType?: 'ADD' | 'REMOVE'; // ADD nebo REMOVE pro liquidity operations
 };
 
 /**
@@ -179,14 +180,39 @@ export function normalizeQuickNodeSwap(
     // If we have 2+ non-base tokens changing, it's likely a liquidity operation
     // ADD LIQUIDITY: both tokens increase (user adds both to pool)
     // REMOVE LIQUIDITY: both tokens decrease (user removes both from pool)
+    let isLiquidityOperation = false;
+    let liquidityType: 'ADD' | 'REMOVE' | null = null;
+    
     if (nonBaseTokenChanges.length >= 2) {
       const allPositive = nonBaseTokenChanges.every(([, delta]) => delta > 0);
       const allNegative = nonBaseTokenChanges.every(([, delta]) => delta < 0);
       
       if (allPositive || allNegative) {
-        console.log(`   ⚠️  [QuickNode] Detected ${allPositive ? 'ADD' : 'REMOVE'} LIQUIDITY operation - skipping (wallet ${walletAddress.substring(0, 8)}...)`);
+        isLiquidityOperation = true;
+        liquidityType = allPositive ? 'ADD' : 'REMOVE';
+        console.log(`   🟣 [QuickNode] Detected ${liquidityType} LIQUIDITY operation - creating void trade (wallet ${walletAddress.substring(0, 8)}...)`);
         console.log(`      Token changes: ${nonBaseTokenChanges.map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ')}`);
-        return null;
+      }
+    }
+    
+    // Check for known liquidity pool program IDs
+    const LIQUIDITY_PROGRAM_IDS = new Set([
+      '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8', // Raydium AMM
+      'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK', // Raydium CLMM
+      '9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP', // Orca Whirlpool
+      'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc', // Orca Whirlpool (legacy)
+      'DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1', // Orca
+      '9KEPoZmtHUrBbhWN1v1KWLMkkwY6WtG6c3qP9EcX4bL1', // Orca V2
+    ]);
+    const involvesLiquidityProgram = accountKeys.some(key => LIQUIDITY_PROGRAM_IDS.has(key));
+    
+    if (involvesLiquidityProgram && nonBaseTokenChanges.length >= 2) {
+      const allPositive = nonBaseTokenChanges.every(([, delta]) => delta > 0);
+      const allNegative = nonBaseTokenChanges.every(([, delta]) => delta < 0);
+      if (allPositive || allNegative) {
+        isLiquidityOperation = true;
+        liquidityType = allPositive ? 'ADD' : 'REMOVE';
+        console.log(`   🟣 [QuickNode] Confirmed ${liquidityType} LIQUIDITY via liquidity program (wallet ${walletAddress.substring(0, 8)}...)`);
       }
     }
 
@@ -209,7 +235,8 @@ export function normalizeQuickNodeSwap(
       return null;
     }
 
-    let side: 'buy' | 'sell' | 'void' = primaryDelta > 0 ? 'buy' : 'sell';
+    // Pokud je to liquidity operation, označ jako void
+    let side: 'buy' | 'sell' | 'void' = isLiquidityOperation ? 'void' : (primaryDelta > 0 ? 'buy' : 'sell');
     const amountToken = Math.abs(primaryDelta);
 
     // 4) Compute base side (SOL / USDC / USDT / WSOL) net amounts
@@ -236,7 +263,11 @@ export function normalizeQuickNodeSwap(
     let baseAmount = 0;
     let baseToken = 'SOL';
     
-    if (side === 'buy') {
+    // Pro liquidity operations nastav baseAmount = 0 (void trade)
+    if (isLiquidityOperation) {
+      baseAmount = 0;
+      baseToken = 'VOID';
+    } else if (side === 'buy') {
       // BUY: user spent base => negative net
       const solSpent = solTotalNet < 0 ? -solTotalNet : 0;
       const usdcSpent = usdcNet < 0 ? -usdcNet : 0;
@@ -381,6 +412,7 @@ export function normalizeQuickNodeSwap(
       baseToken: baseTokenSymbol,
       timestamp,
       dex,
+      liquidityType: isLiquidityOperation && liquidityType ? liquidityType : undefined,
     };
   } catch (err: any) {
     console.warn('⚠️  Error normalizing QuickNode tx:', err?.message || err);
@@ -723,6 +755,7 @@ export class SolanaCollectorService {
           baseToken: normalized.baseToken,
           quicknodeDebug: quicknodeDebugMeta,
           walletAddress,
+          liquidityType: (normalized as any).liquidityType, // ADD nebo REMOVE pro liquidity operations
         },
         rawPayload: tx,
       });

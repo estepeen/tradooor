@@ -957,7 +957,10 @@ export default function WalletDetailPage() {
                       return (
                         <>
                           {recentTrades.map((trade) => {
-                            const isBuy = (trade.side || '').toLowerCase() === 'buy';
+                            const side = (trade.side || '').toLowerCase();
+                            const isBuy = side === 'buy';
+                            const isVoid = side === 'void';
+                            const liquidityType = (trade as any).meta?.liquidityType; // ADD nebo REMOVE
                             const amountToken = Number(trade.amountToken);
                             const amountBase = Number(trade.amountBase);
                             const priceBasePerToken = Number(trade.priceBasePerToken);
@@ -968,6 +971,18 @@ export default function WalletDetailPage() {
                               amountToken && amountToken > 0
                               ? `${formatNumber(amountToken, 2)} $${trade.token?.symbol || trade.token?.name || ''}`.trim()
                                 : `$${formatNumber(Number(trade.amountBase), 2)}`;
+
+                            // Fialová barva pro void trades (včetně liquidity)
+                            const typeColorClass = isVoid
+                              ? 'bg-purple-500/20 text-purple-400'
+                              : isBuy
+                              ? 'bg-green-500/20 text-green-400'
+                              : 'bg-red-500/20 text-red-400';
+                            const valueColorClass = isVoid
+                              ? 'text-purple-400'
+                              : isBuy
+                              ? 'text-green-400'
+                              : 'text-red-400';
 
                             return (
                               <tr key={trade.id} className="border-t border-border hover:bg-muted/50">
@@ -982,12 +997,10 @@ export default function WalletDetailPage() {
                               </a>
                             </td>
                             <td className="px-4 py-3 text-center">
-                                  <span
-                                    className={`px-2 py-1 rounded text-xs font-medium ${
-                                      isBuy ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'
-                                    }`}
-                                  >
-                                    {isBuy ? 'BUY' : 'SELL'}
+                                  <span className={`px-2 py-1 rounded text-xs font-medium ${typeColorClass}`}>
+                                    {isVoid 
+                                      ? (liquidityType ? `${liquidityType} LIQUIDITY` : 'VOID')
+                                      : (isBuy ? 'BUY' : 'SELL')}
                               </span>
                             </td>
                             <td className="px-4 py-3 text-sm">
@@ -1009,9 +1022,7 @@ export default function WalletDetailPage() {
                               )}
                             </td>
                                 <td
-                                  className={`px-4 py-3 text-right text-sm font-mono ${
-                                    isBuy ? 'text-green-400' : 'text-red-400'
-                                  }`}
+                                  className={`px-4 py-3 text-right text-sm font-mono ${valueColorClass}`}
                                 >
                             {trade.token?.mintAddress ? (
                               <a
@@ -1020,22 +1031,24 @@ export default function WalletDetailPage() {
                                 rel="noopener noreferrer"
                                   className="hover:underline cursor-pointer"
                               >
-                                  {priceUsd !== null && priceUsd !== undefined && priceUsd > 0
-                                    ? `$${formatNumber(priceUsd, 6)}`
-                                    : entryPrice > 0
-                                        ? `$${formatNumber(entryPrice, 6)}`
-                                    : '-'}
+                                  {isVoid
+                                    ? '-'
+                                    : (priceUsd !== null && priceUsd !== undefined && priceUsd > 0
+                                        ? `$${formatNumber(priceUsd, 6)}`
+                                        : entryPrice > 0
+                                            ? `$${formatNumber(entryPrice, 6)}`
+                                        : '-')}
                               </a>
-                                  ) : priceUsd !== null && priceUsd !== undefined && priceUsd > 0
-                                  ? `$${formatNumber(priceUsd, 6)}`
-                                  : entryPrice > 0
-                                  ? `$${formatNumber(entryPrice, 6)}`
-                                  : '-'}
+                                  ) : isVoid
+                                  ? '-'
+                                  : (priceUsd !== null && priceUsd !== undefined && priceUsd > 0
+                                      ? `$${formatNumber(priceUsd, 6)}`
+                                      : entryPrice > 0
+                                      ? `$${formatNumber(entryPrice, 6)}`
+                                      : '-')}
                           </td>
                                 <td
-                                  className={`px-4 py-3 text-right text-sm font-mono ${
-                                    isBuy ? 'text-green-400' : 'text-red-400'
-                                  }`}
+                                  className={`px-4 py-3 text-right text-sm font-mono ${valueColorClass}`}
                                 >
                               {trade.token?.mintAddress ? (
                                 <a
@@ -1044,25 +1057,25 @@ export default function WalletDetailPage() {
                                   rel="noopener noreferrer"
                                   className="hover:underline cursor-pointer"
                                 >
-                                  {amountDisplay}
+                                  {isVoid ? '-' : amountDisplay}
                                 </a>
                               ) : (
-                                amountDisplay
+                                isVoid ? '-' : amountDisplay
                               )}
                             </td>
                                 <td
-                                  className={`px-4 py-3 text-right text-sm font-mono ${
-                                    isBuy ? 'text-green-400' : 'text-red-400'
-                                  }`}
+                                  className={`px-4 py-3 text-right text-sm font-mono ${valueColorClass}`}
                                 >
-                                  {(() => {
-                                    const value =
-                                      (trade as any).valueUsd ||
-                                      (trade as any).meta?.valueUsd ||
-                                      amountBase;
-                                    return value > 0 ? `$${formatNumber(Number(value), 2)}` : '-';
-                                  })()}
-                            </td>
+                                  {isVoid
+                                    ? '-'
+                                    : (() => {
+                                        const value =
+                                          (trade as any).valueUsd ||
+                                          (trade as any).meta?.valueUsd ||
+                                          amountBase;
+                                        return value > 0 ? `$${formatNumber(Number(value), 2)}` : '-';
+                                      })()}
+                                </td>
                               </tr>
                             );
                           })}
