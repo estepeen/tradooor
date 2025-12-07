@@ -113,7 +113,7 @@ export class LotMatchingService {
       if (closedLots.length === 0) {
         tokensWithoutClosedLots.add(tid);
       } else {
-        allClosedLots.push(...closedLots);
+      allClosedLots.push(...closedLots);
       }
     }
 

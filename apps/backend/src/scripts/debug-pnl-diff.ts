@@ -108,9 +108,9 @@ async function main() {
       position.totalSold += amount;
       position.balance -= amount;
       position.totalProceedsBase += amountBase;
-      position.sellCount++;
-      if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
-        position.lastSellTimestamp = tradeTimestamp;
+        position.sellCount++;
+        if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
+          position.lastSellTimestamp = tradeTimestamp;
       }
     }
   }

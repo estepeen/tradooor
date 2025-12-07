@@ -639,8 +639,8 @@ export default function WalletDetailPage() {
                                   isVoid 
                                     ? 'bg-purple-500/20 text-purple-400' 
                                     : isBuy 
-                                    ? 'bg-green-500/20 text-green-400' 
-                                    : 'bg-red-500/20 text-red-400'
+                                  ? 'bg-green-500/20 text-green-400'
+                                  : 'bg-red-500/20 text-red-400'
                                 }`}
                               >
                                 {isVoid ? 'VOID' : isBuy ? 'BUY' : 'SELL'}
