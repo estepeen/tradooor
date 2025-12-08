@@ -19,22 +19,44 @@ async function fullRecalculation(hoursBack: number = 24) {
   console.log(`\n🚀 Starting FULL RECALCULATION process...\n`);
   console.log(`   Time range: last ${hoursBack} hours\n`);
 
+  const skipRpcSteps = process.argv.includes('--skip-rpc');
+  
   try {
-    // Step 1: Backfill all wallets from RPC
-    console.log(`\n📥 STEP 1: Backfilling all wallets from RPC...\n`);
-    console.log(`   This will find and add missing transactions with correct SOL calculations\n`);
-    execSync(`pnpm --filter backend backfill-all-wallets ${hoursBack}`, {
-      stdio: 'inherit',
-      cwd: process.cwd(),
-    });
+    if (!skipRpcSteps) {
+      // Step 1: Backfill all wallets from RPC
+      console.log(`\n📥 STEP 1: Backfilling all wallets from RPC...\n`);
+      console.log(`   This will find and add missing transactions with correct SOL calculations\n`);
+      try {
+        execSync(`pnpm --filter backend backfill-all-wallets ${hoursBack}`, {
+          stdio: 'inherit',
+          cwd: process.cwd(),
+        });
+      } catch (error: any) {
+        if (error.status === 1 && error.stdout?.toString().includes('RATE LIMIT')) {
+          console.log(`\n⚠️  Step 1 skipped due to rate limit. Continuing with remaining steps...\n`);
+        } else {
+          throw error;
+        }
+      }
 
-    // Step 2: Reprocess all VOID trades
-    console.log(`\n🔄 STEP 2: Reprocessing all VOID trades...\n`);
-    console.log(`   This will reprocess VOID trades with new WSOL detection logic\n`);
-    execSync(`pnpm --filter backend reprocess-all-void-trades`, {
-      stdio: 'inherit',
-      cwd: process.cwd(),
-    });
+      // Step 2: Reprocess all VOID trades
+      console.log(`\n🔄 STEP 2: Reprocessing all VOID trades...\n`);
+      console.log(`   This will reprocess VOID trades with new WSOL detection logic\n`);
+      try {
+        execSync(`pnpm --filter backend reprocess-all-void-trades`, {
+          stdio: 'inherit',
+          cwd: process.cwd(),
+        });
+      } catch (error: any) {
+        if (error.status === 1 && error.stdout?.toString().includes('RATE LIMIT')) {
+          console.log(`\n⚠️  Step 2 skipped due to rate limit. Continuing with remaining steps...\n`);
+        } else {
+          throw error;
+        }
+      }
+    } else {
+      console.log(`\n⏭️  Skipping RPC-dependent steps (--skip-rpc flag)\n`);
+    }
 
     // Step 3: Recalculate all positions (closed lots)
     console.log(`\n📊 STEP 3: Recalculating all open/closed positions...\n`);
@@ -54,10 +76,19 @@ async function fullRecalculation(hoursBack: number = 24) {
 
     console.log(`\n✅ FULL RECALCULATION COMPLETE!\n`);
     console.log(`   All wallets have been:`);
-    console.log(`   ✓ Backfilled from RPC`);
-    console.log(`   ✓ VOID trades reprocessed`);
+    if (!skipRpcSteps) {
+      console.log(`   ✓ Backfilled from RPC (or skipped due to rate limit)`);
+      console.log(`   ✓ VOID trades reprocessed (or skipped due to rate limit)`);
+    }
     console.log(`   ✓ Positions recalculated`);
     console.log(`   ✓ Metrics recalculated (PnL synchronized)\n`);
+    
+    if (!skipRpcSteps) {
+      console.log(`💡 Note: If RPC steps were skipped due to rate limits, you can:`);
+      console.log(`   1. Wait 24 hours and run: pnpm --filter backend full-recalculation ${hoursBack}`);
+      console.log(`   2. Or run only RPC steps: pnpm --filter backend backfill-all-wallets ${hoursBack}`);
+      console.log(`   3. Or run: pnpm --filter backend reprocess-all-void-trades\n`);
+    }
   } catch (error: any) {
     console.error(`\n❌ Error during full recalculation: ${error.message}\n`);
     process.exit(1);
