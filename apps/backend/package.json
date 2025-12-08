@@ -46,7 +46,14 @@
     "recalculate:trades-sol-to-usd": "tsx src/scripts/recalculate-trades-sol-to-usd.ts",
     "reprocess:trades-from-rpc": "tsx src/scripts/reprocess-trades-from-rpc.ts",
     "worker:normalized-trades": "tsx src/workers/normalized-trade-processor.ts",
-    "calculate-token-pnl": "tsx src/scripts/calculate-token-pnl.ts"
+    "calculate-token-pnl": "tsx src/scripts/calculate-token-pnl.ts",
+    "check-missing-trades": "tsx src/scripts/check-missing-trades.ts",
+    "analyze-missing-trades": "tsx src/scripts/analyze-missing-trades.ts",
+    "check-transaction": "tsx src/scripts/check-transaction.ts",
+    "backfill-wallet-trades": "tsx src/scripts/backfill-wallet-trades.ts",
+    "delete-trade": "tsx src/scripts/delete-trade.ts",
+    "reprocess-void-trades": "tsx src/scripts/reprocess-void-trades.ts",
+    "recalculate-positions": "tsx src/scripts/recalculate-positions.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.87.6",

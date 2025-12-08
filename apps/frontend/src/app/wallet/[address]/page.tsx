@@ -1037,16 +1037,16 @@ export default function WalletDetailPage() {
                                   {isVoid
                                     ? '-'
                                     : (priceUsd !== null && priceUsd !== undefined && priceUsd > 0
-                                        ? `$${formatNumber(priceUsd, 6)}`
-                                        : entryPrice > 0
+                                    ? `$${formatNumber(priceUsd, 6)}`
+                                    : entryPrice > 0
                                             ? `$${formatNumber(entryPrice, 6)}`
                                         : '-')}
                               </a>
                                   ) : isVoid
                                   ? '-'
                                   : (priceUsd !== null && priceUsd !== undefined && priceUsd > 0
-                                      ? `$${formatNumber(priceUsd, 6)}`
-                                      : entryPrice > 0
+                                  ? `$${formatNumber(priceUsd, 6)}`
+                                  : entryPrice > 0
                                       ? `$${formatNumber(entryPrice, 6)}`
                                       : '-')}
                           </td>
@@ -1078,7 +1078,7 @@ export default function WalletDetailPage() {
                                           amountBase;
                                         return value > 0 ? `$${formatNumber(Number(value), 2)}` : '-';
                                       })()}
-                                </td>
+                            </td>
                               </tr>
                             );
                           })}

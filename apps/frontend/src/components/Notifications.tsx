@@ -322,17 +322,17 @@ export default function Notifications() {
                             }
                             
                             return (
-                              <span
-                                className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                                   <span
+                                     className={`text-xs font-semibold px-2 py-0.5 rounded ${
                                   isLiquidity || isVoid
                                     ? 'bg-purple-500/20 text-purple-400'
                                     : isBuy
-                                    ? 'bg-green-500/20 text-green-400'
+                                         ? 'bg-green-500/20 text-green-400'
                                     : 'bg-red-500/20 text-red-400'
-                                }`}
-                              >
+                                     }`}
+                                   >
                                 {label}
-                              </span>
+                                   </span>
                             );
                           })()}
                             <Link

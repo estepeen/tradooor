@@ -46,9 +46,40 @@ export function normalizeQuickNodeSwap(
     const walletLower = walletAddress.toLowerCase();
 
     // Map account index -> pubkey
-    const accountKeys: string[] = (message.accountKeys || []).map((k: any) =>
-      typeof k === 'string' ? k : k?.pubkey
-    );
+    // Get account keys - try multiple sources
+    let accountKeys: string[] = [];
+    if (message.accountKeys && Array.isArray(message.accountKeys)) {
+      accountKeys = message.accountKeys.map((k: any) =>
+        typeof k === 'string' ? k : k?.pubkey
+      ).filter(Boolean);
+    }
+    // Fallback: try staticAccountKeys (for versioned transactions)
+    if (accountKeys.length === 0 && message.staticAccountKeys && Array.isArray(message.staticAccountKeys)) {
+      accountKeys = message.staticAccountKeys.map((k: any) =>
+        typeof k === 'string' ? k : k?.pubkey
+      ).filter(Boolean);
+      console.log(`   [QuickNode] Using staticAccountKeys: ${accountKeys.length} accounts`);
+    }
+    // Fallback: try to get from transaction directly
+    if (accountKeys.length === 0 && tx.transaction?.message?.accountKeys) {
+      accountKeys = (tx.transaction.message.accountKeys || []).map((k: any) =>
+        typeof k === 'string' ? k : k?.pubkey
+      ).filter(Boolean);
+    }
+    
+    // If still empty but we have balances, try to infer from token balances
+    if (accountKeys.length === 0 && meta.preBalances && meta.postBalances) {
+      // For versioned transactions, we might need to use a different approach
+      // Try to find wallet in token balances and use that to infer account index
+      const tokenBalances = meta.preTokenBalances || meta.postTokenBalances || [];
+      const walletInTokens = tokenBalances.find((tb: any) => 
+        tb.owner && tb.owner.toLowerCase() === walletLower
+      );
+      if (walletInTokens && meta.preBalances.length > 0) {
+        console.log(`   ⚠️  [QuickNode] Cannot map balances to wallet - accountKeys missing. preBalances: ${meta.preBalances.length}, but no accountKeys to map them.`);
+        console.log(`   [QuickNode] Wallet found in token balances, but cannot determine SOL balance change without accountKeys mapping.`);
+      }
+    }
 
     // Helper: base token universe
     const BASE_MINTS = new Set<string>([
@@ -150,22 +181,42 @@ export function normalizeQuickNodeSwap(
     let solNet = 0;
     const preBalances: number[] = meta.preBalances || [];
     const postBalances: number[] = meta.postBalances || [];
-    for (let i = 0; i < accountKeys.length; i++) {
-      const pk = accountKeys[i];
-      if (!pk || pk.toLowerCase() !== walletLower) continue;
-      const preLamports = preBalances[i] ?? 0;
-      const postLamports = postBalances[i] ?? preLamports;
-      const deltaLamports = postLamports - preLamports;
-      if (deltaLamports !== 0) {
-        solNet += deltaLamports / 1e9;
+    let walletAccountIndices: number[] = [];
+    
+    if (accountKeys.length > 0) {
+      // Standard path: map accountKeys to balances
+      for (let i = 0; i < accountKeys.length; i++) {
+        const pk = accountKeys[i];
+        if (!pk || pk.toLowerCase() !== walletLower) continue;
+        walletAccountIndices.push(i);
+        const preLamports = preBalances[i] ?? 0;
+        const postLamports = postBalances[i] ?? preLamports;
+        const deltaLamports = postLamports - preLamports;
+        if (deltaLamports !== 0) {
+          const deltaSol = deltaLamports / 1e9;
+          solNet += deltaSol;
+          // Debug: log SOL changes
+          if (Math.abs(deltaSol) > 0.0001) {
+            console.log(`   [QuickNode] SOL balance change [account ${i}]: ${deltaSol.toFixed(6)} SOL (pre: ${(preLamports / 1e9).toFixed(6)}, post: ${(postLamports / 1e9).toFixed(6)})`);
+          }
+        }
       }
+    }
+    
+    if (walletAccountIndices.length === 0 && Math.abs(solNet) < 0.001) {
+      console.log(`   ⚠️  [QuickNode] Wallet ${walletAddress.substring(0, 8)}... not found in accountKeys (${accountKeys.length} accounts), will try fallback after primaryDelta is determined`);
     }
 
     // Debug: log token net changes (only if there are changes)
     if (tokenNetByMint.size > 0 || Math.abs(solNet) > 0.001) {
-      console.log(`   [QuickNode] Token net changes for wallet ${walletAddress.substring(0, 8)}...:`, 
-        Array.from(tokenNetByMint.entries()).map(([mint, delta]) => `${mint.substring(0, 8)}...: ${delta}`).join(', '));
-      console.log(`   [QuickNode] SOL net change: ${solNet}`);
+      const tokenChanges = Array.from(tokenNetByMint.entries()).map(([mint, delta]) => {
+        const isBase = BASE_MINTS.has(mint);
+        const symbol = isBase ? (mint === 'So11111111111111111111111111111111111111112' ? 'WSOL' : 
+                                 mint === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v' ? 'USDC' : 'USDT') : 'TOKEN';
+        return `${symbol}(${mint.substring(0, 8)}...): ${delta.toFixed(6)}`;
+      }).join(', ');
+      console.log(`   [QuickNode] Token net changes for wallet ${walletAddress.substring(0, 8)}...: ${tokenChanges || 'none'}`);
+      console.log(`   [QuickNode] SOL net change: ${solNet.toFixed(6)}`);
     }
 
     // DETECT LIQUIDITY OPERATIONS: ADD/REMOVE LIQUIDITY
@@ -216,30 +267,8 @@ export function normalizeQuickNodeSwap(
       }
     }
 
-    // 3) Pick main traded (non-base) token by absolute net change
-    let primaryMint: string | null = null;
-    let primaryDelta = 0;
-    for (const [mint, delta] of tokenNetByMint.entries()) {
-      if (BASE_MINTS.has(mint)) continue;
-      if (Math.abs(delta) <= 0) continue;
-      if (!primaryMint || Math.abs(delta) > Math.abs(primaryDelta)) {
-        primaryMint = mint;
-        primaryDelta = delta;
-      }
-    }
-    if (!primaryMint || Math.abs(primaryDelta) < 1e-9) {
-      // No clear non-base token movement for this wallet → not a trade we care about
-      console.log(`   ⚠️  [QuickNode] No primary token found for wallet ${walletAddress.substring(0, 8)}...`);
-      console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
-      console.log(`      SOL net change: ${solNet.toFixed(6)}`);
-      return null;
-    }
-
-    // Pokud je to liquidity operation, označ jako void
-    let side: 'buy' | 'sell' | 'void' = isLiquidityOperation ? 'void' : (primaryDelta > 0 ? 'buy' : 'sell');
-    const amountToken = Math.abs(primaryDelta);
-
-    // 4) Compute base side (SOL / USDC / USDT / WSOL) net amounts
+    // 3) Compute base side (SOL / USDC / USDT / WSOL) net amounts FIRST
+    // (needed for checking significant base changes below)
     let usdcNet = 0;
     let usdtNet = 0;
     let wsolNet = 0;
@@ -254,8 +283,106 @@ export function normalizeQuickNodeSwap(
       }
     }
 
-    // Effective SOL exposure = native SOL + WSOL
-    const solTotalNet = solNet + wsolNet;
+    // IMPORTANT: WSOL can be wrapped/unwrapped, so if we see native SOL change
+    // but no WSOL in token balances, treat native SOL change as WSOL change
+    // This handles swaps where WSOL is used but not explicitly in token balances
+    // NOTE: If we set wsolNet = solNet, then solTotalNet = solNet + wsolNet = 2*solNet (WRONG!)
+    // Instead, we should just use solNet directly as the base amount
+    let solTotalNet = solNet + wsolNet;
+    
+    if (Math.abs(wsolNet) < 1e-9 && Math.abs(solNet) > 0.001 && tokenNetByMint.size > 0) {
+      // There's a native SOL change and token changes, but no WSOL in token balances
+      // This is likely a WSOL swap where WSOL was wrapped/unwrapped
+      // Use native SOL change directly (don't double-count by adding to wsolNet)
+      solTotalNet = solNet; // Use native SOL as total (WSOL is just wrapped SOL)
+      console.log(`   ⚠️  [QuickNode] No WSOL in token balances, but native SOL change detected (${solNet.toFixed(6)}). Using as base amount.`);
+    }
+    
+    // Debug: log WSOL changes if present
+    if (Math.abs(wsolNet) > 1e-9) {
+      console.log(`   [QuickNode] WSOL net change: ${wsolNet.toFixed(6)}, SOL total net: ${solTotalNet.toFixed(6)}`);
+    }
+
+    // 4) Pick main traded (non-base) token by absolute net change
+    let primaryMint: string | null = null;
+    let primaryDelta = 0;
+    for (const [mint, delta] of tokenNetByMint.entries()) {
+      if (BASE_MINTS.has(mint)) continue;
+      if (Math.abs(delta) <= 0) continue;
+      if (!primaryMint || Math.abs(delta) > Math.abs(primaryDelta)) {
+        primaryMint = mint;
+        primaryDelta = delta;
+      }
+    }
+    
+    // Fallback: if no accountKeys but we have token changes, try to infer SOL change
+    // This handles versioned transactions where accountKeys might be in a different format
+    // NOTE: This must be after primaryDelta is determined
+    if (walletAccountIndices.length === 0 && tokenNetByMint.size > 0 && primaryMint && Math.abs(primaryDelta) > 0) {
+      // Try to get SOL change from balance analysis
+      // Look for the largest SOL change that matches the direction of the token change
+      if (meta.preBalances && meta.postBalances && meta.preBalances.length > 0) {
+        // Determine expected direction: if token increased (BUY), SOL should decrease
+        const isBuy = primaryDelta > 0;
+        const expectedSolDirection = isBuy ? -1 : 1;
+        
+        // Find the largest SOL change in the expected direction (excluding very small changes which are likely fees)
+        let bestSolChange = 0;
+        for (let i = 0; i < Math.min(preBalances.length, postBalances.length); i++) {
+          const delta = (postBalances[i] - preBalances[i]) / 1e9;
+          // If direction matches and magnitude is larger, use it
+          // Exclude very small changes (< 0.01 SOL) which are likely just fees
+          if (Math.sign(delta) === expectedSolDirection && Math.abs(delta) > 0.01 && Math.abs(delta) > Math.abs(bestSolChange)) {
+            bestSolChange = delta;
+          }
+        }
+        
+        // If we found a significant change in the right direction, use it
+        if (Math.abs(bestSolChange) > 0.01) {
+          solNet = bestSolChange;
+          // Recalculate solTotalNet with the new solNet
+          solTotalNet = solNet + wsolNet;
+          console.log(`   ⚠️  [QuickNode] No accountKeys mapping, but detected SOL change from balance analysis: ${solNet.toFixed(6)} SOL (direction: ${isBuy ? 'BUY' : 'SELL'}).`);
+        } else {
+          console.log(`   ⚠️  [QuickNode] No accountKeys mapping, and detected SOL change (${bestSolChange.toFixed(6)}) is too small or wrong direction.`);
+        }
+      }
+    }
+    
+    // IMPROVED: Also check if there's significant SOL/USDC/USDT movement even without clear token change
+    // This can happen in edge cases where token balance changes are not properly detected
+    const significantBaseChange = Math.abs(solTotalNet) > 0.001 || Math.abs(usdcNet) > 0.001 || Math.abs(usdtNet) > 0.001;
+    const hasTokenChanges = tokenNetByMint.size > 0;
+    
+    if (!primaryMint || Math.abs(primaryDelta) < 1e-9) {
+      // No clear non-base token movement for this wallet
+      // But if there's significant base change, it might still be a trade we should log
+      if (significantBaseChange && hasTokenChanges) {
+        // Try to find ANY token change, even if small
+        for (const [mint, delta] of tokenNetByMint.entries()) {
+          if (BASE_MINTS.has(mint)) continue;
+          if (Math.abs(delta) > 1e-12) { // Very small threshold
+            primaryMint = mint;
+            primaryDelta = delta;
+            console.log(`   ⚠️  [QuickNode] Using small token change as primary: ${mint.substring(0, 8)}... delta=${delta.toFixed(9)}`);
+            break;
+          }
+        }
+      }
+      
+      if (!primaryMint || Math.abs(primaryDelta) < 1e-12) {
+        // Still no primary token - log for debugging but don't save
+        console.log(`   ⚠️  [QuickNode] No primary token found for wallet ${walletAddress.substring(0, 8)}...`);
+        console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
+        console.log(`      SOL net change: ${solTotalNet.toFixed(6)}, USDC: ${usdcNet.toFixed(6)}, USDT: ${usdtNet.toFixed(6)}`);
+        console.log(`      Signature: ${tx.transaction?.signatures?.[0]?.substring(0, 16) || 'none'}...`);
+        return null;
+      }
+    }
+
+    // Pokud je to liquidity operation, označ jako void
+    let side: 'buy' | 'sell' | 'void' = isLiquidityOperation ? 'void' : (primaryDelta > 0 ? 'buy' : 'sell');
+    const amountToken = Math.abs(primaryDelta);
 
     // DŮLEŽITÉ: VŽDY použij SOL/USDC/USDT hodnotu z balance changes
     // NIKDY nepoužívej sekundární token jako base - to vede k špatným hodnotám!

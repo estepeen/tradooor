@@ -346,9 +346,27 @@ export async function processQuickNodeWebhook(body: any) {
             skipped++;
             // Log skip reason for debugging (including "not a swap" to see what's happening)
             const sig = tx.transaction?.signatures?.[0]?.substring(0, 16) || 'unknown';
-            console.log(
-              `⏭️  [QuickNode] Skipped tx ${sig}... for wallet ${walletAddress.substring(0, 8)}...: ${result.reason || 'unknown reason'}`
-            );
+            const reason = result.reason || 'unknown reason';
+            
+            // More detailed logging for "not a swap" cases to help debug missing trades
+            if (reason === 'not a swap') {
+              console.log(
+                `⏭️  [QuickNode] Skipped tx ${sig}... for wallet ${walletAddress.substring(0, 8)}...: ${reason}`
+              );
+              // Log transaction details for debugging
+              const meta = tx.meta;
+              if (meta) {
+                const preTokenCount = meta.preTokenBalances?.length || 0;
+                const postTokenCount = meta.postTokenBalances?.length || 0;
+                console.log(`      Token balances: pre=${preTokenCount}, post=${postTokenCount}`);
+                console.log(`      Account keys: ${tx.transaction?.message?.accountKeys?.length || 0}`);
+              }
+            } else {
+              // Less verbose for other skip reasons
+              if (skipped % 10 === 0) {
+                console.log(`   ⏭️  Skipped ${skipped} transactions (last reason: ${reason})`);
+              }
+            }
           }
 
           processed++;
