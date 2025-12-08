@@ -27,7 +27,7 @@ async function reprocessAllVoidTrades() {
   // 1. Get all VOID trades
   const { data: voidTrades, error: tradesError } = await supabase
     .from(TABLES.TRADE)
-    .select('*, wallet:smart_wallet(address)')
+    .select('id, txSignature, tokenId, walletId')
     .eq('side', 'void')
     .order('timestamp', { ascending: false });
 
@@ -51,11 +51,31 @@ async function reprocessAllVoidTrades() {
   }
   const connection = new Connection(rpcUrl, 'confirmed');
 
-  // 3. Group by wallet
+  // 3. Get wallet addresses for all walletIds
+  const walletIds = [...new Set(voidTrades.map(t => t.walletId))];
+  const { data: wallets, error: walletsError } = await supabase
+    .from(TABLES.SMART_WALLET)
+    .select('id, address')
+    .in('id', walletIds);
+
+  if (walletsError) {
+    console.error(`❌ Error fetching wallets: ${walletsError.message}`);
+    process.exit(1);
+  }
+
+  const walletIdToAddress = new Map<string, string>();
+  for (const wallet of wallets || []) {
+    walletIdToAddress.set(wallet.id, wallet.address);
+  }
+
+  // 4. Group by wallet address
   const tradesByWallet = new Map<string, typeof voidTrades>();
   for (const trade of voidTrades) {
-    const walletAddress = (trade.wallet as any)?.address;
-    if (!walletAddress) continue;
+    const walletAddress = walletIdToAddress.get(trade.walletId);
+    if (!walletAddress) {
+      console.warn(`⚠️  Wallet not found for walletId: ${trade.walletId}, skipping trade ${trade.txSignature.substring(0, 16)}...`);
+      continue;
+    }
     if (!tradesByWallet.has(walletAddress)) {
       tradesByWallet.set(walletAddress, []);
     }
@@ -69,7 +89,7 @@ async function reprocessAllVoidTrades() {
   let totalStillVoid = 0;
   let totalErrors = 0;
 
-  // 4. Process each wallet
+  // 5. Process each wallet
   for (const [walletAddress, trades] of tradesByWallet.entries()) {
     console.log(`\n🔍 Processing wallet: ${walletAddress.substring(0, 8)}... (${trades.length} VOID trades)`);
 
