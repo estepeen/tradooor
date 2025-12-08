@@ -53,7 +53,11 @@
     "backfill-wallet-trades": "tsx src/scripts/backfill-wallet-trades.ts",
     "delete-trade": "tsx src/scripts/delete-trade.ts",
     "reprocess-void-trades": "tsx src/scripts/reprocess-void-trades.ts",
-    "recalculate-positions": "tsx src/scripts/recalculate-positions.ts"
+    "recalculate-positions": "tsx src/scripts/recalculate-positions.ts",
+    "backfill-all-wallets": "tsx src/scripts/backfill-all-wallets.ts",
+    "reprocess-all-void-trades": "tsx src/scripts/reprocess-all-void-trades.ts",
+    "recalculate-all-positions": "tsx src/scripts/recalculate-all-positions.ts",
+    "full-recalculation": "tsx src/scripts/full-recalculation.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.87.6",
