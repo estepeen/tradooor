@@ -161,12 +161,37 @@ async function reprocessAllVoidTrades() {
           walletErrors++;
         }
 
-        // Rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
+        // Rate limiting - increased delay to avoid QuickNode limits
+        await new Promise(resolve => setTimeout(resolve, 2000));
       } catch (error: any) {
         walletErrors++;
+        const errorMsg = error.message || String(error);
+        
+        // Check for rate limit errors
+        if (errorMsg.includes('429') || errorMsg.includes('rate limit') || errorMsg.includes('daily request limit')) {
+          console.error(`\n   ❌ RATE LIMIT REACHED! QuickNode daily limit exceeded.`);
+          console.error(`   💡 Options:`);
+          console.error(`      1. Wait 24 hours and continue`);
+          console.error(`      2. Upgrade QuickNode plan`);
+          console.error(`      3. Use different RPC endpoint`);
+          console.error(`\n   📊 Progress so far:`);
+          console.error(`      Processed: ${walletProcessed}/${trades.length} trades`);
+          console.error(`      Saved as normal: ${walletSaved}`);
+          console.error(`      Still VOID: ${walletStillVoid}`);
+          console.error(`      Errors: ${walletErrors}\n`);
+          
+          // Exit gracefully so user can resume later
+          process.exit(1);
+        }
+        
         if (walletErrors <= 3) {
-          console.warn(`   ⚠️  Error processing ${trade.txSignature.substring(0, 16)}...: ${error.message}`);
+          console.warn(`   ⚠️  Error processing ${trade.txSignature.substring(0, 16)}...: ${errorMsg}`);
+        }
+        
+        // If too many errors, skip this wallet
+        if (walletErrors > 10) {
+          console.warn(`   ⚠️  Too many errors for this wallet, skipping remaining trades`);
+          break;
         }
       }
     }
