@@ -204,6 +204,10 @@ export class LotMatchingService {
         let toSell = amount;
         const openLotsBeforeSell = openLots.length; // Počet open lots před SELL
         
+        // DŮLEŽITÉ: Použij skutečnou hodnotu SELL trade (valueUsd nebo amountBase) místo price * amount
+        // Tím zajistíme, že proceeds odpovídají skutečné hodnotě z VALUE sloupce
+        const sellTradeValue = Number(trade.valueUsd || trade.amountBase || 0);
+        
         // Uložíme si data o spotřebovaných lots před jejich spotřebou
         const consumedLotsData: Array<{
           lot: Lot;
@@ -215,7 +219,22 @@ export class LotMatchingService {
           holdTimeMinutes: number;
         }> = [];
 
-        // První fáze: vypočítáme data o spotřebovaných lots (bez jejich spotřeby)
+        // První fáze: spočítáme celkové množství tokenů spotřebovaných z open lots
+        let totalConsumedFromOpenLots = 0;
+        let tempToSellForCount = toSell;
+        const tempOpenLotsForCount = openLots.map(lot => ({ ...lot }));
+        while (tempToSellForCount > 0 && tempOpenLotsForCount.length > 0) {
+          const lot = tempOpenLotsForCount[0];
+          const consumed = Math.min(tempToSellForCount, lot.remainingSize);
+          totalConsumedFromOpenLots += consumed;
+          lot.remainingSize -= consumed;
+          if (lot.remainingSize <= 0.00000001) {
+            tempOpenLotsForCount.shift();
+          }
+          tempToSellForCount -= consumed;
+        }
+
+        // Druhá fáze: vypočítáme data o spotřebovaných lots (bez jejich spotřeby)
         let tempToSell = toSell;
         const tempOpenLots = openLots.map(lot => ({ ...lot })); // Kopie pro simulaci
         
@@ -224,7 +243,11 @@ export class LotMatchingService {
           const consumed = Math.min(tempToSell, lot.remainingSize);
 
           const costBasis = consumed * lot.entryPrice;
-          const proceeds = consumed * price;
+          // DŮLEŽITÉ: Proceeds = proporční část skutečné hodnoty SELL trade
+          // Použijeme skutečnou hodnotu SELL trade (valueUsd) a rozdělíme ji podle množství tokenů
+          const proceeds = sellTradeValue > 0 && totalConsumedFromOpenLots > 0
+            ? (consumed / totalConsumedFromOpenLots) * sellTradeValue
+            : consumed * price; // Fallback na starý výpočet, pokud nemáme value nebo totalConsumed = 0
           const realizedPnl = proceeds - costBasis;
           const realizedPnlPercent = lot.costKnown && costBasis > 0
             ? (realizedPnl / costBasis) * 100
