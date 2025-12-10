@@ -292,7 +292,7 @@ export async function processQuickNodeWebhook(body: any) {
 
         const candidateWallets = new Set<string>();
 
-        // 1) From accountKeys
+        // 1) From accountKeys (includes signers and all accounts in transaction)
         for (const k of message.accountKeys || []) {
           const pk = typeof k === 'string' ? k : k?.pubkey;
           if (!pk) continue;
@@ -302,7 +302,19 @@ export async function processQuickNodeWebhook(body: any) {
           }
         }
 
-        // 2) From token balances (owners)
+        // 2) From staticAccountKeys (for versioned transactions)
+        if (message.staticAccountKeys && Array.isArray(message.staticAccountKeys)) {
+          for (const k of message.staticAccountKeys) {
+            const pk = typeof k === 'string' ? k : k?.pubkey;
+            if (!pk) continue;
+            const lower = pk.toLowerCase();
+            if (trackedAddresses.has(lower)) {
+              candidateWallets.add(pk);
+            }
+          }
+        }
+
+        // 3) From token balances (owners)
         const addOwnersFrom = (arr: any[]) => {
           for (const b of arr || []) {
             const owner: string | undefined = b.owner;
@@ -315,6 +327,26 @@ export async function processQuickNodeWebhook(body: any) {
         };
         addOwnersFrom(meta.preTokenBalances || []);
         addOwnersFrom(meta.postTokenBalances || []);
+
+        // 4) From balance changes (check if wallet's SOL balance changed)
+        // This catches cases where wallet is involved but not in accountKeys or token balances
+        if (meta.preBalances && meta.postBalances && message.accountKeys) {
+          for (let i = 0; i < Math.min(meta.preBalances.length, meta.postBalances.length, message.accountKeys.length); i++) {
+            const accountKey = message.accountKeys[i];
+            const pk = typeof accountKey === 'string' ? accountKey : accountKey?.pubkey;
+            if (!pk) continue;
+            const lower = pk.toLowerCase();
+            if (trackedAddresses.has(lower)) {
+              const preBalance = meta.preBalances[i] || 0;
+              const postBalance = meta.postBalances[i] || 0;
+              const balanceChange = Math.abs(postBalance - preBalance);
+              // If there's a significant balance change (> 0.001 SOL), wallet is involved
+              if (balanceChange > 100000) { // 0.0001 SOL in lamports
+                candidateWallets.add(pk);
+              }
+            }
+          }
+        }
 
         // Early exit if no tracked wallets involved
         if (candidateWallets.size === 0) {
