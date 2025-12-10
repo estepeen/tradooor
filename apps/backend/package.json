@@ -61,7 +61,8 @@
     "compare-with-kolscan": "tsx src/scripts/compare-with-kolscan.ts",
     "diagnose-wallets": "tsx src/scripts/diagnose-wallets.ts",
     "backfill-all-empty-wallets": "tsx src/scripts/backfill-all-empty-wallets.ts",
-    "debug-wallet": "tsx src/scripts/debug-wallet.ts"
+    "debug-wallet": "tsx src/scripts/debug-wallet.ts",
+    "recalculate-all-positions-and-metrics": "tsx src/scripts/recalculate-all-positions-and-metrics.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.87.6",
