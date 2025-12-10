@@ -401,17 +401,40 @@ export function normalizeQuickNodeSwap(
       const usdtSpent = usdtNet < 0 ? -usdtNet : 0;
       baseAmount = Math.max(solSpent, usdcSpent, usdtSpent);
       
+      // IMPROVED: Check for very small base changes that might be missed due to rounding
+      // For fast trades, even small SOL changes (0.0001-0.001) should be considered valid
+      const MIN_BASE_CHANGE = 0.0001; // Lower threshold for fast trades
+      
       if (baseAmount <= 0) {
-        // Token-to-token swap bez SOL/USDC/USDT změny → označit jako VOID
-        console.log(`   🟣 [QuickNode] Token-to-token swap detected (no SOL/USDC/USDT change) - marking as VOID (wallet ${walletAddress.substring(0, 8)}...)`);
-        console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
-        console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
-        console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
+        // Try to find ANY base change, even very small ones
+        const allBaseChanges = [
+          { token: 'SOL', amount: solTotalNet, spent: solTotalNet < 0 ? -solTotalNet : 0 },
+          { token: 'USDC', amount: usdcNet, spent: usdcNet < 0 ? -usdcNet : 0 },
+          { token: 'USDT', amount: usdtNet, spent: usdtNet < 0 ? -usdtNet : 0 },
+        ];
         
-        // Vrať trade s side='void' - bude zobrazen, ale nepočítá se do PnL
-        side = 'void';
-        baseAmount = 0; // Žádná hodnota
-        baseToken = 'VOID';
+        // Find the largest base change, even if very small
+        const largestBaseChange = allBaseChanges.reduce((max, curr) => 
+          curr.spent > max.spent ? curr : max
+        , allBaseChanges[0]);
+        
+        if (largestBaseChange.spent >= MIN_BASE_CHANGE) {
+          // Found a small but valid base change - use it
+          baseAmount = largestBaseChange.spent;
+          baseToken = largestBaseChange.token;
+          console.log(`   ⚠️  [QuickNode] Using small base change: ${baseAmount.toFixed(6)} ${baseToken} (wallet ${walletAddress.substring(0, 8)}...)`);
+        } else {
+          // Token-to-token swap bez SOL/USDC/USDT změny → označit jako VOID
+          console.log(`   🟣 [QuickNode] Token-to-token swap detected (no SOL/USDC/USDT change) - marking as VOID (wallet ${walletAddress.substring(0, 8)}...)`);
+          console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
+          console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
+          console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
+          
+          // Vrať trade s side='void' - bude zobrazen, ale nepočítá se do PnL
+          side = 'void';
+          baseAmount = 0; // Žádná hodnota
+          baseToken = 'VOID';
+        }
       }
       
       // Urči base token podle největší změny
@@ -425,17 +448,40 @@ export function normalizeQuickNodeSwap(
       const usdtReceived = usdtNet > 0 ? usdtNet : 0;
       baseAmount = Math.max(solReceived, usdcReceived, usdtReceived);
       
+      // IMPROVED: Check for very small base changes that might be missed due to rounding
+      // For fast trades, even small SOL changes (0.0001-0.001) should be considered valid
+      const MIN_BASE_CHANGE = 0.0001; // Lower threshold for fast trades
+      
       if (baseAmount <= 0) {
-        // Token-to-token swap bez SOL/USDC/USDT změny → označit jako VOID
-        console.log(`   🟣 [QuickNode] Token-to-token swap detected (no SOL/USDC/USDT change) - marking as VOID (wallet ${walletAddress.substring(0, 8)}...)`);
-        console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
-        console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
-        console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
+        // Try to find ANY base change, even very small ones
+        const allBaseChanges = [
+          { token: 'SOL', amount: solTotalNet, received: solTotalNet > 0 ? solTotalNet : 0 },
+          { token: 'USDC', amount: usdcNet, received: usdcNet > 0 ? usdcNet : 0 },
+          { token: 'USDT', amount: usdtNet, received: usdtNet > 0 ? usdtNet : 0 },
+        ];
         
-        // Vrať trade s side='void' - bude zobrazen, ale nepočítá se do PnL
-        side = 'void';
-        baseAmount = 0; // Žádná hodnota
-        baseToken = 'VOID';
+        // Find the largest base change, even if very small
+        const largestBaseChange = allBaseChanges.reduce((max, curr) => 
+          curr.received > max.received ? curr : max
+        , allBaseChanges[0]);
+        
+        if (largestBaseChange.received >= MIN_BASE_CHANGE) {
+          // Found a small but valid base change - use it
+          baseAmount = largestBaseChange.received;
+          baseToken = largestBaseChange.token;
+          console.log(`   ⚠️  [QuickNode] Using small base change: ${baseAmount.toFixed(6)} ${baseToken} (wallet ${walletAddress.substring(0, 8)}...)`);
+        } else {
+          // Token-to-token swap bez SOL/USDC/USDT změny → označit jako VOID
+          console.log(`   🟣 [QuickNode] Token-to-token swap detected (no SOL/USDC/USDT change) - marking as VOID (wallet ${walletAddress.substring(0, 8)}...)`);
+          console.log(`      Primary token: ${primaryMint?.substring(0, 16)}..., delta: ${primaryDelta.toFixed(6)}`);
+          console.log(`      SOL net: ${solNet.toFixed(6)}, USDC net: ${usdcNet.toFixed(6)}, USDT net: ${usdtNet.toFixed(6)}`);
+          console.log(`      Token net changes: ${tokenNetByMint.size > 0 ? Array.from(tokenNetByMint.entries()).map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ') : 'none'}`);
+          
+          // Vrať trade s side='void' - bude zobrazen, ale nepočítá se do PnL
+          side = 'void';
+          baseAmount = 0; // Žádná hodnota
+          baseToken = 'VOID';
+        }
       }
       
       // Urči base token podle největší změny
