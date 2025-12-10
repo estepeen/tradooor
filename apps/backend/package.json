@@ -58,7 +58,9 @@
     "reprocess-all-void-trades": "tsx src/scripts/reprocess-all-void-trades.ts",
     "recalculate-all-positions": "tsx src/scripts/recalculate-all-positions.ts",
     "full-recalculation": "tsx src/scripts/full-recalculation.ts",
-    "compare-with-kolscan": "tsx src/scripts/compare-with-kolscan.ts"
+    "compare-with-kolscan": "tsx src/scripts/compare-with-kolscan.ts",
+    "diagnose-wallets": "tsx src/scripts/diagnose-wallets.ts",
+    "backfill-all-empty-wallets": "tsx src/scripts/backfill-all-empty-wallets.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.87.6",
