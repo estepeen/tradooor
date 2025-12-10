@@ -54,7 +54,7 @@ async function recalculateAllPositionsAndMetrics() {
       console.log(`   ✅ Positions: ${closedLots.length} closed lots`);
 
       // Step 2: Recalculate metrics
-      await metricsCalculator.calculateMetrics(wallet.id);
+      await metricsCalculator.calculateMetricsForWallet(wallet.id);
       console.log(`   ✅ Metrics recalculated`);
 
       totalProcessed++;
