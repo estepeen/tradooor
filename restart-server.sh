@@ -17,11 +17,11 @@ sleep 2
 # 2. Spusť migraci databáze
 echo "📦 Running database migration..."
 cd /opt/tradooor
-# Použij migrate deploy pro produkci (nevyžaduje DIRECT_URL)
-pnpm --filter @solbot/db exec prisma migrate deploy || {
-  echo "   ⚠️  Migration failed, trying migrate dev..."
-  # Pokud deploy selže, zkus dev (vyžaduje DIRECT_URL)
-  pnpm --filter @solbot/db db:migrate || echo "   ⚠️  Migration failed - check DIRECT_URL in .env"
+# Použij migrate deploy pro produkci (nevyžaduje DIRECT_URL, jen DATABASE_URL)
+pnpm --filter @solbot/db db:deploy || {
+  echo "   ⚠️  Migration deploy failed, trying db:push as fallback..."
+  # Fallback: db:push (nevyžaduje DIRECT_URL, ale není ideální pro produkci)
+  pnpm --filter @solbot/db db:push || echo "   ❌ Migration failed - check DATABASE_URL in .env"
 }
 
 # 3. Build backend a frontend
