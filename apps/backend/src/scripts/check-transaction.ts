@@ -118,10 +118,21 @@ async function checkTransaction(signature: string, walletAddress: string) {
       if (tx.meta.preBalances && tx.meta.postBalances) {
         const walletLower = walletAddress.toLowerCase();
         let keys: string[] = [];
-        if (tx.transaction?.message?.accountKeys) {
-          keys = tx.transaction.message.accountKeys.map((k: any) => typeof k === 'string' ? k : k?.pubkey);
-        } else if (tx.transaction?.message?.staticAccountKeys) {
-          keys = tx.transaction.message.staticAccountKeys.map((k: any) => typeof k === 'string' ? k : k?.pubkey);
+        // Try to get account keys - handle both versioned and non-versioned messages
+        try {
+          if ('accountKeys' in (tx.transaction?.message || {})) {
+            const accountKeys = (tx.transaction.message as any).accountKeys;
+            if (accountKeys) {
+              keys = accountKeys.map((k: any) => typeof k === 'string' ? k : k?.pubkey);
+            }
+          } else if ('staticAccountKeys' in (tx.transaction?.message || {})) {
+            const staticAccountKeys = (tx.transaction.message as any).staticAccountKeys;
+            if (staticAccountKeys) {
+              keys = staticAccountKeys.map((k: any) => typeof k === 'string' ? k : k?.pubkey);
+            }
+          }
+        } catch (e) {
+          // Ignore errors when accessing accountKeys
         }
         
         let totalSolDelta = 0;
@@ -175,7 +186,7 @@ async function checkTransaction(signature: string, walletAddress: string) {
     const result = await collectorService.processQuickNodeTransaction(
       quickNodeTx,
       walletAddress,
-      tx.blockTime
+      tx.blockTime ?? undefined
     );
 
     if (result.saved) {

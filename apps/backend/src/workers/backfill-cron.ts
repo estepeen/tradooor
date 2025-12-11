@@ -192,7 +192,7 @@ async function backfillLast2Minutes() {
           const result = await collectorService.processQuickNodeTransaction(
             quickNodeTx,
             wallet.address,
-            tx.blockTime
+            tx.blockTime ?? undefined
           );
 
           if (result.saved) {

@@ -146,9 +146,9 @@ async function calculateTokenPnL(walletAddress: string, tokenSymbol: string) {
     // Get current price
     let currentPrice = 0;
     try {
-      const priceData = await tokenPriceService.getCurrentPrice(token.mintAddress);
-      if (priceData && priceData.priceUsd) {
-        currentPrice = priceData.priceUsd;
+      const priceData = await tokenPriceService.getTokenPrice(token.mintAddress);
+      if (priceData) {
+        currentPrice = priceData;
         console.log(`   - Current Price: $${currentPrice.toFixed(6)}`);
       }
     } catch (error) {

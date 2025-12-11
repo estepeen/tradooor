@@ -132,7 +132,7 @@ async function backfillAllEmptyWallets(hoursBack: number = 168) {
               const result = await collectorService.processQuickNodeTransaction(
                 quickNodeTx,
                 walletAddress,
-                tx.blockTime
+                tx.blockTime ?? undefined
               );
 
               walletProcessed++;

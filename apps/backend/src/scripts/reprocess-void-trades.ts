@@ -105,11 +105,11 @@ async function reprocessVoidTrades(walletAddress: string) {
       };
 
       // Process transaction with new logic
-      const result = await collectorService.processQuickNodeTransaction(
-        quickNodeTx,
-        walletAddress,
-        tx.blockTime
-      );
+          const result = await collectorService.processQuickNodeTransaction(
+            quickNodeTx,
+            walletAddress,
+            tx.blockTime ?? undefined
+          );
 
       processed++;
       if (result.saved) {
