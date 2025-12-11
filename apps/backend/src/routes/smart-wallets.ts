@@ -1862,7 +1862,11 @@ router.get('/:id/portfolio', async (req, res) => {
 router.post('/:id/recalculate-positions', async (req, res) => {
   try {
     const identifier = req.params.id;
-    const wallet = await findWalletByIdentifier(identifier);
+    // Try to find by ID first (if it's a short ID), then by address
+    let wallet = await smartWalletRepo.findById(identifier);
+    if (!wallet) {
+      wallet = await smartWalletRepo.findByAddress(identifier);
+    }
     
     if (!wallet) {
       return res.status(404).json({ error: 'Wallet not found' });
