@@ -22,7 +22,7 @@ module.exports = {
     {
       name: 'tradooor-frontend',
       script: 'pnpm',
-      args: '--filter @solbot/frontend start',
+      args: '--filter frontend start',
       cwd: '/opt/tradooor',
       env: {
         NODE_ENV: 'production',
