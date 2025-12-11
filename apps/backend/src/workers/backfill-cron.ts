@@ -239,12 +239,17 @@ async function backfillLast2Minutes() {
 
         // Recalculate positions
         const trackingStartTime = wallet.createdAt ? new Date(wallet.createdAt) : undefined;
-        const closedLots = await lotMatchingService.processTradesForWallet(
+        const { closedLots, openPositions } = await lotMatchingService.processTradesForWallet(
           walletId,
           undefined,
           trackingStartTime
         );
         await lotMatchingService.saveClosedLots(closedLots);
+        if (openPositions.length > 0) {
+          await lotMatchingService.saveOpenPositions(openPositions);
+        } else {
+          await lotMatchingService.deleteOpenPositionsForWallet(walletId);
+        }
 
         // Recalculate metrics
         await metricsCalculator.calculateMetricsForWallet(walletId);

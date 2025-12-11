@@ -43,9 +43,17 @@ function computeBackoff(attempts: number) {
 async function processMetricsJob(job: { id: string; walletId: string }) {
   console.log(`⚙️  [Worker] Processing wallet ${job.walletId}`);
 
-  // 1. Rebuild closed lots (FIFO matching)
-  const closedLots = await lotMatchingService.processTradesForWallet(job.walletId);
+  // 1. Rebuild closed lots and open positions (FIFO matching)
+  const { closedLots, openPositions } = await lotMatchingService.processTradesForWallet(job.walletId);
   await lotMatchingService.saveClosedLots(closedLots);
+  
+  // Save open positions (or delete if none)
+  if (openPositions.length > 0) {
+    await lotMatchingService.saveOpenPositions(openPositions);
+  } else {
+    // Delete all open positions for this wallet (all positions are closed)
+    await lotMatchingService.deleteOpenPositionsForWallet(job.walletId);
+  }
 
   // 2. Recalculate metrics (score, win rate, pnl, etc.)
   const metricsResult = await metricsCalculator.calculateMetricsForWallet(job.walletId);

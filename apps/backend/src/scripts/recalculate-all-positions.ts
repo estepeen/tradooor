@@ -26,7 +26,7 @@ async function recalculateAllPositions() {
       const trackingStartTime = wallet.createdAt ? new Date(wallet.createdAt) : undefined;
 
       // Process trades and create closed lots
-      const closedLots = await lotMatchingService.processTradesForWallet(
+      const { closedLots, openPositions } = await lotMatchingService.processTradesForWallet(
         wallet.id,
         undefined, // Process all tokens
         trackingStartTime
@@ -34,6 +34,11 @@ async function recalculateAllPositions() {
 
       // Save closed lots to database
       await lotMatchingService.saveClosedLots(closedLots);
+      if (openPositions.length > 0) {
+        await lotMatchingService.saveOpenPositions(openPositions);
+      } else {
+        await lotMatchingService.deleteOpenPositionsForWallet(wallet.id);
+      }
 
       totalProcessed++;
       totalClosedLots += closedLots.length;

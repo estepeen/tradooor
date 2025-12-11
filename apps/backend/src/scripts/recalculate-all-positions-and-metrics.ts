@@ -44,13 +44,18 @@ async function recalculateAllPositionsAndMetrics() {
 
       // Step 1: Recalculate positions (closed lots)
       const trackingStartTime = wallet.createdAt ? new Date(wallet.createdAt) : undefined;
-      const closedLots = await lotMatchingService.processTradesForWallet(
+      const { closedLots, openPositions } = await lotMatchingService.processTradesForWallet(
         wallet.id,
         undefined, // Process all tokens
         trackingStartTime
       );
 
       await lotMatchingService.saveClosedLots(closedLots);
+      if (openPositions.length > 0) {
+        await lotMatchingService.saveOpenPositions(openPositions);
+      } else {
+        await lotMatchingService.deleteOpenPositionsForWallet(wallet.id);
+      }
       console.log(`   ✅ Positions: ${closedLots.length} closed lots`);
 
       // Step 2: Recalculate metrics

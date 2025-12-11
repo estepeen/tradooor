@@ -638,7 +638,7 @@ export default function WalletDetailPage() {
                               <td className="px-4 py-3 text-sm">
                                 {token?.mintAddress ? (
                                   <a
-                                    href={`https://birdeye.so/token/${token.mintAddress}`}
+                                    href={`https://birdeye.so/solana/token/${token.mintAddress}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="text-white hover:opacity-80 hover:underline"

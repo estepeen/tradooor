@@ -69,14 +69,22 @@ async function calculateAllMetrics() {
         const walletData = await smartWalletRepo.findById(wallet.id);
         if (walletData) {
           const trackingStartTime = walletData.createdAt ? new Date(walletData.createdAt) : undefined;
-          const closedLots = await lotMatchingService.processTradesForWallet(
+          const { closedLots, openPositions } = await lotMatchingService.processTradesForWallet(
             wallet.id,
             undefined, // Process all tokens
             trackingStartTime
           );
           await lotMatchingService.saveClosedLots(closedLots);
+          if (openPositions.length > 0) {
+            await lotMatchingService.saveOpenPositions(openPositions);
+          } else {
+            await lotMatchingService.deleteOpenPositionsForWallet(wallet.id);
+          }
           if (closedLots.length > 0) {
             console.log(`    ✅ Created ${closedLots.length} closed lots`);
+          }
+          if (openPositions.length > 0) {
+            console.log(`    ✅ Created ${openPositions.length} open positions`);
           }
         }
         
