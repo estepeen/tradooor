@@ -1739,6 +1739,7 @@ router.get('/:id/portfolio', async (req, res) => {
         });
 
     console.log(`✅ Portfolio calculated: ${openPositions.length} open positions, ${closedPositions.length} closed positions`);
+    console.log(`   📊 [Portfolio API] Returning: openPositions=${openPositions.length}, closedPositions=${closedPositions.length}`);
     
     // DEBUG: Log 30d closed positions for PnL calculation
     const thirtyDaysAgo = new Date();
@@ -1811,6 +1812,8 @@ router.get('/:id/portfolio', async (req, res) => {
       lastUpdated: now,
       cached: false,
     };
+    
+    console.log(`   📤 [Portfolio API] Sending response with ${openPositions.length} open and ${closedPositions.length} closed positions`);
     
     // Save to PortfolioBaseline cache
     try {

@@ -134,19 +134,28 @@ export default function WalletDetailPage() {
         });
 
       // Portfolio (open/closed positions, PnL)
+      console.log('[Load Portfolio] Fetching portfolio for wallet:', actualWalletId);
       fetchWalletPortfolio(actualWalletId, false)
         .then((data) => {
+          console.log('[Load Portfolio] API Response:', {
+            hasData: !!data,
+            openPositionsCount: data?.openPositions?.length || 0,
+            closedPositionsCount: data?.closedPositions?.length || 0,
+            lastUpdated: data?.lastUpdated,
+            data: data
+          });
           if (data) {
             setPortfolio(data);
             if (data.lastUpdated) {
               setPortfolioLastUpdated(new Date(data.lastUpdated));
             }
           } else {
+            console.warn('[Load Portfolio] No data received, setting empty portfolio');
             setPortfolio({ openPositions: [], closedPositions: [] });
           }
         })
         .catch((err) => {
-          console.error('Error fetching portfolio:', err);
+          console.error('[Load Portfolio] Error fetching portfolio:', err);
           setPortfolio({ openPositions: [], closedPositions: [] });
         })
         .finally(() => {
