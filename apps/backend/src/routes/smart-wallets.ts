@@ -990,7 +990,8 @@ router.get('/:id/portfolio', async (req, res) => {
     console.log('📊 Loading precomputed portfolio positions...');
     
     // Zkus načíst closed positions z ClosedLot (precomputed worker/cron)
-    // Max 20 nejnovějších podle exitTime
+    // DŮLEŽITÉ: Načteme VŠECHNY ClosedLots, ne jen 20!
+    // Limit 20 aplikujeme až po seskupení podle sellTradeId (každý SELL = jedna closed position)
     // Nejdřív zjistíme, kolik je celkem ClosedLots v DB
     const { count: totalClosedLotsCount } = await supabase
       .from('ClosedLot')
@@ -999,17 +1000,17 @@ router.get('/:id/portfolio', async (req, res) => {
     
     console.log(`   📊 [Portfolio] Total ClosedLots in DB for wallet ${wallet.id}: ${totalClosedLotsCount || 0}`);
     
+    // Načteme VŠECHNY ClosedLots, seřazené podle exitTime (nejnovější první)
     const { data: closedLots, error: closedLotsError } = await supabase
       .from('ClosedLot')
       .select('*')
       .eq('walletId', wallet.id)
-      .order('exitTime', { ascending: false })
-      .limit(20); // Max 20 nejnovějších closed positions
+      .order('exitTime', { ascending: false }); // Bez limitu - načteme vše
     
     if (closedLots && closedLots.length > 0) {
       const oldestExitTime = closedLots[closedLots.length - 1]?.exitTime;
       const newestExitTime = closedLots[0]?.exitTime;
-      console.log(`   📅 [Portfolio] ClosedLots date range: ${newestExitTime} (newest) to ${oldestExitTime} (oldest)`);
+      console.log(`   📅 [Portfolio] ClosedLots date range: ${newestExitTime} (newest) to ${oldestExitTime} (oldest), total: ${closedLots.length}`);
     }
     
     if (closedLotsError) {
@@ -1745,15 +1746,20 @@ router.get('/:id/portfolio', async (req, res) => {
     const closedPositions = [
       ...closedPositionsFromLots
     ]
-      .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes >= 0)
+      .filter(p => {
+        // Filtruj pouze validní closed positions
+        const hasValidHoldTime = p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes >= 0;
+        const hasBuyAndSell = p.buyCount > 0 && p.sellCount > 0;
+        return hasValidHoldTime && hasBuyAndSell;
+      })
       .sort((a, b) => {
         const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
         const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
         return bTime - aTime; // Nejnovější první
       })
-      .slice(0, 20); // Zajistíme, že vrátíme max 20 nejnovějších (i když jsme už limitovali ClosedLots)
+      .slice(0, 20); // Max 20 nejnovějších closed positions
     
-    console.log(`   📊 [Portfolio] Final closed positions count: ${closedPositions.length} (after filtering and sorting)`);
+    console.log(`   📊 [Portfolio] Final closed positions count: ${closedPositions.length} (after filtering, sorting, and limiting to 20)`);
 
     console.log(`✅ Portfolio calculated: ${openPositions.length} open positions, ${closedPositions.length} closed positions`);
     console.log(`   📊 [Portfolio API] Returning: openPositions=${openPositions.length}, closedPositions=${closedPositions.length}`);
