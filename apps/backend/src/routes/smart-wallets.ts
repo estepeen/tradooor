@@ -1840,6 +1840,50 @@ router.get('/:id/portfolio', async (req, res) => {
   }
 });
 
+// POST /api/smart-wallets/:id/recalculate-positions - Manually recalculate and save positions to DB
+// Supports both ID (database ID) and address (wallet address)
+router.post('/:id/recalculate-positions', async (req, res) => {
+  try {
+    const identifier = req.params.id;
+    const wallet = await findWalletByIdentifier(identifier);
+    
+    if (!wallet) {
+      return res.status(404).json({ error: 'Wallet not found' });
+    }
+
+    console.log(`🔄 [Recalculate Positions] Starting for wallet ${wallet.id} (${wallet.address})`);
+
+    // Recalculate closed lots and open positions
+    const { closedLots, openPositions } = await lotMatchingService.processTradesForWallet(wallet.id);
+    
+    console.log(`   📊 [Recalculate Positions] Calculated: ${closedLots.length} closed lots, ${openPositions.length} open positions`);
+
+    // Save to database
+    await lotMatchingService.saveClosedLots(closedLots);
+    
+    if (openPositions.length > 0) {
+      await lotMatchingService.saveOpenPositions(openPositions);
+    } else {
+      await lotMatchingService.deleteOpenPositionsForWallet(wallet.id);
+    }
+
+    console.log(`✅ [Recalculate Positions] Saved to DB: ${closedLots.length} closed lots, ${openPositions.length} open positions`);
+
+    res.json({
+      success: true,
+      closedLotsCount: closedLots.length,
+      openPositionsCount: openPositions.length,
+      message: `Recalculated and saved ${closedLots.length} closed lots and ${openPositions.length} open positions`,
+    });
+  } catch (error: any) {
+    console.error('❌ Error recalculating positions:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error?.message || 'Unknown error',
+    });
+  }
+});
+
 // GET /api/smart-wallets/:id/pnl - Get PnL data for different time periods
 // Supports both ID (database ID) and address (wallet address)
 router.get('/:id/pnl', async (req, res) => {
