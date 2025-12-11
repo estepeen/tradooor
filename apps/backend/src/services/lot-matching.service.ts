@@ -500,33 +500,58 @@ export class LotMatchingService {
       }
 
       // Ověř, které trade IDs existují v DB
+      // Supabase .in() má limit ~1000 items, takže rozdělíme na batchy
       if (allTradeIds.size > 0) {
-        const { data: existingTrades } = await supabase
-          .from(TABLES.TRADE)
-          .select('id')
-          .in('id', Array.from(allTradeIds));
+        const tradeIdsArray = Array.from(allTradeIds);
+        const BATCH_SIZE = 500; // Bezpečný limit pro Supabase .in()
         
-        if (existingTrades) {
-          for (const trade of existingTrades) {
-            validTradeIds.add(trade.id);
+        for (let i = 0; i < tradeIdsArray.length; i += BATCH_SIZE) {
+          const batch = tradeIdsArray.slice(i, i + BATCH_SIZE);
+          const { data: existingTrades, error: checkError } = await supabase
+            .from(TABLES.TRADE)
+            .select('id')
+            .in('id', batch);
+          
+          if (checkError) {
+            console.warn(`⚠️  Error checking trade IDs existence: ${checkError.message}`);
+            // Pokud selže kontrola, nastavíme všechny na null (bezpečnější než crash)
+            continue;
+          }
+          
+          if (existingTrades) {
+            for (const trade of existingTrades) {
+              if (trade.id) {
+                validTradeIds.add(trade.id);
+              }
+            }
           }
         }
+        
+        console.log(`   ✅ Validated ${validTradeIds.size}/${allTradeIds.size} trade IDs exist in DB`);
       }
     }
 
     const dbLots = closedLots.map(lot => {
       // Validuj buyTradeId - pokud neexistuje, nastav na null
-      let buyTradeId = lot.buyTradeId === 'synthetic' ? null : lot.buyTradeId;
-      if (buyTradeId && !validTradeIds.has(buyTradeId)) {
-        console.warn(`⚠️  buyTradeId ${buyTradeId} does not exist in DB, setting to null`);
-        buyTradeId = null;
+      let buyTradeId: string | null = null;
+      if (lot.buyTradeId && lot.buyTradeId !== 'synthetic' && typeof lot.buyTradeId === 'string') {
+        if (validTradeIds.has(lot.buyTradeId)) {
+          buyTradeId = lot.buyTradeId;
+        } else {
+          console.warn(`⚠️  buyTradeId ${lot.buyTradeId} does not exist in DB, setting to null`);
+          buyTradeId = null;
+        }
       }
 
       // Validuj sellTradeId - pokud neexistuje, nastav na null
-      let sellTradeId = lot.sellTradeId === 'synthetic' ? null : lot.sellTradeId;
-      if (sellTradeId && !validTradeIds.has(sellTradeId)) {
-        console.warn(`⚠️  sellTradeId ${sellTradeId} does not exist in DB, setting to null`);
-        sellTradeId = null;
+      let sellTradeId: string | null = null;
+      if (lot.sellTradeId && lot.sellTradeId !== 'synthetic' && typeof lot.sellTradeId === 'string') {
+        if (validTradeIds.has(lot.sellTradeId)) {
+          sellTradeId = lot.sellTradeId;
+        } else {
+          console.warn(`⚠️  sellTradeId ${lot.sellTradeId} does not exist in DB, setting to null`);
+          sellTradeId = null;
+        }
       }
 
       return {
