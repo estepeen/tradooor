@@ -710,6 +710,7 @@ router.post('/sync', async (req, res) => {
       address: string;
       label?: string | null;
       tags?: string[];
+      twitterUrl?: string | null;
     }> = [];
     const validationErrors: Array<{ row: number; address: string; error: string }> = [];
 
@@ -722,6 +723,7 @@ router.post('/sync', async (req, res) => {
       const address = row.address || row.Address || row.ADDRESS || 
                       row.wallet || row.Wallet || row.WALLET || '';
       const tags = (row.tags || row.Tags || row.TAGS) ? parseTags(row.tags || row.Tags || row.TAGS) : undefined;
+      const twitterUrl = row.twitter || row.Twitter || row.TWITTER || null;
 
       if (!address) {
         validationErrors.push({
@@ -746,6 +748,7 @@ router.post('/sync', async (req, res) => {
         address: trimmedAddress,
         label: label ? label.trim() : null,
         tags: tags || [],
+        twitterUrl: twitterUrl ? twitterUrl.trim() : null,
       });
     });
 
@@ -799,15 +802,17 @@ router.post('/sync', async (req, res) => {
     for (const existingWallet of existingWallets) {
       const csvWallet = csvWalletMap.get(existingWallet.address.toLowerCase());
       if (csvWallet) {
-        // Wallet existuje v CSV i v DB - zkontroluj, jestli se změnil label nebo tags
+        // Wallet existuje v CSV i v DB - zkontroluj, jestli se změnil label, tags nebo twitterUrl
         const labelChanged = existingWallet.label !== csvWallet.label;
         const tagsChanged = JSON.stringify(existingWallet.tags || []) !== JSON.stringify(csvWallet.tags || []);
+        const twitterUrlChanged = (existingWallet.twitterUrl || null) !== (csvWallet.twitterUrl || null);
         
-        if (labelChanged || tagsChanged) {
+        if (labelChanged || tagsChanged || twitterUrlChanged) {
           try {
             await smartWalletRepo.update(existingWallet.id, {
               label: csvWallet.label ?? null,
               tags: csvWallet.tags || [],
+              twitterUrl: csvWallet.twitterUrl ?? null,
             });
             updatedCount++;
             console.log(`🔄 Updated wallet ${existingWallet.address.substring(0, 8)}...: label=${csvWallet.label || 'null'}, tags=${JSON.stringify(csvWallet.tags || [])}`);

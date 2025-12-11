@@ -17,6 +17,7 @@ model SmartWallet {
   address               String   @unique // Solana wallet address
   label                 String?  // Volitelné jméno/label (např. "Trader X", "Call channel Y")
   tags                  String[] @default([]) // Tagy pro kategorizaci (např. ["degen", "sniper", "calls"])
+  twitterUrl            String?  // Twitter/X profil URL (např. "https://x.com/username")
   
   // Metriky (průběžně přepočítávané)
   score                 Float    @default(0) // Celkové skóre kvality tradera (0-100)

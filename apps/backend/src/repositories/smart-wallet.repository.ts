@@ -24,6 +24,7 @@ export class SmartWalletRepository {
         address,
         label,
         tags,
+        twitterUrl,
         score,
         totalTrades,
         winRate,
@@ -255,6 +256,7 @@ export class SmartWalletRepository {
     address: string;
     label?: string;
     tags?: string[];
+    twitterUrl?: string | null;
   }) {
     try {
       console.log('📝 SmartWalletRepository.create - Creating wallet:', data.address);
@@ -265,6 +267,7 @@ export class SmartWalletRepository {
           address: data.address,
           label: data.label ?? null,
           tags: data.tags ?? [],
+          twitterUrl: data.twitterUrl ?? null,
         })
         .select()
         .single();
@@ -287,6 +290,7 @@ export class SmartWalletRepository {
   async update(id: string, data: Partial<{
     label: string | null;
     tags: string[];
+    twitterUrl: string | null;
     score: number;
     totalTrades: number;
     winRate: number;
@@ -365,6 +369,7 @@ export class SmartWalletRepository {
     address: string;
     label?: string | null;
     tags?: string[];
+    twitterUrl?: string | null;
   }>) {
     if (wallets.length === 0) {
       return { created: [], errors: [] };
@@ -419,6 +424,7 @@ export class SmartWalletRepository {
       address: w.address,
       label: w.label ?? null,
       tags: w.tags ?? [],
+      twitterUrl: w.twitterUrl ?? null,
     }));
 
     // Batch insert - handle potential duplicates gracefully
@@ -443,6 +449,7 @@ export class SmartWalletRepository {
                 address: wallet.address,
                 label: wallet.label ?? null,
                 tags: wallet.tags ?? [],
+                twitterUrl: wallet.twitterUrl ?? null,
               })
               .select()
               .single();
