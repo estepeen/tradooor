@@ -49,11 +49,7 @@ const tokenMetadataBatchService = new TokenMetadataBatchService(heliusClient, to
 let heliusWebhookService: HeliusWebhookService | null = null;
 
 // Helius webhook service disabled - using QuickNode webhooks only
-// try {
-//   heliusWebhookService = new HeliusWebhookService();
-// } catch (error: any) {
-//   console.warn('⚠️  Helius webhook service not available:', error.message);
-// }
+// heliusWebhookService remains null - all Helius features disabled
 
 const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
 
