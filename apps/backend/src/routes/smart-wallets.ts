@@ -1008,15 +1008,27 @@ router.get('/:id/portfolio', async (req, res) => {
     }
     
     // OPTIMALIZACE: Načti open positions z DB místo přepočítávání z trades
-    const { data: openPositionsFromDb, error: openPositionsError } = await supabase
-      .from('OpenPosition')
-      .select('*')
-      .eq('walletId', wallet.id);
-    
-    if (openPositionsError) {
-      console.warn(`⚠️  Failed to fetch OpenPositions for wallet ${wallet.id}:`, openPositionsError.message);
-    } else {
-      console.log(`   📊 [Portfolio] Loaded ${openPositionsFromDb?.length || 0} OpenPositions from DB for wallet ${wallet.id}`);
+    let openPositionsFromDb: any[] = [];
+    try {
+      const { data, error: openPositionsError } = await supabase
+        .from('OpenPosition')
+        .select('*')
+        .eq('walletId', wallet.id);
+      
+      if (openPositionsError) {
+        console.warn(`⚠️  Failed to fetch OpenPositions for wallet ${wallet.id}:`, openPositionsError.message);
+        console.warn(`   💡 Tip: Make sure OpenPosition table exists. Run ADD_OPEN_POSITIONS.sql migration if needed.`);
+        // Pokračuj bez open positions z DB - použijeme starý způsob (z trades)
+        openPositionsFromDb = [];
+      } else {
+        openPositionsFromDb = data || [];
+        console.log(`   📊 [Portfolio] Loaded ${openPositionsFromDb.length} OpenPositions from DB for wallet ${wallet.id}`);
+      }
+    } catch (error: any) {
+      console.error(`❌ Error fetching OpenPositions:`, error?.message || error);
+      console.warn(`   💡 Tip: OpenPosition table might not exist. Run ADD_OPEN_POSITIONS.sql migration.`);
+      // Pokračuj bez open positions z DB - použijeme starý způsob (z trades)
+      openPositionsFromDb = [];
     }
     
     // Get trades only for USD ratio calculation (not for open positions calculation)
@@ -1312,7 +1324,7 @@ router.get('/:id/portfolio', async (req, res) => {
         const price = currentPrices.get(mintAddress.toLowerCase());
         if (price !== undefined) {
           priceMap.set(pos.tokenId, price);
-        }
+      }
       }
     });
 
@@ -1320,7 +1332,7 @@ router.get('/:id/portfolio', async (req, res) => {
     // FIFO se používá jen pro closed positions metadata (pokud není ClosedLot)
     // Pro open positions použijeme totalCostBase z DB
     const fifoCostMap = new Map<string, number>();
-    
+          
     // Pro open positions z DB použijeme totalCostBase přímo (už je v base měně)
     // Pro closed positions metadata použijeme FIFO (pokud není ClosedLot)
     // FIFO výpočet pro closed positions metadata (pokud není ClosedLot) - přeskočíme, protože closed positions se počítají z ClosedLot
