@@ -22,14 +22,14 @@ cd /opt/tradooor/apps/backend
 if node -e "
 require('dotenv').config();
 const { Connection } = require('@solana/web3.js');
-const rpc = process.env.QUICKNODE_RPC_URL;
-if (!rpc) { console.error('❌ QUICKNODE_RPC_URL not set'); process.exit(1); }
+const rpc = process.env.QUICKNODE_RPC_URL || process.env.SOLANA_RPC_URL;
+if (!rpc) { console.error('⚠️  QUICKNODE_RPC_URL or SOLANA_RPC_URL not set'); process.exit(1); }
 const conn = new Connection(rpc, 'confirmed');
-conn.getSlot().then(slot => { console.log('✅ QuickNode RPC works! Slot:', slot); process.exit(0); }).catch(e => { console.error('❌ RPC error:', e.message); process.exit(1); });
+conn.getSlot().then(slot => { console.log('✅ RPC works! Slot:', slot); process.exit(0); }).catch(e => { console.error('❌ RPC error:', e.message); process.exit(1); });
 " 2>&1; then
   echo "   ✅ QuickNode RPC works!"
 else
-  echo "   ❌ QuickNode RPC failed"
+  echo "   ⚠️  QuickNode RPC not configured (QUICKNODE_RPC_URL or SOLANA_RPC_URL missing)"
 fi
 echo ""
 
