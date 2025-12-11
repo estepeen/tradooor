@@ -654,8 +654,9 @@ export default function Home() {
               <div>
                 Synchronization successful! 
                 {syncSuccess.created > 0 && ` Created: ${syncSuccess.created}`}
-                {syncSuccess.errors > 0 && ` Errors: ${syncSuccess.errors}`}
+                {syncSuccess.updated && syncSuccess.updated > 0 && ` Updated: ${syncSuccess.updated}`}
                 {syncSuccess.removed && syncSuccess.removed > 0 && ` Removed: ${syncSuccess.removed}`}
+                {syncSuccess.errors > 0 && ` Errors: ${syncSuccess.errors}`}
               </div>
               <button
                 onClick={() => setSyncSuccess(null)}
