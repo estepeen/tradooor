@@ -144,11 +144,11 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
     const MIN_USD = 1;
     const positions: Position[] = [];
 
-    // Helius RPC connection
+    // QuickNode RPC connection (prefer QuickNode over Helius for consistency)
     const rpcUrl =
-      process.env.HELIUS_RPC_URL ||
-      process.env.HELIUS_API ||
+      process.env.QUICKNODE_RPC_URL ||
       process.env.SOLANA_RPC_URL ||
+      process.env.HELIUS_RPC_URL ||
       'https://api.mainnet-beta.solana.com';
     const connection = new Connection(rpcUrl, 'confirmed');
     const owner = new PublicKey(wallet.address);
