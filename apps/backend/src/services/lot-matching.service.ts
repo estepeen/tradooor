@@ -43,20 +43,6 @@ interface ClosedLot {
   sequenceNumber?: number; // Kolikátý BUY-SELL cyklus pro tento token (1., 2., 3. atd.)
 }
 
-interface OpenPosition {
-  walletId: string;
-  tokenId: string;
-  balance: number; // Current token balance (sum of remaining open lots)
-  totalCostBase: number; // Total cost basis in base currency
-  averageBuyPrice: number; // Weighted average entry price
-  firstBuyTimestamp: Date | null; // When the position was first opened
-  lastTradeTimestamp: Date | null; // When the position was last updated
-  buyCount: number; // Number of BUY/ADD trades
-  sellCount: number; // Number of SELL trades (partial sells)
-  removeCount: number; // Number of REM trades
-  baseToken: string; // Base token used (SOL, USDC, USDT)
-}
-
 type RealizedAggregate = {
   totalPnl: number;
   totalCost: number;
@@ -72,7 +58,6 @@ export class LotMatchingService {
   }
   /**
    * Process trades and create closed lots using FIFO matching
-   * Also returns open positions (remaining lots)
    * 
    * @param walletId - Wallet ID
    * @param tokenId - Token ID (optional, if not provided, processes all tokens)
@@ -82,49 +67,27 @@ export class LotMatchingService {
     walletId: string,
     tokenId?: string,
     trackingStartTime?: Date
-  ): Promise<{ closedLots: ClosedLot[]; openPositions: OpenPosition[] }> {
-    // DŮLEŽITÉ: Timeout protection pro načítání trades - prevence zasekávání
-    const TRADES_FETCH_TIMEOUT_MS = 60000; // 60 sekund
-    
-    const fetchTradesPromise = (async () => {
-      let query = supabase
-        .from(TABLES.TRADE)
-        .select('*')
-        .eq('walletId', walletId)
-        .order('timestamp', { ascending: true });
+  ): Promise<ClosedLot[]> {
+    // Get all trades for this wallet (and token if specified)
+    let query = supabase
+      .from(TABLES.TRADE)
+      .select('*')
+      .eq('walletId', walletId)
+      .order('timestamp', { ascending: true });
 
-      if (tokenId) {
-        query = query.eq('tokenId', tokenId);
-      }
+    if (tokenId) {
+      query = query.eq('tokenId', tokenId);
+    }
 
-      const { data: trades, error } = await query;
-      
-      if (error) {
-        throw new Error(`Failed to fetch trades: ${error.message}`);
-      }
-      
-      return trades;
-    })();
-    
-    const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Trades fetch timeout')), TRADES_FETCH_TIMEOUT_MS)
-    );
-    
-    let trades;
-    try {
-      trades = await Promise.race([fetchTradesPromise, timeoutPromise]) as any[];
-    } catch (error: any) {
-      if (error.message === 'Trades fetch timeout') {
-        throw new Error(`Failed to fetch trades: timeout after ${TRADES_FETCH_TIMEOUT_MS}ms. This wallet may have too many trades.`);
-      }
-      throw error;
+    const { data: trades, error } = await query;
+
+    if (error) {
+      throw new Error(`Failed to fetch trades: ${error.message}`);
     }
 
     if (!trades || trades.length === 0) {
-      return { closedLots: [], openPositions: [] };
+      return [];
     }
-    
-    console.log(`   📊 Processing ${trades.length} trades for wallet ${walletId.substring(0, 8)}...`);
 
     // Group trades by token
     const tradesByToken = new Map<string, typeof trades>();
@@ -137,25 +100,20 @@ export class LotMatchingService {
     }
 
     const allClosedLots: ClosedLot[] = [];
-    const allOpenPositions: OpenPosition[] = [];
     const tokensWithoutClosedLots = new Set<string>();
 
     // Process each token separately
     for (const [tid, tokenTrades] of tradesByToken.entries()) {
-      const result = this.processTradesForToken(
+      const closedLots = this.processTradesForToken(
         walletId,
         tid,
         tokenTrades,
         trackingStartTime
       );
-      if (result.closedLots.length === 0) {
+      if (closedLots.length === 0) {
         tokensWithoutClosedLots.add(tid);
       } else {
-        allClosedLots.push(...result.closedLots);
-      }
-      // Add open position if balance > 0
-      if (result.openPosition && result.openPosition.balance > 0) {
-        allOpenPositions.push(result.openPosition);
+      allClosedLots.push(...closedLots);
       }
     }
 
@@ -173,19 +131,18 @@ export class LotMatchingService {
       }
     }
 
-    return { closedLots: allClosedLots, openPositions: allOpenPositions };
+    return allClosedLots;
   }
 
   /**
    * Process trades for a single token using FIFO matching
-   * Returns both closed lots and open position (if any)
    */
   private processTradesForToken(
     walletId: string,
     tokenId: string,
     trades: any[],
     trackingStartTime?: Date
-  ): { closedLots: ClosedLot[]; openPosition: OpenPosition | null } {
+  ): ClosedLot[] {
     const openLots: Lot[] = [];
     const closedLots: ClosedLot[] = [];
     let sequenceNumber = 0; // Počítadlo BUY-SELL cyklů pro tento token
@@ -451,50 +408,7 @@ export class LotMatchingService {
       }
     }
 
-    // Create open position from remaining open lots
-    let openPosition: OpenPosition | null = null;
-    if (openLots.length > 0) {
-      const remainingBalance = openLots.reduce((sum, lot) => sum + lot.remainingSize, 0);
-      if (remainingBalance > 0) {
-        const totalCostBasis = openLots.reduce((sum, lot) => sum + (lot.remainingSize * lot.entryPrice), 0);
-        const averageBuyPrice = remainingBalance > 0 ? totalCostBasis / remainingBalance : 0;
-        const firstBuyTime = openLots[0]?.entryTime || null;
-        const lastTrade = trades.length > 0 ? trades[trades.length - 1] : null;
-        const lastTradeTime = lastTrade ? new Date(lastTrade.timestamp) : null;
-        
-        // Count trade types
-        let buyCount = 0;
-        let sellCount = 0;
-        let removeCount = 0;
-        for (const trade of trades) {
-          const side = (trade.side || '').toLowerCase();
-          if (side === 'buy' || side === 'add') buyCount++;
-          else if (side === 'sell') sellCount++;
-          else if (side === 'remove') removeCount++;
-        }
-        
-        // Get base token from first trade
-        const baseToken = trades.length > 0 
-          ? ((trades[0] as any).meta?.baseToken || 'SOL').toUpperCase()
-          : 'SOL';
-        
-        openPosition = {
-          walletId,
-          tokenId,
-          balance: remainingBalance,
-          totalCostBase: totalCostBasis,
-          averageBuyPrice,
-          firstBuyTimestamp: firstBuyTime,
-          lastTradeTimestamp: lastTradeTime,
-          buyCount,
-          sellCount,
-          removeCount,
-          baseToken,
-        };
-      }
-    }
-
-    return { closedLots, openPosition };
+    return closedLots;
   }
 
   /**
@@ -507,109 +421,7 @@ export class LotMatchingService {
 
     // Convert to database format
     // DŮLEŽITÉ: PnL je nyní v SOL/base měně, ne v USD
-    // DŮLEŽITÉ: Validujeme, že trade IDs existují v DB před uložením
-    const validTradeIds = new Set<string>();
-    if (closedLots.length > 0) {
-      // Získej všechny unikátní trade IDs
-      const allTradeIds = new Set<string>();
-      for (const lot of closedLots) {
-        if (lot.buyTradeId && lot.buyTradeId !== 'synthetic') {
-          allTradeIds.add(lot.buyTradeId);
-        }
-        if (lot.sellTradeId && lot.sellTradeId !== 'synthetic') {
-          allTradeIds.add(lot.sellTradeId);
-        }
-      }
-
-      // Ověř, které trade IDs existují v DB
-      // Supabase .in() má limit ~1000 items, takže rozdělíme na batchy
-      // DŮLEŽITÉ: Přidán timeout protection a lepší error handling pro prevenci zasekávání
-      if (allTradeIds.size > 0) {
-        const tradeIdsArray = Array.from(allTradeIds);
-        const BATCH_SIZE = 500; // Bezpečný limit pro Supabase .in()
-        const VALIDATION_TIMEOUT_MS = 30000; // 30 sekund timeout pro celou validaci
-        const BATCH_TIMEOUT_MS = 5000; // 5 sekund timeout pro každý batch
-        
-        const validationStartTime = Date.now();
-        let processedBatches = 0;
-        
-        for (let i = 0; i < tradeIdsArray.length; i += BATCH_SIZE) {
-          // Kontrola celkového timeoutu
-          if (Date.now() - validationStartTime > VALIDATION_TIMEOUT_MS) {
-            console.warn(`⚠️  Trade ID validation timeout after ${VALIDATION_TIMEOUT_MS}ms. Processed ${processedBatches} batches, skipping remaining ${Math.ceil((tradeIdsArray.length - i) / BATCH_SIZE)} batches.`);
-            break;
-          }
-          
-          const batch = tradeIdsArray.slice(i, i + BATCH_SIZE);
-          
-          try {
-            // Timeout protection pro každý batch
-            const batchPromise = supabase
-              .from(TABLES.TRADE)
-              .select('id')
-              .in('id', batch);
-            
-            const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Batch timeout')), BATCH_TIMEOUT_MS)
-            );
-            
-            const { data: existingTrades, error: checkError } = await Promise.race([
-              batchPromise,
-              timeoutPromise
-            ]) as any;
-            
-            if (checkError) {
-              console.warn(`⚠️  Error checking trade IDs existence (batch ${processedBatches + 1}): ${checkError.message}`);
-              // Pokud selže kontrola, nastavíme všechny na null (bezpečnější než crash)
-              continue;
-            }
-            
-            if (existingTrades) {
-              for (const trade of existingTrades) {
-                if (trade.id) {
-                  validTradeIds.add(trade.id);
-                }
-              }
-            }
-            
-            processedBatches++;
-          } catch (error: any) {
-            if (error.message === 'Batch timeout') {
-              console.warn(`⚠️  Batch ${processedBatches + 1} timed out after ${BATCH_TIMEOUT_MS}ms. Skipping this batch.`);
-              continue;
-            }
-            console.warn(`⚠️  Unexpected error validating trade IDs (batch ${processedBatches + 1}):`, error?.message || error);
-            continue;
-          }
-        }
-        
-        console.log(`   ✅ Validated ${validTradeIds.size}/${allTradeIds.size} trade IDs exist in DB (processed ${processedBatches} batches)`);
-      }
-    }
-
     const dbLots = closedLots.map(lot => {
-      // Validuj buyTradeId - pokud neexistuje, nastav na null
-      let buyTradeId: string | null = null;
-      if (lot.buyTradeId && lot.buyTradeId !== 'synthetic' && typeof lot.buyTradeId === 'string') {
-        if (validTradeIds.has(lot.buyTradeId)) {
-          buyTradeId = lot.buyTradeId;
-        } else {
-          console.warn(`⚠️  buyTradeId ${lot.buyTradeId} does not exist in DB, setting to null`);
-          buyTradeId = null;
-        }
-      }
-
-      // Validuj sellTradeId - pokud neexistuje, nastav na null
-      let sellTradeId: string | null = null;
-      if (lot.sellTradeId && lot.sellTradeId !== 'synthetic' && typeof lot.sellTradeId === 'string') {
-        if (validTradeIds.has(lot.sellTradeId)) {
-          sellTradeId = lot.sellTradeId;
-        } else {
-          console.warn(`⚠️  sellTradeId ${lot.sellTradeId} does not exist in DB, setting to null`);
-          sellTradeId = null;
-        }
-      }
-
       return {
         walletId: lot.walletId,
         tokenId: lot.tokenId,
@@ -624,8 +436,8 @@ export class LotMatchingService {
         realizedPnl: lot.realizedPnl.toString(), // PnL v SOL/base měně (primární hodnota)
         realizedPnlPercent: lot.realizedPnlPercent.toString(),
         realizedPnlUsd: null, // Nepoužíváme USD, PnL je v SOL (zůstává v DB pro zpětnou kompatibilitu)
-        buyTradeId,
-        sellTradeId,
+        buyTradeId: lot.buyTradeId === 'synthetic' ? null : lot.buyTradeId,
+        sellTradeId: lot.sellTradeId,
         isPreHistory: lot.isPreHistory,
         costKnown: lot.costKnown,
         sequenceNumber: lot.sequenceNumber ?? null, // Kolikátý BUY-SELL cyklus (1., 2., 3. atd.)
@@ -663,89 +475,6 @@ export class LotMatchingService {
     await this.updateTradeFeatureMetrics(closedLots);
 
     console.log(`✅ Saved ${closedLots.length} closed lots to database`);
-  }
-
-  /**
-   * Save open positions to database
-   */
-  async saveOpenPositions(openPositions: OpenPosition[]): Promise<void> {
-    if (openPositions.length === 0) {
-      // If no open positions, delete all existing ones for this wallet
-      if (openPositions.length === 0) {
-        // This will be handled by the caller with walletId
-        return;
-      }
-    }
-
-    // Convert to database format
-    const dbPositions = openPositions.map(pos => {
-      return {
-        walletId: pos.walletId,
-        tokenId: pos.tokenId,
-        balance: pos.balance.toString(),
-        totalCostBase: pos.totalCostBase.toString(),
-        averageBuyPrice: pos.averageBuyPrice.toString(),
-        firstBuyTimestamp: pos.firstBuyTimestamp?.toISOString() || null,
-        lastTradeTimestamp: pos.lastTradeTimestamp?.toISOString() || null,
-        buyCount: pos.buyCount,
-        sellCount: pos.sellCount,
-        removeCount: pos.removeCount,
-        baseToken: pos.baseToken,
-      };
-    });
-
-    // Upsert open positions (update if exists, insert if not)
-    // First, delete all existing open positions for wallets/tokens we're updating
-    if (openPositions.length > 0) {
-      const walletId = openPositions[0].walletId;
-      const tokenIds = [...new Set(openPositions.map(p => p.tokenId))];
-
-      // Delete existing open positions for these tokens
-      const { error: deleteError } = await supabase
-        .from('OpenPosition')
-        .delete()
-        .eq('walletId', walletId)
-        .in('tokenId', tokenIds);
-
-      if (deleteError) {
-        console.warn('⚠️ Failed to delete existing open positions:', deleteError.message);
-      }
-    }
-
-    // Insert new open positions
-    if (dbPositions.length > 0) {
-      const { error: insertError } = await supabase
-        .from('OpenPosition')
-        .insert(dbPositions);
-
-      if (insertError) {
-        throw new Error(`Failed to save open positions: ${insertError.message}`);
-      }
-
-      console.log(`✅ Saved ${openPositions.length} open positions to database`);
-    }
-  }
-
-  /**
-   * Delete all open positions for a wallet (when all positions are closed)
-   */
-  async deleteOpenPositionsForWallet(walletId: string, tokenIds?: string[]): Promise<void> {
-    let query = supabase
-      .from('OpenPosition')
-      .delete()
-      .eq('walletId', walletId);
-
-    if (tokenIds && tokenIds.length > 0) {
-      query = query.in('tokenId', tokenIds);
-    }
-
-    const { error } = await query;
-
-    if (error) {
-      console.warn(`⚠️ Failed to delete open positions for wallet ${walletId}:`, error.message);
-    } else {
-      console.log(`✅ Deleted open positions for wallet ${walletId}`);
-    }
   }
 
   private async updateTradeFeatureMetrics(closedLots: ClosedLot[]) {

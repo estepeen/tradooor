@@ -48,8 +48,12 @@ const heliusClient = new HeliusClient();
 const tokenMetadataBatchService = new TokenMetadataBatchService(heliusClient, tokenRepo);
 let heliusWebhookService: HeliusWebhookService | null = null;
 
-// Helius webhook service disabled - using QuickNode webhooks only
-// heliusWebhookService remains null - all Helius features disabled
+// Initialize webhook service (if Helius API key is available)
+try {
+  heliusWebhookService = new HeliusWebhookService();
+} catch (error: any) {
+  console.warn('⚠️  Helius webhook service not available:', error.message);
+}
 
 const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
 
@@ -113,7 +117,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/smart-wallets/:id/portfolio/refresh - Fetch live portfolio using QuickNode RPC
+// GET /api/smart-wallets/:id/portfolio/refresh - Fetch live portfolio using Helius RPC (recommended)
 // Supports both ID (database ID) and address (wallet address)
 router.get('/:id/portfolio/refresh', async (req, res) => {
   try {
@@ -140,11 +144,11 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
     const MIN_USD = 1;
     const positions: Position[] = [];
 
-    // QuickNode RPC connection (prefer QuickNode over Helius for consistency)
+    // Helius RPC connection
     const rpcUrl =
-      process.env.QUICKNODE_RPC_URL ||
-      process.env.SOLANA_RPC_URL ||
       process.env.HELIUS_RPC_URL ||
+      process.env.HELIUS_API ||
+      process.env.SOLANA_RPC_URL ||
       'https://api.mainnet-beta.solana.com';
     const connection = new Connection(rpcUrl, 'confirmed');
     const owner = new PublicKey(wallet.address);
@@ -916,7 +920,7 @@ router.get('/:id/portfolio', async (req, res) => {
     }
     
     // Zkontroluj cache v PortfolioBaseline
-    const CACHE_DURATION_MS = 30 * 60 * 1000; // 30 minut (zvýšeno z 10 minut pro lepší výkon)
+    const CACHE_DURATION_MS = 10 * 60 * 1000; // 10 minut
     let shouldRefresh = forceRefresh;
     let cachedData: any = null;
     
@@ -944,60 +948,18 @@ router.get('/:id/portfolio', async (req, res) => {
     }
     
     // Pokud máme platný cache a není to force refresh, vrať cache
-    // DŮLEŽITÉ: Closed positions se vždy načítají z ClosedLot (aktuální data)
-    // Open positions můžou být z cache, ale pokud je cache starý, přepočítáme
     if (cachedData && !shouldRefresh) {
       const cachedHoldings = cachedData.holdings || {};
-      // Vždy načti closed positions z ClosedLot (aktuální data z DB)
-      // DŮLEŽITÉ: Timeout protection pro načítání closed lots - prevence zasekávání
-      const CACHED_CLOSED_LOTS_FETCH_TIMEOUT_MS = 30000; // 30 sekund pro cached data
-      
-      let closedLotsFromDb: any[] = [];
-      try {
-        const fetchPromise = supabase
-          .from('ClosedLot')
-          .select('*')
-          .eq('walletId', wallet.id)
-          .order('exitTime', { ascending: false })
-          .limit(1000);
-        
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Cached closed lots fetch timeout')), CACHED_CLOSED_LOTS_FETCH_TIMEOUT_MS)
-        );
-        
-        const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
-        closedLotsFromDb = result.data || [];
-      } catch (error: any) {
-        if (error.message === 'Cached closed lots fetch timeout') {
-          console.warn(`⚠️  Timeout fetching cached closed lots for wallet ${wallet.id} after ${CACHED_CLOSED_LOTS_FETCH_TIMEOUT_MS}ms`);
-          closedLotsFromDb = []; // Fallback: prázdné pole
-        } else {
-          throw error;
-        }
-      }
-      
-      // Použij open positions z cache (rychlé)
-      const cachedOpenPositions = cachedHoldings.openPositions || cachedHoldings.portfolio || [];
-      
-      // Closed positions vždy z ClosedLot (aktuální data)
-      // Pokud máme ClosedLot, použijeme je místo cache
-      let closedPositionsFromCache = (cachedHoldings.closedPositions || []).filter((p: any) => {
+      // Filtruj closed positions z cache - pouze ty s platným HOLD time
+      const cachedClosedPositions = (cachedHoldings.closedPositions || []).filter((p: any) => {
         return p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes > 0;
       });
-      
-      // Pokud máme ClosedLot v DB, použijeme je (aktuálnější než cache)
-      if (closedLotsFromDb && closedLotsFromDb.length > 0) {
-        // Closed positions se načtou později z ClosedLot (viz níže)
-        closedPositionsFromCache = [];
-      }
-      
       return res.json({
-        portfolio: cachedOpenPositions,
-        openPositions: cachedOpenPositions,
-        closedPositions: closedPositionsFromCache, // Pokud nemáme ClosedLot, použij cache
+        portfolio: cachedHoldings.portfolio || cachedHoldings.openPositions || [],
+        openPositions: cachedHoldings.openPositions || cachedHoldings.portfolio || [],
+        closedPositions: cachedClosedPositions,
         lastUpdated: cachedData.updatedAt,
         cached: true,
-        // Poznámka: pokud máme ClosedLot, closed positions se načtou při dalším refresh
       });
     }
     
@@ -1010,52 +972,12 @@ router.get('/:id/portfolio', async (req, res) => {
     console.log('📊 Loading precomputed portfolio positions...');
     
     // Zkus načíst closed positions z ClosedLot (precomputed worker/cron)
-    // DŮLEŽITÉ: Načteme VŠECHNY ClosedLots, ne jen 20!
-    // Limit 20 aplikujeme až po seskupení podle sellTradeId (každý SELL = jedna closed position)
-    // Nejdřív zjistíme, kolik je celkem ClosedLots v DB
-    const { count: totalClosedLotsCount } = await supabase
+    const { data: closedLots, error: closedLotsError } = await supabase
       .from('ClosedLot')
-      .select('*', { count: 'exact', head: true })
-      .eq('walletId', wallet.id);
-    
-    console.log(`   📊 [Portfolio] Total ClosedLots in DB for wallet ${wallet.id}: ${totalClosedLotsCount || 0}`);
-    
-    // Načteme VŠECHNY ClosedLots, seřazené podle exitTime (nejnovější první)
-    // DŮLEŽITÉ: Timeout protection pro načítání closed lots - prevence zasekávání
-    const CLOSED_LOTS_FETCH_TIMEOUT_MS = 60000; // 60 sekund
-    
-    let closedLots: any[] = [];
-    let closedLotsError: any = null;
-    
-    try {
-      const fetchPromise = supabase
-        .from('ClosedLot')
-        .select('*')
-        .eq('walletId', wallet.id)
-        .order('exitTime', { ascending: false }); // Bez limitu - načteme vše
-      
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Closed lots fetch timeout')), CLOSED_LOTS_FETCH_TIMEOUT_MS)
-      );
-      
-      const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
-      closedLots = result.data || [];
-      closedLotsError = result.error || null;
-    } catch (error: any) {
-      if (error.message === 'Closed lots fetch timeout') {
-        console.error(`⚠️  Timeout fetching closed lots for wallet ${wallet.id} after ${CLOSED_LOTS_FETCH_TIMEOUT_MS}ms`);
-        closedLotsError = { message: `Timeout after ${CLOSED_LOTS_FETCH_TIMEOUT_MS}ms` };
-        closedLots = []; // Fallback: prázdné pole, aby endpoint necrashl
-      } else {
-        throw error;
-      }
-    }
-    
-    if (closedLots && closedLots.length > 0) {
-      const oldestExitTime = closedLots[closedLots.length - 1]?.exitTime;
-      const newestExitTime = closedLots[0]?.exitTime;
-      console.log(`   📅 [Portfolio] ClosedLots date range: ${newestExitTime} (newest) to ${oldestExitTime} (oldest), total: ${closedLots.length}`);
-    }
+      .select('*')
+      .eq('walletId', wallet.id)
+      .order('exitTime', { ascending: false })
+      .limit(1000); // Limit pro rychlost
     
     if (closedLotsError) {
       console.warn(`⚠️  Failed to fetch ClosedLots for wallet ${wallet.id}:`, closedLotsError.message);
@@ -1063,34 +985,11 @@ router.get('/:id/portfolio', async (req, res) => {
       console.log(`   📊 [Portfolio] Loaded ${closedLots?.length || 0} ClosedLots for wallet ${wallet.id}`);
     }
     
-    // OPTIMALIZACE: Načti open positions z DB místo přepočítávání z trades
-    // Max 20 nejnovějších podle lastTradeTimestamp
-    let openPositionsFromDb: any[] = [];
-    try {
-      const { data, error: openPositionsError } = await supabase
-        .from('OpenPosition')
-        .select('*')
-        .eq('walletId', wallet.id)
-        .order('lastTradeTimestamp', { ascending: false })
-        .limit(20); // Max 20 nejnovějších open positions
-      
-      if (openPositionsError) {
-        console.warn(`⚠️  Failed to fetch OpenPositions for wallet ${wallet.id}:`, openPositionsError.message);
-        console.warn(`   💡 Tip: Make sure OpenPosition table exists. Run ADD_OPEN_POSITIONS.sql migration if needed.`);
-        // Pokud se nepodaří načíst z DB, open positions budou prázdné (žádný fallback na přepočítávání z trades)
-        openPositionsFromDb = [];
-      } else {
-        openPositionsFromDb = data || [];
-        console.log(`   📊 [Portfolio] Loaded ${openPositionsFromDb.length} OpenPositions from DB for wallet ${wallet.id}`);
-      }
-    } catch (error: any) {
-      console.error(`❌ Error fetching OpenPositions:`, error?.message || error);
-      console.warn(`   💡 Tip: OpenPosition table might not exist. Run ADD_OPEN_POSITIONS.sql migration.`);
-      // Pokud se nepodaří načíst z DB, open positions budou prázdné (žádný fallback na přepočítávání z trades)
-      openPositionsFromDb = [];
-    }
-    
-    // Get trades only for USD ratio calculation (not for open positions calculation)
+    // Get all trades for this wallet with token info (pouze pro open positions)
+    const allTrades = await tradeRepo.findByWalletId(wallet.id, {
+      page: 1,
+      pageSize: 10000, // Get all trades for open positions calculation
+    });
     const allTradesForRatios = await tradeRepo.findAllForMetrics(wallet.id);
 
     // Map tradeId -> USD per base unit (used later for closed position USD conversion)
@@ -1123,18 +1022,7 @@ router.get('/:id/portfolio', async (req, res) => {
       }
     }
 
-    // OPTIMALIZACE: Použij open positions z DB místo přepočítávání z trades
-    // Open positions jsou precomputed a uložené v DB při každém trade
-    const openPositionsFromDbMap = new Map<string, any>();
-    if (openPositionsFromDb && openPositionsFromDb.length > 0) {
-      for (const pos of openPositionsFromDb) {
-        openPositionsFromDbMap.set(pos.tokenId, pos);
-      }
-      console.log(`   ✅ Using ${openPositionsFromDb.length} open positions from DB (fast!)`);
-    }
-
-    // Portfolio map se používá jen pro closed positions metadata (pokud není ClosedLot)
-    // Open positions se načtou přímo z DB
+    // Calculate portfolio positions
     const portfolioMap = new Map<string, {
       tokenId: string;
       token: any;
@@ -1156,23 +1044,7 @@ router.get('/:id/portfolio', async (req, res) => {
       baseToken: string; // Base token used (SOL, USDC, USDT)
     }>();
 
-    // Pro closed positions metadata (pokud není ClosedLot) - stále potřebujeme portfolioMap
-    // Ale pro open positions použijeme openPositionsFromDb (rychlejší!)
-    // PortfolioMap se používá jen pro výpočet closed positions metadata (pokud není ClosedLot)
-    // OPTIMALIZACE: Pro open positions NEPOČÍTÁME z trades - použijeme openPositionsFromDb
-    // Pro closed positions metadata stále potřebujeme portfolioMap (pokud není ClosedLot)
-    // Ale můžeme přeskočit trades pro tokeny, které už máme v openPositionsFromDb
-    const allTradesForClosedPositions = await tradeRepo.findByWalletId(wallet.id, {
-      page: 1,
-      pageSize: 10000, // Get all trades for closed positions metadata
-    });
-
-    for (const trade of allTradesForClosedPositions.trades) {
-      // Skip trades for tokens that are in open positions (we have them in DB)
-      if (openPositionsFromDbMap.has(trade.tokenId)) {
-        continue; // Skip - open position is already in DB
-      }
-      
+    for (const trade of allTrades.trades) {
       // DŮLEŽITÉ: Vyloučit void trades (token-to-token swapy, ADD/REMOVE LIQUIDITY) z open/closed positions
       const side = (trade.side || '').toLowerCase();
       if (side === 'void') {
@@ -1262,11 +1134,7 @@ router.get('/:id/portfolio', async (req, res) => {
     }
 
     // Fetch current token data from database for all unique tokenIds
-    // Include both open positions from DB and any positions from portfolioMap (closed positions)
-    const openPositionTokenIds = openPositionsFromDb ? openPositionsFromDb.map((p: any) => p.tokenId) : [];
-    const portfolioMapTokenIds = Array.from(portfolioMap.keys());
-    const uniqueTokenIds = [...new Set([...openPositionTokenIds, ...portfolioMapTokenIds])];
-    
+    const uniqueTokenIds = Array.from(portfolioMap.keys());
     const { data: tokens, error: tokensError } = await supabase
       .from(TABLES.TOKEN)
       .select('*')
@@ -1346,11 +1214,10 @@ router.get('/:id/portfolio', async (req, res) => {
 
     // Fetch prices ONLY for open positions (balance > 0)
     // Closed positions don't need current prices
-    // OPTIMALIZACE: Použij open positions z DB
-    const openPositionsMints = (openPositionsFromDb || [])
-      .filter((p: any) => Number(p.balance) > 0)
-      .map((pos: any) => {
-        const token = tokenDataMap.get(pos.tokenId);
+    const openPositionsMints = Array.from(portfolioMap.values())
+      .filter(p => p.balance > 0)
+      .map(position => {
+        const token = tokenDataMap.get(position.tokenId) || position.token;
         return token?.mintAddress;
       })
       .filter(Boolean) as string[];
@@ -1368,33 +1235,94 @@ router.get('/:id/portfolio', async (req, res) => {
     }
     
     const priceMap = new Map<string, number>();
-    // Add prices for tokens from portfolioMap (closed positions metadata)
     tokensWithMintAddresses.forEach(({ tokenId, mintAddress }) => {
       const price = currentPrices.get(mintAddress!.toLowerCase());
       if (price !== undefined) {
         priceMap.set(tokenId, price);
       }
     });
-    // Add prices for open positions from DB
-    (openPositionsFromDb || []).forEach((pos: any) => {
-      const token = tokenDataMap.get(pos.tokenId);
-      const mintAddress = token?.mintAddress;
-      if (mintAddress) {
-        const price = currentPrices.get(mintAddress.toLowerCase());
-        if (price !== undefined) {
-          priceMap.set(pos.tokenId, price);
-      }
-      }
-    });
 
-    // OPTIMALIZACE: Pro open positions z DB už máme totalCostBase, takže FIFO není potřeba
-    // FIFO se používá jen pro closed positions metadata (pokud není ClosedLot)
-    // Pro open positions použijeme totalCostBase z DB
+    // Vypočítej náklady pomocí FIFO metody (First In First Out)
+    // Získej všechny trades pro každý token seřazené podle času
+    const { data: allTradesForFifo } = await supabase
+      .from(TABLES.TRADE)
+      .select('tokenId, side, amountToken, amountBase, valueUsd, meta, timestamp')
+      .eq('walletId', wallet.id)
+      .order('timestamp', { ascending: true });
+    
+    // FIFO: Pro každý token simuluj queue nákupů a prodejů
+    // Náklady pro aktuální balance = součet nákladů zbývajících tokenů podle FIFO
     const fifoCostMap = new Map<string, number>();
+    
+    if (allTradesForFifo) {
+      // Skupina trades podle tokenId
+      const tradesByToken = new Map<string, typeof allTradesForFifo>();
+      for (const trade of allTradesForFifo) {
+        const tokenId = trade.tokenId;
+        if (!tradesByToken.has(tokenId)) {
+          tradesByToken.set(tokenId, []);
+        }
+        tradesByToken.get(tokenId)!.push(trade);
+      }
+      
+      // Pro každý token aplikuj FIFO
+      for (const [tokenId, trades] of tradesByToken.entries()) {
+        // Queue nákupů: [{ amount: number, costUsd: number }]
+        const buyQueue: Array<{ amount: number; costUsd: number }> = [];
+        let currentBalance = 0;
+        
+        for (const trade of trades) {
+          const normalizedSide = normalizeTradeSide(trade.side);
+          const amount = Number(trade.amountToken || 0);
+          const tradeValueUsd = Number((trade as any).valueUsd || 0);
+          const amountBase = Number(trade.amountBase || 0);
+          const meta = (trade as any).meta || {};
+          const valuationSource = meta.valuationSource;
           
-    // Pro open positions z DB použijeme totalCostBase přímo (už je v base měně)
-    // Pro closed positions metadata použijeme FIFO (pokud není ClosedLot)
-    // FIFO výpočet pro closed positions metadata (pokud není ClosedLot) - přeskočíme, protože closed positions se počítají z ClosedLot
+          // DŮLEŽITÉ: Pokud má trade valuationSource, pak amountBase je už v USD!
+          // NormalizedTradeProcessor ukládá: amountBase = valuation.amountBaseUsd
+          const costUsd = tradeValueUsd > 0 
+            ? tradeValueUsd 
+            : (valuationSource ? amountBase : amountBase); // Pokud má valuationSource, amountBase je USD, jinak může být base měna
+          
+          if (normalizedSide === 'buy') {
+            // Přidej do queue
+            buyQueue.push({ amount, costUsd });
+            currentBalance += amount;
+          } else {
+            // Odeber z queue podle FIFO
+            let remainingToRemove = amount;
+            while (remainingToRemove > 0 && buyQueue.length > 0) {
+              const firstBuy = buyQueue[0];
+              const originalAmount = firstBuy.amount || 0;
+              const costPerTokenUsd = originalAmount > 0 ? firstBuy.costUsd / originalAmount : 0;
+              const amountToRemove = Math.min(remainingToRemove, originalAmount);
+              
+              if (amountToRemove > 0) {
+                firstBuy.amount -= amountToRemove;
+                firstBuy.costUsd = Math.max(0, firstBuy.costUsd - amountToRemove * costPerTokenUsd);
+                remainingToRemove -= amountToRemove;
+              } else {
+                remainingToRemove = 0;
+              }
+              
+              if (firstBuy.amount <= 0.0000001 || firstBuy.costUsd <= 0.0000001) {
+                buyQueue.shift();
+              }
+            }
+            currentBalance -= amount;
+          }
+        }
+        
+        // Náklady pro aktuální balance = součet nákladů zbývajících tokenů v queue
+        // Každý nákup v queue už má správně upravené costUsd po REM/SELL
+        const costForCurrentBalance = buyQueue.reduce((sum, buy) => {
+          return sum + buy.costUsd;
+        }, 0);
+        
+        fifoCostMap.set(tokenId, costForCurrentBalance);
+      }
+    }
     
     // Create a map of closed lots by tokenId for closed positions PnL calculation
     // This ensures consistency with rolling stats (both use closed lots)
@@ -1573,81 +1501,39 @@ router.get('/:id/portfolio', async (req, res) => {
     // - ADD a REM jsou jen mezistupně
     // Closed position = balance <= 0 A má alespoň jeden SELL trade
     
-    // OPTIMALIZACE: Open positions z DB (precomputed, rychlé!)
-    // Vytvoř open positions z openPositionsFromDb místo přepočítávání z trades
-    const openPositions = (openPositionsFromDb || [])
-      .filter((pos: any) => {
-        const balance = Number(pos.balance || 0);
-        if (balance <= 0) {
-          return false; // Skip positions with zero balance
-        }
-        return true;
-      })
-      .map((pos: any) => {
-        const token = tokenDataMap.get(pos.tokenId);
-        const currentPrice = priceMap.get(pos.tokenId);
-        const balance = Number(pos.balance || 0);
-        const totalCostBase = Number(pos.totalCostBase || 0);
-        const averageBuyPrice = Number(pos.averageBuyPrice || 0);
-        
-        // Calculate current value
-        const currentValue: number | null = currentPrice && balance > 0
-          ? currentPrice * balance
-          : (balance > 0 && averageBuyPrice > 0 
-              ? balance * averageBuyPrice 
-              : null);
-        
-        // Calculate live PnL (unrealized)
-        // totalCostBase je v base měně (SOL/USDC/USDT), ale pro PnL potřebujeme USD
-        // Pro teď použijeme currentValue - (balance * averageBuyPrice) jako aproximaci
-        // TODO: Přesnější výpočet by vyžadoval konverzi base měny na USD
-        const totalCostUsd = currentValue && averageBuyPrice > 0 
-          ? balance * averageBuyPrice 
-          : 0;
-        const livePnl = currentValue !== null && totalCostUsd > 0
-          ? currentValue - totalCostUsd
-          : 0;
-        const livePnlPercent = totalCostUsd > 0
-          ? (livePnl / totalCostUsd) * 100
-          : 0;
-        
-        return {
-          tokenId: pos.tokenId,
-          token: token || null,
-          balance,
-          totalCostBase,
-          averageBuyPrice,
-          currentPrice: currentPrice || null,
-          currentValue,
-          totalCost: totalCostUsd,
-          livePnl,
-          livePnlBase: livePnl, // Alias
-          livePnlPercent,
-          pnl: livePnl, // Alias
-          pnlPercent: livePnlPercent, // Alias
-          buyCount: pos.buyCount || 0,
-          sellCount: pos.sellCount || 0,
-          removeCount: pos.removeCount || 0,
-          baseToken: pos.baseToken || 'SOL',
-          firstBuyTimestamp: pos.firstBuyTimestamp || null,
-          lastTradeTimestamp: pos.lastTradeTimestamp || null,
-        };
-      })
-      .filter((p: any) => {
-        // Filter out positions with very small value
-        const value = p.currentValue || (p.balance * p.averageBuyPrice);
-        if (value <= 0.01) {
+    // Open positions: BUY + ADD + REM (bez SELL)
+    const openPositions = portfolio
+      .filter(p => {
+        // Musí mít alespoň jeden BUY nebo ADD trade (počáteční nákup nebo další nákup)
+        if (p.buyCount === 0) {
+          console.log(`   ⏭️  Skipping open position: no BUY/ADD trades`);
           return false;
         }
+        
+        // DŮLEŽITÉ: SELL není součástí open positions (uzavírá pozici)
+        // Open position = balance > 0 NEBO (balance <= 0 ale nemá žádný SELL trade, jen REM)
+        const hasSellTrade = p.sellCount > 0;
+        if (p.balance <= 0 && hasSellTrade) {
+          // balance <= 0 A má SELL trade → closed position (SELL uzavírá pozici)
+          console.log(`   ⏭️  Skipping open position: balance <= 0 (${p.balance}) and has SELL trade (closed position)`);
+          return false;
+        }
+        
+        // Pokud je balance <= 0 ale nemá SELL trade, může to být otevřená pozice (jen REM trades)
+        // Ale filtrujeme pozice s velmi malou hodnotou (prakticky 0)
+        const value = p.currentValue || (p.balance * p.averageBuyPrice);
+        if (value <= 0.01) {
+          console.log(`   ⏭️  Skipping open position: value too small (${value})`);
+          return false;
+        }
+        console.log(`   ✅ Open position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, value=${value}, buyCount=${p.buyCount}, removeCount=${p.removeCount || 0}, sellCount=${p.sellCount} (SELL není součástí open positions)`);
         return true;
       })
-      .sort((a: any, b: any) => {
+      .sort((a, b) => {
         const aValue = a.currentValue || (a.balance * a.averageBuyPrice);
         const bValue = b.currentValue || (b.balance * b.averageBuyPrice);
         return bValue - aValue;
       });
-    
-    console.log(`   ✅ Created ${openPositions.length} open positions from DB (fast!)`);
 
     // Closed positions: BUY (počátek) + SELL (konec, balance = 0)
     // DŮLEŽITÉ: Closed position = BUY jako počáteční nákup + SELL jako finální prodej (balance = 0)
@@ -1790,23 +1676,14 @@ router.get('/:id/portfolio', async (req, res) => {
     const closedPositions = [
       ...closedPositionsFromLots
     ]
-      .filter(p => {
-        // Filtruj pouze validní closed positions
-        const hasValidHoldTime = p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes >= 0;
-        const hasBuyAndSell = p.buyCount > 0 && p.sellCount > 0;
-        return hasValidHoldTime && hasBuyAndSell;
-      })
-      .sort((a, b) => {
-        const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
-        const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
-        return bTime - aTime; // Nejnovější první
-      })
-      .slice(0, 20); // Max 20 nejnovějších closed positions
-    
-    console.log(`   📊 [Portfolio] Final closed positions count: ${closedPositions.length} (after filtering, sorting, and limiting to 20)`);
+      .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes >= 0)
+        .sort((a, b) => {
+          const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
+          const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
+          return bTime - aTime;
+        });
 
     console.log(`✅ Portfolio calculated: ${openPositions.length} open positions, ${closedPositions.length} closed positions`);
-    console.log(`   📊 [Portfolio API] Returning: openPositions=${openPositions.length}, closedPositions=${closedPositions.length}`);
     
     // DEBUG: Log 30d closed positions for PnL calculation
     const thirtyDaysAgo = new Date();
@@ -1880,8 +1757,6 @@ router.get('/:id/portfolio', async (req, res) => {
       cached: false,
     };
     
-    console.log(`   📤 [Portfolio API] Sending response with ${openPositions.length} open and ${closedPositions.length} closed positions`);
-    
     // Save to PortfolioBaseline cache
     try {
       await supabase
@@ -1900,54 +1775,6 @@ router.get('/:id/portfolio', async (req, res) => {
     res.json(responseData);
   } catch (error: any) {
     console.error('❌ Error fetching portfolio:', error);
-    res.status(500).json({
-      error: 'Internal server error',
-      message: error?.message || 'Unknown error',
-    });
-  }
-});
-
-// POST /api/smart-wallets/:id/recalculate-positions - Manually recalculate and save positions to DB
-// Supports both ID (database ID) and address (wallet address)
-router.post('/:id/recalculate-positions', async (req, res) => {
-  try {
-    const identifier = req.params.id;
-    // Try to find by ID first (if it's a short ID), then by address
-    let wallet = await smartWalletRepo.findById(identifier);
-    if (!wallet) {
-      wallet = await smartWalletRepo.findByAddress(identifier);
-    }
-    
-    if (!wallet) {
-      return res.status(404).json({ error: 'Wallet not found' });
-    }
-
-    console.log(`🔄 [Recalculate Positions] Starting for wallet ${wallet.id} (${wallet.address})`);
-
-    // Recalculate closed lots and open positions
-    const { closedLots, openPositions } = await lotMatchingService.processTradesForWallet(wallet.id);
-    
-    console.log(`   📊 [Recalculate Positions] Calculated: ${closedLots.length} closed lots, ${openPositions.length} open positions`);
-
-    // Save to database
-    await lotMatchingService.saveClosedLots(closedLots);
-    
-    if (openPositions.length > 0) {
-      await lotMatchingService.saveOpenPositions(openPositions);
-    } else {
-      await lotMatchingService.deleteOpenPositionsForWallet(wallet.id);
-    }
-
-    console.log(`✅ [Recalculate Positions] Saved to DB: ${closedLots.length} closed lots, ${openPositions.length} open positions`);
-
-    res.json({
-      success: true,
-      closedLotsCount: closedLots.length,
-      openPositionsCount: openPositions.length,
-      message: `Recalculated and saved ${closedLots.length} closed lots and ${openPositions.length} open positions`,
-    });
-  } catch (error: any) {
-    console.error('❌ Error recalculating positions:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: error?.message || 'Unknown error',
@@ -2201,13 +2028,8 @@ router.delete('/:id/positions/:tokenId', async (req, res) => {
 
     // 6. Recalculate closed lots (to update any remaining positions)
     console.log(`   🔄 Recalculating closed lots...`);
-    const { closedLots, openPositions } = await lotMatchingService.processTradesForWallet(walletId);
+    const closedLots = await lotMatchingService.processTradesForWallet(walletId);
     await lotMatchingService.saveClosedLots(closedLots);
-    if (openPositions.length > 0) {
-      await lotMatchingService.saveOpenPositions(openPositions);
-    } else {
-      await lotMatchingService.deleteOpenPositionsForWallet(walletId);
-    }
 
     // 7. Recalculate metrics (this updates totalTrades, PnL, score, etc.)
     console.log(`   🔄 Recalculating metrics (totalTrades, PnL, score, etc.)...`);

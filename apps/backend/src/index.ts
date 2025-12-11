@@ -1,43 +1,18 @@
-console.log('🔧 [STARTUP] Starting backend initialization...');
-console.log(`🔧 [STARTUP] Working directory: ${process.cwd()}`);
-
 import express from 'express';
-console.log('✅ [STARTUP] Express imported');
-
 import cors from 'cors';
-console.log('✅ [STARTUP] CORS imported');
-
 import dotenv from 'dotenv';
-console.log('✅ [STARTUP] dotenv imported');
+import { smartWalletRouter } from './routes/smart-wallets.js';
+import { tradesRouter } from './routes/trades.js';
+import { statsRouter } from './routes/stats.js';
+import { tokensRouter } from './routes/tokens.js';
+import webhookRouter, { processHeliusWebhook } from './routes/webhooks.js';
 
 // Check if there's an error loading dotenv
-// Explicitly specify .env path to ensure it's loaded from the correct location
-console.log('🔧 [STARTUP] Loading .env file...');
-const envPath = process.env.ENV_PATH || '.env';
-const dotenvResult = dotenv.config({ path: envPath });
+const dotenvResult = dotenv.config();
 if (dotenvResult.error) {
   console.error('❌ Error loading .env file:', dotenvResult.error);
-  console.error(`   Tried path: ${envPath}`);
-  console.error(`   Current working directory: ${process.cwd()}`);
   process.exit(1);
 }
-console.log(`✅ Loaded .env from: ${dotenvResult.parsed ? envPath : 'default location'}`);
-
-console.log('🔧 [STARTUP] Importing routers...');
-import { smartWalletRouter } from './routes/smart-wallets.js';
-console.log('✅ [STARTUP] smart-wallets router imported');
-
-import { tradesRouter } from './routes/trades.js';
-console.log('✅ [STARTUP] trades router imported');
-
-import { statsRouter } from './routes/stats.js';
-console.log('✅ [STARTUP] stats router imported');
-
-import { tokensRouter } from './routes/tokens.js';
-console.log('✅ [STARTUP] tokens router imported');
-
-import webhookRouter, { processHeliusWebhook } from './routes/webhooks.js';
-console.log('✅ [STARTUP] webhooks router imported');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -250,7 +225,6 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 });
 
 // Listen on 0.0.0.0 (all interfaces, IPv4 and IPv6) for external access
-console.log(`🔧 [STARTUP] Starting server on port ${PORT}...`);
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Backend server running on http://0.0.0.0:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
@@ -262,5 +236,4 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`   GET  /api/trades`);
   console.log(`   GET  /api/stats/overview`);
   console.log(`\n🔍 Debug mode: ${process.env.NODE_ENV === 'development' ? 'ON' : 'OFF'}`);
-  console.log(`✅ [STARTUP] Server started successfully!`);
 });

@@ -64,47 +64,28 @@ async function calculateAllMetrics() {
       try {
         console.log(`  Processing: ${wallet.address.substring(0, 8)}...`);
         
-        // Timeout protection: max 60 sekund na wallet
-        const processWallet = async () => {
-          // DŮLEŽITÉ: Vytvoř ClosedLot před výpočtem metrik (jednotný princip)
-          // Zajišťuje, že PnL se počítá POUZE z ClosedLot
-          const walletData = await smartWalletRepo.findById(wallet.id);
-          if (walletData) {
-            const trackingStartTime = walletData.createdAt ? new Date(walletData.createdAt) : undefined;
-            const { closedLots, openPositions } = await lotMatchingService.processTradesForWallet(
-              wallet.id,
-              undefined, // Process all tokens
-              trackingStartTime
-            );
-            await lotMatchingService.saveClosedLots(closedLots);
-            if (openPositions.length > 0) {
-              await lotMatchingService.saveOpenPositions(openPositions);
-            } else {
-              await lotMatchingService.deleteOpenPositionsForWallet(wallet.id);
-            }
-            if (closedLots.length > 0) {
-              console.log(`    ✅ Created ${closedLots.length} closed lots`);
-            }
-            if (openPositions.length > 0) {
-              console.log(`    ✅ Created ${openPositions.length} open positions`);
-            }
+        // DŮLEŽITÉ: Vytvoř ClosedLot před výpočtem metrik (jednotný princip)
+        // Zajišťuje, že PnL se počítá POUZE z ClosedLot
+        const walletData = await smartWalletRepo.findById(wallet.id);
+        if (walletData) {
+          const trackingStartTime = walletData.createdAt ? new Date(walletData.createdAt) : undefined;
+          const closedLots = await lotMatchingService.processTradesForWallet(
+            wallet.id,
+            undefined, // Process all tokens
+            trackingStartTime
+          );
+          await lotMatchingService.saveClosedLots(closedLots);
+          if (closedLots.length > 0) {
+            console.log(`    ✅ Created ${closedLots.length} closed lots`);
           }
-          
-          // Nyní přepočítej metriky (které používají POUZE ClosedLot)
-          await metricsCalculator.calculateMetricsForWallet(wallet.id);
-        };
-
-        // Timeout: 60 sekund na wallet
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Processing timeout (60s)')), 60000)
-        );
-
-        await Promise.race([processWallet(), timeoutPromise]);
+        }
+        
+        // Nyní přepočítej metriky (které používají POUZE ClosedLot)
+        await metricsCalculator.calculateMetricsForWallet(wallet.id);
         successCount++;
-      } catch (error: any) {
-        console.error(`  ❌ Error processing ${wallet.address.substring(0, 8)}...:`, error?.message || error);
+      } catch (error) {
+        console.error(`  ❌ Error processing ${wallet.address}:`, error);
         errorCount++;
-        // Pokračuj s další wallet - nezasekni se na jedné
       }
     }
 

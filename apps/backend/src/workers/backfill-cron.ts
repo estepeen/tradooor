@@ -36,27 +36,23 @@ const collectorService = new SolanaCollectorService(
  * Backfill cron job - kontroluje posledních 2 minuty pro všechny wallets
  * a automaticky přepočítává positions a metrics
  * 
- * OPTIMALIZOVÁNO: Spouští se každou 1 hodinu (místo každých 2 minut).
- * Backfill slouží jako pojistka pro trades, které webhook nechytil.
- * Pokud webhook chytá většinu trades, stačí kontrola jednou za hodinu.
+ * Spouští se každé 2 minuty.
  * 
- * Odhad requests za měsíc (s 1h intervalem):
- * - 80 aktivních wallets × 24x/den × 30 dní = 57,600 getSignaturesForAddress
- * - ~28,800 - 57,600 getTransaction (závisí na aktivitě)
- * - Celkem: ~86,400 - 115,200 requests/měsíc (vs. původní ~4-5.4M)
- * - Úspora: ~98% reduction!
+ * Odhad requests za měsíc:
+ * - 126 wallets × 30x/hodinu × 24h × 30 dní = 2,721,600 getSignaturesForAddress
+ * - ~1.36M - 2.72M getTransaction (závisí na aktivitě)
+ * - Celkem: ~4-5.4M requests/měsíc (stále v rámci 7.5M credits)
  */
 async function backfillLast2Minutes() {
   const startTime = Date.now();
   console.log(`\n⏰ [${new Date().toISOString()}] Starting backfill cron (last 2 minutes)...`);
 
-  // Setup RPC - use QuickNode (as requested, not Helius)
+  // Setup RPC
   const rpcUrl = process.env.QUICKNODE_RPC_URL || process.env.SOLANA_RPC_URL;
   if (!rpcUrl) {
-    console.error('❌ No RPC URL configured (QUICKNODE_RPC_URL or SOLANA_RPC_URL required)');
+    console.error('❌ No RPC URL configured');
     return;
   }
-  console.log(`📡 Using QuickNode RPC: ${rpcUrl.substring(0, 30)}...`);
   const connection = new Connection(rpcUrl, 'confirmed');
 
   // Time range: last 2 minutes
@@ -95,35 +91,56 @@ async function backfillLast2Minutes() {
   let totalErrors = 0;
   const walletsWithNewTrades = new Set<string>();
 
-  // Process each active wallet with delay between wallets
-  for (let i = 0; i < activeWallets.length; i++) {
-    const wallet = activeWallets[i];
-    
-    // Delay mezi wallets pro úsporu requests (každých 5 wallets větší delay)
-    if (i > 0 && i % 5 === 0) {
-      await new Promise(resolve => setTimeout(resolve, 1000)); // 1s delay každých 5 wallets
-    }
-    
+  // Process each active wallet
+  for (const wallet of activeWallets) {
     try {
       const walletPubkey = new PublicKey(wallet.address);
       
-      // OPTIMIZATION: Přeskočit wallets s trades v posledních 2 minutách
-      // Webhook už to zpracoval, není potřeba kontrolovat znovu
+      // OPTIMIZATION: Get last trade timestamp to skip if no activity since last check
+      // This avoids unnecessary RPC calls for inactive wallets
       const { trades: recentTrades } = await tradeRepo.findByWalletId(wallet.id, {
         pageSize: 1,
         fromDate: new Date(twoMinutesAgo),
       });
       
-      // Pokud má wallet trade v posledních 2 minutách, přeskočit (webhook to už chytil)
-      if (recentTrades.length > 0) {
-        continue; // Webhook už zpracoval, není potřeba kontrolovat znovu
+      // If wallet has no trades in last 2 minutes, skip RPC call
+      // (This is a quick DB check before expensive RPC call)
+      if (recentTrades.length === 0) {
+        // Still check RPC, but with smaller limit
+        const signatures = await connection.getSignaturesForAddress(
+          walletPubkey,
+          { limit: 10 }, // Smaller limit for inactive wallets
+          'confirmed'
+        );
+
+        const recentSigs = signatures.filter(sig => 
+          sig.blockTime && sig.blockTime >= twoMinutesAgoSec
+        );
+
+        if (recentSigs.length === 0) {
+          continue; // No new transactions
+        }
+      } else {
+        // Wallet has recent trades, check RPC with normal limit
+        const signatures = await connection.getSignaturesForAddress(
+          walletPubkey,
+          { limit: 50 },
+          'confirmed'
+        );
+
+        const recentSigs = signatures.filter(sig => 
+          sig.blockTime && sig.blockTime >= twoMinutesAgoSec
+        );
+
+        if (recentSigs.length === 0) {
+          continue; // No new transactions
+        }
       }
-      
-      // Wallet nemá trades v posledních 2 minutách - zkontroluj RPC (může být trade, který webhook nechytil)
-      // Použij menší limit pro úsporu requests
+
+      // Get signatures (if we didn't already)
       const signatures = await connection.getSignaturesForAddress(
         walletPubkey,
-        { limit: 20 }, // Sníženo z 50 na 20 pro úsporu requests
+        { limit: 50 },
         'confirmed'
       );
 
@@ -185,8 +202,8 @@ async function backfillLast2Minutes() {
             walletSkipped++;
           }
 
-          // Rate limiting - delay mezi requests (zvýšeno pro úsporu requests)
-          await new Promise(resolve => setTimeout(resolve, 200)); // 200ms delay místo 50ms
+          // Rate limiting - small delay to avoid hitting limits
+          await new Promise(resolve => setTimeout(resolve, 50));
         } catch (error: any) {
           totalErrors++;
           if (totalErrors <= 5) {
@@ -222,17 +239,12 @@ async function backfillLast2Minutes() {
 
         // Recalculate positions
         const trackingStartTime = wallet.createdAt ? new Date(wallet.createdAt) : undefined;
-        const { closedLots, openPositions } = await lotMatchingService.processTradesForWallet(
+        const closedLots = await lotMatchingService.processTradesForWallet(
           walletId,
           undefined,
           trackingStartTime
         );
         await lotMatchingService.saveClosedLots(closedLots);
-        if (openPositions.length > 0) {
-          await lotMatchingService.saveOpenPositions(openPositions);
-        } else {
-          await lotMatchingService.deleteOpenPositionsForWallet(walletId);
-        }
 
         // Recalculate metrics
         await metricsCalculator.calculateMetricsForWallet(walletId);
@@ -253,25 +265,13 @@ async function backfillLast2Minutes() {
 }
 
 async function main() {
-  // OPTIMALIZACE: Každou 1 hodinu - backfill je jen pojistka pro trades, které webhook nechytil
-  // Pokud webhook chytá většinu trades, stačí kontrola jednou za hodinu
-  // Default: every 1 hour (0 * * * *)
-  const cronSchedule = process.env.BACKFILL_CRON_SCHEDULE || '0 * * * *';
+  // Default: every 2 minutes (*/2 * * * *)
+  const cronSchedule = process.env.BACKFILL_CRON_SCHEDULE || '*/2 * * * *';
 
-  console.log(`🚀 Starting backfill cron job (OPTIMIZED)`);
-  console.log(`📅 Schedule: ${cronSchedule} (every 1 hour - optimized for QuickNode credits)`);
+  console.log(`🚀 Starting backfill cron job`);
+  console.log(`📅 Schedule: ${cronSchedule} (every 2 minutes)`);
   console.log(`   Set BACKFILL_CRON_SCHEDULE env var to customize`);
   console.log(`   Time window: last 2 minutes`);
-  console.log(`   ⚡ Optimizations:`);
-  console.log(`      - Skips wallets with trades in last 2min (webhook already processed)`);
-  console.log(`      - Reduced signature limit: 20 (was 50)`);
-  console.log(`      - Increased delay: 200ms between transactions`);
-  console.log(`      - Batch delay: 1s every 5 wallets`);
-  console.log(`      - Uses QuickNode RPC (as requested)`);
-  console.log(`   💰 Estimated savings:`);
-  console.log(`      - 2min interval: ~4-5.4M requests/month`);
-  console.log(`      - 1h interval: ~86k-115k requests/month`);
-  console.log(`      - Savings: ~98% reduction!`);
 
   // Run once on start (optional)
   if (process.env.RUN_ON_START !== 'false') {

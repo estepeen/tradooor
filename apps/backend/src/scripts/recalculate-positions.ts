@@ -22,24 +22,17 @@ async function recalculatePositions(walletAddress: string) {
 
   // 3. Process trades and create closed lots
   console.log(`🔄 Processing trades and creating closed lots...\n`);
-  const { closedLots, openPositions } = await lotMatchingService.processTradesForWallet(
+  const closedLots = await lotMatchingService.processTradesForWallet(
     wallet.id,
     undefined, // Process all tokens
     trackingStartTime
   );
 
-  console.log(`📊 Calculated ${closedLots.length} closed lots, ${openPositions.length} open positions\n`);
+  console.log(`📊 Calculated ${closedLots.length} closed lots\n`);
 
   // 4. Save closed lots to database (this will delete old ones and save new ones)
   console.log(`💾 Saving closed lots to database...\n`);
   await lotMatchingService.saveClosedLots(closedLots);
-  if (openPositions.length > 0) {
-    await lotMatchingService.saveOpenPositions(openPositions);
-    console.log(`💾 Saved ${openPositions.length} open positions to database...\n`);
-  } else {
-    await lotMatchingService.deleteOpenPositionsForWallet(wallet.id);
-    console.log(`💾 Deleted open positions (all closed)...\n`);
-  }
 
   // 5. Show summary
   const byToken = new Map<string, number>();

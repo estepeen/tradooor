@@ -36,8 +36,8 @@ export default function WalletDetailPage() {
   const [pnlData, setPnlData] = useState<any>(null);
   const [portfolio, setPortfolio] = useState<any>({ openPositions: [], closedPositions: [] });
   const [loading, setLoading] = useState(true);
-  const [openPositionsVisible, setOpenPositionsVisible] = useState(5);
-  const [closedPositionsVisible, setClosedPositionsVisible] = useState(5);
+  const [showAllOpenPositions, setShowAllOpenPositions] = useState(false);
+  const [showAllClosedPositions, setShowAllClosedPositions] = useState(false);
   const [tokenFilter, setTokenFilter] = useState<string>('');
   const [timeframeFilter, setTimeframeFilter] = useState<string>('all');
   const [deletingPosition, setDeletingPosition] = useState<string | null>(null);
@@ -134,28 +134,19 @@ export default function WalletDetailPage() {
         });
 
       // Portfolio (open/closed positions, PnL)
-      console.log('[Load Portfolio] Fetching portfolio for wallet:', actualWalletId);
       fetchWalletPortfolio(actualWalletId, false)
         .then((data) => {
-          console.log('[Load Portfolio] API Response:', {
-            hasData: !!data,
-            openPositionsCount: data?.openPositions?.length || 0,
-            closedPositionsCount: data?.closedPositions?.length || 0,
-            lastUpdated: data?.lastUpdated,
-            data: data
-          });
           if (data) {
             setPortfolio(data);
             if (data.lastUpdated) {
               setPortfolioLastUpdated(new Date(data.lastUpdated));
             }
           } else {
-            console.warn('[Load Portfolio] No data received, setting empty portfolio');
             setPortfolio({ openPositions: [], closedPositions: [] });
           }
         })
         .catch((err) => {
-          console.error('[Load Portfolio] Error fetching portfolio:', err);
+          console.error('Error fetching portfolio:', err);
           setPortfolio({ openPositions: [], closedPositions: [] });
         })
         .finally(() => {
@@ -627,9 +618,7 @@ export default function WalletDetailPage() {
                           );
                         }
 
-                        // Max 20 nejnovějších open positions (už omezeno na backendu)
-                        const maxVisible = Math.min(openPositionsVisible, openPositions.length);
-                        const items = openPositions.slice(0, maxVisible);
+                        const items = openPositions.slice(0, showAllOpenPositions ? openPositions.length : 10);
                         return items.map((position: any) => {
                           const token = position.token;
                           const balance = position.balance || 0;
@@ -705,24 +694,16 @@ export default function WalletDetailPage() {
                     </tbody>
                   </table>
                 </div>
-                {(() => {
-                  const openPositions = finalPortfolio.openPositions || [];
-                  const maxVisible = Math.min(openPositionsVisible, openPositions.length);
-                  const remaining = openPositions.length - maxVisible;
-                  if (remaining > 0 && maxVisible < openPositions.length) {
-                    return (
+                {finalPortfolio.openPositions && finalPortfolio.openPositions.length > 10 && (
                   <div className="mt-4 text-center">
                     <button
-                          onClick={() => setOpenPositionsVisible(prev => Math.min(prev + 5, openPositions.length))}
-                          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setShowAllOpenPositions(!showAllOpenPositions)}
+                      className="text-sm text-muted-foreground hover:text-foreground"
                     >
-                          View more ({Math.min(remaining, 5)} more)
+                      {showAllOpenPositions ? 'Show Less' : `Show More (${finalPortfolio.openPositions.length - 10} more)`}
                     </button>
                   </div>
-                    );
-                  }
-                  return null;
-                })()}
+                )}
                 {/* Last update info */}
                 {portfolioLastUpdated && (
                   <div className="mt-3 text-xs text-muted-foreground text-center">
@@ -776,9 +757,7 @@ export default function WalletDetailPage() {
                           );
                         }
 
-                        // Max 20 nejnovějších closed positions (už omezeno na backendu)
-                        const maxVisible = Math.min(closedPositionsVisible, closedPositions.length);
-                        const items = closedPositions.slice(0, maxVisible);
+                        const items = closedPositions.slice(0, showAllClosedPositions ? closedPositions.length : 10);
                         return items.map((position: any, index: number) => {
                           const token = position.token;
                           const closedPnlBase = position.realizedPnlBase ?? position.closedPnlBase ?? position.closedPnl ?? 0;
@@ -865,29 +844,16 @@ export default function WalletDetailPage() {
                     </tbody>
                   </table>
                 </div>
-                {(() => {
-                  const closedPositions = (finalPortfolio.closedPositions || [])
-                    .filter((p: any) => {
-                      const hasValidHoldTime = p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes >= 0;
-                      const hasBuyAndSell = p.buyCount > 0 && p.sellCount > 0;
-                      return hasValidHoldTime && hasBuyAndSell;
-                    });
-                  const maxVisible = Math.min(closedPositionsVisible, closedPositions.length);
-                  const remaining = closedPositions.length - maxVisible;
-                  if (remaining > 0 && maxVisible < closedPositions.length) {
-                    return (
+                {finalPortfolio.closedPositions && finalPortfolio.closedPositions.length > 10 && (
                   <div className="mt-4 text-center">
                     <button
-                          onClick={() => setClosedPositionsVisible(prev => Math.min(prev + 5, closedPositions.length))}
-                          className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setShowAllClosedPositions(!showAllClosedPositions)}
+                      className="text-sm text-muted-foreground hover:text-foreground"
                     >
-                          View more ({Math.min(remaining, 5)} more)
+                      {showAllClosedPositions ? 'Show Less' : `Show More (${finalPortfolio.closedPositions.length - 10} more)`}
                     </button>
                   </div>
-                    );
-                  }
-                  return null;
-                })()}
+                )}
               </div>
             </div>
           )}

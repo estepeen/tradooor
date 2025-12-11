@@ -53,7 +53,7 @@ async function main() {
     console.log(`\n`);
 
     // 3. Zkontroluj closed lots za posledních 30 dní
-    const { closedLots } = await lotMatchingService.processTradesForWallet(wallet.id);
+    const closedLots = await lotMatchingService.processTradesForWallet(wallet.id);
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     

@@ -30,7 +30,6 @@ export const TABLES = {
   TOKEN_MARKET_SNAPSHOT: 'TokenMarketSnapshot',
   SMART_WALLET_METRICS_HISTORY: 'SmartWalletMetricsHistory',
   CLOSED_LOT: 'ClosedLot',
-  OPEN_POSITION: 'OpenPosition',
   WALLET_PROCESSING_QUEUE: 'WalletProcessingQueue',
   TRADE_FEATURE: 'TradeFeature',
   TRADE_SEQUENCE: 'TradeSequence',

@@ -29,9 +29,18 @@ cd /opt/tradooor
 ```
 
 ### 3. Spusť přepočet
+
+**Pro přepočet closed lots, metrik a portfolio cache (open + closed positions):**
+```bash
+pnpm --filter backend recalculate-all-positions-metrics-and-portfolio
+```
+
+**Nebo jen closed lots a metriky (bez portfolio cache):**
 ```bash
 pnpm --filter backend recalculate-all-positions-and-metrics
 ```
+
+**Poznámka:** Skript `recalculate-all-positions-metrics-and-portfolio` vyžaduje běžící backend server pro aktualizaci portfolio cache. Pokud server neběží, portfolio cache se přeskočí (ale closed lots a metriky se přepočítají).
 
 ### 4. Sleduj průběh
 Skript vypíše:

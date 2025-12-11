@@ -25,12 +25,11 @@ export default function WalletDetailPage() {
   const [copiedAddress, setCopiedAddress] = useState(false);
   const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic');
   const [showAllPortfolio, setShowAllPortfolio] = useState(false);
-  const [openPositionsVisible, setOpenPositionsVisible] = useState(5);
-  const [closedPositionsVisible, setClosedPositionsVisible] = useState(5);
+  const [showAllOpenPositions, setShowAllOpenPositions] = useState(false);
+  const [showAllClosedPositions, setShowAllClosedPositions] = useState(false);
   const [positionsTab, setPositionsTab] = useState<'open' | 'closed'>('open');
   const [portfolioRefreshing, setPortfolioRefreshing] = useState(false);
   const [portfolioRefreshMsg, setPortfolioRefreshMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
-  const [portfolioError, setPortfolioError] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     if (!walletId) return;
@@ -86,18 +85,12 @@ export default function WalletDetailPage() {
     if (portfolioLoaded || portfolioLoading) return;
     
     setPortfolioLoading(true);
-    setPortfolioError(null);
     try {
-      const portfolioData = await fetchWalletPortfolio(walletId);
-      if (!portfolioData) {
-        throw new Error('Portfolio data is empty');
-      }
+      const portfolioData = await fetchWalletPortfolio(walletId).catch(() => null);
       setPortfolio(portfolioData);
       setPortfolioLoaded(true);
-    } catch (error: any) {
+    } catch (error) {
       console.error('Error loading portfolio:', error);
-      setPortfolioError(error?.message || 'Failed to load portfolio. Try refreshing the page or clicking "Refresh Portfolio".');
-      setPortfolioLoaded(true); // Mark as loaded to prevent infinite retries
     } finally {
       setPortfolioLoading(false);
     }
@@ -226,19 +219,6 @@ export default function WalletDetailPage() {
             <h1 className="mb-0">
             {wallet.label || formatAddress(wallet.address)}
           </h1>
-            {wallet.twitterUrl && (
-              <a
-                href={wallet.twitterUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-muted-foreground hover:text-foreground transition-colors"
-                title="X (Twitter) profile"
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-                </svg>
-              </a>
-            )}
             <button
               onClick={async () => {
                 const success = await copyToClipboard(wallet.address);
@@ -261,6 +241,19 @@ export default function WalletDetailPage() {
                 </svg>
               )}
             </button>
+            {wallet.twitterUrl && (
+              <a
+                href={wallet.twitterUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-muted-foreground hover:text-foreground"
+                title="X (Twitter) profile"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12.6 2h1.8L10.2 6.8L14.8 14H10.4L7.4 9.2L4 14H2.2L5.8 8.8L1.4 2H5.8L8.6 6.4L12.6 2ZM11.8 12.4H12.8L4.2 3.2H3.1L11.8 12.4Z" fill="currentColor"/>
+                </svg>
+              </a>
+            )}
           </div>
           {wallet.tags && wallet.tags.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -377,22 +370,7 @@ export default function WalletDetailPage() {
                 Loading positions...
               </div>
             )}
-            {portfolioError && (
-              <div className="mb-8 border border-red-500/50 bg-red-500/10 rounded-lg p-4">
-                <p className="text-red-400 mb-2">Error loading portfolio: {portfolioError}</p>
-                <button
-                  onClick={() => {
-                    setPortfolioLoaded(false);
-                    setPortfolio(null);
-                    loadPortfolioLazy();
-                  }}
-                  className="text-sm text-red-400 hover:text-red-300 underline"
-                >
-                  Try again
-                </button>
-              </div>
-            )}
-            {!portfolioLoading && !portfolio && !portfolioLoaded && !portfolioError && (
+            {!portfolioLoading && !portfolio && !portfolioLoaded && (
               <div className="mb-8 text-center py-8">
                 <button
                   onClick={loadPortfolioLazy}
@@ -436,9 +414,8 @@ export default function WalletDetailPage() {
                             );
                           }
 
-                          const maxVisible = Math.min(openPositionsVisible, 20);
                           return openPositions
-                            .slice(0, maxVisible)
+                            .slice(0, showAllOpenPositions ? openPositions.length : 10)
                             .map((position: any) => {
                               const token = position.token;
                               const balance = position.balance || 0;
@@ -490,17 +467,14 @@ export default function WalletDetailPage() {
                   </div>
                   {(() => {
                     const openPositions = portfolio.openPositions || [];
-                    const maxVisible = Math.min(openPositionsVisible, 20);
-                    const hasMore = openPositions.length > maxVisible && maxVisible < 20;
-                    if (hasMore) {
-                      const remaining = Math.min(openPositions.length - maxVisible, 5);
+                    if (openPositions.length > 10) {
                       return (
                         <div className="mt-4 text-center">
                           <button
-                            onClick={() => setOpenPositionsVisible(prev => Math.min(prev + 5, 20))}
+                            onClick={() => setShowAllOpenPositions(!showAllOpenPositions)}
                             className="text-sm text-muted-foreground hover:text-foreground"
                           >
-                            Načíst více ({remaining} dalších)
+                            {showAllOpenPositions ? 'Show Less' : `Show More (${openPositions.length - 10} more)`}
                           </button>
                       </div>
                     );
@@ -538,9 +512,8 @@ export default function WalletDetailPage() {
                             );
                           }
 
-                          const maxVisible = Math.min(closedPositionsVisible, 20);
                           return closedPositions
-                            .slice(0, maxVisible)
+                            .slice(0, showAllClosedPositions ? closedPositions.length : 10)
                             .map((position: any) => {
                               const token = position.token;
                               const totalSold = position.totalSold || 0;
@@ -594,17 +567,14 @@ export default function WalletDetailPage() {
                   </div>
                   {(() => {
                     const closedPositions = portfolio.closedPositions || [];
-                    const maxVisible = Math.min(closedPositionsVisible, 20);
-                    const hasMore = closedPositions.length > maxVisible && maxVisible < 20;
-                    if (hasMore) {
-                      const remaining = Math.min(closedPositions.length - maxVisible, 5);
+                    if (closedPositions.length > 10) {
                       return (
                         <div className="mt-4 text-center">
                         <button
-                            onClick={() => setClosedPositionsVisible(prev => Math.min(prev + 5, 20))}
+                            onClick={() => setShowAllClosedPositions(!showAllClosedPositions)}
                           className="text-sm text-muted-foreground hover:text-foreground"
                         >
-                            Načíst více ({remaining} dalších)
+                            {showAllClosedPositions ? 'Show Less' : `Show More (${closedPositions.length - 10} more)`}
                         </button>
                       </div>
                     );
