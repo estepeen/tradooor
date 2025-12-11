@@ -991,12 +991,26 @@ router.get('/:id/portfolio', async (req, res) => {
     
     // Zkus načíst closed positions z ClosedLot (precomputed worker/cron)
     // Max 20 nejnovějších podle exitTime
+    // Nejdřív zjistíme, kolik je celkem ClosedLots v DB
+    const { count: totalClosedLotsCount } = await supabase
+      .from('ClosedLot')
+      .select('*', { count: 'exact', head: true })
+      .eq('walletId', wallet.id);
+    
+    console.log(`   📊 [Portfolio] Total ClosedLots in DB for wallet ${wallet.id}: ${totalClosedLotsCount || 0}`);
+    
     const { data: closedLots, error: closedLotsError } = await supabase
       .from('ClosedLot')
       .select('*')
       .eq('walletId', wallet.id)
       .order('exitTime', { ascending: false })
       .limit(20); // Max 20 nejnovějších closed positions
+    
+    if (closedLots && closedLots.length > 0) {
+      const oldestExitTime = closedLots[closedLots.length - 1]?.exitTime;
+      const newestExitTime = closedLots[0]?.exitTime;
+      console.log(`   📅 [Portfolio] ClosedLots date range: ${newestExitTime} (newest) to ${oldestExitTime} (oldest)`);
+    }
     
     if (closedLotsError) {
       console.warn(`⚠️  Failed to fetch ClosedLots for wallet ${wallet.id}:`, closedLotsError.message);
@@ -1732,11 +1746,14 @@ router.get('/:id/portfolio', async (req, res) => {
       ...closedPositionsFromLots
     ]
       .filter(p => p.holdTimeMinutes !== null && p.holdTimeMinutes >= 0)
-        .sort((a, b) => {
-          const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
-          const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
-          return bTime - aTime;
-        });
+      .sort((a, b) => {
+        const aTime = a.lastSellTimestamp ? new Date(a.lastSellTimestamp).getTime() : 0;
+        const bTime = b.lastSellTimestamp ? new Date(b.lastSellTimestamp).getTime() : 0;
+        return bTime - aTime; // Nejnovější první
+      })
+      .slice(0, 20); // Zajistíme, že vrátíme max 20 nejnovějších (i když jsme už limitovali ClosedLots)
+    
+    console.log(`   📊 [Portfolio] Final closed positions count: ${closedPositions.length} (after filtering and sorting)`);
 
     console.log(`✅ Portfolio calculated: ${openPositions.length} open positions, ${closedPositions.length} closed positions`);
     console.log(`   📊 [Portfolio API] Returning: openPositions=${openPositions.length}, closedPositions=${closedPositions.length}`);
