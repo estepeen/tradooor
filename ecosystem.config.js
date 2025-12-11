@@ -2,9 +2,9 @@ module.exports = {
   apps: [
     {
       name: 'tradooor-backend',
-      script: 'tsx',
-      args: 'src/index.ts',
-      cwd: '/opt/tradooor/apps/backend',
+      script: 'pnpm',
+      args: '--filter backend start',
+      cwd: '/opt/tradooor',
       env_file: '/opt/tradooor/apps/backend/.env',
       env: {
         NODE_ENV: 'production',
