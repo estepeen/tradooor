@@ -43,33 +43,49 @@ function computeBackoff(attempts: number) {
 async function processMetricsJob(job: { id: string; walletId: string }) {
   console.log(`⚙️  [Worker] Processing wallet ${job.walletId}`);
 
-  // 1. Rebuild closed lots and open positions (FIFO matching)
-  const { closedLots, openPositions } = await lotMatchingService.processTradesForWallet(job.walletId);
-  await lotMatchingService.saveClosedLots(closedLots);
-  
-  // Save open positions (or delete if none)
-  if (openPositions.length > 0) {
-    await lotMatchingService.saveOpenPositions(openPositions);
-  } else {
-    // Delete all open positions for this wallet (all positions are closed)
-    await lotMatchingService.deleteOpenPositionsForWallet(job.walletId);
-  }
+  // Timeout protection: max 120 sekund na wallet (worker má více času než cron)
+  const processWallet = async () => {
+    // 1. Rebuild closed lots and open positions (FIFO matching)
+    const { closedLots, openPositions } = await lotMatchingService.processTradesForWallet(job.walletId);
+    await lotMatchingService.saveClosedLots(closedLots);
+    
+    // Save open positions (or delete if none)
+    if (openPositions.length > 0) {
+      await lotMatchingService.saveOpenPositions(openPositions);
+    } else {
+      // Delete all open positions for this wallet (all positions are closed)
+      await lotMatchingService.deleteOpenPositionsForWallet(job.walletId);
+    }
 
-  // 2. Recalculate metrics (score, win rate, pnl, etc.)
-  const metricsResult = await metricsCalculator.calculateMetricsForWallet(job.walletId);
+    // 2. Recalculate metrics (score, win rate, pnl, etc.)
+    const metricsResult = await metricsCalculator.calculateMetricsForWallet(job.walletId);
 
-  // 3. Update behavior profile and auto-tags (SEPARATED - only for AI/ML)
-  try {
-    await traderCharacterizationService.calculateBehaviorProfile(job.walletId);
-    console.log(`✅  [Worker] Behavior profile updated for wallet ${job.walletId}`);
-  } catch (error: any) {
-    // Don't fail the job if behavior profile calculation fails
-    console.warn(`⚠️  [Worker] Failed to update behavior profile for wallet ${job.walletId}: ${error?.message || error}`);
-  }
+    // 3. Update behavior profile and auto-tags (SEPARATED - only for AI/ML)
+    try {
+      await traderCharacterizationService.calculateBehaviorProfile(job.walletId);
+      console.log(`✅  [Worker] Behavior profile updated for wallet ${job.walletId}`);
+    } catch (error: any) {
+      // Don't fail the job if behavior profile calculation fails
+      console.warn(`⚠️  [Worker] Failed to update behavior profile for wallet ${job.walletId}: ${error?.message || error}`);
+    }
 
-  console.log(
-    `✅  [Worker] Wallet ${job.walletId} updated (score=${metricsResult?.score ?? 'n/a'})`
+    return metricsResult;
+  };
+
+  // Timeout: 120 sekund na wallet
+  const timeoutPromise = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('Processing timeout (120s)')), 120000)
   );
+
+  try {
+    const metricsResult = await Promise.race([processWallet(), timeoutPromise]) as any;
+    console.log(
+      `✅  [Worker] Wallet ${job.walletId} updated (score=${metricsResult?.score ?? 'n/a'})`
+    );
+  } catch (error: any) {
+    // Re-throw error so worker queue can handle retry
+    throw error;
+  }
 }
 
 async function runWorker() {
