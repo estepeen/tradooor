@@ -949,12 +949,32 @@ router.get('/:id/portfolio', async (req, res) => {
     if (cachedData && !shouldRefresh) {
       const cachedHoldings = cachedData.holdings || {};
       // Vždy načti closed positions z ClosedLot (aktuální data z DB)
-      const { data: closedLotsFromDb } = await supabase
-        .from('ClosedLot')
-        .select('*')
-        .eq('walletId', wallet.id)
-        .order('exitTime', { ascending: false })
-        .limit(1000);
+      // DŮLEŽITÉ: Timeout protection pro načítání closed lots - prevence zasekávání
+      const CACHED_CLOSED_LOTS_FETCH_TIMEOUT_MS = 30000; // 30 sekund pro cached data
+      
+      let closedLotsFromDb: any[] = [];
+      try {
+        const fetchPromise = supabase
+          .from('ClosedLot')
+          .select('*')
+          .eq('walletId', wallet.id)
+          .order('exitTime', { ascending: false })
+          .limit(1000);
+        
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Cached closed lots fetch timeout')), CACHED_CLOSED_LOTS_FETCH_TIMEOUT_MS)
+        );
+        
+        const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
+        closedLotsFromDb = result.data || [];
+      } catch (error: any) {
+        if (error.message === 'Cached closed lots fetch timeout') {
+          console.warn(`⚠️  Timeout fetching cached closed lots for wallet ${wallet.id} after ${CACHED_CLOSED_LOTS_FETCH_TIMEOUT_MS}ms`);
+          closedLotsFromDb = []; // Fallback: prázdné pole
+        } else {
+          throw error;
+        }
+      }
       
       // Použij open positions z cache (rychlé)
       const cachedOpenPositions = cachedHoldings.openPositions || cachedHoldings.portfolio || [];
@@ -1001,11 +1021,35 @@ router.get('/:id/portfolio', async (req, res) => {
     console.log(`   📊 [Portfolio] Total ClosedLots in DB for wallet ${wallet.id}: ${totalClosedLotsCount || 0}`);
     
     // Načteme VŠECHNY ClosedLots, seřazené podle exitTime (nejnovější první)
-    const { data: closedLots, error: closedLotsError } = await supabase
-      .from('ClosedLot')
-      .select('*')
-      .eq('walletId', wallet.id)
-      .order('exitTime', { ascending: false }); // Bez limitu - načteme vše
+    // DŮLEŽITÉ: Timeout protection pro načítání closed lots - prevence zasekávání
+    const CLOSED_LOTS_FETCH_TIMEOUT_MS = 60000; // 60 sekund
+    
+    let closedLots: any[] = [];
+    let closedLotsError: any = null;
+    
+    try {
+      const fetchPromise = supabase
+        .from('ClosedLot')
+        .select('*')
+        .eq('walletId', wallet.id)
+        .order('exitTime', { ascending: false }); // Bez limitu - načteme vše
+      
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Closed lots fetch timeout')), CLOSED_LOTS_FETCH_TIMEOUT_MS)
+      );
+      
+      const result = await Promise.race([fetchPromise, timeoutPromise]) as any;
+      closedLots = result.data || [];
+      closedLotsError = result.error || null;
+    } catch (error: any) {
+      if (error.message === 'Closed lots fetch timeout') {
+        console.error(`⚠️  Timeout fetching closed lots for wallet ${wallet.id} after ${CLOSED_LOTS_FETCH_TIMEOUT_MS}ms`);
+        closedLotsError = { message: `Timeout after ${CLOSED_LOTS_FETCH_TIMEOUT_MS}ms` };
+        closedLots = []; // Fallback: prázdné pole, aby endpoint necrashl
+      } else {
+        throw error;
+      }
+    }
     
     if (closedLots && closedLots.length > 0) {
       const oldestExitTime = closedLots[closedLots.length - 1]?.exitTime;

@@ -83,26 +83,48 @@ export class LotMatchingService {
     tokenId?: string,
     trackingStartTime?: Date
   ): Promise<{ closedLots: ClosedLot[]; openPositions: OpenPosition[] }> {
-    // Get all trades for this wallet (and token if specified)
-    let query = supabase
-      .from(TABLES.TRADE)
-      .select('*')
-      .eq('walletId', walletId)
-      .order('timestamp', { ascending: true });
+    // DŮLEŽITÉ: Timeout protection pro načítání trades - prevence zasekávání
+    const TRADES_FETCH_TIMEOUT_MS = 60000; // 60 sekund
+    
+    const fetchTradesPromise = (async () => {
+      let query = supabase
+        .from(TABLES.TRADE)
+        .select('*')
+        .eq('walletId', walletId)
+        .order('timestamp', { ascending: true });
 
-    if (tokenId) {
-      query = query.eq('tokenId', tokenId);
-    }
+      if (tokenId) {
+        query = query.eq('tokenId', tokenId);
+      }
 
-    const { data: trades, error } = await query;
-
-    if (error) {
-      throw new Error(`Failed to fetch trades: ${error.message}`);
+      const { data: trades, error } = await query;
+      
+      if (error) {
+        throw new Error(`Failed to fetch trades: ${error.message}`);
+      }
+      
+      return trades;
+    })();
+    
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Trades fetch timeout')), TRADES_FETCH_TIMEOUT_MS)
+    );
+    
+    let trades;
+    try {
+      trades = await Promise.race([fetchTradesPromise, timeoutPromise]) as any[];
+    } catch (error: any) {
+      if (error.message === 'Trades fetch timeout') {
+        throw new Error(`Failed to fetch trades: timeout after ${TRADES_FETCH_TIMEOUT_MS}ms. This wallet may have too many trades.`);
+      }
+      throw error;
     }
 
     if (!trades || trades.length === 0) {
       return { closedLots: [], openPositions: [] };
     }
+    
+    console.log(`   📊 Processing ${trades.length} trades for wallet ${walletId.substring(0, 8)}...`);
 
     // Group trades by token
     const tradesByToken = new Map<string, typeof trades>();
@@ -501,33 +523,67 @@ export class LotMatchingService {
 
       // Ověř, které trade IDs existují v DB
       // Supabase .in() má limit ~1000 items, takže rozdělíme na batchy
+      // DŮLEŽITÉ: Přidán timeout protection a lepší error handling pro prevenci zasekávání
       if (allTradeIds.size > 0) {
         const tradeIdsArray = Array.from(allTradeIds);
         const BATCH_SIZE = 500; // Bezpečný limit pro Supabase .in()
+        const VALIDATION_TIMEOUT_MS = 30000; // 30 sekund timeout pro celou validaci
+        const BATCH_TIMEOUT_MS = 5000; // 5 sekund timeout pro každý batch
+        
+        const validationStartTime = Date.now();
+        let processedBatches = 0;
         
         for (let i = 0; i < tradeIdsArray.length; i += BATCH_SIZE) {
-          const batch = tradeIdsArray.slice(i, i + BATCH_SIZE);
-          const { data: existingTrades, error: checkError } = await supabase
-            .from(TABLES.TRADE)
-            .select('id')
-            .in('id', batch);
-          
-          if (checkError) {
-            console.warn(`⚠️  Error checking trade IDs existence: ${checkError.message}`);
-            // Pokud selže kontrola, nastavíme všechny na null (bezpečnější než crash)
-            continue;
+          // Kontrola celkového timeoutu
+          if (Date.now() - validationStartTime > VALIDATION_TIMEOUT_MS) {
+            console.warn(`⚠️  Trade ID validation timeout after ${VALIDATION_TIMEOUT_MS}ms. Processed ${processedBatches} batches, skipping remaining ${Math.ceil((tradeIdsArray.length - i) / BATCH_SIZE)} batches.`);
+            break;
           }
           
-          if (existingTrades) {
-            for (const trade of existingTrades) {
-              if (trade.id) {
-                validTradeIds.add(trade.id);
+          const batch = tradeIdsArray.slice(i, i + BATCH_SIZE);
+          
+          try {
+            // Timeout protection pro každý batch
+            const batchPromise = supabase
+              .from(TABLES.TRADE)
+              .select('id')
+              .in('id', batch);
+            
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Batch timeout')), BATCH_TIMEOUT_MS)
+            );
+            
+            const { data: existingTrades, error: checkError } = await Promise.race([
+              batchPromise,
+              timeoutPromise
+            ]) as any;
+            
+            if (checkError) {
+              console.warn(`⚠️  Error checking trade IDs existence (batch ${processedBatches + 1}): ${checkError.message}`);
+              // Pokud selže kontrola, nastavíme všechny na null (bezpečnější než crash)
+              continue;
+            }
+            
+            if (existingTrades) {
+              for (const trade of existingTrades) {
+                if (trade.id) {
+                  validTradeIds.add(trade.id);
+                }
               }
             }
+            
+            processedBatches++;
+          } catch (error: any) {
+            if (error.message === 'Batch timeout') {
+              console.warn(`⚠️  Batch ${processedBatches + 1} timed out after ${BATCH_TIMEOUT_MS}ms. Skipping this batch.`);
+              continue;
+            }
+            console.warn(`⚠️  Unexpected error validating trade IDs (batch ${processedBatches + 1}):`, error?.message || error);
+            continue;
           }
         }
         
-        console.log(`   ✅ Validated ${validTradeIds.size}/${allTradeIds.size} trade IDs exist in DB`);
+        console.log(`   ✅ Validated ${validTradeIds.size}/${allTradeIds.size} trade IDs exist in DB (processed ${processedBatches} batches)`);
       }
     }
 

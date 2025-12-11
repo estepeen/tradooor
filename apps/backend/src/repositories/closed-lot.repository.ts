@@ -26,32 +26,51 @@ export interface ClosedLotRecord {
 
 export class ClosedLotRepository {
   async findByWallet(walletId: string, options?: { fromDate?: Date; toDate?: Date }) {
-    let query = supabase
-      .from(TABLES.CLOSED_LOT)
-      .select('*')
-      .eq('walletId', walletId)
-      .order('exitTime', { ascending: false });
+    // DŮLEŽITÉ: Timeout protection pro načítání closed lots - prevence zasekávání
+    const FETCH_TIMEOUT_MS = 60000; // 60 sekund
+    
+    const fetchPromise = (async () => {
+      let query = supabase
+        .from(TABLES.CLOSED_LOT)
+        .select('*')
+        .eq('walletId', walletId)
+        .order('exitTime', { ascending: false });
 
-    if (options?.fromDate) {
-      query = query.gte('exitTime', options.fromDate.toISOString());
-    }
-
-    if (options?.toDate) {
-      query = query.lte('exitTime', options.toDate.toISOString());
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      // Table might not exist yet
-      if (error.code === '42P01' || /does not exist/i.test(error.message)) {
-        console.warn('⚠️  ClosedLot table does not exist. Run ADD_CLOSED_LOTS.sql migration.');
-        return [];
+      if (options?.fromDate) {
+        query = query.gte('exitTime', options.fromDate.toISOString());
       }
-      throw new Error(`Failed to fetch closed lots: ${error.message}`);
-    }
 
-    return (data ?? []).map(this.mapRow);
+      if (options?.toDate) {
+        query = query.lte('exitTime', options.toDate.toISOString());
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        // Table might not exist yet
+        if (error.code === '42P01' || /does not exist/i.test(error.message)) {
+          console.warn('⚠️  ClosedLot table does not exist. Run ADD_CLOSED_LOTS.sql migration.');
+          return [];
+        }
+        throw new Error(`Failed to fetch closed lots: ${error.message}`);
+      }
+
+      return (data ?? []).map(this.mapRow);
+    })();
+    
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Closed lots fetch timeout')), FETCH_TIMEOUT_MS)
+    );
+    
+    try {
+      return await Promise.race([fetchPromise, timeoutPromise]) as ClosedLotRecord[];
+    } catch (error: any) {
+      if (error.message === 'Closed lots fetch timeout') {
+        console.error(`⚠️  Timeout fetching closed lots for wallet ${walletId.substring(0, 8)}... after ${FETCH_TIMEOUT_MS}ms`);
+        throw new Error(`Failed to fetch closed lots: timeout after ${FETCH_TIMEOUT_MS}ms. This wallet may have too many closed lots.`);
+      }
+      throw error;
+    }
   }
 
   private mapRow(row: any): ClosedLotRecord {
