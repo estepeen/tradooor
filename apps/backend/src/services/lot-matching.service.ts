@@ -501,7 +501,7 @@ export class LotMatchingService {
         realizedPnlPercent: lot.realizedPnlPercent.toString(),
         realizedPnlUsd: null, // Nepoužíváme USD, PnL je v SOL (zůstává v DB pro zpětnou kompatibilitu)
         buyTradeId: lot.buyTradeId === 'synthetic' ? null : lot.buyTradeId,
-        sellTradeId: lot.sellTradeId,
+        sellTradeId: lot.sellTradeId === 'synthetic' ? null : lot.sellTradeId,
         isPreHistory: lot.isPreHistory,
         costKnown: lot.costKnown,
         sequenceNumber: lot.sequenceNumber ?? null, // Kolikátý BUY-SELL cyklus (1., 2., 3. atd.)
