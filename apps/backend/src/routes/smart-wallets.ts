@@ -990,12 +990,13 @@ router.get('/:id/portfolio', async (req, res) => {
     console.log('📊 Loading precomputed portfolio positions...');
     
     // Zkus načíst closed positions z ClosedLot (precomputed worker/cron)
+    // Max 20 nejnovějších podle exitTime
     const { data: closedLots, error: closedLotsError } = await supabase
       .from('ClosedLot')
       .select('*')
       .eq('walletId', wallet.id)
       .order('exitTime', { ascending: false })
-      .limit(1000); // Limit pro rychlost
+      .limit(20); // Max 20 nejnovějších closed positions
     
     if (closedLotsError) {
       console.warn(`⚠️  Failed to fetch ClosedLots for wallet ${wallet.id}:`, closedLotsError.message);
@@ -1004,12 +1005,15 @@ router.get('/:id/portfolio', async (req, res) => {
     }
     
     // OPTIMALIZACE: Načti open positions z DB místo přepočítávání z trades
+    // Max 20 nejnovějších podle lastTradeTimestamp
     let openPositionsFromDb: any[] = [];
     try {
       const { data, error: openPositionsError } = await supabase
         .from('OpenPosition')
         .select('*')
-        .eq('walletId', wallet.id);
+        .eq('walletId', wallet.id)
+        .order('lastTradeTimestamp', { ascending: false })
+        .limit(20); // Max 20 nejnovějších open positions
       
       if (openPositionsError) {
         console.warn(`⚠️  Failed to fetch OpenPositions for wallet ${wallet.id}:`, openPositionsError.message);

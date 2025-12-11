@@ -618,7 +618,8 @@ export default function WalletDetailPage() {
                           );
                         }
 
-                        const maxVisible = Math.min(openPositionsVisible, 20);
+                        // Max 20 nejnovějších open positions (už omezeno na backendu)
+                        const maxVisible = Math.min(openPositionsVisible, openPositions.length);
                         const items = openPositions.slice(0, maxVisible);
                         return items.map((position: any) => {
                           const token = position.token;
@@ -697,18 +698,18 @@ export default function WalletDetailPage() {
                 </div>
                 {(() => {
                   const openPositions = finalPortfolio.openPositions || [];
-                  const maxVisible = Math.min(openPositionsVisible, 20);
+                  const maxVisible = Math.min(openPositionsVisible, openPositions.length);
                   const remaining = openPositions.length - maxVisible;
-                  if (remaining > 0 && maxVisible < 20) {
+                  if (remaining > 0 && maxVisible < openPositions.length) {
                     return (
-                      <div className="mt-4 text-center">
-                        <button
-                          onClick={() => setOpenPositionsVisible(prev => Math.min(prev + 5, 20))}
+                  <div className="mt-4 text-center">
+                    <button
+                          onClick={() => setOpenPositionsVisible(prev => Math.min(prev + 5, openPositions.length))}
                           className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                          Načíst více ({Math.min(remaining, 5)} dalších)
-                        </button>
-                      </div>
+                    >
+                          View more ({Math.min(remaining, 5)} more)
+                    </button>
+                  </div>
                     );
                   }
                   return null;
@@ -766,7 +767,8 @@ export default function WalletDetailPage() {
                           );
                         }
 
-                        const maxVisible = Math.min(closedPositionsVisible, 20);
+                        // Max 20 nejnovějších closed positions (už omezeno na backendu)
+                        const maxVisible = Math.min(closedPositionsVisible, closedPositions.length);
                         const items = closedPositions.slice(0, maxVisible);
                         return items.map((position: any, index: number) => {
                           const token = position.token;
@@ -861,18 +863,18 @@ export default function WalletDetailPage() {
                       const hasBuyAndSell = p.buyCount > 0 && p.sellCount > 0;
                       return hasValidHoldTime && hasBuyAndSell;
                     });
-                  const maxVisible = Math.min(closedPositionsVisible, 20);
+                  const maxVisible = Math.min(closedPositionsVisible, closedPositions.length);
                   const remaining = closedPositions.length - maxVisible;
-                  if (remaining > 0 && maxVisible < 20) {
+                  if (remaining > 0 && maxVisible < closedPositions.length) {
                     return (
-                      <div className="mt-4 text-center">
-                        <button
-                          onClick={() => setClosedPositionsVisible(prev => Math.min(prev + 5, 20))}
+                  <div className="mt-4 text-center">
+                    <button
+                          onClick={() => setClosedPositionsVisible(prev => Math.min(prev + 5, closedPositions.length))}
                           className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                          Načíst více ({Math.min(remaining, 5)} dalších)
-                        </button>
-                      </div>
+                    >
+                          View more ({Math.min(remaining, 5)} more)
+                    </button>
+                  </div>
                     );
                   }
                   return null;
