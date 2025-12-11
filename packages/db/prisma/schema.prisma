@@ -8,7 +8,8 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  // directUrl is optional - only needed for migrate dev, not for migrate deploy or db push
+  // If you need it for local development, add DIRECT_URL to .env
 }
 
 /// Reprezentuje trackovanou adresu (smart wallet) na Solaně
