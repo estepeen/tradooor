@@ -64,26 +64,26 @@ async function backfillLast2Minutes() {
   const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
   console.log(`📋 Found ${allWallets.wallets.length} wallets in database`);
 
-  // OPTIMIZATION: Filter to only active wallets (had trades in last 24h)
-  // This reduces RPC calls significantly
+  // OPTIMIZATION: Filter to only active wallets (had trades in last 7 days)
+  // This reduces RPC calls significantly - only check wallets that are actually trading
   const activeWallets: typeof allWallets.wallets = [];
-  const now24hAgo = now - (24 * 60 * 60 * 1000);
+  const now7dAgo = now - (7 * 24 * 60 * 60 * 1000);
   
   for (const wallet of allWallets.wallets) {
-    // Check if wallet has trades in last 24h
+    // Check if wallet has trades in last 7 days
     const { trades } = await tradeRepo.findByWalletId(wallet.id, {
       pageSize: 1,
-      fromDate: new Date(now24hAgo),
+      fromDate: new Date(now7dAgo),
     });
     
-    // Include wallet if it has trades in last 24h OR if it was created recently (within 24h)
+    // Include wallet if it has trades in last 7 days OR if it was created recently (within 7 days)
     const walletCreated = wallet.createdAt ? new Date(wallet.createdAt).getTime() : 0;
-    if (trades.length > 0 || walletCreated > now24hAgo) {
+    if (trades.length > 0 || walletCreated > now7dAgo) {
       activeWallets.push(wallet);
     }
   }
 
-  console.log(`📊 Processing ${activeWallets.length} active wallets (${allWallets.wallets.length - activeWallets.length} inactive skipped)...`);
+  console.log(`📊 Processing ${activeWallets.length} active wallets (${allWallets.wallets.length - activeWallets.length} inactive skipped - no trades in last 7 days)...`);
 
   let totalProcessed = 0;
   let totalSaved = 0;
