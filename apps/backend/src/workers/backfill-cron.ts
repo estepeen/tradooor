@@ -62,7 +62,28 @@ async function backfillLast2Minutes() {
 
   // Get all wallets
   const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
-  console.log(`📋 Processing ${allWallets.wallets.length} wallets...`);
+  console.log(`📋 Found ${allWallets.wallets.length} wallets in database`);
+
+  // OPTIMIZATION: Filter to only active wallets (had trades in last 24h)
+  // This reduces RPC calls significantly
+  const activeWallets: typeof allWallets.wallets = [];
+  const now24hAgo = now - (24 * 60 * 60 * 1000);
+  
+  for (const wallet of allWallets.wallets) {
+    // Check if wallet has trades in last 24h
+    const { trades } = await tradeRepo.findByWalletId(wallet.id, {
+      pageSize: 1,
+      fromDate: new Date(now24hAgo),
+    });
+    
+    // Include wallet if it has trades in last 24h OR if it was created recently (within 24h)
+    const walletCreated = wallet.createdAt ? new Date(wallet.createdAt).getTime() : 0;
+    if (trades.length > 0 || walletCreated > now24hAgo) {
+      activeWallets.push(wallet);
+    }
+  }
+
+  console.log(`📊 Processing ${activeWallets.length} active wallets (${allWallets.wallets.length - activeWallets.length} inactive skipped)...`);
 
   let totalProcessed = 0;
   let totalSaved = 0;
@@ -70,12 +91,53 @@ async function backfillLast2Minutes() {
   let totalErrors = 0;
   const walletsWithNewTrades = new Set<string>();
 
-  // Process each wallet
-  for (const wallet of allWallets.wallets) {
+  // Process each active wallet
+  for (const wallet of activeWallets) {
     try {
       const walletPubkey = new PublicKey(wallet.address);
       
-      // Get signatures from last 2 minutes (limit 50 should be enough for 2 min window)
+      // OPTIMIZATION: Get last trade timestamp to skip if no activity since last check
+      // This avoids unnecessary RPC calls for inactive wallets
+      const { trades: recentTrades } = await tradeRepo.findByWalletId(wallet.id, {
+        pageSize: 1,
+        fromDate: new Date(twoMinutesAgo),
+      });
+      
+      // If wallet has no trades in last 2 minutes, skip RPC call
+      // (This is a quick DB check before expensive RPC call)
+      if (recentTrades.length === 0) {
+        // Still check RPC, but with smaller limit
+        const signatures = await connection.getSignaturesForAddress(
+          walletPubkey,
+          { limit: 10 }, // Smaller limit for inactive wallets
+          'confirmed'
+        );
+
+        const recentSigs = signatures.filter(sig => 
+          sig.blockTime && sig.blockTime >= twoMinutesAgoSec
+        );
+
+        if (recentSigs.length === 0) {
+          continue; // No new transactions
+        }
+      } else {
+        // Wallet has recent trades, check RPC with normal limit
+        const signatures = await connection.getSignaturesForAddress(
+          walletPubkey,
+          { limit: 50 },
+          'confirmed'
+        );
+
+        const recentSigs = signatures.filter(sig => 
+          sig.blockTime && sig.blockTime >= twoMinutesAgoSec
+        );
+
+        if (recentSigs.length === 0) {
+          continue; // No new transactions
+        }
+      }
+
+      // Get signatures (if we didn't already)
       const signatures = await connection.getSignaturesForAddress(
         walletPubkey,
         { limit: 50 },
