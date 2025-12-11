@@ -3,7 +3,8 @@
 # Script pro restart serveru po deploy
 # Zabije procesy na portech 3000 a 3001, spustí migraci a restartuje služby
 
-set -e
+# Nepoužívej set -e, chceme pokračovat i při chybách
+set +e
 
 echo "🔄 Restarting server..."
 
@@ -16,7 +17,12 @@ sleep 2
 # 2. Spusť migraci databáze
 echo "📦 Running database migration..."
 cd /opt/tradooor
-pnpm --filter @solbot/db db:migrate || echo "   ⚠️  Migration failed or already up to date"
+# Použij migrate deploy pro produkci (nevyžaduje DIRECT_URL)
+pnpm --filter @solbot/db exec prisma migrate deploy || {
+  echo "   ⚠️  Migration failed, trying migrate dev..."
+  # Pokud deploy selže, zkus dev (vyžaduje DIRECT_URL)
+  pnpm --filter @solbot/db db:migrate || echo "   ⚠️  Migration failed - check DIRECT_URL in .env"
+}
 
 # 3. Build backend a frontend
 echo "🔨 Building backend and frontend..."
