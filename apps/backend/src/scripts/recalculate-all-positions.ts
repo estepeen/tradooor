@@ -28,8 +28,9 @@ const metricsCalculator = new MetricsCalculatorService(
   metricsHistoryRepo
 );
 
-const DELAY_BETWEEN_WALLETS_MS = 1000; // 1 second delay between wallets
-const BATCH_SIZE = 10; // Process 10 wallets, then log progress
+const DELAY_BETWEEN_WALLETS_MS = 500; // 0.5 second delay between wallets (reduced for faster processing)
+const BATCH_SIZE = 5; // Process 5 wallets, then log progress (more frequent updates)
+const MAX_WALLETS_TO_PROCESS = 1000; // Safety limit to prevent infinite loops
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -97,33 +98,53 @@ async function main() {
       skipped: 0,
     };
 
-    // Process wallets in batches
-    for (let i = 0; i < wallets.length; i++) {
+    // Process wallets in batches with timeout protection
+    const maxWallets = Math.min(wallets.length, MAX_WALLETS_TO_PROCESS);
+    console.log(`📊 Processing ${maxWallets} wallets (limited to ${MAX_WALLETS_TO_PROCESS} for safety)\n`);
+
+    for (let i = 0; i < maxWallets; i++) {
       const wallet = wallets[i];
       
-      // Check if wallet has trades
-      const trades = await tradeRepo.findByWalletId(wallet.id, { page: 1, pageSize: 1 });
-      if (trades.total === 0) {
-        console.log(`⏭️  Skipping wallet ${wallet.id} (${wallet.address}) - no trades`);
-        results.skipped++;
-        continue;
-      }
+      try {
+        // Check if wallet has trades (with timeout)
+        const tradesPromise = tradeRepo.findByWalletId(wallet.id, { page: 1, pageSize: 1 });
+        const tradesTimeout = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout')), 5000)
+        );
+        
+        const trades = await Promise.race([tradesPromise, tradesTimeout]) as any;
+        
+        if (trades.total === 0) {
+          console.log(`⏭️  [${i + 1}/${maxWallets}] Skipping wallet ${wallet.id.substring(0, 8)}... - no trades`);
+          results.skipped++;
+          continue;
+        }
 
-      const result = await recalculateWalletPositions(wallet.id, wallet.address);
-      
-      if (result.success) {
-        results.success++;
-      } else {
+        // Process wallet with timeout
+        const processPromise = recalculateWalletPositions(wallet.id, wallet.address);
+        const processTimeout = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Processing timeout')), 30000) // 30s timeout per wallet
+        );
+        
+        const result = await Promise.race([processPromise, processTimeout]) as any;
+        
+        if (result.success) {
+          results.success++;
+        } else {
+          results.failed++;
+        }
+      } catch (error: any) {
+        console.error(`   ❌ Error processing wallet ${wallet.id.substring(0, 8)}...: ${error?.message || error}`);
         results.failed++;
       }
 
       // Log progress every BATCH_SIZE wallets
       if ((i + 1) % BATCH_SIZE === 0) {
-        console.log(`\n📊 Progress: ${i + 1}/${wallets.length} wallets processed (${results.success} success, ${results.failed} failed, ${results.skipped} skipped)\n`);
+        console.log(`\n📊 Progress: ${i + 1}/${maxWallets} wallets processed (${results.success} success, ${results.failed} failed, ${results.skipped} skipped)\n`);
       }
 
       // Delay between wallets to avoid overwhelming the database
-      if (i < wallets.length - 1) {
+      if (i < maxWallets - 1) {
         await sleep(DELAY_BETWEEN_WALLETS_MS);
       }
     }
