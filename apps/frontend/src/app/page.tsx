@@ -56,7 +56,7 @@ export default function Home() {
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [syncSuccess, setSyncSuccess] = useState<{ created: number; errors: number; removed?: number } | null>(null);
+  const [syncSuccess, setSyncSuccess] = useState<{ created: number; updated?: number; removed?: number; errors: number } | null>(null);
 
   useEffect(() => {
     loadWallets();
@@ -177,6 +177,8 @@ export default function Home() {
                   
                   setSyncSuccess({
                     created: Array.isArray(result.created) ? result.created.length : (result.created || 0),
+                    updated: result.updated || 0,
+                    removed: result.removed || 0,
                     errors: errorCount,
                   });
 
