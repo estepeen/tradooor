@@ -62,7 +62,8 @@
     "diagnose-wallets": "tsx src/scripts/diagnose-wallets.ts",
     "backfill-all-empty-wallets": "tsx src/scripts/backfill-all-empty-wallets.ts",
     "debug-wallet": "tsx src/scripts/debug-wallet.ts",
-    "recalculate-all-positions-and-metrics": "tsx src/scripts/recalculate-all-positions-and-metrics.ts"
+    "recalculate-all-positions-and-metrics": "tsx src/scripts/recalculate-all-positions-and-metrics.ts",
+    "backfill:cron": "tsx src/workers/backfill-cron.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.87.6",
