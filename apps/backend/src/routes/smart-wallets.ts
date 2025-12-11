@@ -792,7 +792,33 @@ router.post('/sync', async (req, res) => {
     // Batch create wallets (přidá nové a přeskočí existující)
     const result = await smartWalletRepo.createBatch(wallets);
 
-    console.log(`✅ Synchronization completed: ${result.created.length} created, ${result.errors.length} errors, ${removedCount} removed`);
+    // Aktualizuj labely a tagy pro existující wallets (které jsou v CSV i v DB)
+    let updatedCount = 0;
+    const csvWalletMap = new Map(wallets.map(w => [w.address.toLowerCase(), w]));
+    
+    for (const existingWallet of existingWallets) {
+      const csvWallet = csvWalletMap.get(existingWallet.address.toLowerCase());
+      if (csvWallet) {
+        // Wallet existuje v CSV i v DB - zkontroluj, jestli se změnil label nebo tags
+        const labelChanged = existingWallet.label !== csvWallet.label;
+        const tagsChanged = JSON.stringify(existingWallet.tags || []) !== JSON.stringify(csvWallet.tags || []);
+        
+        if (labelChanged || tagsChanged) {
+          try {
+            await smartWalletRepo.update(existingWallet.id, {
+              label: csvWallet.label ?? null,
+              tags: csvWallet.tags || [],
+            });
+            updatedCount++;
+            console.log(`🔄 Updated wallet ${existingWallet.address.substring(0, 8)}...: label=${csvWallet.label || 'null'}, tags=${JSON.stringify(csvWallet.tags || [])}`);
+          } catch (error: any) {
+            console.error(`❌ Error updating wallet ${existingWallet.address}:`, error.message);
+          }
+        }
+      }
+    }
+
+    console.log(`✅ Synchronization completed: ${result.created.length} created, ${updatedCount} updated, ${removedCount} removed, ${result.errors.length} errors`);
 
     // Aktualizuj webhook se všemi wallet adresami
     if (heliusWebhookService && wallets.length > 0) {
@@ -811,6 +837,7 @@ router.post('/sync', async (req, res) => {
       success: true,
       total: wallets.length,
       created: result.created.length,
+      updated: updatedCount,
       removed: removedCount,
       errors: result.errors.length, // Počet chyb (číslo)
       validationErrors: validationErrors.length > 0 ? validationErrors : undefined,
