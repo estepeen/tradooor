@@ -48,12 +48,12 @@ const heliusClient = new HeliusClient();
 const tokenMetadataBatchService = new TokenMetadataBatchService(heliusClient, tokenRepo);
 let heliusWebhookService: HeliusWebhookService | null = null;
 
-// Initialize webhook service (if Helius API key is available)
-try {
-  heliusWebhookService = new HeliusWebhookService();
-} catch (error: any) {
-  console.warn('⚠️  Helius webhook service not available:', error.message);
-}
+// Helius webhook service disabled - using QuickNode webhooks only
+// try {
+//   heliusWebhookService = new HeliusWebhookService();
+// } catch (error: any) {
+//   console.warn('⚠️  Helius webhook service not available:', error.message);
+// }
 
 const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
 
@@ -117,7 +117,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/smart-wallets/:id/portfolio/refresh - Fetch live portfolio using Helius RPC (recommended)
+// GET /api/smart-wallets/:id/portfolio/refresh - Fetch live portfolio using QuickNode RPC
 // Supports both ID (database ID) and address (wallet address)
 router.get('/:id/portfolio/refresh', async (req, res) => {
   try {

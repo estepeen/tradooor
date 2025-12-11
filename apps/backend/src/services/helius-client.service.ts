@@ -168,11 +168,12 @@ export class HeliusClient {
     this.solscanClient = new SolscanClient();
     this.solPriceService = new SolPriceService();
     
-    if (!this.apiKey) {
-      console.warn('⚠️  HELIUS_API_KEY not set - Helius features will be disabled');
-    } else {
-      console.log(`✅ Helius API key configured (length: ${this.apiKey.length})`);
-    }
+    // Helius is not used - silently skip initialization
+    // if (!this.apiKey) {
+    //   console.warn('⚠️  HELIUS_API_KEY not set - Helius features will be disabled');
+    // } else {
+    //   console.log(`✅ Helius API key configured (length: ${this.apiKey.length})`);
+    // }
   }
 
   /**

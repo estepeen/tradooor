@@ -37,25 +37,22 @@ export class HeliusWebhookService {
     const heliusWebhookUrl = process.env.HELIUS_WEBHOOK_URL;
     const apiUrl = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
     
+    // Helius is not used - silent initialization (no logging)
     if (heliusWebhookUrl) {
       // Pokud je HELIUS_WEBHOOK_URL explicitně nastaveno, použij ho
       this.webhookUrl = heliusWebhookUrl;
-      console.log(`🔧 Using HELIUS_WEBHOOK_URL from .env: ${this.webhookUrl}`);
+      // console.log(`🔧 Using HELIUS_WEBHOOK_URL from .env: ${this.webhookUrl}`);
     } else {
       // Jinak sestav z API_URL
       this.webhookUrl = `${apiUrl}/api/webhooks/helius`;
-      console.log(`🔧 Using API_URL to construct webhook URL: ${this.webhookUrl}`);
+      // console.log(`🔧 Using API_URL to construct webhook URL: ${this.webhookUrl}`);
     }
     
     if (!this.apiKey) {
       throw new Error('HELIUS_API_KEY is required for webhook service');
     }
     
-    console.log(`✅ HeliusWebhookService initialized with webhook URL: ${this.webhookUrl}`);
-    console.log(`   Environment variables:`);
-    console.log(`   - HELIUS_WEBHOOK_URL: ${heliusWebhookUrl || '(not set)'}`);
-    console.log(`   - API_URL: ${process.env.API_URL || '(not set)'}`);
-    console.log(`   - NEXT_PUBLIC_API_URL: ${process.env.NEXT_PUBLIC_API_URL || '(not set)'}`);
+    // Helius is not used - silent initialization (no logging)
   }
 
   /**
