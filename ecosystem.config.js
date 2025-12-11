@@ -22,10 +22,10 @@ module.exports = {
     {
       name: 'tradooor-frontend',
       script: 'pnpm',
-      args: '--filter frontend start',
+      args: '--filter frontend dev',
       cwd: '/opt/tradooor',
       env: {
-        NODE_ENV: 'production',
+        NODE_ENV: 'development',
         PORT: '3000',
       },
       error_file: './logs/frontend-error.log',
