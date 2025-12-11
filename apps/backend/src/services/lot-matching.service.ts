@@ -485,7 +485,50 @@ export class LotMatchingService {
 
     // Convert to database format
     // DŮLEŽITÉ: PnL je nyní v SOL/base měně, ne v USD
+    // DŮLEŽITÉ: Validujeme, že trade IDs existují v DB před uložením
+    const validTradeIds = new Set<string>();
+    if (closedLots.length > 0) {
+      // Získej všechny unikátní trade IDs
+      const allTradeIds = new Set<string>();
+      for (const lot of closedLots) {
+        if (lot.buyTradeId && lot.buyTradeId !== 'synthetic') {
+          allTradeIds.add(lot.buyTradeId);
+        }
+        if (lot.sellTradeId && lot.sellTradeId !== 'synthetic') {
+          allTradeIds.add(lot.sellTradeId);
+        }
+      }
+
+      // Ověř, které trade IDs existují v DB
+      if (allTradeIds.size > 0) {
+        const { data: existingTrades } = await supabase
+          .from(TABLES.TRADE)
+          .select('id')
+          .in('id', Array.from(allTradeIds));
+        
+        if (existingTrades) {
+          for (const trade of existingTrades) {
+            validTradeIds.add(trade.id);
+          }
+        }
+      }
+    }
+
     const dbLots = closedLots.map(lot => {
+      // Validuj buyTradeId - pokud neexistuje, nastav na null
+      let buyTradeId = lot.buyTradeId === 'synthetic' ? null : lot.buyTradeId;
+      if (buyTradeId && !validTradeIds.has(buyTradeId)) {
+        console.warn(`⚠️  buyTradeId ${buyTradeId} does not exist in DB, setting to null`);
+        buyTradeId = null;
+      }
+
+      // Validuj sellTradeId - pokud neexistuje, nastav na null
+      let sellTradeId = lot.sellTradeId === 'synthetic' ? null : lot.sellTradeId;
+      if (sellTradeId && !validTradeIds.has(sellTradeId)) {
+        console.warn(`⚠️  sellTradeId ${sellTradeId} does not exist in DB, setting to null`);
+        sellTradeId = null;
+      }
+
       return {
         walletId: lot.walletId,
         tokenId: lot.tokenId,
@@ -500,8 +543,8 @@ export class LotMatchingService {
         realizedPnl: lot.realizedPnl.toString(), // PnL v SOL/base měně (primární hodnota)
         realizedPnlPercent: lot.realizedPnlPercent.toString(),
         realizedPnlUsd: null, // Nepoužíváme USD, PnL je v SOL (zůstává v DB pro zpětnou kompatibilitu)
-        buyTradeId: lot.buyTradeId === 'synthetic' ? null : lot.buyTradeId,
-        sellTradeId: lot.sellTradeId === 'synthetic' ? null : lot.sellTradeId,
+        buyTradeId,
+        sellTradeId,
         isPreHistory: lot.isPreHistory,
         costKnown: lot.costKnown,
         sequenceNumber: lot.sequenceNumber ?? null, // Kolikátý BUY-SELL cyklus (1., 2., 3. atd.)
