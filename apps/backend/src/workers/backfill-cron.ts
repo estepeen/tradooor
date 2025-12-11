@@ -36,15 +36,15 @@ const collectorService = new SolanaCollectorService(
  * Backfill cron job - kontroluje posledních 2 minuty pro všechny wallets
  * a automaticky přepočítává positions a metrics
  * 
- * OPTIMALIZOVÁNO: Spouští se každé 4 hodiny (místo každých 2 minut).
+ * OPTIMALIZOVÁNO: Spouští se každou 1 hodinu (místo každých 2 minut).
  * Backfill slouží jako pojistka pro trades, které webhook nechytil.
- * Pokud webhook chytá většinu trades, stačí kontrola jednou za 4h.
+ * Pokud webhook chytá většinu trades, stačí kontrola jednou za hodinu.
  * 
- * Odhad requests za měsíc (s 4h intervalem):
- * - 80 aktivních wallets × 6x/den × 30 dní = 14,400 getSignaturesForAddress
- * - ~7,200 - 14,400 getTransaction (závisí na aktivitě)
- * - Celkem: ~21,600 - 28,800 requests/měsíc (vs. původní ~4-5.4M)
- * - Úspora: ~99% reduction!
+ * Odhad requests za měsíc (s 1h intervalem):
+ * - 80 aktivních wallets × 24x/den × 30 dní = 57,600 getSignaturesForAddress
+ * - ~28,800 - 57,600 getTransaction (závisí na aktivitě)
+ * - Celkem: ~86,400 - 115,200 requests/měsíc (vs. původní ~4-5.4M)
+ * - Úspora: ~98% reduction!
  */
 async function backfillLast2Minutes() {
   const startTime = Date.now();
@@ -253,13 +253,13 @@ async function backfillLast2Minutes() {
 }
 
 async function main() {
-  // OPTIMALIZACE: Zvýšeno na 4 hodiny - backfill je jen pojistka pro trades, které webhook nechytil
-  // Pokud webhook chytá většinu trades, stačí kontrola jednou za 4h
-  // Default: every 4 hours (0 */4 * * *)
-  const cronSchedule = process.env.BACKFILL_CRON_SCHEDULE || '0 */4 * * *';
+  // OPTIMALIZACE: Každou 1 hodinu - backfill je jen pojistka pro trades, které webhook nechytil
+  // Pokud webhook chytá většinu trades, stačí kontrola jednou za hodinu
+  // Default: every 1 hour (0 * * * *)
+  const cronSchedule = process.env.BACKFILL_CRON_SCHEDULE || '0 * * * *';
 
-  console.log(`🚀 Starting backfill cron job (HIGHLY OPTIMIZED)`);
-  console.log(`📅 Schedule: ${cronSchedule} (every 4 hours - backfill as safety net)`);
+  console.log(`🚀 Starting backfill cron job (OPTIMIZED)`);
+  console.log(`📅 Schedule: ${cronSchedule} (every 1 hour - optimized for QuickNode credits)`);
   console.log(`   Set BACKFILL_CRON_SCHEDULE env var to customize`);
   console.log(`   Time window: last 2 minutes`);
   console.log(`   ⚡ Optimizations:`);
@@ -269,9 +269,9 @@ async function main() {
   console.log(`      - Batch delay: 1s every 5 wallets`);
   console.log(`      - Uses QuickNode RPC (as requested)`);
   console.log(`   💰 Estimated savings:`);
-  console.log(`      - 10min interval: ~11,520 calls/day (80 wallets × 144x/day)`);
-  console.log(`      - 4h interval: ~480 calls/day (80 wallets × 6x/day)`);
-  console.log(`      - Savings: ~92% reduction (11,040 fewer calls/day)`);
+  console.log(`      - 2min interval: ~4-5.4M requests/month`);
+  console.log(`      - 1h interval: ~86k-115k requests/month`);
+  console.log(`      - Savings: ~98% reduction!`);
 
   // Run once on start (optional)
   if (process.env.RUN_ON_START !== 'false') {
