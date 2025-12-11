@@ -1018,7 +1018,7 @@ router.get('/:id/portfolio', async (req, res) => {
       if (openPositionsError) {
         console.warn(`⚠️  Failed to fetch OpenPositions for wallet ${wallet.id}:`, openPositionsError.message);
         console.warn(`   💡 Tip: Make sure OpenPosition table exists. Run ADD_OPEN_POSITIONS.sql migration if needed.`);
-        // Pokračuj bez open positions z DB - použijeme starý způsob (z trades)
+        // Pokud se nepodaří načíst z DB, open positions budou prázdné (žádný fallback na přepočítávání z trades)
         openPositionsFromDb = [];
       } else {
         openPositionsFromDb = data || [];
@@ -1027,7 +1027,7 @@ router.get('/:id/portfolio', async (req, res) => {
     } catch (error: any) {
       console.error(`❌ Error fetching OpenPositions:`, error?.message || error);
       console.warn(`   💡 Tip: OpenPosition table might not exist. Run ADD_OPEN_POSITIONS.sql migration.`);
-      // Pokračuj bez open positions z DB - použijeme starý způsob (z trades)
+      // Pokud se nepodaří načíst z DB, open positions budou prázdné (žádný fallback na přepočítávání z trades)
       openPositionsFromDb = [];
     }
     
