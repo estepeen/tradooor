@@ -8,11 +8,16 @@ import { tokensRouter } from './routes/tokens.js';
 import webhookRouter, { processHeliusWebhook } from './routes/webhooks.js';
 
 // Check if there's an error loading dotenv
-const dotenvResult = dotenv.config();
+// Explicitly specify .env path to ensure it's loaded from the correct location
+const envPath = process.env.ENV_PATH || '.env';
+const dotenvResult = dotenv.config({ path: envPath });
 if (dotenvResult.error) {
   console.error('❌ Error loading .env file:', dotenvResult.error);
+  console.error(`   Tried path: ${envPath}`);
+  console.error(`   Current working directory: ${process.cwd()}`);
   process.exit(1);
 }
+console.log(`✅ Loaded .env from: ${dotenvResult.parsed ? envPath : 'default location'}`);
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
