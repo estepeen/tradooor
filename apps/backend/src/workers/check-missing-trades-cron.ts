@@ -27,12 +27,15 @@ import { WalletProcessingQueueRepository } from '../repositories/wallet-processi
 import { NormalizedTradeRepository } from '../repositories/normalized-trade.repository.js';
 import { SolanaCollectorService } from '../services/solana-collector.service.js';
 import { LotMatchingService } from '../services/lot-matching.service.js';
+import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
+import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
 
 const smartWalletRepo = new SmartWalletRepository();
 const tradeRepo = new TradeRepository();
 const tokenRepo = new TokenRepository();
 const walletQueueRepo = new WalletProcessingQueueRepository();
 const normalizedTradeRepo = new NormalizedTradeRepository();
+const metricsHistoryRepo = new MetricsHistoryRepository();
 const collectorService = new SolanaCollectorService(
   smartWalletRepo,
   tradeRepo,
@@ -41,6 +44,11 @@ const collectorService = new SolanaCollectorService(
   normalizedTradeRepo
 );
 const lotMatchingService = new LotMatchingService();
+const metricsCalculator = new MetricsCalculatorService(
+  smartWalletRepo,
+  tradeRepo,
+  metricsHistoryRepo
+);
 
 async function checkMissingTrades() {
   console.log(`\n⏰ [${new Date().toISOString()}] Starting missing trades check...`);
@@ -240,6 +248,15 @@ async function checkMissingTrades() {
 
           await lotMatchingService.saveClosedLots(closedLots);
           console.log(`   ✅ Created ${closedLots.length} closed lots`);
+          
+          // Also recalculate metrics to update PnL, win rate, score, etc.
+          try {
+            await metricsCalculator.calculateMetricsForWallet(walletId);
+            console.log(`   ✅ Metrics recalculated`);
+          } catch (metricsError: any) {
+            console.warn(`   ⚠️  Metrics recalculation failed: ${metricsError.message}`);
+          }
+          
           closedLotsProcessed++;
         } catch (error: any) {
           console.error(`   ❌ Error processing closed lots for wallet ${walletId}:`, error.message);
