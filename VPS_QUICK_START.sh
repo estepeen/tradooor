@@ -65,21 +65,22 @@ echo ""
 # 2. Reset dat
 info "Krok 2/6: Resetování databáze..."
 
-cd apps/backend
-
-if [ ! -f ".env" ]; then
+if [ ! -f "apps/backend/.env" ]; then
     error ".env soubor neexistuje v apps/backend!"
     exit 1
 fi
 
-info "Spouštím trades:delete-all..."
-pnpm trades:delete-all
+info "Spouštím trades:delete-all (může trvat několik minut pro velké databáze)..."
+cd apps/backend
+pnpm trades:delete-all || {
+    error "Mazání trades selhalo!"
+    cd ../..
+    exit 1
+}
+cd ../..
 
 info "✅ Data resetována"
 echo ""
-
-# 3. Zpět do root
-cd ../..
 
 # 4. Vytvoř logy adresář
 info "Krok 3/6: Vytváření logů adresáře..."
