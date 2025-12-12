@@ -947,9 +947,9 @@ router.get('/:id/portfolio', async (req, res) => {
     // Pokud máme platný cache a není to force refresh, vrať cache
     if (cachedData && !shouldRefresh) {
       const cachedHoldings = cachedData.holdings || {};
-      // Filtruj closed positions z cache - pouze ty s platným HOLD time
+      // Filtruj closed positions z cache - pouze ty s platným HOLD time (>= 0, povolujeme i 0)
       const cachedClosedPositions = (cachedHoldings.closedPositions || []).filter((p: any) => {
-        return p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes > 0;
+        return p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes >= 0;
       });
       return res.json({
         closedPositions: cachedClosedPositions,

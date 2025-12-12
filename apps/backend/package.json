@@ -35,6 +35,7 @@
     "test:sol-values": "tsx src/scripts/test-sol-values.ts",
     "debug:pnl": "tsx src/scripts/debug-pnl.ts",
     "debug:pnl-diff": "tsx src/scripts/debug-pnl-diff.ts",
+    "debug:closed-lots": "tsx src/scripts/debug-closed-lots.ts",
     "check:pnl-data": "tsx src/scripts/check-pnl-data.ts",
     "fix:wallet-types-positions": "tsx src/scripts/fix-wallet-types-positions.ts",
     "fix:wallet-revalue": "tsx src/scripts/revalue-wallet-trades.ts",
