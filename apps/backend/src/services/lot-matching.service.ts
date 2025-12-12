@@ -674,6 +674,24 @@ export class LotMatchingService {
 
     await this.updateTradeFeatureMetrics(closedLots);
 
+    // Invalidate portfolio cache for affected wallets
+    if (closedLots.length > 0) {
+      const walletIds = [...new Set(closedLots.map(l => l.walletId))];
+      for (const walletId of walletIds) {
+        // Delete portfolio cache to force refresh on next request
+        const { error: deleteError } = await supabase
+          .from('PortfolioBaseline')
+          .delete()
+          .eq('walletId', walletId);
+        
+        if (deleteError) {
+          console.warn(`⚠️  Failed to invalidate portfolio cache for wallet ${walletId}:`, deleteError.message);
+        } else {
+          console.log(`   🗑️  Invalidated portfolio cache for wallet ${walletId}`);
+        }
+      }
+    }
+
     console.log(`✅ Saved ${closedLots.length} closed lots to database`);
   }
 
