@@ -68,5 +68,21 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
     },
+    {
+      name: 'tradooor-normalized-trade-processor',
+      script: 'pnpm',
+      args: '--filter backend worker:normalized-trades',
+      cwd: process.cwd(),
+      env: {
+        NODE_ENV: 'production',
+      },
+      error_file: './logs/normalized-trade-processor-error.log',
+      out_file: './logs/normalized-trade-processor-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
   ],
 };
