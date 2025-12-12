@@ -84,23 +84,5 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
     },
-    {
-      name: 'tradooor-closed-lots-cron',
-      script: 'pnpm',
-      args: '--filter backend process:closed-lots',
-      cwd: process.cwd(),
-      env: {
-        NODE_ENV: 'production',
-        CRON_SCHEDULE: '0 */6 * * *', // Každých 6 hodin
-        RUN_ON_START: 'true', // Spusť hned při startu
-      },
-      error_file: './logs/closed-lots-cron-error.log',
-      out_file: './logs/closed-lots-cron-out.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      merge_logs: true,
-      autorestart: true,
-      max_restarts: 10,
-      min_uptime: '10s',
-    },
   ],
 };

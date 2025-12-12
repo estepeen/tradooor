@@ -26,6 +26,7 @@ import { TokenRepository } from '../repositories/token.repository.js';
 import { WalletProcessingQueueRepository } from '../repositories/wallet-processing-queue.repository.js';
 import { NormalizedTradeRepository } from '../repositories/normalized-trade.repository.js';
 import { SolanaCollectorService } from '../services/solana-collector.service.js';
+import { LotMatchingService } from '../services/lot-matching.service.js';
 
 const smartWalletRepo = new SmartWalletRepository();
 const tradeRepo = new TradeRepository();
@@ -39,6 +40,7 @@ const collectorService = new SolanaCollectorService(
   walletQueueRepo,
   normalizedTradeRepo
 );
+const lotMatchingService = new LotMatchingService();
 
 async function checkMissingTrades() {
   console.log(`\n⏰ [${new Date().toISOString()}] Starting missing trades check...`);
@@ -84,6 +86,7 @@ async function checkMissingTrades() {
     let totalSkipped = 0;
     let totalErrors = 0;
     let totalAlreadyExists = 0;
+    const walletsWithNewTrades = new Set<string>(); // Track wallets with new trades
 
     // 4. Process each wallet
     for (const wallet of walletList) {
@@ -169,6 +172,7 @@ async function checkMissingTrades() {
             processed++;
             if (result.saved) {
               saved++;
+              walletsWithNewTrades.add(wallet.id); // Track wallet with new trades
               console.log(`   ✅ Saved missing trade: ${sigInfo.signature.substring(0, 16)}...`);
             } else {
               skipped++;
@@ -209,6 +213,46 @@ async function checkMissingTrades() {
     console.log(`   Already exist: ${totalAlreadyExists}`);
     console.log(`   Skipped: ${totalSkipped}`);
     console.log(`   Errors: ${totalErrors}\n`);
+
+    // 6. Recalculate closed lots for wallets with new trades
+    if (walletsWithNewTrades.size > 0) {
+      console.log(`\n🔄 Recalculating closed lots for ${walletsWithNewTrades.size} wallet(s) with new trades...\n`);
+      
+      let closedLotsProcessed = 0;
+      let closedLotsErrors = 0;
+      
+      for (const walletId of walletsWithNewTrades) {
+        try {
+          const wallet = await smartWalletRepo.findById(walletId);
+          if (!wallet) {
+            console.warn(`⚠️  Wallet ${walletId} not found, skipping closed lots recalculation`);
+            continue;
+          }
+
+          console.log(`   🔄 Processing closed lots for wallet: ${wallet.address.substring(0, 8)}...`);
+          
+          const trackingStartTime = wallet.createdAt ? new Date(wallet.createdAt) : undefined;
+          const closedLots = await lotMatchingService.processTradesForWallet(
+            walletId,
+            undefined, // Process all tokens
+            trackingStartTime
+          );
+
+          await lotMatchingService.saveClosedLots(closedLots);
+          console.log(`   ✅ Created ${closedLots.length} closed lots`);
+          closedLotsProcessed++;
+        } catch (error: any) {
+          console.error(`   ❌ Error processing closed lots for wallet ${walletId}:`, error.message);
+          closedLotsErrors++;
+        }
+      }
+
+      console.log(`\n✅ Closed lots recalculation completed:`);
+      console.log(`   Processed: ${closedLotsProcessed}`);
+      console.log(`   Errors: ${closedLotsErrors}\n`);
+    } else {
+      console.log(`\n⏭️  No new trades found, skipping closed lots recalculation\n`);
+    }
 
   } catch (error: any) {
     console.error('❌ Error in missing trades check:', error);
