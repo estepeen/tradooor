@@ -230,7 +230,23 @@ export class LotMatchingService {
       return lower === 'sell' ? 'sell' : 'buy';
     };
 
-    for (const trade of trades) {
+    // DŮLEŽITÉ: Seřaď trades podle timestampu (ascending) - zajišťuje správné FIFO párování
+    // Pokud SELL přijde před BUY (kvůli pořadí v databázi), může to způsobit problém
+    const sortedTrades = [...trades].sort((a, b) => {
+      const timeA = new Date(a.timestamp).getTime();
+      const timeB = new Date(b.timestamp).getTime();
+      if (timeA !== timeB) {
+        return timeA - timeB;
+      }
+      // Pokud mají stejný timestamp, BUY má přednost před SELL (pro správné párování)
+      const sideA = normalizeSide(a.side);
+      const sideB = normalizeSide(b.side);
+      if (sideA === 'buy' && sideB === 'sell') return -1;
+      if (sideA === 'sell' && sideB === 'buy') return 1;
+      return 0;
+    });
+
+    for (const trade of sortedTrades) {
       // DŮLEŽITÉ: Vyloučit void trades (token-to-token swapy, ADD/REMOVE LIQUIDITY) z closed lots
       const tradeSide = (trade.side || '').toLowerCase();
       if (tradeSide === 'void') {

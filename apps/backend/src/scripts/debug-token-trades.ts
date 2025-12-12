@@ -27,15 +27,51 @@ async function debugTokenTrades(walletAddress: string, tokenSymbol: string) {
 
   console.log(`✅ Found wallet: ${wallet.label || wallet.address} (ID: ${wallet.id})\n`);
 
-  // 2. Find token by symbol
-  const { data: tokens, error: tokenError } = await supabase
+  // 2. Find token by symbol (try multiple methods)
+  let tokens: any[] = [];
+  
+  // Try exact match first
+  const { data: exactTokens } = await supabase
     .from(TABLES.TOKEN)
     .select('*')
     .ilike('symbol', tokenSymbol);
+  
+  if (exactTokens && exactTokens.length > 0) {
+    tokens = exactTokens;
+  } else {
+    // Try partial match
+    const { data: partialTokens } = await supabase
+      .from(TABLES.TOKEN)
+      .select('*')
+      .ilike('symbol', `%${tokenSymbol}%`);
+    
+    if (partialTokens && partialTokens.length > 0) {
+      tokens = partialTokens;
+    } else {
+      // Try name match
+      const { data: nameTokens } = await supabase
+        .from(TABLES.TOKEN)
+        .select('*')
+        .ilike('name', `%${tokenSymbol}%`);
+      
+      if (nameTokens && nameTokens.length > 0) {
+        tokens = nameTokens;
+      }
+    }
+  }
 
-  if (tokenError || !tokens || tokens.length === 0) {
+  if (tokens.length === 0) {
     console.error(`❌ Token not found: ${tokenSymbol}`);
+    console.log(`\n💡 Tip: Try searching for similar tokens or check the token symbol in the database.`);
     process.exit(1);
+  }
+
+  if (tokens.length > 1) {
+    console.log(`⚠️  Found ${tokens.length} tokens matching "${tokenSymbol}":\n`);
+    tokens.forEach((t, idx) => {
+      console.log(`   ${idx + 1}. ${t.symbol || t.name} (ID: ${t.id}, Mint: ${t.mintAddress?.slice(0, 20)}...)`);
+    });
+    console.log(`\n   Using first match...\n`);
   }
 
   // Find exact match or first match
@@ -44,8 +80,44 @@ async function debugTokenTrades(walletAddress: string, tokenSymbol: string) {
 
   // 3. Get all trades for this wallet and token
   const allTrades = await tradeRepo.findAllForMetrics(wallet.id);
-  const tokenTrades = (allTrades || []).filter(t => (t as any).tokenId === token.id);
+  console.log(`📊 Total trades for wallet: ${allTrades?.length || 0}\n`);
 
+  // Check all unique tokenIds in trades
+  const uniqueTokenIds = new Set((allTrades || []).map(t => (t as any).tokenId));
+  console.log(`📦 Unique tokenIds in trades: ${uniqueTokenIds.size}`);
+  
+  // Check if our tokenId is in the trades
+  if (!uniqueTokenIds.has(token.id)) {
+    console.log(`⚠️  Token ID ${token.id} not found in trades!`);
+    console.log(`\n🔍 Searching for trades with similar token symbols...\n`);
+    
+    // Try to find trades by token symbol/name
+    const { data: allTokens } = await supabase
+      .from(TABLES.TOKEN)
+      .select('*')
+      .in('id', Array.from(uniqueTokenIds));
+    
+    if (allTokens && allTokens.length > 0) {
+      const matchingTokens = allTokens.filter(t => 
+        (t.symbol && t.symbol.toUpperCase().includes(tokenSymbol.toUpperCase())) ||
+        (t.name && t.name.toUpperCase().includes(tokenSymbol.toUpperCase()))
+      );
+      
+      if (matchingTokens.length > 0) {
+        console.log(`✅ Found ${matchingTokens.length} matching token(s) in trades:\n`);
+        for (const matchingToken of matchingTokens) {
+          const matchingTrades = (allTrades || []).filter(t => (t as any).tokenId === matchingToken.id);
+          console.log(`   - ${matchingToken.symbol || matchingToken.name} (ID: ${matchingToken.id}): ${matchingTrades.length} trades`);
+        }
+        console.log(`\n💡 Try using one of these token IDs or symbols.\n`);
+      }
+    }
+    
+    console.log(`❌ No trades found for token ID: ${token.id}`);
+    process.exit(1);
+  }
+
+  const tokenTrades = (allTrades || []).filter(t => (t as any).tokenId === token.id);
   console.log(`📊 Total trades for token: ${tokenTrades.length}\n`);
 
   if (tokenTrades.length === 0) {
