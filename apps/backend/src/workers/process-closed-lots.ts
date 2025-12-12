@@ -105,13 +105,64 @@ async function processClosedLots(walletId?: string) {
 // Get wallet ID from command line argument
 const walletId = process.argv[2];
 
-processClosedLots(walletId)
-  .then(() => {
-    console.log('✅ Done');
-    process.exit(0);
-  })
-  .catch((error) => {
-    console.error('❌ Fatal error:', error);
-    process.exit(1);
-  });
+// Support cron mode (run periodically)
+const CRON_SCHEDULE = process.env.CRON_SCHEDULE;
+const RUN_ON_START = process.env.RUN_ON_START === 'true';
+
+if (CRON_SCHEDULE && !walletId) {
+  // Cron mode - run periodically for all wallets
+  console.log(`⏰ Running in cron mode (schedule: ${CRON_SCHEDULE})`);
+  
+  const runCron = async () => {
+    try {
+      await processClosedLots(); // Process all wallets
+    } catch (error: any) {
+      console.error('❌ Error in cron run:', error.message);
+    }
+  };
+
+  // Run immediately if RUN_ON_START is true
+  if (RUN_ON_START) {
+    console.log('🚀 Running on start...');
+    runCron().catch(console.error);
+  }
+
+  // Parse cron schedule and set up interval
+  // For simplicity, we'll use a basic interval (cron parsing would require a library)
+  // Format: "0 */6 * * *" means every 6 hours
+  const parseCronInterval = (schedule: string): number => {
+    const parts = schedule.split(' ');
+    if (parts.length >= 2) {
+      const hourPart = parts[1];
+      if (hourPart.startsWith('*/')) {
+        const hours = parseInt(hourPart.substring(2));
+        return hours * 60 * 60 * 1000; // Convert to milliseconds
+      }
+    }
+    // Default: every 6 hours
+    return 6 * 60 * 60 * 1000;
+  };
+
+  const intervalMs = parseCronInterval(CRON_SCHEDULE);
+  console.log(`⏰ Will run every ${intervalMs / (60 * 60 * 1000)} hours`);
+
+  setInterval(() => {
+    console.log(`\n⏰ Scheduled run at ${new Date().toISOString()}`);
+    runCron().catch(console.error);
+  }, intervalMs);
+
+  // Keep process alive
+  console.log('✅ Cron worker started, waiting for scheduled runs...');
+} else {
+  // One-time run mode
+  processClosedLots(walletId)
+    .then(() => {
+      console.log('✅ Done');
+      process.exit(0);
+    })
+    .catch((error) => {
+      console.error('❌ Fatal error:', error);
+      process.exit(1);
+    });
+}
 

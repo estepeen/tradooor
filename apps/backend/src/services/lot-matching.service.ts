@@ -695,6 +695,7 @@ export class LotMatchingService {
       const walletIds = [...new Set(closedLots.map(l => l.walletId))];
       for (const walletId of walletIds) {
         // Delete portfolio cache to force refresh on next request
+        // Note: PortfolioBaseline table name (not in TABLES constant)
         const { error: deleteError } = await supabase
           .from('PortfolioBaseline')
           .delete()

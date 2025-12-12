@@ -112,3 +112,4 @@ git checkout <commit-hash>
 pnpm install
 pm2 restart tradooor-backend
 ```
+
