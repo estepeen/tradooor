@@ -128,22 +128,6 @@ async function findTokenByName(walletAddress: string, searchTerm: string) {
   
   console.log(`   - ${tokensWithTrades.length} token(s) have trades`);
   
-  const tokensWithMissingClosedLots = tokens.filter(t => {
-    const tokenTrades = (allTrades || []).filter(tr => (tr as any).tokenId === t.id);
-    const sellTrades = tokenTrades.filter(tr => {
-      const side = ((tr as any).side || '').toLowerCase();
-      return side === 'sell' || side === 'remove';
-    });
-    return sellTrades.length > 0;
-  }).filter(async t => {
-    const { data: closedLots } = await supabase
-      .from('ClosedLot')
-      .select('*')
-      .eq('walletId', wallet.id)
-      .eq('tokenId', t.id);
-    return (closedLots?.length || 0) === 0;
-  });
-
   console.log(`\n✅ Search complete!\n`);
 }
 
