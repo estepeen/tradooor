@@ -24,9 +24,7 @@ export default function WalletDetailPage() {
   const [pnlTimeframe, setPnlTimeframe] = useState<'7d' | '30d' | '90d' | '1y'>('30d');
   const [copiedAddress, setCopiedAddress] = useState(false);
   const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic');
-  const [showAllPortfolio, setShowAllPortfolio] = useState(false);
   const [showAllClosedPositions, setShowAllClosedPositions] = useState(false);
-  const [positionsTab, setPositionsTab] = useState<'open' | 'closed'>('open');
   const [portfolioRefreshing, setPortfolioRefreshing] = useState(false);
   const [portfolioRefreshMsg, setPortfolioRefreshMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
 
@@ -360,9 +358,9 @@ export default function WalletDetailPage() {
               </div>
             )}
             {portfolio && (
-              <div className="mb-8">
+              <div className="mb-8 w-full">
                 {/* Closed Positions */}
-                <div className="overflow-hidden">
+                <div className="overflow-hidden w-full">
                   <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">
                     Closed Positions
                   </h2>

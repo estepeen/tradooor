@@ -128,6 +128,9 @@ if command -v pm2 &> /dev/null; then
     
     info "✅ PM2 procesy spuštěny"
     echo ""
+    info "DŮLEŽITÉ: Zkontroluj, že 'tradooor-normalized-trade-processor' běží!"
+    info "Tento worker zpracovává NormalizedTrade do Trade tabulky (potřebné pro zobrazení na webu)"
+    echo ""
     info "Zobrazit status: pm2 status"
     info "Zobrazit logy: pm2 logs"
     

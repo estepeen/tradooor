@@ -528,14 +528,14 @@ export default function WalletDetailPage() {
         })()}
 
         {/* Closed Positions */}
-        <div className="mb-10">
+        <div className="mb-10 w-full">
           <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">Closed Positions</h2>
           {portfolioLoading ? (
             <div className="py-4">
               <Spinner label="Loading positions..." />
             </div>
           ) : (
-              <div className="overflow-hidden">
+              <div className="overflow-hidden w-full">
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-muted/30">
