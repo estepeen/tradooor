@@ -117,7 +117,7 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/smart-wallets/:id/portfolio/refresh - Fetch live portfolio using Helius RPC (recommended)
+// GET /api/smart-wallets/:id/portfolio/refresh - Fetch live portfolio using RPC
 // Supports both ID (database ID) and address (wallet address)
 router.get('/:id/portfolio/refresh', async (req, res) => {
   try {
@@ -144,10 +144,9 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
     const MIN_USD = 1;
     const positions: Position[] = [];
 
-    // Helius RPC connection
+    // RPC connection
     const rpcUrl =
-      process.env.HELIUS_RPC_URL ||
-      process.env.HELIUS_API ||
+      process.env.QUICKNODE_RPC_URL ||
       process.env.SOLANA_RPC_URL ||
       'https://api.mainnet-beta.solana.com';
     const connection = new Connection(rpcUrl, 'confirmed');
@@ -472,8 +471,6 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
       totalValue,
       knownTotalUsd,
       unknownCount,
-      portfolio, // open positions analogue for UI
-      openPositions: portfolio,
       closedPositions: [],
       source: 'birdeye-api',
       lastUpdated: now,
@@ -494,7 +491,7 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
       if (error) {
         console.warn('⚠️ Failed to upsert PortfolioBaseline:', error.message);
       } else {
-        console.log(`✅ PortfolioBaseline saved for wallet ${wallet.id} (${portfolio.length} positions, total: $${totalValue.toFixed(2)})`);
+        console.log(`✅ PortfolioBaseline saved for wallet ${wallet.id} (total: $${totalValue.toFixed(2)})`);
       }
     } catch (e) {
       console.warn('⚠️ Failed to upsert PortfolioBaseline:', (e as any)?.message || e);
@@ -502,7 +499,7 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
 
     res.json(responsePayload);
   } catch (error: any) {
-    console.error('❌ Error fetching live portfolio via Helius RPC:', error?.message || error);
+    console.error('❌ Error fetching live portfolio via RPC:', error?.message || error);
     res.status(500).json({ error: 'Helius error', message: error?.message || 'Unknown error' });
   }
 });
@@ -955,8 +952,6 @@ router.get('/:id/portfolio', async (req, res) => {
         return p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes > 0;
       });
       return res.json({
-        portfolio: cachedHoldings.portfolio || cachedHoldings.openPositions || [],
-        openPositions: cachedHoldings.openPositions || cachedHoldings.portfolio || [],
         closedPositions: cachedClosedPositions,
         lastUpdated: cachedData.updatedAt,
         cached: true,
@@ -972,12 +967,15 @@ router.get('/:id/portfolio', async (req, res) => {
     console.log('📊 Loading precomputed portfolio positions...');
     
     // Zkus načíst closed positions z ClosedLot (precomputed worker/cron)
+    // DŮLEŽITÉ: Pro výpočet PnL potřebujeme všechny ClosedLot (ne jen 1000 nejnovějších)
+    // Limit 1000 může způsobit rozdíl mezi homepage a detail stránkou
+    // Pro UI (closed positions) můžeme použít limit, ale pro PnL výpočet potřebujeme všechny
     const { data: closedLots, error: closedLotsError } = await supabase
       .from('ClosedLot')
       .select('*')
       .eq('walletId', wallet.id)
-      .order('exitTime', { ascending: false })
-      .limit(1000); // Limit pro rychlost
+      .order('exitTime', { ascending: false });
+      // Odstraněn limit 1000 - pro konzistenci s metrics calculator potřebujeme všechny ClosedLot
     
     if (closedLotsError) {
       console.warn(`⚠️  Failed to fetch ClosedLots for wallet ${wallet.id}:`, closedLotsError.message);
@@ -985,11 +983,7 @@ router.get('/:id/portfolio', async (req, res) => {
       console.log(`   📊 [Portfolio] Loaded ${closedLots?.length || 0} ClosedLots for wallet ${wallet.id}`);
     }
     
-    // Get all trades for this wallet with token info (pouze pro open positions)
-    const allTrades = await tradeRepo.findByWalletId(wallet.id, {
-      page: 1,
-      pageSize: 10000, // Get all trades for open positions calculation
-    });
+    // Get all trades for USD ratio calculation (for closed positions USD conversion)
     const allTradesForRatios = await tradeRepo.findAllForMetrics(wallet.id);
 
     // Map tradeId -> USD per base unit (used later for closed position USD conversion)
@@ -1022,119 +1016,10 @@ router.get('/:id/portfolio', async (req, res) => {
       }
     }
 
-    // Calculate portfolio positions
-    const portfolioMap = new Map<string, {
-      tokenId: string;
-      token: any;
-      totalBought: number;
-      totalSold: number;
-      balance: number;
-      totalInvested: number; // Total invested in USD (for backward compatibility)
-      totalSoldValue: number; // Total value of sold tokens in USD (for backward compatibility)
-      totalCostBase: number; // Total cost in base currency (SOL/USDC/USDT) from BUY trades
-      totalProceedsBase: number; // Total proceeds in base currency (SOL/USDC/USDT) from SELL trades
-      averageBuyPrice: number;
-      buyCount: number;
-      sellCount: number; // Počet SELL trades (uzavírají pozici)
-      removeCount: number; // Počet REM trades (snižují balance, ale neuzavírají pozici)
-      lastBuyPrice: number;
-      lastSellPrice: number;
-      firstBuyTimestamp: Date | null;
-      lastSellTimestamp: Date | null;
-      baseToken: string; // Base token used (SOL, USDC, USDT)
-    }>();
-
-    for (const trade of allTrades.trades) {
-      // DŮLEŽITÉ: Vyloučit void trades (token-to-token swapy, ADD/REMOVE LIQUIDITY) z open/closed positions
-      const side = (trade.side || '').toLowerCase();
-      if (side === 'void') {
-        continue; // Přeskoč void trades - nepočítají se do positions
-      }
-
-      const baseToken = ((trade as any).meta?.baseToken || 'SOL').toUpperCase();
-      if (!STABLE_BASES.has(baseToken)) {
-        continue;
-      }
-
-      const normalizedSide = normalizeTradeSide(trade.side);
-      const tokenId = trade.tokenId;
-      // Handle both 'Token' (capital) and 'token' (lowercase) for compatibility
-      const token = (trade as any).Token || (trade as any).token || null;
-      const tradeTimestamp = new Date(trade.timestamp);
-      const valueUsd = Number(trade.valueUsd || 0);
-      
-      if (!portfolioMap.has(tokenId)) {
-        portfolioMap.set(tokenId, {
-          tokenId,
-          token: token, // Store token info
-          totalBought: 0,
-          totalSold: 0,
-          balance: 0,
-          totalInvested: 0,
-          totalSoldValue: 0,
-          totalCostBase: 0, // Total cost in base currency
-          totalProceedsBase: 0, // Total proceeds in base currency
-          averageBuyPrice: 0,
-          buyCount: 0,
-          sellCount: 0,
-          removeCount: 0, // Počet REM trades (snižují balance, ale neuzavírají pozici)
-          lastBuyPrice: 0,
-          lastSellPrice: 0,
-          firstBuyTimestamp: null,
-          lastSellTimestamp: null,
-          baseToken: 'SOL', // Default to SOL
-        });
-      }
-
-      const position = portfolioMap.get(tokenId)!;
-      const amount = Number(trade.amountToken);
-      const price = Number(trade.priceBasePerToken);
-      const amountBase = Number(trade.amountBase || 0);
-      const meta = (trade as any).meta || {};
-      const valuationSource = meta.valuationSource;
-      
-      // DŮLEŽITÉ: Pokud má trade valuationSource, pak amountBase a priceBasePerToken jsou už v USD!
-      // NormalizedTradeProcessor ukládá: amountBase = valuation.amountBaseUsd, priceBasePerToken = valuation.priceUsdPerToken
-      // Pro výpočet totalInvested použij valueUsd (pokud existuje), jinak amountBase (pokud má valuationSource), jinak přepočítej
-      const tradeValueUsd = valueUsd > 0 ? valueUsd : (valuationSource ? amountBase : null);
-
-      // Get base token from trade meta
-      position.baseToken = baseToken;
-
-      // Handle all trade types: buy, sell, add, remove
-      if (normalizedSide === 'buy') {
-        position.totalBought += amount;
-        position.balance += amount;
-        // Použij valueUsd pokud existuje, jinak amountBase (pokud má valuationSource = už je v USD)
-        position.totalInvested += tradeValueUsd !== null ? tradeValueUsd : amountBase;
-        position.totalCostBase += amountBase; // Add to total cost in base currency
-        position.buyCount++;
-        position.lastBuyPrice = price;
-        if (!position.firstBuyTimestamp || tradeTimestamp < position.firstBuyTimestamp) {
-          position.firstBuyTimestamp = tradeTimestamp;
-        }
-      } else if (normalizedSide === 'sell') {
-        // SELL uzavírá pozici → closed position
-        position.totalSold += amount;
-        position.balance -= amount;
-        position.sellCount++;
-        position.lastSellPrice = price;
-        // Použij valueUsd pokud existuje, jinak amountBase (pokud má valuationSource = už je v USD)
-        position.totalSoldValue += tradeValueUsd !== null ? tradeValueUsd : amountBase;
-        position.totalProceedsBase += amountBase; // Add to total proceeds in base currency
-        if (!position.lastSellTimestamp || tradeTimestamp > position.lastSellTimestamp) {
-          position.lastSellTimestamp = tradeTimestamp;
-        }
-      }
-      
-      // Debug logging for balance calculation
-      if (trade.side) {
-        console.log(`   Trade ${normalizedSide}: tokenId=${tokenId}, amount=${amount}, balance=${position.balance}, buyCount=${position.buyCount}, sellCount=${position.sellCount}, removeCount=${position.removeCount || 0}`);
-      }
-    }
-
-    // Fetch current token data from database for all unique tokenIds
-    const uniqueTokenIds = Array.from(portfolioMap.keys());
+    // Get unique tokenIds from ClosedLot (for token data fetching)
+    const uniqueTokenIds = closedLots && closedLots.length > 0
+      ? Array.from(new Set(closedLots.map((lot: any) => lot.tokenId)))
+      : [];
     const { data: tokens, error: tokensError } = await supabase
       .from(TABLES.TOKEN)
       .select('*')
@@ -1201,129 +1086,6 @@ router.get('/:id/portfolio', async (req, res) => {
       }
     }
 
-    // Get current prices for all tokens with mint addresses
-    const tokensWithMintAddresses = Array.from(portfolioMap.values())
-      .map(position => {
-        const token = tokenDataMap.get(position.tokenId) || position.token;
-        return {
-          tokenId: position.tokenId,
-          mintAddress: token?.mintAddress,
-        };
-      })
-      .filter(t => t.mintAddress);
-
-    // Fetch prices ONLY for open positions (balance > 0)
-    // Closed positions don't need current prices
-    const openPositionsMints = Array.from(portfolioMap.values())
-      .filter(p => p.balance > 0)
-      .map(position => {
-        const token = tokenDataMap.get(position.tokenId) || position.token;
-        return token?.mintAddress;
-      })
-      .filter(Boolean) as string[];
-
-    const mintAddresses = openPositionsMints;
-    let currentPrices = new Map<string, number>();
-    
-    // Fetch prices ONLY if we have open positions
-    if (mintAddresses.length > 0) {
-      console.log(`📡 Fetching prices for ${mintAddresses.length} open positions...`);
-      currentPrices = await tokenPriceService.getTokenPricesBatch(mintAddresses);
-      console.log(`✅ Got prices for ${currentPrices.size}/${mintAddresses.length} tokens`);
-    } else {
-      console.log('✅ No open positions, skipping price fetch');
-    }
-    
-    const priceMap = new Map<string, number>();
-    tokensWithMintAddresses.forEach(({ tokenId, mintAddress }) => {
-      const price = currentPrices.get(mintAddress!.toLowerCase());
-      if (price !== undefined) {
-        priceMap.set(tokenId, price);
-      }
-    });
-
-    // Vypočítej náklady pomocí FIFO metody (First In First Out)
-    // Získej všechny trades pro každý token seřazené podle času
-    const { data: allTradesForFifo } = await supabase
-      .from(TABLES.TRADE)
-      .select('tokenId, side, amountToken, amountBase, valueUsd, meta, timestamp')
-      .eq('walletId', wallet.id)
-      .order('timestamp', { ascending: true });
-    
-    // FIFO: Pro každý token simuluj queue nákupů a prodejů
-    // Náklady pro aktuální balance = součet nákladů zbývajících tokenů podle FIFO
-    const fifoCostMap = new Map<string, number>();
-    
-    if (allTradesForFifo) {
-      // Skupina trades podle tokenId
-      const tradesByToken = new Map<string, typeof allTradesForFifo>();
-      for (const trade of allTradesForFifo) {
-        const tokenId = trade.tokenId;
-        if (!tradesByToken.has(tokenId)) {
-          tradesByToken.set(tokenId, []);
-        }
-        tradesByToken.get(tokenId)!.push(trade);
-      }
-      
-      // Pro každý token aplikuj FIFO
-      for (const [tokenId, trades] of tradesByToken.entries()) {
-        // Queue nákupů: [{ amount: number, costUsd: number }]
-        const buyQueue: Array<{ amount: number; costUsd: number }> = [];
-        let currentBalance = 0;
-        
-        for (const trade of trades) {
-          const normalizedSide = normalizeTradeSide(trade.side);
-          const amount = Number(trade.amountToken || 0);
-          const tradeValueUsd = Number((trade as any).valueUsd || 0);
-          const amountBase = Number(trade.amountBase || 0);
-          const meta = (trade as any).meta || {};
-          const valuationSource = meta.valuationSource;
-          
-          // DŮLEŽITÉ: Pokud má trade valuationSource, pak amountBase je už v USD!
-          // NormalizedTradeProcessor ukládá: amountBase = valuation.amountBaseUsd
-          const costUsd = tradeValueUsd > 0 
-            ? tradeValueUsd 
-            : (valuationSource ? amountBase : amountBase); // Pokud má valuationSource, amountBase je USD, jinak může být base měna
-          
-          if (normalizedSide === 'buy') {
-            // Přidej do queue
-            buyQueue.push({ amount, costUsd });
-            currentBalance += amount;
-          } else {
-            // Odeber z queue podle FIFO
-            let remainingToRemove = amount;
-            while (remainingToRemove > 0 && buyQueue.length > 0) {
-              const firstBuy = buyQueue[0];
-              const originalAmount = firstBuy.amount || 0;
-              const costPerTokenUsd = originalAmount > 0 ? firstBuy.costUsd / originalAmount : 0;
-              const amountToRemove = Math.min(remainingToRemove, originalAmount);
-              
-              if (amountToRemove > 0) {
-                firstBuy.amount -= amountToRemove;
-                firstBuy.costUsd = Math.max(0, firstBuy.costUsd - amountToRemove * costPerTokenUsd);
-                remainingToRemove -= amountToRemove;
-              } else {
-                remainingToRemove = 0;
-              }
-              
-              if (firstBuy.amount <= 0.0000001 || firstBuy.costUsd <= 0.0000001) {
-                buyQueue.shift();
-              }
-            }
-            currentBalance -= amount;
-          }
-        }
-        
-        // Náklady pro aktuální balance = součet nákladů zbývajících tokenů v queue
-        // Každý nákup v queue už má správně upravené costUsd po REM/SELL
-        const costForCurrentBalance = buyQueue.reduce((sum, buy) => {
-          return sum + buy.costUsd;
-        }, 0);
-        
-        fifoCostMap.set(tokenId, costForCurrentBalance);
-      }
-    }
-    
     // Create a map of closed lots by tokenId for closed positions PnL calculation
     // This ensures consistency with rolling stats (both use closed lots)
     const closedLotsByToken = new Map<string, typeof closedLots>();
@@ -1337,203 +1099,12 @@ router.get('/:id/portfolio', async (req, res) => {
       }
     }
 
-    // Calculate average buy price and finalize positions with current token data and prices
-    const portfolio = Array.from(portfolioMap.values())
-      .map(position => {
-        // Use current token data from database instead of stale data from trades
-        const currentToken = tokenDataMap.get(position.tokenId) || position.token;
-        
-        // DŮLEŽITÉ: averageBuyPrice by měl být v USD (cena za 1 token v USD)
-        // totalInvested je nyní v USD (pokud má trades valuationSource), takže averageBuyPrice bude správně
-        position.averageBuyPrice = position.totalBought > 0 
-          ? position.totalInvested / position.totalBought 
-          : 0;
-        
-        // Get current price for this token (z Birdeye API, už v USD)
-        const currentPrice = priceMap.get(position.tokenId);
-        
-        // Calculate current value and PnL based on current market price
-        // currentPrice je z Birdeye API, už v USD
-        const currentValue: number | null = currentPrice && position.balance > 0
-          ? currentPrice * position.balance
-          : (position.balance > 0 && position.averageBuyPrice > 0 
-              ? position.balance * position.averageBuyPrice 
-              : null); // Fallback to average buy price if no current price, nebo null pokud nemáme cenu
-        
-        // Vypočítej Live PnL pomocí FIFO metody (First In First Out)
-        // Náklady pro aktuální balance = součet nákladů zbývajících tokenů podle FIFO (v USD)
-        const costForCurrentBalanceUsd = fifoCostMap.get(position.tokenId) || 0;
-        
-        let totalCostUsd = 0;
-        let livePnl = 0;
-        let livePnlBase = 0; // Live PnL (USD) - držíme alias kvůli kompatibilitě s FE
-        let livePnlPercent = 0;
-        
-        totalCostUsd = costForCurrentBalanceUsd;
-        if (totalCostUsd <= 0 && position.balance > 0 && position.totalBought > 0) {
-          // Fallback: použij průměrný nákupní kurz v USD (pokud FIFO selže)
-          const averageCostUsd = position.totalInvested / position.totalBought;
-          totalCostUsd = position.balance * averageCostUsd;
-        }
-        
-        // Vypočítej Live PnL v USD
-        if (currentValue !== null && currentValue > 0 && totalCostUsd > 0) {
-          livePnl = currentValue - totalCostUsd;
-          livePnlPercent = totalCostUsd > 0 ? (livePnl / totalCostUsd) * 100 : 0;
-        }
-        
-        // FE historicky očekávalo livePnlBase – nyní vracíme rovnou USD hodnotu
-        livePnlBase = livePnl;
-        
-        // Pro kompatibilitu zachováme staré výpočty
-        const pnl = currentValue !== null ? currentValue - position.totalInvested : 0;
-        const pnlPercent = position.totalInvested > 0
-          ? (pnl / position.totalInvested) * 100
-          : 0;
-        
-        // Treat small negative balance (rounding errors) as 0 for closed positions
-        // Declare once at the beginning and use everywhere
-        const normalizedBalance = position.balance < 0 && Math.abs(position.balance) < 0.0001 ? 0 : position.balance;
-        
-        // Calculate hold time for closed positions (from first BUY to last SELL)
-        // If BUY and SELL are at the same time, holdTimeMinutes will be 0, which is valid
-        let holdTimeMinutes: number | null = null;
-        if (position.firstBuyTimestamp && position.lastSellTimestamp && normalizedBalance <= 0) {
-          const holdTimeMs = position.lastSellTimestamp.getTime() - position.firstBuyTimestamp.getTime();
-          holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
-          // Allow 0 minutes (same timestamp) - it's still a valid closed position
-          if (holdTimeMinutes < 0) {
-            holdTimeMinutes = null; // Invalid if SELL is before BUY
-          }
-        }
-
-        // Calculate PnL for closed positions - jednotný princip: realizedPnl z ClosedLot (v SOL)
-        // DŮLEŽITÉ: PnL se počítá POUZE z ClosedLot (jednotný princip)
-        // ClosedLot se vytváří v worker queue a metrics cron před výpočtem metrik
-        // Pokud ClosedLot neexistují, PnL = 0 (žádný fallback!)
-        // DŮLEŽITÉ: PnL je nyní v SOL/base měně, ne v USD
-        let realizedPnlBase: number | null = null;
-        let realizedPnlPercent: number | null = null;
-        
-        if (normalizedBalance <= 0) {
-          // Najdi VŠECHNY closed lots pro tento token (může jich být více - více buy/sell cyklů)
-          const closedLotsForToken = (closedLots || []).filter((lot: any) => 
-            lot.tokenId === position.tokenId && 
-            lot.exitTime && 
-            new Date(lot.exitTime) <= new Date()
-          );
-          
-          // Sečti všechny realizedPnl z closed lots pro tento token (v SOL/base měně)
-          // POUZE z ClosedLot - žádný fallback!
-          if (closedLotsForToken.length > 0) {
-            const totalRealizedPnl = closedLotsForToken.reduce((sum: number, lot: any) => {
-              // Použij realizedPnl z ClosedLot (v SOL/base měně)
-              const pnl = lot.realizedPnl !== null && lot.realizedPnl !== undefined ? Number(lot.realizedPnl) : 0;
-              if (wallet.id && Math.abs(pnl) > 0.0001) {
-                console.log(`   💰 [Portfolio] ClosedLot: tokenId=${lot.tokenId}, realizedPnl=${pnl.toFixed(4)} SOL, costBasis=${lot.costBasis?.toFixed(4) || 'N/A'}, proceeds=${lot.proceeds?.toFixed(4) || 'N/A'}`);
-              }
-              return sum + pnl;
-            }, 0);
-            
-            // Použij fixní realizedPnl z ClosedLot (v SOL, nemění se s cenou SOL)
-            // Nastavíme realizedPnlBase i když je 0 (aby se zobrazilo, že PnL = 0, ne prázdné)
-            realizedPnlBase = totalRealizedPnl; // PnL v SOL (může být i 0)
-            realizedPnlPercent = position.totalCostBase > 0
-              ? (realizedPnlBase / position.totalCostBase) * 100
-              : (closedLotsForToken.length > 0 && closedLotsForToken[0].costBasis > 0)
-                ? (realizedPnlBase / closedLotsForToken[0].costBasis) * 100
-                : 0;
-            
-            if (wallet.id) {
-              console.log(`   💰 [Portfolio] Position: tokenId=${position.tokenId}, using FIXED realizedPnl=${realizedPnlBase.toFixed(4)} SOL from ${closedLotsForToken.length} ClosedLot(s), realizedPnlPercent=${realizedPnlPercent.toFixed(2)}%`);
-            }
-          } else {
-            // Neexistují ClosedLot → PnL = 0 (žádný fallback!)
-            realizedPnlBase = 0;
-            realizedPnlPercent = 0;
-          }
-        }
-
-        // Only include positions with balance > 0 or with trades
-        // normalizedBalance is already declared above
-        
-        if (normalizedBalance > 0 || position.buyCount > 0 || position.sellCount > 0) {
-          return {
-            ...position,
-            token: currentToken, // Use current token data
-            balance: Math.max(0, normalizedBalance), // Ensure non-negative (treat small negatives as 0)
-            currentPrice: currentPrice || null, // Current market price
-            currentValue, // Current value in USD
-            totalCost: totalCostUsd, // Total cost v USD (z trades)
-            livePnl, // Live PnL (unrealized) v USD
-            livePnlBase, // Live PnL (unrealized) v base měně (SOL/USDC/USDT)
-            livePnlPercent, // Live PnL v %
-            // Pro kompatibilitu zachováme staré názvy
-            pnl: livePnl || pnl, // Profit/Loss in USD (for open positions)
-            pnlPercent: livePnlPercent || pnlPercent, // Profit/Loss percentage (for open positions)
-            holdTimeMinutes, // Hold time in minutes (for closed positions) - from first BUY to last SELL
-            realizedPnlBase, // Realized PnL in SOL/base currency (primární hodnota)
-            realizedPnlPercent, // Realized PnL percent
-            // Pro kompatibilitu s frontendem zachováme staré názvy
-            closedPnl: realizedPnlBase, // Alias pro realizedPnlBase (deprecated, použij realizedPnlBase)
-            closedPnlBase: realizedPnlBase, // Alias pro realizedPnlBase (deprecated, použij realizedPnlBase)
-            closedPnlPercent: realizedPnlPercent, // Alias pro realizedPnlPercent (deprecated, použij realizedPnlPercent)
-            baseToken: position.baseToken, // Base token used (SOL, USDC, USDT)
-            firstBuyTimestamp: position.firstBuyTimestamp?.toISOString() || null,
-            lastSellTimestamp: position.lastSellTimestamp?.toISOString() || null,
-          };
-        }
-        return null;
-      })
-      .filter((p): p is NonNullable<typeof p> => p !== null);
-
-    // LOGIKA: Open/Closed positions z recent trades
+    // LOGIKA: Closed positions z ClosedLot (FIFO párované)
     // 
-    // OPEN POSITIONS:
-    // - BUY (první nákup, balance z 0 na >0)
-    // - ADD (další nákupy, když balance > 0)
-    // - REM (částečný prodej, ale balance zůstává > 0)
-    // - SELL NENÍ součástí open positions (uzavírá pozici, balance = 0)
-    // Open position = balance > 0 NEBO (balance <= 0 ale nemá žádný SELL trade, jen REM)
-    //
     // CLOSED POSITIONS:
-    // - BUY (počáteční nákup) + SELL (finální prodej, balance = 0)
-    // - ADD a REM jsou jen mezistupně
-    // Closed position = balance <= 0 A má alespoň jeden SELL trade
-    
-    // Open positions: BUY + ADD + REM (bez SELL)
-    const openPositions = portfolio
-      .filter(p => {
-        // Musí mít alespoň jeden BUY nebo ADD trade (počáteční nákup nebo další nákup)
-        if (p.buyCount === 0) {
-          console.log(`   ⏭️  Skipping open position: no BUY/ADD trades`);
-          return false;
-        }
-        
-        // DŮLEŽITÉ: SELL není součástí open positions (uzavírá pozici)
-        // Open position = balance > 0 NEBO (balance <= 0 ale nemá žádný SELL trade, jen REM)
-        const hasSellTrade = p.sellCount > 0;
-        if (p.balance <= 0 && hasSellTrade) {
-          // balance <= 0 A má SELL trade → closed position (SELL uzavírá pozici)
-          console.log(`   ⏭️  Skipping open position: balance <= 0 (${p.balance}) and has SELL trade (closed position)`);
-          return false;
-        }
-        
-        // Pokud je balance <= 0 ale nemá SELL trade, může to být otevřená pozice (jen REM trades)
-        // Ale filtrujeme pozice s velmi malou hodnotou (prakticky 0)
-        const value = p.currentValue || (p.balance * p.averageBuyPrice);
-        if (value <= 0.01) {
-          console.log(`   ⏭️  Skipping open position: value too small (${value})`);
-          return false;
-        }
-        console.log(`   ✅ Open position: token=${p.token?.symbol || p.tokenId}, balance=${p.balance}, value=${value}, buyCount=${p.buyCount}, removeCount=${p.removeCount || 0}, sellCount=${p.sellCount} (SELL není součástí open positions)`);
-        return true;
-      })
-      .sort((a, b) => {
-        const aValue = a.currentValue || (a.balance * a.averageBuyPrice);
-        const bValue = b.currentValue || (b.balance * b.averageBuyPrice);
-        return bValue - aValue;
-      });
+    // - Vytváří se POUZE z ClosedLot (FIFO párované BUY-SELL trades)
+    // - Každý ClosedLot = jedna uzavřená pozice
+    // - Seskupené podle sellTradeId pro UI (jeden SELL trade může uzavřít více BUY trades)
 
     // Closed positions: BUY (počátek) + SELL (konec, balance = 0)
     // DŮLEŽITÉ: Closed position = BUY jako počáteční nákup + SELL jako finální prodej (balance = 0)
@@ -1669,10 +1240,6 @@ router.get('/:id/portfolio', async (req, res) => {
     }
     
     // DŮLEŽITÉ: Closed positions se vytváří POUZE z ClosedLots (jednotný princip)
-    // Portfolio mapa se používá jen pro open positions
-    // Pokud pozice z portfolio mapy má ClosedLot data, přeskočíme ji (už je v closedPositionsFromLots)
-    const tokensWithClosedLots = new Set((closedLots || []).map((lot: any) => lot.tokenId));
-    
     const closedPositions = [
       ...closedPositionsFromLots
     ]
@@ -1683,62 +1250,50 @@ router.get('/:id/portfolio', async (req, res) => {
           return bTime - aTime;
         });
 
-    console.log(`✅ Portfolio calculated: ${openPositions.length} open positions, ${closedPositions.length} closed positions`);
+    console.log(`✅ Portfolio calculated: ${closedPositions.length} closed positions`);
     
     // DEBUG: Log 30d closed positions for PnL calculation
+    // DŮLEŽITÉ: Pro konzistenci s homepage (metrics calculator) počítáme PnL PŘÍMO z ClosedLot
+    // Portfolio endpoint seskupuje ClosedLot podle sellTradeId do closed positions (pro UI),
+    // ale pro výpočet PnL používáme stejnou logiku jako metrics calculator - sčítáme všechny ClosedLot
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    // Filtruj ClosedLot podle exitTime (stejně jako metrics calculator)
+    // DŮLEŽITÉ: exitTime v ClosedLot = timestamp z SELL trade = lastSellTimestamp v closed positions
+    const recentClosedLots30d = (closedLots || []).filter((lot: any) => {
+      if (!lot.exitTime) return false;
+      const exitTime = new Date(lot.exitTime);
+      return exitTime >= thirtyDaysAgo && exitTime <= new Date();
+    });
+    
+    // Sčítáme realizedPnl z ClosedLot (stejně jako metrics calculator)
+    // Toto zajišťuje konzistenci mezi homepage a detail stránkou
+    const totalPnl30d = recentClosedLots30d.reduce((sum: number, lot: any) => {
+      const pnl = lot.realizedPnl !== null && lot.realizedPnl !== undefined ? Number(lot.realizedPnl) : 0;
+      return sum + pnl;
+    }, 0);
+    
+    // Sčítáme costBasis z ClosedLot (stejně jako metrics calculator pro konzistenci)
+    // DŮLEŽITÉ: Pro konzistenci s homepage používáme costBasis z ClosedLot, ne z closed positions
+    const totalCost30d = recentClosedLots30d.reduce((sum: number, lot: any) => {
+      const costBasis = lot.costBasis !== null && lot.costBasis !== undefined ? Number(lot.costBasis) : 0;
+      return sum + Math.max(costBasis, 0); // Použij costBasis z ClosedLot
+    }, 0);
+    
+    // Pro closed positions (UI) stále používáme seskupené pozice
     const recentClosedPositions30d = closedPositions.filter((p: any) => {
       if (!p.lastSellTimestamp) return false;
       const sellDate = new Date(p.lastSellTimestamp);
       return sellDate >= thirtyDaysAgo && sellDate <= new Date();
     });
-    
-    // Calculate 30d PnL from closed positions (same logic as detail page)
-    // DŮLEŽITÉ: Použijeme přímo totalCostBase z closed positions, ne inverzní výpočet z PnL a PnL%
-    // Inverzní výpočet může být nepřesný, zejména když je PnL% 0 nebo velmi malé
-    const totalPnl30d = recentClosedPositions30d.reduce((sum: number, p: any) => sum + (p.realizedPnlBase ?? 0), 0);
-    const totalCost30d = recentClosedPositions30d.reduce((sum: number, p: any) => {
-      // Použij přímo totalCostBase z closed position, pokud je k dispozici
-      if (p.totalCostBase !== null && p.totalCostBase !== undefined && p.totalCostBase > 0) {
-        return sum + p.totalCostBase;
-      }
-      // Fallback: pokud nemáme totalCostBase, použijeme inverzní výpočet z PnL a PnL%
-      // Ale pouze pokud je PnL% nenulové a platné
-      const pnl = p.realizedPnlBase ?? 0; // PnL v SOL
-      const pnlPercent = p.realizedPnlPercent ?? 0;
-      if (pnlPercent !== 0 && Math.abs(pnlPercent) > 0.01 && typeof pnl === 'number' && typeof pnlPercent === 'number') {
-        const cost = pnl / (pnlPercent / 100);
-        return sum + Math.abs(cost);
-      }
-      // Pokud nemáme ani totalCostBase ani platný PnL%, použijeme proceeds - realizedPnl jako aproximaci
-      if (p.totalProceedsBase !== null && p.totalProceedsBase !== undefined && p.totalProceedsBase > 0) {
-        const estimatedCost = p.totalProceedsBase - pnl;
-        if (estimatedCost > 0) {
-          return sum + estimatedCost;
-        }
-      }
-      return sum;
-    }, 0);
     const pnlPercent30d = totalCost30d > 0 ? (totalPnl30d / totalCost30d) * 100 : 0;
     
-    if (wallet.id && recentClosedPositions30d.length > 0) {
-      console.log(`   📊 [Portfolio] Wallet ${wallet.id}: Found ${recentClosedPositions30d.length} closed positions in last 30 days`);
-      console.log(`   ✅ [Portfolio] Wallet ${wallet.id}: totalPnl30d=${totalPnl30d.toFixed(4)} SOL, totalCost30d=${totalCost30d.toFixed(4)} SOL, pnlPercent30d=${pnlPercent30d.toFixed(2)}%`);
+    if (wallet.id && recentClosedLots30d.length > 0) {
+      console.log(`   📊 [Portfolio] Wallet ${wallet.id}: Found ${recentClosedLots30d.length} closed lots in last 30 days (${recentClosedPositions30d.length} closed positions)`);
+      console.log(`   ✅ [Portfolio] Wallet ${wallet.id}: totalPnl30d=${totalPnl30d.toFixed(4)} SOL (from ClosedLot, same as homepage), totalCost30d=${totalCost30d.toFixed(4)} SOL, pnlPercent30d=${pnlPercent30d.toFixed(2)}%`);
     }
     
-    // Debug: Log all positions with balance <= 0 to see why they're not in closed positions
-    const allClosedCandidates = portfolio.filter(p => {
-      const normalizedBalance = p.balance < 0 && Math.abs(p.balance) < 0.0001 ? 0 : p.balance;
-      return normalizedBalance <= 0 && p.buyCount > 0;
-    });
-    if (allClosedCandidates.length > closedPositions.length) {
-      console.log(`⚠️  Found ${allClosedCandidates.length} positions with balance <= 0, but only ${closedPositions.length} passed filters:`);
-      allClosedCandidates.forEach(p => {
-        const normalizedBalance = p.balance < 0 && Math.abs(p.balance) < 0.0001 ? 0 : p.balance;
-        console.log(`   - Token: ${p.token?.symbol || p.tokenId}, balance: ${p.balance} (normalized: ${normalizedBalance}), buyCount: ${p.buyCount}, sellCount: ${p.sellCount}, holdTime: ${p.holdTimeMinutes}, firstBuy: ${p.firstBuyTimestamp}, lastSell: ${p.lastSellTimestamp}`);
-      });
-    }
     
     // Calculate 30d PnL from closed positions (same logic as detail page)
     // This ensures consistency between homepage and detail page
@@ -1748,8 +1303,6 @@ router.get('/:id/portfolio', async (req, res) => {
     // Ulož do cache
     const now = new Date().toISOString();
     const responseData = {
-      portfolio: openPositions, // Backward compatibility
-      openPositions,
       closedPositions,
       pnl30d: pnl30dFromPortfolio, // PnL v SOL za posledních 30 dní (stejná logika jako detail)
       pnl30dPercent: pnl30dPercentFromPortfolio, // PnL % za posledních 30 dní
@@ -1764,7 +1317,7 @@ router.get('/:id/portfolio', async (req, res) => {
         .upsert({
           walletId: wallet.id,
           updatedAt: now,
-          totalValueUsd: openPositions.reduce((sum, p) => sum + (p.currentValue || 0), 0),
+          totalValueUsd: 0, // Open positions removed, no total value
           holdings: responseData,
         }, { onConflict: 'walletId' });
       console.log(`✅ Portfolio cache saved for wallet ${wallet.id}`);
@@ -1917,8 +1470,8 @@ router.get('/:id/pnl', async (req, res) => {
   }
 });
 
-// DELETE /api/smart-wallets/:id/positions/:tokenId - Delete a position (open or closed)
-// Query params: sequenceNumber (optional) - if provided, deletes specific closed position cycle
+// DELETE /api/smart-wallets/:id/positions/:tokenId - Delete a closed position
+// Query params: sequenceNumber (required) - deletes specific closed position cycle
 router.delete('/:id/positions/:tokenId', async (req, res) => {
   try {
     const identifier = req.params.id;
@@ -2005,25 +1558,8 @@ router.delete('/:id/positions/:tokenId', async (req, res) => {
       deletedTrades = await tradeRepo.deleteByIds(Array.from(tradeIdsToDelete));
       console.log(`   ✅ Deleted ${deletedTrades} trades`);
     } else {
-      // DELETE OPEN POSITION
-      console.log(`🗑️  Deleting open position: walletId=${walletId}, tokenId=${tokenId}`);
-
-      // 1. Find all trades for this token and wallet
-      const allTrades = await tradeRepo.findByWalletId(walletId, { tokenId });
-
-      // 2. Filter to only open position trades (BUY, ADD, REM - but not SELL, because SELL closes position)
-      const openPositionTrades = allTrades.trades.filter(
-        (trade) => normalizeTradeSide(trade.side) === 'buy'
-      );
-
-      if (openPositionTrades.length === 0) {
-        return res.status(404).json({ error: 'Open position not found or already closed' });
-      }
-
-      // 3. Delete trades
-      const tradeIds = openPositionTrades.map((t) => t.id);
-      deletedTrades = await tradeRepo.deleteByIds(tradeIds);
-      console.log(`   ✅ Deleted ${deletedTrades} trades for open position`);
+      // sequenceNumber is required for deleting closed positions
+      return res.status(400).json({ error: 'sequenceNumber is required for deleting closed positions' });
     }
 
     // 6. Recalculate closed lots (to update any remaining positions)
@@ -2053,12 +1589,44 @@ router.delete('/:id/positions/:tokenId', async (req, res) => {
         recentPnl30dPercent: updatedWallet.recentPnl30dPercent,
         score: updatedWallet.score,
       },
-      message: sequenceNumber !== undefined
-        ? `Closed position (cycle ${sequenceNumber}) deleted successfully`
-        : 'Open position deleted successfully',
+      message: `Closed position (cycle ${sequenceNumber}) deleted successfully`,
     });
   } catch (error: any) {
     console.error('❌ Error deleting position:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error?.message || 'Unknown error',
+    });
+  }
+});
+
+// GET /api/smart-wallets/:id/copytrading-analytics - Get copytrading analytics for a wallet
+// Provides insights for copytrading bot conditions
+router.get('/:id/copytrading-analytics', async (req, res) => {
+  try {
+    const identifier = req.params.id;
+    
+    // Find wallet - support both ID and address
+    let wallet = await smartWalletRepo.findById(identifier);
+    if (!wallet) {
+      wallet = await smartWalletRepo.findByAddress(identifier);
+    }
+    if (!wallet) {
+      return res.status(404).json({ error: 'Wallet not found' });
+    }
+
+    const { CopytradingAnalyticsService } = await import('../services/copytrading-analytics.service.js');
+    const analyticsService = new CopytradingAnalyticsService();
+    
+    const analytics = await analyticsService.getAnalyticsForWallet(wallet.id);
+    
+    res.json({
+      walletId: wallet.id,
+      walletAddress: wallet.address,
+      analytics,
+    });
+  } catch (error: any) {
+    console.error('❌ Error fetching copytrading analytics:', error);
     res.status(500).json({
       error: 'Internal server error',
       message: error?.message || 'Unknown error',

@@ -7,7 +7,7 @@
  *   pnpm reprocess:trades-from-rpc --all [--batch 100] [--dry-run]
  *
  * Requirements:
- *   - QUICKNODE_RPC_URL (preferred) or HELIUS_RPC_URL / SOLANA_RPC_URL must be set
+ *   - QUICKNODE_RPC_URL (preferred) or SOLANA_RPC_URL must be set
  *   - Birdeye/Binance credentials (same as for collector) for USD conversion
  */
 
@@ -42,11 +42,10 @@ type TradeRecord = {
 
 const RPC_URL =
   process.env.QUICKNODE_RPC_URL ||
-  process.env.HELIUS_RPC_URL ||
   process.env.SOLANA_RPC_URL;
 
 if (!RPC_URL) {
-  console.error('❌ QUICKNODE_RPC_URL (nebo HELIUS_RPC_URL / SOLANA_RPC_URL) není nastaveno. Nelze stáhnout transakce z RPC.');
+  console.error('❌ QUICKNODE_RPC_URL (nebo SOLANA_RPC_URL) není nastaveno. Nelze stáhnout transakce z RPC.');
   process.exit(1);
 }
 

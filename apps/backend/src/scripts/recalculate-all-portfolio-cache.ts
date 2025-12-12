@@ -7,7 +7,7 @@ const smartWalletRepo = new SmartWalletRepository();
 const tradeRepo = new TradeRepository();
 
 /**
- * Recalculate portfolio cache (open and closed positions) for all wallets
+ * Recalculate portfolio cache (closed positions) for all wallets
  * This script updates the PortfolioBaseline cache for all wallets by calling
  * the portfolio endpoint logic (simplified version)
  */
@@ -50,10 +50,9 @@ async function recalculateAllPortfolioCache() {
         }
 
         const portfolioData = await response.json();
-        const openCount = portfolioData.openPositions?.length || 0;
         const closedCount = portfolioData.closedPositions?.length || 0;
         
-        console.log(`   ✅ Portfolio cache updated: ${openCount} open positions, ${closedCount} closed positions`);
+        console.log(`   ✅ Portfolio cache updated: ${closedCount} closed positions`);
         totalProcessed++;
       } catch (fetchError: any) {
         // If API is not available, try to calculate portfolio directly

@@ -17,11 +17,11 @@ const metricsCalculator = new MetricsCalculatorService(
 );
 
 /**
- * Recalculate positions (closed lots), metrics, and portfolio cache (open/closed positions) for all wallets
+ * Recalculate positions (closed lots), metrics, and portfolio cache (closed positions) for all wallets
  * This is a comprehensive script that:
  * 1. Recalculates closed lots (FIFO matching)
  * 2. Recalculates metrics (win rate, PnL, score, etc.)
- * 3. Updates portfolio cache (open and closed positions)
+ * 3. Updates portfolio cache (closed positions)
  */
 async function recalculateAllPositionsMetricsAndPortfolio() {
   console.log(`\n🔄 Recalculating positions, metrics, and portfolio cache for all wallets...\n`);
@@ -67,7 +67,7 @@ async function recalculateAllPositionsMetricsAndPortfolio() {
       await metricsCalculator.calculateMetricsForWallet(wallet.id);
       console.log(`   ✅ Metrics recalculated`);
 
-      // Step 3: Update portfolio cache (open and closed positions)
+      // Step 3: Update portfolio cache (closed positions)
       if (USE_API_FOR_PORTFOLIO) {
         try {
           const response = await fetch(`${API_BASE_URL}/api/smart-wallets/${wallet.id}/portfolio?forceRefresh=true`, {
@@ -79,9 +79,8 @@ async function recalculateAllPositionsMetricsAndPortfolio() {
 
           if (response.ok) {
             const portfolioData = await response.json();
-            const openCount = portfolioData.openPositions?.length || 0;
             const closedCount = portfolioData.closedPositions?.length || 0;
-            console.log(`   ✅ Portfolio cache updated: ${openCount} open positions, ${closedCount} closed positions`);
+            console.log(`   ✅ Portfolio cache updated: ${closedCount} closed positions`);
             portfolioCacheUpdated++;
           } else {
             console.warn(`   ⚠️  Portfolio cache update failed: HTTP ${response.status}`);

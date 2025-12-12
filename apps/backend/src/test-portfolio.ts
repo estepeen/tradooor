@@ -16,8 +16,7 @@ async function testPortfolio() {
 
   // Initialize services
   const rpcUrl =
-    process.env.HELIUS_RPC_URL ||
-    process.env.HELIUS_API ||
+    process.env.QUICKNODE_RPC_URL ||
     process.env.SOLANA_RPC_URL ||
     'https://api.mainnet-beta.solana.com';
   

@@ -25,7 +25,6 @@ export default function WalletDetailPage() {
   const [copiedAddress, setCopiedAddress] = useState(false);
   const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic');
   const [showAllPortfolio, setShowAllPortfolio] = useState(false);
-  const [showAllOpenPositions, setShowAllOpenPositions] = useState(false);
   const [showAllClosedPositions, setShowAllClosedPositions] = useState(false);
   const [positionsTab, setPositionsTab] = useState<'open' | 'closed'>('open');
   const [portfolioRefreshing, setPortfolioRefreshing] = useState(false);
@@ -108,36 +107,13 @@ export default function WalletDetailPage() {
       await new Promise(resolve => setTimeout(resolve, 500));
       const refreshed = await fetchWalletPortfolio(walletId);
       
-      // Basic validation: structure + positions above $1
+      // Basic validation: structure
       if (!refreshed || typeof refreshed !== 'object') {
         throw new Error('Empty response');
       }
-      const positions = Array.isArray(refreshed.portfolio) ? refreshed.portfolio : [];
-      // Calculate count of positions with value > $1 (including base tokens)
-      const positionsOver1 = positions.filter((pos: any) => {
-        const value = pos.currentValue || (pos.balance || 0) * (pos.averageBuyPrice || 0);
-        return value > 1;
-      });
-      // Detect common base tokens (WSOL, SOL, USDC, USDT) if present in response
-      const BASE_MINTS = new Set([
-        'So11111111111111111111111111111111111111112', // WSOL
-        'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-        'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
-      ]);
-      const hasBaseTokenOver1 = positionsOver1.some((p: any) => {
-        const mint = p?.token?.mintAddress || '';
-        const symbol = (p?.token?.symbol || '').toUpperCase();
-        return BASE_MINTS.has(mint) || symbol === 'SOL' || symbol === 'WSOL' || symbol === 'USDC' || symbol === 'USDT';
-      });
 
       setPortfolio(refreshed);
-      if (positionsOver1.length === 0) {
-        setPortfolioRefreshMsg({ type: 'warning', text: 'No positions above $1 detected.' });
-      } else if (!hasBaseTokenOver1) {
-        setPortfolioRefreshMsg({ type: 'warning', text: 'No SOL/WSOL/USDC/USDT position above $1 detected.' });
-      } else {
-        setPortfolioRefreshMsg({ type: 'success', text: `Portfolio refreshed and saved (${positionsOver1.length} positions > $1).` });
-      }
+      setPortfolioRefreshMsg({ type: 'success', text: 'Portfolio refreshed and saved.' });
     } catch (error: any) {
       console.error('Failed to refresh portfolio:', error);
       const msg = error?.message || 'Failed to refresh portfolio. Try again.';
@@ -364,7 +340,7 @@ export default function WalletDetailPage() {
               </div>
             )} */}
 
-            {/* Open Positions and Closed Positions - Side by Side */}
+            {/* Closed Positions */}
             {portfolioLoading && (
               <div className="mb-8 text-center text-muted-foreground py-8">
                 Loading positions...
@@ -384,106 +360,8 @@ export default function WalletDetailPage() {
               </div>
             )}
             {portfolio && (
-              <div className="grid grid-cols-2 gap-4 mb-8">
-                {/* Open Positions - Left 50% */}
-                <div className="overflow-hidden">
-                  <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">
-                    Open Positions
-                  </h2>
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-muted/30">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-sm font-medium">TOKEN</th>
-                          <th className="px-4 py-3 text-right text-sm font-medium">BALANCE</th>
-                          <th className="px-4 py-3 text-right text-sm font-medium">VALUE</th>
-                          <th className="px-4 py-3 text-right text-sm font-medium">PnL</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                  {(() => {
-                          const openPositions = portfolio.openPositions || [];
-                          
-                          if (openPositions.length === 0) {
-                    return (
-                              <tr className="border-t border-border">
-                                <td colSpan={4} className="px-4 py-6 text-center text-sm text-muted-foreground">
-                                  No open positions
-                                </td>
-                              </tr>
-                            );
-                          }
-
-                          return openPositions
-                            .slice(0, showAllOpenPositions ? openPositions.length : 10)
-                            .map((position: any) => {
-                              const token = position.token;
-                              const balance = position.balance || 0;
-                              const value = position.currentValue || (balance * (position.averageBuyPrice || 0));
-                              const pnl = position.pnl || 0;
-                              const pnlPercent = position.pnlPercent || 0;
-
-                              return (
-                                <tr key={position.tokenId} className="border-t border-border hover:bg-muted/50">
-                                  <td className="px-4 py-3 text-sm">
-                                    {token?.mintAddress ? (
-                                      <a
-                                        href={`https://solscan.io/token/${token.mintAddress}`}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-white hover:opacity-80 hover:underline"
-                                      >
-                                        {token.symbol 
-                                          ? `$${token.symbol}` 
-                                          : token.name 
-                                          ? token.name 
-                                          : `${token.mintAddress.slice(0, 8)}...${token.mintAddress.slice(-8)}`}
-                                      </a>
-                                    ) : (
-                                      <span className="text-muted-foreground">-</span>
-                                    )}
-                                  </td>
-                                  <td className="px-4 py-3 text-right text-sm font-mono">
-                                    {formatNumber(balance, 6)}
-                                  </td>
-                                  <td className="px-4 py-3 text-right text-sm font-mono">
-                                    {value > 0 ? `$${formatNumber(value, 2)}` : '-'}
-                                  </td>
-                                  <td className={`px-4 py-3 text-right text-sm font-mono ${
-                                    pnl >= 0 ? 'text-green-400' : 'text-red-400'
-                                  }`}>
-                                    {pnl !== 0 ? (
-                                      <>
-                                        ${formatNumber(Math.abs(pnl), 2)} ({pnlPercent >= 0 ? '+' : ''}{formatPercent(pnlPercent / 100)})
-                                      </>
-                                    ) : '-'}
-                                  </td>
-                                </tr>
-                              );
-                            });
-                        })()}
-                      </tbody>
-                    </table>
-                  </div>
-                  {(() => {
-                    const openPositions = portfolio.openPositions || [];
-                    if (openPositions.length > 10) {
-                      return (
-                        <div className="mt-4 text-center">
-                          <button
-                            onClick={() => setShowAllOpenPositions(!showAllOpenPositions)}
-                            className="text-sm text-muted-foreground hover:text-foreground"
-                          >
-                            {showAllOpenPositions ? 'Show Less' : `Show More (${openPositions.length - 10} more)`}
-                          </button>
-                      </div>
-                    );
-                    }
-                    return null;
-                  })()}
-                </div>
-
-                {/* Closed Positions - Right 50% */}
+              <div className="mb-8">
+                {/* Closed Positions */}
                 <div className="overflow-hidden">
                   <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">
                     Closed Positions

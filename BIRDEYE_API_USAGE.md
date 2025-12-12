@@ -6,7 +6,7 @@
 
 **Assumptions:**
 - 100 wallets
-- Average 5-10 open positions per wallet = 500-1000 unique tokens
+- Average number of closed positions per wallet varies
 - Frontend refresh: every 10 minutes
 - Backend cache TTL: 10 minutes
 - Batch size: 10 tokens per request

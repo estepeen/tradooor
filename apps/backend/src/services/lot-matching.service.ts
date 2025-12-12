@@ -10,8 +10,21 @@
 
 import { supabase, TABLES } from '../lib/supabase.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
+import { TokenMarketDataService } from './token-market-data.service.js';
+import { TokenRepository } from '../repositories/token.repository.js';
 
 const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
+
+/**
+ * Helper functions for calculating timing and market condition metrics
+ */
+function getHourOfDay(date: Date): number {
+  return date.getUTCHours();
+}
+
+function getDayOfWeek(date: Date): number {
+  return date.getUTCDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+}
 
 interface Lot {
   remainingSize: number;
@@ -41,6 +54,36 @@ interface ClosedLot {
   isPreHistory: boolean;
   costKnown: boolean;
   sequenceNumber?: number; // Kolikátý BUY-SELL cyklus pro tento token (1., 2., 3. atd.)
+  
+  // Entry/Exit Timing Metrics
+  entryHourOfDay?: number; // Hour of day (0-23) when entry occurred
+  entryDayOfWeek?: number; // Day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
+  exitHourOfDay?: number; // Hour of day (0-23) when exit occurred
+  exitDayOfWeek?: number; // Day of week (0=Sunday, 1=Monday, ..., 6=Saturday)
+  
+  // Market Conditions at Entry/Exit
+  entryMarketCap?: number | null; // Market cap at entry (USD)
+  exitMarketCap?: number | null; // Market cap at exit (USD)
+  entryLiquidity?: number | null; // Liquidity at entry (USD)
+  exitLiquidity?: number | null; // Liquidity at exit (USD)
+  entryVolume24h?: number | null; // 24h volume at entry (USD)
+  exitVolume24h?: number | null; // 24h volume at exit (USD)
+  tokenAgeAtEntryMinutes?: number | null; // Token age in minutes at entry
+  
+  // Stop-Loss/Take-Profit Detection
+  exitReason?: 'take_profit' | 'stop_loss' | 'manual' | 'unknown' | null;
+  maxProfitPercent?: number | null; // Maximum profit % during hold period
+  maxDrawdownPercent?: number | null; // Maximum drawdown % during hold period
+  timeToMaxProfitMinutes?: number | null; // Time to reach max profit (minutes from entry)
+  
+  // DCA Tracking
+  dcaEntryCount?: number | null; // Number of BUY trades that form this closed lot
+  dcaTimeSpanMinutes?: number | null; // Time span from first BUY to last BUY before SELL
+  
+  // Re-entry Patterns
+  reentryTimeMinutes?: number | null; // Time from previous exit to this entry (null for first cycle)
+  reentryPriceChangePercent?: number | null; // Price change % from previous exit
+  previousCyclePnl?: number | null; // PnL of previous cycle (for comparison)
 }
 
 type RealizedAggregate = {
@@ -52,9 +95,16 @@ type RealizedAggregate = {
 
 export class LotMatchingService {
   private tradeFeatureRepo: TradeFeatureRepository;
+  private marketDataService: TokenMarketDataService;
+  private tokenRepo: TokenRepository;
 
-  constructor(tradeFeatureRepo: TradeFeatureRepository = new TradeFeatureRepository()) {
+  constructor(
+    tradeFeatureRepo: TradeFeatureRepository = new TradeFeatureRepository(),
+    tokenRepo: TokenRepository = new TokenRepository()
+  ) {
     this.tradeFeatureRepo = tradeFeatureRepo;
+    this.marketDataService = new TokenMarketDataService();
+    this.tokenRepo = tokenRepo;
   }
   /**
    * Process trades and create closed lots using FIFO matching
@@ -104,7 +154,7 @@ export class LotMatchingService {
 
     // Process each token separately
     for (const [tid, tokenTrades] of tradesByToken.entries()) {
-      const closedLots = this.processTradesForToken(
+      const closedLots = await this.processTradesForToken(
         walletId,
         tid,
         tokenTrades,
@@ -137,16 +187,38 @@ export class LotMatchingService {
   /**
    * Process trades for a single token using FIFO matching
    */
-  private processTradesForToken(
+  private async processTradesForToken(
     walletId: string,
     tokenId: string,
     trades: any[],
     trackingStartTime?: Date
-  ): ClosedLot[] {
+  ): Promise<ClosedLot[]> {
     const openLots: Lot[] = [];
     const closedLots: ClosedLot[] = [];
     let sequenceNumber = 0; // Počítadlo BUY-SELL cyklů pro tento token
     let totalOriginalPosition = 0; // Celková původní pozice (suma všech buy trades)
+    
+    // Track previous cycle data for re-entry patterns
+    const previousCycles = new Map<number, { exitTime: Date; exitPrice: number; pnl: number }>();
+    
+    // Get token mint address for market data fetching
+    // We'll fetch it from database or get it from trades
+    let mintAddress: string | undefined;
+    const firstTrade = trades.find(t => t.tokenId === tokenId);
+    if (firstTrade) {
+      const token = (firstTrade as any).Token || (firstTrade as any).token;
+      mintAddress = token?.mintAddress;
+    }
+    
+    // If not found in trade, try to fetch from database
+    if (!mintAddress) {
+      const { data: tokenData } = await supabase
+        .from(TABLES.TOKEN)
+        .select('mintAddress')
+        .eq('id', tokenId)
+        .single();
+      mintAddress = tokenData?.mintAddress;
+    }
 
     // Minimální hodnota v base měně pro považování za reálný trade
     const MIN_BASE_VALUE = 0.0001;
@@ -303,8 +375,66 @@ export class LotMatchingService {
           sequenceNumber = 1;
         }
 
-        // Čtvrtá fáze: vytvoříme closed lots s sequenceNumber
+        // Čtvrtá fáze: vytvoříme closed lots s sequenceNumber a novými metrikami
+        // Calculate DCA metrics (count of BUY trades that form this closed lot)
+        const dcaEntryCount = consumedLotsData.length; // Number of different BUY trades
+        const firstEntryTime = consumedLotsData.length > 0 
+          ? consumedLotsData.reduce((min, d) => d.lot.entryTime < min ? d.lot.entryTime : min, consumedLotsData[0].lot.entryTime)
+          : timestamp;
+        const lastEntryTime = consumedLotsData.length > 0
+          ? consumedLotsData.reduce((max, d) => d.lot.entryTime > max ? d.lot.entryTime : max, consumedLotsData[0].lot.entryTime)
+          : timestamp;
+        const dcaTimeSpanMinutes = Math.round((lastEntryTime.getTime() - firstEntryTime.getTime()) / (1000 * 60));
+        
+        // Get previous cycle data for re-entry patterns
+        const previousCycle = previousCycles.get(sequenceNumber - 1);
+        const reentryTimeMinutes = previousCycle 
+          ? Math.round((firstEntryTime.getTime() - previousCycle.exitTime.getTime()) / (1000 * 60))
+          : null;
+        const reentryPriceChangePercent = previousCycle && previousCycle.exitPrice > 0
+          ? ((price - previousCycle.exitPrice) / previousCycle.exitPrice) * 100
+          : null;
+        const previousCyclePnl = previousCycle ? previousCycle.pnl : null;
+        
+        // Fetch market data (entry and exit) - fetch once for all lots in this SELL
+        // Note: This might be slow, so we'll do it in background or cache it
+        // For now, we'll skip market data fetching to avoid slowing down the process
+        // TODO: Fetch market data in background job or batch process
+        let entryMarketData: any = null;
+        let exitMarketData: any = null;
+        
+        // Skip market data fetching for now (can be added later in background job)
+        // if (mintAddress) {
+        //   try {
+        //     entryMarketData = await this.marketDataService.getMarketData(mintAddress, firstEntryTime);
+        //     exitMarketData = await this.marketDataService.getMarketData(mintAddress, timestamp);
+        //   } catch (error: any) {
+        //     console.warn(`⚠️  Failed to fetch market data for token ${tokenId}: ${error.message}`);
+        //   }
+        // }
+        
         for (const data of consumedLotsData) {
+          // Calculate timing metrics
+          const entryHour = getHourOfDay(data.lot.entryTime);
+          const entryDay = getDayOfWeek(data.lot.entryTime);
+          const exitHour = getHourOfDay(timestamp);
+          const exitDay = getDayOfWeek(timestamp);
+          
+          // Calculate max profit/drawdown (simplified - would need price history for accurate calculation)
+          // For now, we'll use entry/exit price as approximation
+          const maxProfitPercent = data.realizedPnlPercent > 0 ? data.realizedPnlPercent : null;
+          const maxDrawdownPercent = data.realizedPnlPercent < 0 ? Math.abs(data.realizedPnlPercent) : null;
+          
+          // Detect exit reason (simplified - would need price history for accurate detection)
+          let exitReason: 'take_profit' | 'stop_loss' | 'manual' | 'unknown' = 'unknown';
+          if (data.realizedPnlPercent > 10) {
+            exitReason = 'take_profit'; // Likely take-profit if profit > 10%
+          } else if (data.realizedPnlPercent < -10) {
+            exitReason = 'stop_loss'; // Likely stop-loss if loss > 10%
+          } else {
+            exitReason = 'manual'; // Manual exit otherwise
+          }
+          
           closedLots.push({
             walletId,
             tokenId,
@@ -322,7 +452,47 @@ export class LotMatchingService {
             sellTradeId: trade.id,
             isPreHistory: data.lot.isSynthetic || false,
             costKnown: data.lot.costKnown !== false,
-            sequenceNumber, // Přidáme sequenceNumber
+            sequenceNumber,
+            
+            // Entry/Exit Timing Metrics
+            entryHourOfDay: entryHour,
+            entryDayOfWeek: entryDay,
+            exitHourOfDay: exitHour,
+            exitDayOfWeek: exitDay,
+            
+            // Market Conditions at Entry/Exit
+            entryMarketCap: entryMarketData?.marketCap ?? null,
+            exitMarketCap: exitMarketData?.marketCap ?? null,
+            entryLiquidity: entryMarketData?.liquidity ?? null,
+            exitLiquidity: exitMarketData?.liquidity ?? null,
+            entryVolume24h: entryMarketData?.volume24h ?? null,
+            exitVolume24h: exitMarketData?.volume24h ?? null,
+            tokenAgeAtEntryMinutes: entryMarketData?.tokenAgeMinutes ?? null,
+            
+            // Stop-Loss/Take-Profit Detection
+            exitReason,
+            maxProfitPercent,
+            maxDrawdownPercent,
+            timeToMaxProfitMinutes: null, // TODO: Would need price history to calculate accurately
+            
+            // DCA Tracking
+            dcaEntryCount: dcaEntryCount > 1 ? dcaEntryCount : null, // Only set if multiple BUY trades
+            dcaTimeSpanMinutes: dcaTimeSpanMinutes > 0 ? dcaTimeSpanMinutes : null,
+            
+            // Re-entry Patterns
+            reentryTimeMinutes,
+            reentryPriceChangePercent,
+            previousCyclePnl,
+          });
+        }
+        
+        // Store cycle data for next cycle
+        if (positionClosed && consumedLotsData.length > 0) {
+          const totalPnl = consumedLotsData.reduce((sum, d) => sum + d.realizedPnl, 0);
+          previousCycles.set(sequenceNumber, {
+            exitTime: timestamp,
+            exitPrice: price,
+            pnl: totalPnl,
           });
         }
 
@@ -441,6 +611,36 @@ export class LotMatchingService {
         isPreHistory: lot.isPreHistory,
         costKnown: lot.costKnown,
         sequenceNumber: lot.sequenceNumber ?? null, // Kolikátý BUY-SELL cyklus (1., 2., 3. atd.)
+        
+        // Entry/Exit Timing Metrics
+        entryHourOfDay: lot.entryHourOfDay ?? null,
+        entryDayOfWeek: lot.entryDayOfWeek ?? null,
+        exitHourOfDay: lot.exitHourOfDay ?? null,
+        exitDayOfWeek: lot.exitDayOfWeek ?? null,
+        
+        // Market Conditions at Entry/Exit
+        entryMarketCap: lot.entryMarketCap !== null && lot.entryMarketCap !== undefined ? lot.entryMarketCap.toString() : null,
+        exitMarketCap: lot.exitMarketCap !== null && lot.exitMarketCap !== undefined ? lot.exitMarketCap.toString() : null,
+        entryLiquidity: lot.entryLiquidity !== null && lot.entryLiquidity !== undefined ? lot.entryLiquidity.toString() : null,
+        exitLiquidity: lot.exitLiquidity !== null && lot.exitLiquidity !== undefined ? lot.exitLiquidity.toString() : null,
+        entryVolume24h: lot.entryVolume24h !== null && lot.entryVolume24h !== undefined ? lot.entryVolume24h.toString() : null,
+        exitVolume24h: lot.exitVolume24h !== null && lot.exitVolume24h !== undefined ? lot.exitVolume24h.toString() : null,
+        tokenAgeAtEntryMinutes: lot.tokenAgeAtEntryMinutes ?? null,
+        
+        // Stop-Loss/Take-Profit Detection
+        exitReason: lot.exitReason ?? null,
+        maxProfitPercent: lot.maxProfitPercent !== null && lot.maxProfitPercent !== undefined ? lot.maxProfitPercent.toString() : null,
+        maxDrawdownPercent: lot.maxDrawdownPercent !== null && lot.maxDrawdownPercent !== undefined ? lot.maxDrawdownPercent.toString() : null,
+        timeToMaxProfitMinutes: lot.timeToMaxProfitMinutes ?? null,
+        
+        // DCA Tracking
+        dcaEntryCount: lot.dcaEntryCount ?? null,
+        dcaTimeSpanMinutes: lot.dcaTimeSpanMinutes ?? null,
+        
+        // Re-entry Patterns
+        reentryTimeMinutes: lot.reentryTimeMinutes ?? null,
+        reentryPriceChangePercent: lot.reentryPriceChangePercent !== null && lot.reentryPriceChangePercent !== undefined ? lot.reentryPriceChangePercent.toString() : null,
+        previousCyclePnl: lot.previousCyclePnl !== null && lot.previousCyclePnl !== undefined ? lot.previousCyclePnl.toString() : null,
       };
     });
 

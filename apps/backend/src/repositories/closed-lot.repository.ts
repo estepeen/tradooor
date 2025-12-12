@@ -22,6 +22,36 @@ export interface ClosedLotRecord {
   isPreHistory: boolean;
   costKnown: boolean;
   sequenceNumber: number | null; // Kolikátý BUY-SELL cyklus pro tento token (1., 2., 3. atd.)
+  
+  // Entry/Exit Timing Metrics
+  entryHourOfDay: number | null;
+  entryDayOfWeek: number | null;
+  exitHourOfDay: number | null;
+  exitDayOfWeek: number | null;
+  
+  // Market Conditions at Entry/Exit
+  entryMarketCap: number | null;
+  exitMarketCap: number | null;
+  entryLiquidity: number | null;
+  exitLiquidity: number | null;
+  entryVolume24h: number | null;
+  exitVolume24h: number | null;
+  tokenAgeAtEntryMinutes: number | null;
+  
+  // Stop-Loss/Take-Profit Detection
+  exitReason: 'take_profit' | 'stop_loss' | 'manual' | 'unknown' | null;
+  maxProfitPercent: number | null;
+  maxDrawdownPercent: number | null;
+  timeToMaxProfitMinutes: number | null;
+  
+  // DCA Tracking
+  dcaEntryCount: number | null;
+  dcaTimeSpanMinutes: number | null;
+  
+  // Re-entry Patterns
+  reentryTimeMinutes: number | null;
+  reentryPriceChangePercent: number | null;
+  previousCyclePnl: number | null;
 }
 
 export class ClosedLotRepository {
@@ -94,6 +124,36 @@ export class ClosedLotRepository {
       isPreHistory: Boolean(row.isPreHistory),
       costKnown: row.costKnown !== undefined ? Boolean(row.costKnown) : true,
       sequenceNumber: row.sequenceNumber !== null && row.sequenceNumber !== undefined ? toNumber(row.sequenceNumber) : null,
+      
+      // Entry/Exit Timing Metrics
+      entryHourOfDay: row.entryHourOfDay !== null && row.entryHourOfDay !== undefined ? toNumber(row.entryHourOfDay) : null,
+      entryDayOfWeek: row.entryDayOfWeek !== null && row.entryDayOfWeek !== undefined ? toNumber(row.entryDayOfWeek) : null,
+      exitHourOfDay: row.exitHourOfDay !== null && row.exitHourOfDay !== undefined ? toNumber(row.exitHourOfDay) : null,
+      exitDayOfWeek: row.exitDayOfWeek !== null && row.exitDayOfWeek !== undefined ? toNumber(row.exitDayOfWeek) : null,
+      
+      // Market Conditions at Entry/Exit
+      entryMarketCap: row.entryMarketCap !== null && row.entryMarketCap !== undefined ? toNumber(row.entryMarketCap) : null,
+      exitMarketCap: row.exitMarketCap !== null && row.exitMarketCap !== undefined ? toNumber(row.exitMarketCap) : null,
+      entryLiquidity: row.entryLiquidity !== null && row.entryLiquidity !== undefined ? toNumber(row.entryLiquidity) : null,
+      exitLiquidity: row.exitLiquidity !== null && row.exitLiquidity !== undefined ? toNumber(row.exitLiquidity) : null,
+      entryVolume24h: row.entryVolume24h !== null && row.entryVolume24h !== undefined ? toNumber(row.entryVolume24h) : null,
+      exitVolume24h: row.exitVolume24h !== null && row.exitVolume24h !== undefined ? toNumber(row.exitVolume24h) : null,
+      tokenAgeAtEntryMinutes: row.tokenAgeAtEntryMinutes !== null && row.tokenAgeAtEntryMinutes !== undefined ? toNumber(row.tokenAgeAtEntryMinutes) : null,
+      
+      // Stop-Loss/Take-Profit Detection
+      exitReason: row.exitReason ?? null,
+      maxProfitPercent: row.maxProfitPercent !== null && row.maxProfitPercent !== undefined ? toNumber(row.maxProfitPercent) : null,
+      maxDrawdownPercent: row.maxDrawdownPercent !== null && row.maxDrawdownPercent !== undefined ? toNumber(row.maxDrawdownPercent) : null,
+      timeToMaxProfitMinutes: row.timeToMaxProfitMinutes !== null && row.timeToMaxProfitMinutes !== undefined ? toNumber(row.timeToMaxProfitMinutes) : null,
+      
+      // DCA Tracking
+      dcaEntryCount: row.dcaEntryCount !== null && row.dcaEntryCount !== undefined ? toNumber(row.dcaEntryCount) : null,
+      dcaTimeSpanMinutes: row.dcaTimeSpanMinutes !== null && row.dcaTimeSpanMinutes !== undefined ? toNumber(row.dcaTimeSpanMinutes) : null,
+      
+      // Re-entry Patterns
+      reentryTimeMinutes: row.reentryTimeMinutes !== null && row.reentryTimeMinutes !== undefined ? toNumber(row.reentryTimeMinutes) : null,
+      reentryPriceChangePercent: row.reentryPriceChangePercent !== null && row.reentryPriceChangePercent !== undefined ? toNumber(row.reentryPriceChangePercent) : null,
+      previousCyclePnl: row.previousCyclePnl !== null && row.previousCyclePnl !== undefined ? toNumber(row.previousCyclePnl) : null,
     };
   }
 

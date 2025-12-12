@@ -1,277 +1,500 @@
-# VPS Deployment Guide - Tradooor
+# VPS Deployment - Kompletní postup
 
-Guide for deploying Tradooor bot on Hetzner VPS.
+Tento dokument popisuje, jak nastavit a spustit aplikaci na VPS od nuly.
 
-## Prerequisites
+## Předpoklady
 
-- Hetzner VPS with Ubuntu/Debian
-- SSH access to VPS
-- Git repo: https://github.com/estepeen/tradooor
+- VPS s Ubuntu/Debian (nebo jiný Linux)
+- Node.js >= 18.0.0 nainstalovaný
+- pnpm >= 8.0.0 nainstalovaný
+- Git nainstalovaný
+- PM2 nebo systemd pro správu procesů
 
-## Step 1: Initial Setup on VPS
+## Krok 1: Reset všech dat
 
-### Connect to VPS
-
-```bash
-ssh root@157.180.41.49
-# or if you have another user:
-ssh vps
-```
-
-### Install Node.js and Dependencies
+### 1.1 Připoj se na VPS
 
 ```bash
-# Update system
-apt update && apt upgrade -y
-
-# Install Node.js using nvm
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
-source ~/.bashrc
-nvm install 20
-nvm use 20
-
-# Install pnpm
-npm install -g pnpm
-
-# Install PM2 (for process management)
-npm install -g pm2
+ssh user@your-vps-ip
 ```
 
-### Create Folder and Clone Repo
+### 1.2 Přejdi do projektu
 
 ```bash
-# Create folder
-mkdir -p /opt/tradooor
-cd /opt/tradooor
-
-# Clone repo
-git clone https://github.com/estepeen/tradooor.git .
-
-# Or if it already exists:
-cd /opt/tradooor
-git pull origin master
+cd /path/to/tradooor
 ```
 
-## Step 2: Environment Variables Setup
+### 1.3 Vymaž všechna trades data
 
 ```bash
-cd /opt/tradooor/apps/backend
-nano .env
+cd apps/backend
+pnpm trades:delete-all
 ```
 
-Add to `.env`:
+Tento script smaže:
+- Všechny trades
+- Všechny closed lots
+- Všechny trade features
+- Portfolio baseline cache
+- Metrics history
+- Resetuje všechny wallet metriky na 0
 
+## Krok 2: Zkontroluj konfiguraci
+
+### 2.1 Zkontroluj `.env` soubor
+
+```bash
+cd apps/backend
+cat .env
+```
+
+Ujisti se, že máš nastaveno:
 ```env
-# Database (Supabase)
-DATABASE_URL=your_supabase_connection_string
-DIRECT_URL=your_supabase_direct_connection_string
+# Database
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
-# Helius
-HELIUS_API_KEY=your_helius_api_key
-
-# Webhook URL - use VPS IP address
-HELIUS_WEBHOOK_URL=http://157.180.41.49:3001/api/webhooks/helius
+# RPC
+QUICKNODE_RPC_URL=https://your-quicknode-url
+# Nebo fallback:
+SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
 
 # Port
 PORT=3001
 NODE_ENV=production
-
-# Other variables (if you have)
-# BINANCE_API_KEY=...
-# BINANCE_API_SECRET=...
 ```
 
-**Important:** Get VPS IP address:
+### 2.2 Zkontroluj frontend `.env.local`
+
 ```bash
-curl ifconfig.me
+cd apps/frontend
+cat .env.local
 ```
 
-## Step 3: Install Dependencies and Build
-
-```bash
-cd /opt/tradooor
-
-# Install dependencies
-pnpm install
-
-# Build backend
-pnpm --filter backend build
+Měl by obsahovat:
+```env
+NEXT_PUBLIC_API_URL=http://localhost:3001/api
+# Nebo pro produkci:
+# NEXT_PUBLIC_API_URL=https://your-domain.com/api
 ```
 
-## Step 4: PM2 Setup
+## Krok 3: Restart služeb
+
+### 3.1 Zastav všechny běžící procesy
+
+Pokud používáš **PM2**:
+```bash
+pm2 stop all
+pm2 delete all
+```
+
+Pokud používáš **systemd**:
+```bash
+sudo systemctl stop tradooor-backend
+sudo systemctl stop tradooor-frontend
+```
+
+Pokud běží přímo:
+```bash
+# Najdi procesy
+ps aux | grep node
+# Zastav je
+killall node
+```
+
+### 3.2 Zkontroluj, že nic neběží
 
 ```bash
-cd /opt/tradooor
+ps aux | grep node
+# Mělo by být prázdné (kromě případného PM2 daemonu)
+```
 
-# Start backend as service
-pm2 start "pnpm --filter backend start" --name tradooor-backend
+## Krok 4: Spuštění aplikace
 
-# Start normalized trade ingestion worker
-pm2 start "pnpm --filter backend worker:normalized-trades" --name tradooor-trade-worker
+### Varianta A: PM2 (doporučeno)
 
-# Save PM2 configuration
+#### 4.1 Instalace PM2 (pokud není nainstalováno)
+
+```bash
+npm install -g pm2
+```
+
+#### 4.2 Vytvoř PM2 ecosystem file
+
+Vytvoř soubor `ecosystem.config.js` v root projektu:
+
+```javascript
+module.exports = {
+  apps: [
+    {
+      name: 'tradooor-backend',
+      script: 'pnpm',
+      args: '--filter backend start',
+      cwd: '/path/to/tradooor',
+      env: {
+        NODE_ENV: 'production',
+      },
+      error_file: './logs/backend-error.log',
+      out_file: './logs/backend-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
+    {
+      name: 'tradooor-frontend',
+      script: 'pnpm',
+      args: '--filter frontend start',
+      cwd: '/path/to/tradooor',
+      env: {
+        NODE_ENV: 'production',
+      },
+      error_file: './logs/frontend-error.log',
+      out_file: './logs/frontend-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
+    {
+      name: 'tradooor-metrics-cron',
+      script: 'pnpm',
+      args: '--filter backend metrics:cron',
+      cwd: '/path/to/tradooor',
+      env: {
+        NODE_ENV: 'production',
+        CRON_SCHEDULE: '0 * * * *', // Každou hodinu
+      },
+      error_file: './logs/metrics-cron-error.log',
+      out_file: './logs/metrics-cron-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
+    {
+      name: 'tradooor-missing-trades-cron',
+      script: 'pnpm',
+      args: '--filter backend check-missing-trades:cron',
+      cwd: '/path/to/tradooor',
+      env: {
+        NODE_ENV: 'production',
+        CRON_SCHEDULE: '0 * * * *', // Každou hodinu
+      },
+      error_file: './logs/missing-trades-cron-error.log',
+      out_file: './logs/missing-trades-cron-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
+  ],
+};
+```
+
+**Důležité:** Nahraď `/path/to/tradooor` skutečnou cestou k projektu.
+
+#### 4.3 Vytvoř logy adresář
+
+```bash
+mkdir -p logs
+```
+
+#### 4.4 Spusť všechny služby
+
+```bash
+pm2 start ecosystem.config.js
+```
+
+#### 4.5 Ulož PM2 konfiguraci
+
+```bash
 pm2 save
-
-# Set automatic start after VPS restart
 pm2 startup
-# Copy and run the command that PM2 outputs
+# Spusť příkaz, který PM2 vypíše (pro automatický start po rebootu)
 ```
 
-## Step 5: Firewall Setup
+#### 4.6 Zkontroluj status
 
 ```bash
-# Open port 3001
-ufw allow 3001/tcp
-ufw enable
-```
-
-## Step 6: Create Webhook
-
-```bash
-# Check that backend is running
 pm2 status
-pm2 logs tradooor-backend
-
-# Create webhook for all wallets
-curl -X POST http://localhost:3001/api/smart-wallets/setup-webhook
+pm2 logs
 ```
 
-## Step 7: Verification
+### Varianta B: systemd
+
+#### 4.1 Vytvoř systemd service pro backend
 
 ```bash
-# Check status
+sudo nano /etc/systemd/system/tradooor-backend.service
+```
+
+Vlož:
+```ini
+[Unit]
+Description=Tradooor Backend
+After=network.target
+
+[Service]
+Type=simple
+User=your-user
+WorkingDirectory=/path/to/tradooor
+Environment="NODE_ENV=production"
+ExecStart=/usr/bin/pnpm --filter backend start
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### 4.2 Vytvoř systemd service pro frontend
+
+```bash
+sudo nano /etc/systemd/system/tradooor-frontend.service
+```
+
+Vlož:
+```ini
+[Unit]
+Description=Tradooor Frontend
+After=network.target
+
+[Service]
+Type=simple
+User=your-user
+WorkingDirectory=/path/to/tradooor
+Environment="NODE_ENV=production"
+ExecStart=/usr/bin/pnpm --filter frontend start
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+#### 4.3 Vytvoř systemd timer pro metrics cron
+
+```bash
+sudo nano /etc/systemd/system/tradooor-metrics-cron.service
+```
+
+Vlož:
+```ini
+[Unit]
+Description=Tradooor Metrics Cron
+
+[Service]
+Type=oneshot
+User=your-user
+WorkingDirectory=/path/to/tradooor
+Environment="NODE_ENV=production"
+ExecStart=/usr/bin/pnpm --filter backend metrics:cron
+```
+
+```bash
+sudo nano /etc/systemd/system/tradooor-metrics-cron.timer
+```
+
+Vlož:
+```ini
+[Unit]
+Description=Run Tradooor Metrics Cron every hour
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+#### 4.4 Vytvoř systemd timer pro missing trades cron
+
+```bash
+sudo nano /etc/systemd/system/tradooor-missing-trades-cron.service
+```
+
+Vlož:
+```ini
+[Unit]
+Description=Tradooor Missing Trades Cron
+
+[Service]
+Type=oneshot
+User=your-user
+WorkingDirectory=/path/to/tradooor
+Environment="NODE_ENV=production"
+ExecStart=/usr/bin/pnpm --filter backend check-missing-trades:cron
+```
+
+```bash
+sudo nano /etc/systemd/system/tradooor-missing-trades-cron.timer
+```
+
+Vlož:
+```ini
+[Unit]
+Description=Run Tradooor Missing Trades Cron every hour
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+#### 4.5 Aktivuj a spusť služby
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable tradooor-backend
+sudo systemctl enable tradooor-frontend
+sudo systemctl enable tradooor-metrics-cron.timer
+sudo systemctl enable tradooor-missing-trades-cron.timer
+
+sudo systemctl start tradooor-backend
+sudo systemctl start tradooor-frontend
+sudo systemctl start tradooor-metrics-cron.timer
+sudo systemctl start tradooor-missing-trades-cron.timer
+```
+
+#### 4.6 Zkontroluj status
+
+```bash
+sudo systemctl status tradooor-backend
+sudo systemctl status tradooor-frontend
+sudo systemctl list-timers
+```
+
+## Krok 5: Verifikace
+
+### 5.1 Zkontroluj, že backend běží
+
+```bash
+curl http://localhost:3001/api/smart-wallets
+# Mělo by vrátit JSON s wallets
+```
+
+### 5.2 Zkontroluj, že frontend běží
+
+```bash
+curl http://localhost:3000
+# Mělo by vrátit HTML
+```
+
+### 5.3 Zkontroluj logy
+
+**PM2:**
+```bash
+pm2 logs tradooor-backend
+pm2 logs tradooor-metrics-cron
+pm2 logs tradooor-missing-trades-cron
+```
+
+**systemd:**
+```bash
+sudo journalctl -u tradooor-backend -f
+sudo journalctl -u tradooor-metrics-cron -f
+sudo journalctl -u tradooor-missing-trades-cron -f
+```
+
+### 5.4 Zkontroluj, že cron joby běží
+
+**PM2:**
+```bash
 pm2 status
-
-# Check logs
-pm2 logs tradooor-backend
-
-# Check that API works
-curl http://localhost:3001/health
+# Měly by být všechny procesy "online"
 ```
 
-## Workflow for Updates
+**systemd:**
+```bash
+sudo systemctl list-timers | grep tradooor
+# Měly by být aktivní timery
+```
 
-### On Local Computer (MacBook):
+## Krok 6: Monitoring
+
+### 6.1 Zkontroluj, že se trades sbírají
 
 ```bash
-cd ~/Desktop/Coding/Bots/tradooor
-
-# Make code changes...
-
-# Commit and push
-git add .
-git commit -m "Description of changes"
-git push origin master
+# Připoj se na databázi a zkontroluj trades
+# Nebo použij API
+curl http://localhost:3001/api/trades?walletId=WALLET_ID
 ```
 
-### On VPS:
+### 6.2 Zkontroluj logy cron jobů
 
-```bash
-ssh root@157.180.41.49
-# or
-ssh vps
+Po první hodině bys měl vidět v logách:
+- Metrics cron: přepočet metrik pro všechny wallets
+- Missing trades cron: kontrola chybějících trades přes RPC
 
-cd /opt/tradooor
+### 6.3 Nastav alerting (volitelné)
 
-# Pull latest changes
-git pull origin master
-
-# Install new dependencies (if any were added)
-pnpm install
-
-# Build (if backend changed)
-pnpm --filter backend build
-
-# Restart backend
-pm2 restart tradooor-backend
-pm2 restart tradooor-trade-worker
-
-# Check logs
-pm2 logs tradooor-backend --lines 50
-```
-
-## Useful PM2 Commands
-
-```bash
-# Status of all processes
-pm2 status
-
-# Logs
-pm2 logs tradooor-backend
-
-# Restart
-pm2 restart tradooor-backend
-
-# Stop
-pm2 stop tradooor-backend
-
-# Start
-pm2 start tradooor-backend
-
-# Delete from PM2
-pm2 delete tradooor-backend
-
-# Monitor (real-time)
-pm2 monit
-```
+Můžeš použít:
+- PM2 monitoring: `pm2 monit`
+- Systemd monitoring: `sudo systemctl status`
+- Log monitoring: `tail -f logs/*.log`
 
 ## Troubleshooting
 
-### Backend is not running
+### Backend neběží
+
+1. Zkontroluj logy: `pm2 logs tradooor-backend` nebo `sudo journalctl -u tradooor-backend`
+2. Zkontroluj `.env` soubor
+3. Zkontroluj, že port 3001 není obsazený: `lsof -i :3001`
+
+### Cron joby neběží
+
+1. Zkontroluj logy: `pm2 logs tradooor-metrics-cron`
+2. Zkontroluj, že `CRON_SCHEDULE` je správně nastaveno
+3. Pro systemd: `sudo systemctl status tradooor-metrics-cron.timer`
+
+### Trades se nesbírají
+
+1. Zkontroluj, že RPC URL je správně nastaveno
+2. Zkontroluj logy missing trades cron: `pm2 logs tradooor-missing-trades-cron`
+3. Zkontroluj, že wallets jsou v databázi
+
+### Frontend neběží
+
+1. Zkontroluj logy: `pm2 logs tradooor-frontend`
+2. Zkontroluj, že backend běží a je dostupný
+3. Zkontroluj `.env.local` soubor
+
+## Rychlý restart (po změnách)
 
 ```bash
-# Check logs
-pm2 logs tradooor-backend
+# PM2
+pm2 restart all
 
-# Check if port is not occupied
-lsof -i :3001
-
-# Check environment variables
-cd /opt/tradooor/apps/backend
-cat .env
+# systemd
+sudo systemctl restart tradooor-backend
+sudo systemctl restart tradooor-frontend
 ```
 
-### Webhook is not working
-
-1. Check that backend is running: `pm2 status`
-2. Check webhook URL in `.env`: `HELIUS_WEBHOOK_URL`
-3. Check that port 3001 is open: `ufw status`
-4. Check Helius dashboard: https://dashboard.helius.dev/
-
-### Port is occupied
+## Úplný reset (vše od nuly)
 
 ```bash
-# Find process on port 3001
-lsof -i :3001
+# 1. Zastav vše
+pm2 stop all  # nebo sudo systemctl stop tradooor-*
 
-# Stop process
-kill -9 PID
+# 2. Vymaž data
+cd apps/backend
+pnpm trades:delete-all
+
+# 3. Restart
+pm2 restart all  # nebo sudo systemctl start tradooor-*
 ```
 
-## DNS Setup (optional - if you have a domain)
+## Poznámky
 
-If you have domain stepanpanek.cz and want to use subdomain:
-
-1. **DNS record:**
-   - Subdomain: `api` (or `bot`, `tradooor`)
-   - Type: A
-   - IP: `157.180.41.49`
-   - TTL: 3600
-
-2. **Nginx + HTTPS:**
-   - See "Nginx + HTTPS Setup" section in main guide
-
-3. **Update `.env`:**
-   ```env
-   HELIUS_WEBHOOK_URL=https://api.stepanpanek.cz/api/webhooks/helius
-   ```
-
-4. **Restart backend:**
-   ```bash
-   pm2 restart tradooor-backend
-   ```
-
-5. **Update webhook:**
-   ```bash
-   curl -X POST http://localhost:3001/api/smart-wallets/setup-webhook
-   ```
+- **PM2** je jednodušší pro začátek a má lepší monitoring
+- **systemd** je lepší pro produkci a integraci s OS
+- Cron joby běží každou hodinu (můžeš změnit přes `CRON_SCHEDULE` env var)
+- Všechny logy jsou v `./logs/` adresáři (PM2) nebo v systemd journal

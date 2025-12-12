@@ -74,11 +74,9 @@ Webhook is automatically created/updated when:
    - PnL calculation (for SELL trades)
    - Metrics recalculation
 
-## Open/Closed Positions
+## Closed Positions
 
-Open and Closed positions are calculated from recent trades:
-
-- **Open Positions**: BUY trades that are not yet closed by SELL trade (balance > 0)
+Closed positions are calculated from ClosedLot (FIFO párované trades):
 - **Closed Positions**: BUY trades that are closed by SELL trade (balance <= 0)
 - **PnL**: Calculated from SOL difference (base currency) - `proceedsBase - costBase`
 

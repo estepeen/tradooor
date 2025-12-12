@@ -11,8 +11,7 @@ Tento skript přepočítá všechny closed positions (closed lots) a metriky pro
 1. **Projde všechny walletky** v databázi
 2. **Pro každou walletku:**
    - Přepočítá closed lots (z trades pomocí FIFO matching)
-   - Přepočítá open positions
-   - Uloží closed lots a open positions do databáze
+   - Uloží closed lots do databáze
    - Přepočítá metriky (win rate, PnL, score, atd.)
    - Metriky používají closed lots pro výpočet PnL (jednotný princip)
 
@@ -30,7 +29,7 @@ cd /opt/tradooor
 
 ### 3. Spusť přepočet
 
-**Pro přepočet closed lots, metrik a portfolio cache (open + closed positions):**
+**Pro přepočet closed lots, metrik a portfolio cache (closed positions):**
 ```bash
 pnpm --filter backend recalculate-all-positions-metrics-and-portfolio
 ```
@@ -56,7 +55,7 @@ Skript vypíše:
 
 [1/X] 🔍 Processing wallet: Wallet Name (address...)
    Trades: 1234
-   ✅ Positions: 567 closed lots, 12 open positions
+   ✅ Positions: 567 closed lots
    ✅ Metrics recalculated
 
 [2/X] 🔍 Processing wallet: ...

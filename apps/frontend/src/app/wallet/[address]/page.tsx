@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio, deletePosition } from '@/lib/api';
+import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio } from '@/lib/api';
 import { formatAddress, formatPercent, formatNumber, formatDate, formatDateTimeCZ, formatHoldTime } from '@/lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { SmartWallet, Trade } from '@solbot/shared';
@@ -34,13 +34,11 @@ export default function WalletDetailPage() {
   const [wallet, setWallet] = useState<any>(null);
   const [trades, setTrades] = useState<{ trades: Trade[]; total: number } | null>(null);
   const [pnlData, setPnlData] = useState<any>(null);
-  const [portfolio, setPortfolio] = useState<any>({ openPositions: [], closedPositions: [] });
+  const [portfolio, setPortfolio] = useState<any>({ closedPositions: [] });
   const [loading, setLoading] = useState(true);
-  const [showAllOpenPositions, setShowAllOpenPositions] = useState(false);
   const [showAllClosedPositions, setShowAllClosedPositions] = useState(false);
   const [tokenFilter, setTokenFilter] = useState<string>('');
   const [timeframeFilter, setTimeframeFilter] = useState<string>('all');
-  const [deletingPosition, setDeletingPosition] = useState<string | null>(null);
   const [pnlTimeframe, setPnlTimeframe] = useState<'7d' | '30d' | '90d' | '1y'>('30d');
   const [activeTab, setActiveTab] = useState<'basic' | 'advanced'>('basic');
   const [portfolioLastUpdated, setPortfolioLastUpdated] = useState<Date | null>(null);
@@ -133,7 +131,7 @@ export default function WalletDetailPage() {
           setPnlLoading(false);
         });
 
-      // Portfolio (open/closed positions, PnL)
+      // Portfolio (closed positions, PnL)
       fetchWalletPortfolio(actualWalletId, false)
         .then((data) => {
           if (data) {
@@ -142,12 +140,12 @@ export default function WalletDetailPage() {
               setPortfolioLastUpdated(new Date(data.lastUpdated));
             }
           } else {
-            setPortfolio({ openPositions: [], closedPositions: [] });
+            setPortfolio({ closedPositions: [] });
           }
         })
         .catch((err) => {
           console.error('Error fetching portfolio:', err);
-          setPortfolio({ openPositions: [], closedPositions: [] });
+          setPortfolio({ closedPositions: [] });
         })
         .finally(() => {
           setPortfolioLoading(false);
@@ -250,38 +248,10 @@ export default function WalletDetailPage() {
     }
   }
 
-  async function handleDeletePosition(tokenId: string, sequenceNumber?: number) {
-    if (!walletAddress) return;
-    
-    const positionKey = sequenceNumber !== undefined 
-      ? `${tokenId}-${sequenceNumber}` 
-      : tokenId;
-    
-    // Show confirmation dialog
-    if (!confirm(`Are you sure you want to delete this position? This will permanently delete all related trades from the database.`)) {
-      return;
-    }
-    
-    setDeletingPosition(positionKey);
-    try {
-      // Use wallet.id if available, otherwise use walletAddress (backend supports both)
-      const walletIdentifier = wallet?.id || walletAddress;
-      const result = await deletePosition(walletIdentifier, tokenId, sequenceNumber);
-      // Reload all data after deletion to update totalTrades, PnL, etc.
-      await loadData();
-      console.log('Position deleted, metrics updated:', result.updatedMetrics);
-    } catch (error: any) {
-      console.error('Error deleting position:', error);
-      alert(`Failed to delete position: ${error.message || 'Unknown error'}`);
-    } finally {
-      setDeletingPosition(null);
-    }
-  }
 
   const allTrades = trades?.trades || [];
   
   const finalPortfolio = {
-    openPositions: portfolio?.openPositions || [],
     closedPositions: portfolio?.closedPositions || [],
   };
   if (loading) {
@@ -557,169 +527,15 @@ export default function WalletDetailPage() {
           );
         })()}
 
-        {/* Open & Closed Positions */}
+        {/* Closed Positions */}
         <div className="mb-10">
-          <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">Positions Overview</h2>
+          <h2 style={{ fontSize: '2rem', marginBottom: '1rem' }} className="font-semibold">Closed Positions</h2>
           {portfolioLoading ? (
             <div className="py-4">
               <Spinner label="Loading positions..." />
             </div>
           ) : (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {/* Open Positions */}
               <div className="overflow-hidden">
-                <div className="flex justify-between items-center mb-4">
-                  <h3 className="text-xl font-semibold">Open Positions</h3>
-                  <button
-                    onClick={async () => {
-                      if (!walletAddress || portfolioRefreshing) return;
-                      setPortfolioRefreshing(true);
-                      try {
-                        const walletData = await fetchSmartWallet(walletAddress);
-                        const actualWalletId = walletData?.id || walletAddress;
-                        const portfolioData = await fetchWalletPortfolio(actualWalletId, true); // forceRefresh=true
-                        setPortfolio(portfolioData);
-                        if (portfolioData.lastUpdated) {
-                          setPortfolioLastUpdated(new Date(portfolioData.lastUpdated));
-                        }
-                      } catch (error) {
-                        console.error('Error refreshing portfolio:', error);
-                      } finally {
-                        setPortfolioRefreshing(false);
-                      }
-                    }}
-                    disabled={portfolioRefreshing}
-                    className="px-3 py-1.5 text-sm bg-muted text-foreground rounded-md hover:bg-muted/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {portfolioRefreshing ? 'Updating...' : 'Update'}
-                  </button>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full">
-                    <thead className="bg-muted/30">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-sm font-medium">TOKEN</th>
-                        <th className="px-4 py-3 text-right text-sm font-medium">BALANCE</th>
-                        <th className="px-4 py-3 text-right text-sm font-medium">VALUE</th>
-                        <th className="px-4 py-3 text-right text-sm font-medium">Live PnL</th>
-                        <th className="px-4 py-3 text-center text-sm font-medium">ACTIONS</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        const openPositions = finalPortfolio.openPositions || [];
-                        if (openPositions.length === 0) {
-                          return (
-                            <tr className="border-t border-border">
-                              <td colSpan={5} className="px-4 py-6 text-center text-sm text-muted-foreground">
-                                No open positions
-                              </td>
-                            </tr>
-                          );
-                        }
-
-                        const items = openPositions.slice(0, showAllOpenPositions ? openPositions.length : 10);
-                        return items.map((position: any) => {
-                          const token = position.token;
-                          const balance = position.balance || 0;
-                          const value = position.currentValue || (balance * (position.averageBuyPrice || 0));
-                          // Use livePnl from API (if exists), otherwise fallback to pnl
-                          const pnl = position.livePnl !== undefined ? position.livePnl : (position.pnl || 0);
-                          const pnlBase = position.livePnlBase !== undefined && position.livePnlBase !== null ? position.livePnlBase : 0; // PnL v SOL
-                          const pnlPercent = position.livePnlPercent !== undefined ? position.livePnlPercent : (position.pnlPercent || 0);
-                          
-                          // Debug: log if pnlBase exists
-                          if (pnlBase !== 0 && Math.abs(pnlBase) > 0.0001) {
-                            console.log(`[Open Position] ${position.token?.symbol || position.tokenId}: pnlBase=${pnlBase}, pnl=${pnl}`);
-                          }
-
-                          return (
-                            <tr key={position.tokenId} className="border-t border-border hover:bg-muted/50">
-                              <td className="px-4 py-3 text-sm">
-                                {token?.mintAddress ? (
-                                  <a
-                                    href={`https://birdeye.so/solana/token/${token.mintAddress}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-white hover:opacity-80 hover:underline"
-                                  >
-                                    {token.symbol 
-                                      ? `$${token.symbol}` 
-                                      : token.name 
-                                      ? token.name 
-                                      : `${token.mintAddress.slice(0, 6)}...${token.mintAddress.slice(-6)}`}
-                                  </a>
-                                ) : (
-                                  <span className="text-muted-foreground">-</span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3 text-right text-sm font-mono">
-                                {formatNumber(balance, 2)}
-                              </td>
-                              <td className="px-4 py-3 text-right text-sm font-mono">
-                                {value > 0 ? `$${formatNumber(value, 2)}` : '-'}
-                              </td>
-                              <td className={`px-4 py-3 text-right text-sm font-mono ${
-                                pnlBase >= 0 ? 'text-green-400' : 'text-red-400'
-                              }`}>
-                                {pnlBase !== 0 ? (
-                                  <>
-                                    ${formatNumber(Math.abs(pnlBase), 2)} ({pnlPercent >= 0 ? '+' : ''}{formatPercent(pnlPercent / 100)})
-                                  </>
-                                ) : '-'}
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                <button
-                                  onClick={() => handleDeletePosition(position.tokenId)}
-                                  disabled={deletingPosition === position.tokenId}
-                                  className="text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  title="Delete position"
-                                >
-                                  {deletingPosition === position.tokenId ? (
-                                    <svg className="h-3 w-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                                    </svg>
-                                  ) : (
-                                    <svg className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                  )}
-                                </button>
-                              </td>
-                            </tr>
-                          );
-                        });
-                      })()}
-                    </tbody>
-                  </table>
-                </div>
-                {finalPortfolio.openPositions && finalPortfolio.openPositions.length > 10 && (
-                  <div className="mt-4 text-center">
-                    <button
-                      onClick={() => setShowAllOpenPositions(!showAllOpenPositions)}
-                      className="text-sm text-muted-foreground hover:text-foreground"
-                    >
-                      {showAllOpenPositions ? 'Show Less' : `Show More (${finalPortfolio.openPositions.length - 10} more)`}
-                    </button>
-                  </div>
-                )}
-                {/* Last update info */}
-                {portfolioLastUpdated && (
-                  <div className="mt-3 text-xs text-muted-foreground text-center">
-                    Last updated: {portfolioLastUpdated.toLocaleTimeString('en-US')}
-                    {countdown > 0 && (
-                      <span className="ml-2">
-                        • Next update in: {Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, '0')}
-                      </span>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Closed Positions */}
-              <div className="overflow-hidden">
-                <h3 className="text-xl font-semibold mb-4">Closed Positions</h3>
                 <div className="overflow-x-auto">
                   <table className="w-full">
                     <thead className="bg-muted/30">
@@ -728,7 +544,6 @@ export default function WalletDetailPage() {
                         <th className="px-4 py-3 text-left text-sm font-medium">TOKEN</th>
                         <th className="px-4 py-3 text-right text-sm font-medium">PnL</th>
                         <th className="px-4 py-3 text-right text-sm font-medium">HOLD TIME</th>
-                        <th className="px-4 py-3 text-center text-sm font-medium">ACTIONS</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -750,7 +565,7 @@ export default function WalletDetailPage() {
                         if (closedPositions.length === 0) {
                           return (
                             <tr className="border-t border-border">
-                              <td colSpan={5} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                              <td colSpan={4} className="px-4 py-6 text-center text-sm text-muted-foreground">
                                 No closed positions
                               </td>
                             </tr>
@@ -818,25 +633,6 @@ export default function WalletDetailPage() {
                               <td className="px-4 py-3 text-right text-sm font-mono">
                                 {holdTimeMinutes !== null ? formatHoldTime(holdTimeMinutes) : '-'}
                               </td>
-                              <td className="px-4 py-3 text-center">
-                                <button
-                                  onClick={() => handleDeletePosition(position.tokenId, sequenceNumber ?? undefined)}
-                                  disabled={deletingPosition === positionKey}
-                                  className="text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                                  title="Delete position"
-                                >
-                                  {deletingPosition === positionKey ? (
-                                    <svg className="h-3 w-3 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
-                                    </svg>
-                                  ) : (
-                                    <svg className="h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
-                                  )}
-                                </button>
-                              </td>
                             </tr>
                           );
                         });
@@ -855,7 +651,6 @@ export default function WalletDetailPage() {
                   </div>
                 )}
               </div>
-            </div>
           )}
         </div>
             {/* Recent Trades */}
