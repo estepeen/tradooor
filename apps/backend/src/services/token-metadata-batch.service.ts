@@ -8,7 +8,6 @@
  * 4. Ignoruje base tokeny (SOL, USDC, USDT) - má je natvrdo definované
  */
 
-import { HeliusClient, HeliusRateLimitError } from './helius-client.service.js';
 import { TokenRepository } from '../repositories/token.repository.js';
 import { TokenMetadataService } from './token-metadata.service.js';
 
@@ -112,10 +111,9 @@ const rateLimiter = new RateLimiter();
 
 export class TokenMetadataBatchService {
   constructor(
-    private heliusClient: HeliusClient,
     private tokenRepo: TokenRepository
   ) {
-    this.metadataService = new TokenMetadataService(this.heliusClient);
+    this.metadataService = new TokenMetadataService();
   }
 
   private metadataService: TokenMetadataService;

@@ -5,7 +5,7 @@ import { smartWalletRouter } from './routes/smart-wallets.js';
 import { tradesRouter } from './routes/trades.js';
 import { statsRouter } from './routes/stats.js';
 import { tokensRouter } from './routes/tokens.js';
-import webhookRouter, { processHeliusWebhook } from './routes/webhooks.js';
+import webhookRouter from './routes/webhooks.js';
 
 // Check if there's an error loading dotenv
 const dotenvResult = dotenv.config();
@@ -53,51 +53,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// MINIMAL handler for Helius webhook endpoint - responds immediately without any processing
-// Must be BEFORE JSON parser to avoid body parsing
-app.post('/api/webhooks/helius', express.raw({ type: 'application/json', limit: '10mb' }), (req, res) => {
-  const startTime = Date.now();
-  const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-  
-  // Respond immediately BEFORE any processing (even before logging)
-  res.status(200).json({ ok: true, message: 'webhook received' });
-  
-  // Log after sending response
-  const responseTime = Date.now() - startTime;
-  console.log('📨 ===== WEBHOOK REQUEST RECEIVED (IMMEDIATE) =====');
-  console.log(`   Time: ${new Date().toISOString()}`);
-  console.log(`   IP: ${clientIp}`);
-  console.log(`   Response time: ${responseTime}ms`);
-  console.log(`   Content-Length: ${req.headers['content-length'] || 'unknown'}`);
-
-  // Process asynchronously in background
-  setImmediate(async () => {
-    const backgroundStartTime = Date.now();
-    try {
-      console.log('🔄 ===== BACKGROUND PROCESSING STARTED (FROM INDEX.TS) =====');
-      
-      // Parse JSON from raw body
-      const body = JSON.parse(req.body.toString());
-      console.log('   Parsed body keys:', Object.keys(body || {}));
-      
-      // Call webhook processing function
-      console.log('   Calling processHeliusWebhook...');
-      await processHeliusWebhook(body);
-      
-      const backgroundTime = Date.now() - backgroundStartTime;
-      console.log(`✅ Background processing completed in ${backgroundTime}ms`);
-    } catch (error: any) {
-      const backgroundTime = Date.now() - backgroundStartTime;
-      console.error(`❌ Error processing webhook in background (after ${backgroundTime}ms):`, error);
-      if (error.message) {
-        console.error('   Error message:', error.message);
-      }
-      if (error.stack) {
-        console.error('   Stack:', error.stack.split('\n').slice(0, 5).join('\n'));
-      }
-    }
-  });
-});
+// Helius webhook endpoint removed - using QuickNode only
 
 // QuickNode webhook endpoint should also bypass the default JSON body limit by using raw body.
 // The actual route handler logic lives in routes/webhooks.ts; here we only ensure the body
@@ -162,7 +118,7 @@ app.get('/', (req, res) => {
         tradesRecalculate: '/api/trades/recalculate-all (POST, re-process all trades with fixed logic)',
         stats: '/api/stats',
         tokensEnrich: '/api/tokens/enrich-symbols (POST, enrich token symbols from Helius)',
-        webhooks: '/api/webhooks/helius (POST, receive Helius webhook notifications)',
+        webhooks: '/api/webhooks/quicknode (POST, receive QuickNode webhook notifications)',
       },
   });
 });

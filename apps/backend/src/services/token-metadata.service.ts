@@ -1,19 +1,16 @@
 import { Connection, PublicKey } from '@solana/web3.js';
-import { HeliusClient } from './helius-client.service.js';
 
 /**
  * Service pro získávání token metadata z různých zdrojů
- * Prioritizuje: Birdeye API > DexScreener > Metaplex on-chain > Helius API > Jupiter Token List
+ * Prioritizuje: Birdeye API > DexScreener > Metaplex on-chain
  */
 export class TokenMetadataService {
   private connection: Connection;
-  private heliusClient: HeliusClient;
   private birdeyeApiKey: string | undefined;
   private metaplexMetadataProgram = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
 
-  constructor(heliusClient: HeliusClient, rpcUrl?: string) {
+  constructor(rpcUrl?: string) {
     this.connection = new Connection(rpcUrl || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
-    this.heliusClient = heliusClient;
     this.birdeyeApiKey = process.env.BIRDEYE_API_KEY;
   }
 

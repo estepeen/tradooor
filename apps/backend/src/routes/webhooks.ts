@@ -22,10 +22,11 @@ const collectorService = new SolanaCollectorService(
 );
 
 /**
- * Function to process Helius webhook payload
- * Can be called from both router and index.ts
+ * @deprecated Helius webhook processing is no longer used. Use processQuickNodeWebhook instead.
  */
 export async function processHeliusWebhook(body: any) {
+  console.warn('⚠️  processHeliusWebhook is deprecated and should not be used');
+  return { processed: 0, saved: 0, skipped: 0 };
   try {
     console.log('📨 ===== WEBHOOK PROCESSING STARTED =====');
     console.log(`   Time: ${new Date().toISOString()}`);
@@ -428,73 +429,7 @@ export async function processQuickNodeWebhook(body: any) {
   }
 }
 
-/**
- * GET /api/webhooks/helius/test
- * Test endpoint - checks if webhook endpoint is working
- */
-router.get('/helius/test', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Webhook endpoint is working!',
-    timestamp: new Date().toISOString(),
-  });
-});
-
-/**
- * POST /api/webhooks/helius/test-minimal
- * Minimal test endpoint - responds immediately without any processing
- * Use for debugging timeouts
- */
-router.post('/helius/test-minimal', (req, res) => {
-  console.log('📨 MINIMAL TEST WEBHOOK HIT at', new Date().toISOString());
-  console.log('   IP:', req.ip || req.headers['x-forwarded-for']);
-  console.log('   Headers:', JSON.stringify(req.headers).substring(0, 200));
-  
-  // Respond immediately - no processing
-  res.status(200).json({ ok: true, message: 'minimal test ok' });
-});
-
-/**
- * POST /api/webhooks/helius
- * 
- * Endpoint to receive webhook notifications from Helius
- * Helius sends POST request with transactions when tracked wallet performs a swap
- * 
- * IMPORTANT: Responds immediately (200 OK) and processes asynchronously in background,
- * to avoid timeouts from Helius (Helius has timeout ~5-10 seconds)
- */
-router.post('/helius', (req, res) => {
-  // IMPORTANT: Respond to Helius immediately (200 OK) BEFORE any processing
-  // Helius has timeout ~5-10 seconds, so we must respond as quickly as possible
-  const startTime = Date.now();
-  
-  // Logging for debugging - IP address, headers, etc.
-  const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
-  
-  // Respond immediately - before any processing
-  res.status(200).json({
-    success: true,
-    message: 'Webhook received, processing in background',
-    responseTimeMs: Date.now() - startTime,
-  });
-
-  // Processing happens asynchronously in background (doesn't block response)
-  setImmediate(async () => {
-    try {
-      console.log('📨 ===== WEBHOOK REQUEST RECEIVED (FROM ROUTER) =====');
-      console.log(`   Time: ${new Date().toISOString()}`);
-      console.log(`   IP: ${clientIp}`);
-      console.log(`   User-Agent: ${req.headers['user-agent'] || 'unknown'}`);
-      
-      await processHeliusWebhook(req.body);
-    } catch (error: any) {
-      console.error('❌ Error processing webhook in background:', error);
-      if (error.stack) {
-        console.error('   Stack:', error.stack.split('\n').slice(0, 5).join('\n'));
-      }
-    }
-  });
-});
+// Helius webhook endpoints removed - using QuickNode only
 
 /**
  * GET /api/webhooks/quicknode/test

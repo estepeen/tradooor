@@ -630,7 +630,6 @@ export function normalizeQuickNodeSwap(
  * This service normalizes transactions and saves them as trades
  */
 export class SolanaCollectorService {
-  private heliusClient: HeliusClient;
   private tokenMetadataBatchService: TokenMetadataBatchService;
   private tokenPriceService: TokenPriceService;
   private solPriceService: SolPriceService;
@@ -643,22 +642,21 @@ export class SolanaCollectorService {
     private walletQueueRepo: WalletProcessingQueueRepository,
     private normalizedTradeRepo: NormalizedTradeRepository = new NormalizedTradeRepository()
   ) {
-    this.heliusClient = new HeliusClient();
-    this.tokenMetadataBatchService = new TokenMetadataBatchService(this.heliusClient, this.tokenRepo);
+    this.tokenMetadataBatchService = new TokenMetadataBatchService(this.tokenRepo);
     this.tokenPriceService = new TokenPriceService();
     this.solPriceService = new SolPriceService();
     this.binancePriceService = new BinancePriceService();
   }
 
   /**
-   * Process a single webhook transaction (Helius enhanced format).
-   * Kept for backwards compatibility; new QuickNode flow should use
-   * processQuickNodeTransaction instead.
+   * @deprecated This method is no longer used. Use processQuickNodeTransaction instead.
    */
   async processWebhookTransaction(
     tx: any,
     walletAddress: string
   ): Promise<{ saved: boolean; reason?: string }> {
+    console.warn('⚠️  processWebhookTransaction is deprecated and should not be used');
+    return { saved: false, reason: 'deprecated' };
     try {
       // 1. Normalize swap
       const normalized = await this.heliusClient.normalizeSwap(tx, walletAddress);
@@ -796,7 +794,7 @@ export class SolanaCollectorService {
         dex: normalized.dex,
         valueUsd: undefined,
         meta: {
-          source: 'helius-webhook',
+          source: 'quicknode-webhook',
           baseToken: normalized.baseToken,
           heliusDebug: heliusDebugMeta,
         },

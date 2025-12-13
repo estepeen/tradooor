@@ -12,10 +12,8 @@ import { PublicKey, Connection } from '@solana/web3.js';
 import { SolPriceService } from '../services/sol-price.service.js';
 import { supabase, TABLES } from '../lib/supabase.js';
 import { isValidSolanaAddress, parseTags } from '../lib/utils.js';
-import { HeliusClient } from '../services/helius-client.service.js';
 import { TokenMetadataBatchService } from '../services/token-metadata-batch.service.js';
 import { LotMatchingService } from '../services/lot-matching.service.js';
-import { HeliusWebhookService } from '../services/helius-webhook.service.js';
 
 // Get project root - when running from apps/backend, go up 2 levels
 // When running from root, use current directory
@@ -44,16 +42,7 @@ const metricsCalculator = new MetricsCalculatorService(
 const tokenPriceService = new TokenPriceService();
 const lotMatchingService = new LotMatchingService();
 const solPriceService = new SolPriceService();
-const heliusClient = new HeliusClient();
-const tokenMetadataBatchService = new TokenMetadataBatchService(heliusClient, tokenRepo);
-let heliusWebhookService: HeliusWebhookService | null = null;
-
-// Initialize webhook service (if Helius API key is available)
-try {
-  heliusWebhookService = new HeliusWebhookService();
-} catch (error: any) {
-  console.warn('⚠️  Helius webhook service not available:', error.message);
-}
+const tokenMetadataBatchService = new TokenMetadataBatchService(tokenRepo);
 
 const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
 
@@ -579,18 +568,7 @@ router.post('/', async (req, res) => {
 
     console.log(`✅ Wallet created successfully: ${wallet.id}`);
 
-    // Aktualizuj webhook s novou wallet adresou
-    if (heliusWebhookService) {
-      try {
-        const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
-        const allAddresses = allWallets.wallets.map(w => w.address);
-        await heliusWebhookService.ensureWebhookForAllWallets(allAddresses);
-        console.log(`✅ Webhook updated with ${allAddresses.length} wallets`);
-      } catch (error: any) {
-        console.warn(`⚠️  Failed to update webhook: ${error.message}`);
-        // Don't want wallet creation to fail due to webhook error
-      }
-    }
+    // Webhook setup removed - using QuickNode only
 
     res.status(201).json(wallet);
   } catch (error: any) {
@@ -822,18 +800,7 @@ router.post('/sync', async (req, res) => {
 
     console.log(`✅ Synchronization completed: ${result.created.length} created, ${updatedCount} updated, ${removedCount} removed, ${result.errors.length} errors`);
 
-    // Aktualizuj webhook se všemi wallet adresami
-    if (heliusWebhookService && wallets.length > 0) {
-      try {
-        const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
-        const allAddresses = allWallets.wallets.map(w => w.address);
-        await heliusWebhookService.ensureWebhookForAllWallets(allAddresses);
-        console.log(`✅ Webhook updated with ${allAddresses.length} wallets after sync`);
-      } catch (error: any) {
-        console.warn(`⚠️  Failed to update webhook after sync: ${error.message}`);
-        // Nechceme, aby selhala synchronizace kvůli webhook chybě
-      }
-    }
+    // Webhook setup removed - using QuickNode only
 
     res.status(200).json({
       success: true,
@@ -859,44 +826,12 @@ router.post('/sync', async (req, res) => {
   }
 });
 
-// POST /api/smart-wallets/setup-webhook - Setup Helius webhook for all tracked wallets
+// POST /api/smart-wallets/setup-webhook - @deprecated Helius webhook setup removed
 router.post('/setup-webhook', async (req, res) => {
-  try {
-    if (!heliusWebhookService) {
-      return res.status(503).json({ 
-        error: 'Webhook service not available',
-        message: 'HELIUS_API_KEY or HELIUS_WEBHOOK_URL not configured'
-      });
-    }
-
-    console.log('📥 POST /api/smart-wallets/setup-webhook - Setting up webhook for all wallets');
-
-    // Získej všechny wallet adresy
-    const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
-    const allAddresses = allWallets.wallets.map(w => w.address);
-
-    if (allAddresses.length === 0) {
-      return res.status(400).json({ error: 'No wallets found to setup webhook for' });
-    }
-
-    console.log(`🔧 Setting up webhook for ${allAddresses.length} wallets...`);
-
-    // Vytvoř nebo aktualizuj webhook - nahradit všechny existující adresy všemi adresami z DB
-    const webhookId = await heliusWebhookService.ensureWebhookForAllWallets(allAddresses, true);
-
-    res.status(200).json({
-      success: true,
-      webhookId,
-      walletCount: allAddresses.length,
-      message: `Webhook setup for ${allAddresses.length} wallets`,
-    });
-  } catch (error: any) {
-    console.error('❌ Error setting up webhook:', error);
-    res.status(500).json({
-      error: 'Failed to setup webhook',
-      message: error?.message || 'Unknown error',
-    });
-  }
+  res.status(410).json({
+    error: 'Deprecated',
+    message: 'Helius webhook setup is no longer used. Using QuickNode webhooks only.',
+  });
 });
 
 // GET /api/smart-wallets/:id/portfolio - Get portfolio positions for a wallet

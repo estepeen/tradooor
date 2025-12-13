@@ -5,7 +5,6 @@
 
 import { Connection, PublicKey } from '@solana/web3.js';
 import { createClient } from '@supabase/supabase-js';
-import { HeliusClient } from '../services/helius-client.service.js';
 
 const QUICKNODE_RPC_URL = process.env.QUICKNODE_RPC_URL;
 if (!QUICKNODE_RPC_URL) {
@@ -280,30 +279,7 @@ async function analyzeTransaction(signature: string, walletAddress?: string) {
       console.log('   No liquidity-related logs found');
     }
 
-    // 6. Try to get from Helius (if available)
-    const HELIUS_API_KEY = process.env.HELIUS_API_KEY;
-    if (HELIUS_API_KEY) {
-      console.log(`\n📡 Fetching from Helius API...`);
-      try {
-        const heliusClient = new HeliusClient(HELIUS_API_KEY);
-        const heliusTx = await heliusClient.getTransaction(signature);
-        
-        if (heliusTx) {
-          console.log('✅ Helius transaction found');
-          console.log(`   Type: ${heliusTx.type || 'unknown'}`);
-          console.log(`   Source: ${heliusTx.source || 'unknown'}`);
-          
-          // Check for swap type
-          if (heliusTx.type === 'SWAP') {
-            console.log(`   ⚠️  Helius detected as SWAP (not liquidity)`);
-          } else if (heliusTx.type === 'UNKNOWN') {
-            console.log(`   ⚠️  Helius detected as UNKNOWN`);
-          }
-        }
-      } catch (error: any) {
-        console.log(`   ⚠️  Helius error: ${error.message}`);
-      }
-    }
+    // Helius API removed - using QuickNode only
 
     // 7. Check if it's in our database
     console.log(`\n💾 Checking database...`);
