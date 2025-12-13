@@ -104,5 +104,20 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
     },
+    {
+      name: 'tradooor-recalculate-closed-positions-24h',
+      script: 'pnpm',
+      args: '--filter backend recalculate:closed-positions-24h',
+      cwd: process.cwd(),
+      env: {
+        NODE_ENV: 'production',
+      },
+      error_file: './logs/recalculate-closed-positions-24h-error.log',
+      out_file: './logs/recalculate-closed-positions-24h-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      autorestart: false, // Run once, not continuously
+      cron_restart: '0 2 * * *', // Run daily at 2 AM
+    },
   ],
 };
