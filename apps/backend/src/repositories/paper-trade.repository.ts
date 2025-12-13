@@ -283,22 +283,20 @@ export class PaperTradeRepository {
 
       const totalCostUsd = openCost + closedCost;
 
-      // Calculate total value (current value of open positions + realized PnL from closed + initial capital)
+      // Calculate total REALIZED PnL (only from closed positions)
+      // DŮLEŽITÉ: Počítáme jen realizované PnL z uzavřených pozic, ne unrealized z otevřených
       const totalRealizedPnl = closedPositions.reduce((sum, pos) => {
         return sum + (toNumber(pos.realizedPnl) || 0);
       }, 0);
 
-      // For open positions, we'd need current token prices to calculate current value
-      // For now, we'll use entry value (amountBase) - assumes no price change
-      const openPositionsValue = openPositions.reduce((sum, pos) => {
-        return sum + (pos.side === 'buy' ? pos.amountBase : 0);
-      }, 0);
-
-      // Total value = initial capital - total cost + open positions value + realized PnL
-      // Or simpler: initial capital + realized PnL + (open positions value - open cost)
-      const totalValueUsd = INITIAL_CAPITAL_USD + totalRealizedPnl + (openPositionsValue - openCost);
-      const totalPnlUsd = totalValueUsd - INITIAL_CAPITAL_USD;
+      // Total PnL = jen realizované PnL (z uzavřených pozic)
+      const totalPnlUsd = totalRealizedPnl;
       const totalPnlPercent = INITIAL_CAPITAL_USD > 0 ? (totalPnlUsd / INITIAL_CAPITAL_USD) * 100 : 0;
+
+      // Total value = initial capital + realized PnL
+      // (nebo můžeme počítat: initial capital - total cost + realized PnL + open positions cost)
+      // Pro zobrazení používáme: initial capital + realized PnL (bez unrealized PnL)
+      const totalValueUsd = INITIAL_CAPITAL_USD + totalRealizedPnl;
 
       // Calculate win rate
       const winningTrades = closedPositions.filter(pos => (toNumber(pos.realizedPnl) || 0) > 0).length;
