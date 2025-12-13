@@ -89,7 +89,7 @@ router.post('/enrich-symbols', async (req, res) => {
       }
 
       // Zpracuj ostatní tokeny pomocí TokenMetadataBatchService (s rate limitingem a cachováním)
-      if (otherTokens.length > 0 && heliusClient.isAvailable()) {
+      if (otherTokens.length > 0) {
         try {
           const mintAddresses = otherTokens.map(t => t.mintAddress);
           

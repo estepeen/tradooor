@@ -656,7 +656,8 @@ export class SolanaCollectorService {
     walletAddress: string
   ): Promise<{ saved: boolean; reason?: string }> {
     console.warn('⚠️  processWebhookTransaction is deprecated and should not be used');
-    return { saved: false, reason: 'deprecated' };
+    return { saved: false, reason: 'deprecated - Helius no longer used' };
+    /* Legacy code removed - Helius no longer used
     try {
       // 1. Normalize swap
       const normalized = await this.heliusClient.normalizeSwap(tx, walletAddress);
@@ -812,6 +813,7 @@ export class SolanaCollectorService {
       console.error(`❌ Error processing webhook transaction:`, error);
       return { saved: false, reason: error.message || 'unknown error' };
     }
+    */
   }
 
   /**
