@@ -79,7 +79,8 @@ async function recalculateAllPositionsMetricsAndPortfolio() {
 
           if (response.ok) {
             const portfolioData = await response.json();
-            const closedCount = portfolioData.closedPositions?.length || 0;
+            const portfolio = portfolioData as any;
+            const closedCount = portfolio.closedPositions?.length || 0;
             console.log(`   ✅ Portfolio cache updated: ${closedCount} closed positions`);
             portfolioCacheUpdated++;
           } else {

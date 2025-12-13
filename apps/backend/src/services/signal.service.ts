@@ -93,10 +93,8 @@ export class SignalService {
 
     console.log(`📊 Generated BUY signal: ${signal.id} (Score: ${quality?.score.toFixed(1) || 'N/A'}, Risk: ${quality?.riskLevel.level || 'N/A'})`);
 
-    // 5. Pošli do Discord/Telegram (pokud je zapnuto)
-    if (config.sendToDiscord || config.sendToTelegram) {
-      await this.sendSignalNotification(signal, config);
-    }
+    // 5. Pošli notifikaci (zatím deaktivováno - bude implementováno později)
+    // await this.sendSignalNotification(signal, config);
 
     return signal;
   }
@@ -147,10 +145,8 @@ export class SignalService {
 
     console.log(`📊 Generated SELL signal: ${signal.id}`);
 
-    // 4. Pošli do Discord/Telegram (pokud je zapnuto)
-    if (config.sendToDiscord || config.sendToTelegram) {
-      await this.sendSignalNotification(signal, config);
-    }
+    // 4. Pošli notifikaci (zatím deaktivováno - bude implementováno později)
+    // await this.sendSignalNotification(signal, config);
 
     return signal;
   }

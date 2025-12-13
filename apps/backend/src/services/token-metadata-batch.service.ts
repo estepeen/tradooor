@@ -294,7 +294,8 @@ export class TokenMetadataBatchService {
         }
       } catch (error: any) {
         // Pokud je to 429 rate limit, propaguj chybu nahoru
-        if (error instanceof HeliusRateLimitError) {
+        // HeliusRateLimitError was removed with Helius
+        if (error && typeof error === 'object' && 'message' in error && String(error.message).includes('rate limit')) {
           throw error;
         }
         // Jiné chyby ignorujeme - tokeny budou bez symbolu/name

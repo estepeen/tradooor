@@ -232,7 +232,8 @@ async function convertLiquidityToVoid() {
           failed++;
           continue;
         }
-        trade = fetchedTrade;
+        const updatedTrade = fetchedTrade;
+        Object.assign(trade, updatedTrade);
       }
 
       const meta = (trade.meta as any) || {};

@@ -146,6 +146,25 @@ export class TradeRepository {
     }));
   }
 
+  async findById(id: string) {
+    const { data, error } = await supabase
+      .from(TABLES.TRADE)
+      .select(`
+        *,
+        token:${TABLES.TOKEN}(*),
+        wallet:${TABLES.SMART_WALLET}(id, address, label)
+      `)
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      if (error.code === 'PGRST116') return null;
+      throw new Error(`Failed to find trade: ${error.message}`);
+    }
+
+    return data || null;
+  }
+
   async findBySignature(txSignature: string) {
     const { data, error } = await supabase
       .from(TABLES.TRADE)

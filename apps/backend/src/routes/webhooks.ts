@@ -142,7 +142,7 @@ export async function processHeliusWebhook(body: any) {
         
         if (result.saved) {
           saved++;
-          console.log(`✅ Saved swap: ${tx.signature?.substring(0, 16) || 'unknown'}... for wallet ${walletAddress.substring(0, 8)}...`);
+          console.log(`✅ Saved swap: ${tx.signature?.substring(0, 16) || 'unknown'}... for wallet ${walletAddress?.substring(0, 8) || 'unknown'}...`);
         } else {
           skipped++;
           console.log(`⏭️  Skipped swap: ${tx.signature?.substring(0, 16) || 'unknown'}... (${result.reason || 'duplicate'})`);

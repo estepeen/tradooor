@@ -220,10 +220,11 @@ async function monitorTrades() {
 
       // 8. Vytvoř portfolio snapshot (každých 5 minut)
       const now = Date.now();
-      if (!monitorTrades.lastSnapshotTime || now - monitorTrades.lastSnapshotTime > 5 * 60 * 1000) {
+      const lastSnapshotTime = (monitorTrades as any).lastSnapshotTime || 0;
+      if (!lastSnapshotTime || now - lastSnapshotTime > 5 * 60 * 1000) {
         try {
           await paperTradeService.createPortfolioSnapshot();
-          monitorTrades.lastSnapshotTime = now;
+          (monitorTrades as any).lastSnapshotTime = now;
           console.log('📸 Portfolio snapshot created');
         } catch (error: any) {
           console.error('❌ Error creating portfolio snapshot:', error.message);
