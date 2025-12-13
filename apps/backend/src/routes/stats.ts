@@ -279,9 +279,10 @@ router.get('/overview', async (req, res) => {
   }
 });
 
-// GET /api/stats/tokens - Token statistics
+// GET /api/stats/tokens - Token statistics with enhanced metrics
 router.get('/tokens', async (req, res) => {
   try {
+    // Get trades for basic stats
     const { data: trades, error } = await supabase
       .from(TABLES.TRADE)
       .select(`
@@ -294,6 +295,15 @@ router.get('/tokens', async (req, res) => {
       throw new Error(`Failed to fetch trades: ${error.message}`);
     }
 
+    // Get closed lots for PnL and win rate calculations
+    const { data: closedLots, error: closedLotsError } = await supabase
+      .from(TABLES.CLOSED_LOT)
+      .select('tokenId, realizedPnl, realizedPnlPercent, costBasis, proceeds, walletId');
+
+    if (closedLotsError) {
+      console.warn('⚠️  Failed to fetch closed lots for token stats:', closedLotsError.message);
+    }
+
     // Group by token
     const tokenMap = new Map<string, {
       token: any;
@@ -301,8 +311,16 @@ router.get('/tokens', async (req, res) => {
       uniqueWallets: Set<string>;
       buyCount: number;
       sellCount: number;
+      totalVolume: number;
+      closedLots: any[];
+      totalPnl: number;
+      totalCost: number;
+      totalProceeds: number;
+      winCount: number;
+      lossCount: number;
     }>();
 
+    // Process trades
     for (const trade of trades ?? []) {
       const tokenId = trade.tokenId;
       if (!tokenMap.has(tokenId)) {
@@ -312,6 +330,13 @@ router.get('/tokens', async (req, res) => {
           uniqueWallets: new Set(),
           buyCount: 0,
           sellCount: 0,
+          totalVolume: 0,
+          closedLots: [],
+          totalPnl: 0,
+          totalCost: 0,
+          totalProceeds: 0,
+          winCount: 0,
+          lossCount: 0,
         });
       }
       const stats = tokenMap.get(tokenId)!;
@@ -319,19 +344,66 @@ router.get('/tokens', async (req, res) => {
       stats.uniqueWallets.add(trade.walletId);
       if (trade.side === 'buy') stats.buyCount++;
       else stats.sellCount++;
+      
+      // Add volume
+      const valueUsd = Number(trade.valueUsd || 0);
+      stats.totalVolume += valueUsd;
+    }
+
+    // Process closed lots for PnL and win rate
+    for (const lot of closedLots ?? []) {
+      const tokenId = lot.tokenId;
+      if (!tokenMap.has(tokenId)) continue;
+      
+      const stats = tokenMap.get(tokenId)!;
+      stats.closedLots.push(lot);
+      
+      const pnl = Number(lot.realizedPnl || 0);
+      const cost = Number(lot.costBasis || 0);
+      const proceeds = Number(lot.proceeds || 0);
+      
+      stats.totalPnl += pnl;
+      stats.totalCost += cost;
+      stats.totalProceeds += proceeds;
+      
+      if (pnl > 0) stats.winCount++;
+      else if (pnl < 0) stats.lossCount++;
     }
 
     const tokenStats = Array.from(tokenMap.entries())
-      .map(([tokenId, stats]) => ({
-        tokenId,
-        token: stats.token,
-        tradeCount: stats.tradeCount,
-        uniqueWallets: stats.uniqueWallets.size,
-        buyCount: stats.buyCount,
-        sellCount: stats.sellCount,
-      }))
+      .map(([tokenId, stats]) => {
+        const closedPositions = stats.closedLots.length;
+        const winRate = closedPositions > 0 
+          ? (stats.winCount / closedPositions) * 100 
+          : 0;
+        const avgPnl = closedPositions > 0 
+          ? stats.totalPnl / closedPositions 
+          : 0;
+        const avgPnlPercent = stats.totalCost > 0
+          ? (stats.totalPnl / stats.totalCost) * 100
+          : 0;
+
+        return {
+          tokenId,
+          token: stats.token,
+          tradeCount: stats.tradeCount,
+          uniqueWallets: stats.uniqueWallets.size,
+          buyCount: stats.buyCount,
+          sellCount: stats.sellCount,
+          totalVolume: stats.totalVolume,
+          closedPositions,
+          totalPnl: stats.totalPnl,
+          totalCost: stats.totalCost,
+          totalProceeds: stats.totalProceeds,
+          winRate,
+          avgPnl,
+          avgPnlPercent,
+          winCount: stats.winCount,
+          lossCount: stats.lossCount,
+        };
+      })
       .sort((a, b) => b.tradeCount - a.tradeCount)
-      .slice(0, 50); // Top 50 most traded tokens
+      .slice(0, 100); // Top 100 most traded tokens
 
     res.json({ tokens: tokenStats });
   } catch (error: any) {

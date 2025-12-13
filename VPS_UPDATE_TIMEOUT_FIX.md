@@ -113,3 +113,4 @@ pnpm install
 pm2 restart tradooor-backend
 ```
 
+

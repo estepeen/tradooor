@@ -2,12 +2,15 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { fetchStatsOverview } from '@/lib/api';
+import { fetchStatsOverview, fetchTokenStats } from '@/lib/api';
 import { formatNumber, formatPercent, formatHoldTime } from '@/lib/utils';
 
 export default function StatsPage() {
   const [overview, setOverview] = useState<any>(null);
+  const [tokenStats, setTokenStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [tokenSortBy, setTokenSortBy] = useState<'tradeCount' | 'totalPnl' | 'winRate' | 'totalVolume'>('tradeCount');
+  const [tokenSortOrder, setTokenSortOrder] = useState<'asc' | 'desc'>('desc');
 
   useEffect(() => {
     loadStats();
@@ -16,14 +19,28 @@ export default function StatsPage() {
   async function loadStats() {
     setLoading(true);
     try {
-      const overviewData = await fetchStatsOverview();
+      const [overviewData, tokenData] = await Promise.all([
+        fetchStatsOverview(),
+        fetchTokenStats(),
+      ]);
       setOverview(overviewData);
+      setTokenStats(tokenData);
     } catch (error) {
       console.error('Error loading stats:', error);
     } finally {
       setLoading(false);
     }
   }
+
+  const sortedTokens = tokenStats?.tokens ? [...tokenStats.tokens].sort((a: any, b: any) => {
+    const aValue = a[tokenSortBy] || 0;
+    const bValue = b[tokenSortBy] || 0;
+    if (tokenSortOrder === 'desc') {
+      return bValue - aValue;
+    } else {
+      return aValue - bValue;
+    }
+  }) : [];
 
   if (loading) {
     return (
@@ -61,26 +78,26 @@ export default function StatsPage() {
           <div className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">Overview</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="border border-border rounded-lg p-4">
+              <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="rounded-lg p-4">
                 <div className="text-sm text-muted-foreground mb-1">Total Wallets</div>
-                <div className="text-2xl font-bold">{overview.totalWallets}</div>
+                <div className="text-2xl font-bold text-white">{overview.totalWallets}</div>
               </div>
-              <div className="border border-border rounded-lg p-4">
+              <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="rounded-lg p-4">
                 <div className="text-sm text-muted-foreground mb-1">Total Trades</div>
-                <div className="text-2xl font-bold">{overview.totalTrades}</div>
+                <div className="text-2xl font-bold text-white">{formatNumber(overview.totalTrades, 0)}</div>
               </div>
-              <div className="border border-border rounded-lg p-4">
+              <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="rounded-lg p-4">
                 <div className="text-sm text-muted-foreground mb-1">Total PnL</div>
                 <div className={`text-2xl font-bold ${
                   overview.totalPnl >= 0 ? 'text-green-600' : 'text-red-600'
                 }`}>
                   {overview.totalPnl >= 0 ? '+' : ''}
-                  {formatNumber(overview.totalPnl, 2)}
+                  ${formatNumber(Math.abs(overview.totalPnl), 2)}
                 </div>
               </div>
-              <div className="border border-border rounded-lg p-4">
+              <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="rounded-lg p-4">
                 <div className="text-sm text-muted-foreground mb-1">Avg Score</div>
-                <div className="text-2xl font-bold">{formatNumber(overview.avgScore, 1)}</div>
+                <div className="text-2xl font-bold text-white">{formatNumber(overview.avgScore, 1)}</div>
               </div>
             </div>
           </div>
@@ -91,17 +108,17 @@ export default function StatsPage() {
           <div className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">Average Metrics</h2>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="border border-border rounded-lg p-4">
+              <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="rounded-lg p-4">
                 <div className="text-sm text-muted-foreground mb-1">Avg Win Rate</div>
-                <div className="text-2xl font-bold">{formatPercent(overview.avgWinRate || 0)}</div>
+                <div className="text-2xl font-bold text-white">{formatPercent(overview.avgWinRate || 0)}</div>
               </div>
-              <div className="border border-border rounded-lg p-4">
+              <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="rounded-lg p-4">
                 <div className="text-sm text-muted-foreground mb-1">Avg Holding Time</div>
-                <div className="text-2xl font-bold">
+                <div className="text-2xl font-bold text-white">
                   {overview.avgHoldingTime ? formatHoldTime(overview.avgHoldingTime) : '-'}
                 </div>
               </div>
-              <div className="border border-border rounded-lg p-4">
+              <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="rounded-lg p-4">
                 <div className="text-sm text-muted-foreground mb-1">Avg PnL per Trade</div>
                 <div className={`text-2xl font-bold ${
                   (overview.avgPnlPercent || 0) >= 0 ? 'text-green-600' : 'text-red-600'
@@ -110,9 +127,9 @@ export default function StatsPage() {
                   {formatPercent(overview.avgPnlPercent || 0)}
                 </div>
               </div>
-              <div className="border border-border rounded-lg p-4">
+              <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="rounded-lg p-4">
                 <div className="text-sm text-muted-foreground mb-1">Avg Risk/Reward</div>
-                <div className="text-2xl font-bold">{formatNumber(overview.avgRr || 0, 2)}</div>
+                <div className="text-2xl font-bold text-white">{formatNumber(overview.avgRr || 0, 2)}</div>
               </div>
             </div>
           </div>
@@ -408,6 +425,156 @@ export default function StatsPage() {
                     <div className="text-sm text-muted-foreground text-center py-4">No data available</div>
                   )}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Token Statistics */}
+        {tokenStats && tokenStats.tokens && (
+          <div className="mb-8">
+            <h2 className="text-2xl font-semibold mb-4">Token Statistics</h2>
+            
+            {/* Sort Controls */}
+            <div className="mb-4 flex gap-4 items-center flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-muted-foreground">Sort by:</label>
+                <select
+                  value={tokenSortBy}
+                  onChange={(e) => setTokenSortBy(e.target.value as any)}
+                  className="px-3 py-2 text-sm border border-border rounded-md bg-background"
+                >
+                  <option value="tradeCount">Trade Count</option>
+                  <option value="totalPnl">Total PnL</option>
+                  <option value="winRate">Win Rate</option>
+                  <option value="totalVolume">Total Volume</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-muted-foreground">Order:</label>
+                <select
+                  value={tokenSortOrder}
+                  onChange={(e) => setTokenSortOrder(e.target.value as any)}
+                  className="px-3 py-2 text-sm border border-border rounded-md bg-background"
+                >
+                  <option value="desc">Descending</option>
+                  <option value="asc">Ascending</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Token Stats Summary */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="border border-border rounded-lg p-4">
+                <div className="text-sm text-muted-foreground mb-1">Total Tokens</div>
+                <div className="text-2xl font-bold">{tokenStats.tokens.length}</div>
+              </div>
+              <div className="border border-border rounded-lg p-4">
+                <div className="text-sm text-muted-foreground mb-1">Total Volume</div>
+                <div className="text-2xl font-bold">
+                  ${formatNumber(tokenStats.tokens.reduce((sum: number, t: any) => sum + (t.totalVolume || 0), 0), 0)}
+                </div>
+              </div>
+              <div className="border border-border rounded-lg p-4">
+                <div className="text-sm text-muted-foreground mb-1">Total PnL</div>
+                <div className={`text-2xl font-bold ${
+                  tokenStats.tokens.reduce((sum: number, t: any) => sum + (t.totalPnl || 0), 0) >= 0 
+                    ? 'text-green-600' 
+                    : 'text-red-600'
+                }`}>
+                  {tokenStats.tokens.reduce((sum: number, t: any) => sum + (t.totalPnl || 0), 0) >= 0 ? '+' : ''}
+                  ${formatNumber(Math.abs(tokenStats.tokens.reduce((sum: number, t: any) => sum + (t.totalPnl || 0), 0)), 0)}
+                </div>
+              </div>
+              <div className="border border-border rounded-lg p-4">
+                <div className="text-sm text-muted-foreground mb-1">Avg Win Rate</div>
+                <div className="text-2xl font-bold">
+                  {formatPercent(
+                    tokenStats.tokens
+                      .filter((t: any) => t.closedPositions > 0)
+                      .reduce((sum: number, t: any) => sum + (t.winRate || 0), 0) /
+                    tokenStats.tokens.filter((t: any) => t.closedPositions > 0).length || 0
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Top Tokens Table */}
+            <div className="border border-border rounded-lg overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-muted/30">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-sm font-medium">TOKEN</th>
+                      <th className="px-4 py-3 text-right text-sm font-medium">TRADES</th>
+                      <th className="px-4 py-3 text-right text-sm font-medium">WALLETS</th>
+                      <th className="px-4 py-3 text-right text-sm font-medium">CLOSED POS</th>
+                      <th className="px-4 py-3 text-right text-sm font-medium">WIN RATE</th>
+                      <th className="px-4 py-3 text-right text-sm font-medium">TOTAL PnL</th>
+                      <th className="px-4 py-3 text-right text-sm font-medium">AVG PnL</th>
+                      <th className="px-4 py-3 text-right text-sm font-medium">VOLUME</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedTokens.slice(0, 50).map((token: any) => (
+                      <tr key={token.tokenId} className="border-t border-border hover:bg-muted/50">
+                        <td className="px-4 py-3 text-sm">
+                          {token.token?.mintAddress ? (
+                            <a
+                              href={`https://birdeye.so/solana/token/${token.token.mintAddress}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-white hover:opacity-80 hover:underline"
+                            >
+                              {token.token.symbol 
+                                ? `$${token.token.symbol}` 
+                                : token.token.name 
+                                ? token.token.name 
+                                : `${token.token.mintAddress?.slice(0, 8)}...${token.token.mintAddress?.slice(-8)}`}
+                            </a>
+                          ) : (
+                            <span className="text-muted-foreground">-</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-mono">
+                          {token.tradeCount}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-mono">
+                          {token.uniqueWallets}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-mono">
+                          {token.closedPositions || 0}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-mono">
+                          {token.closedPositions > 0 ? formatPercent(token.winRate / 100) : '-'}
+                        </td>
+                        <td className={`px-4 py-3 text-right text-sm font-mono ${
+                          (token.totalPnl || 0) >= 0 ? 'text-green-400' : 'text-red-400'
+                        }`}>
+                          {(token.totalPnl || 0) !== 0 ? (
+                            <>
+                              {(token.totalPnl || 0) >= 0 ? '+' : ''}
+                              ${formatNumber(Math.abs(token.totalPnl || 0), 2)}
+                            </>
+                          ) : '-'}
+                        </td>
+                        <td className={`px-4 py-3 text-right text-sm font-mono ${
+                          (token.avgPnl || 0) >= 0 ? 'text-green-400' : 'text-red-400'
+                        }`}>
+                          {token.closedPositions > 0 ? (
+                            <>
+                              {(token.avgPnl || 0) >= 0 ? '+' : ''}
+                              ${formatNumber(Math.abs(token.avgPnl || 0), 2)}
+                            </>
+                          ) : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm font-mono">
+                          ${formatNumber(token.totalVolume || 0, 0)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
