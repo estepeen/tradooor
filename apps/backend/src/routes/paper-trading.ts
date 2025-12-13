@@ -87,7 +87,26 @@ router.get('/trades', async (req, res) => {
           .eq('status', 'closed')
           .order('closedAt', { ascending: false })
           .limit(limit);
-        trades = (closedData || []).map((row: any) => paperTradeRepo['mapRow'](row));
+        // Map rows using repository's internal method
+        trades = (closedData || []).map((row: any) => {
+          const toNumber = (value: any) => (value === null || value === undefined ? 0 : Number(value));
+          return {
+            id: row.id,
+            walletId: row.walletId,
+            tokenId: row.tokenId,
+            originalTradeId: row.originalTradeId,
+            side: row.side,
+            amountToken: toNumber(row.amountToken),
+            amountBase: toNumber(row.amountBase),
+            priceBasePerToken: toNumber(row.priceBasePerToken),
+            timestamp: new Date(row.timestamp),
+            status: row.status,
+            realizedPnl: row.realizedPnl ? toNumber(row.realizedPnl) : null,
+            realizedPnlPercent: row.realizedPnlPercent ? toNumber(row.realizedPnlPercent) : null,
+            closedAt: row.closedAt ? new Date(row.closedAt) : null,
+            meta: row.meta || {},
+          };
+        });
       } else {
         // Get all trades (open + closed)
         const openTrades = await paperTradeRepo.findOpenPositions();
@@ -97,7 +116,23 @@ router.get('/trades', async (req, res) => {
           .eq('status', 'closed')
           .order('closedAt', { ascending: false })
           .limit(limit);
-        const closedTrades = (closedData || []).map((row: any) => paperTradeRepo['mapRow'](row));
+        const toNumber = (value: any) => (value === null || value === undefined ? 0 : Number(value));
+        const closedTrades = (closedData || []).map((row: any) => ({
+          id: row.id,
+          walletId: row.walletId,
+          tokenId: row.tokenId,
+          originalTradeId: row.originalTradeId,
+          side: row.side,
+          amountToken: toNumber(row.amountToken),
+          amountBase: toNumber(row.amountBase),
+          priceBasePerToken: toNumber(row.priceBasePerToken),
+          timestamp: new Date(row.timestamp),
+          status: row.status,
+          realizedPnl: row.realizedPnl ? toNumber(row.realizedPnl) : null,
+          realizedPnlPercent: row.realizedPnlPercent ? toNumber(row.realizedPnlPercent) : null,
+          closedAt: row.closedAt ? new Date(row.closedAt) : null,
+          meta: row.meta || {},
+        }));
         trades = [...openTrades, ...closedTrades].slice(0, limit);
       }
     }
