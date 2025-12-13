@@ -91,8 +91,9 @@ export async function fetchStatsOverview() {
   return res.json();
 }
 
-export async function fetchTokenStats() {
-  const res = await fetch(`${API_BASE_URL}/stats/tokens`);
+export async function fetchTokenStats(period: '1d' | '7d' | '14d' | '30d' | 'all-time' = 'all-time') {
+  const url = `${API_BASE_URL}/stats/tokens${period ? `?period=${period}` : ''}`;
+  const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to fetch token stats');
   return res.json();
 }

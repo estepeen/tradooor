@@ -280,25 +280,62 @@ router.get('/overview', async (req, res) => {
 });
 
 // GET /api/stats/tokens - Token statistics with enhanced metrics
+// Query params: period (1d, 7d, 14d, 30d, all-time) - default: all-time
 router.get('/tokens', async (req, res) => {
   try {
-    // Get trades for basic stats
-    const { data: trades, error } = await supabase
+    const period = (req.query.period as string) || 'all-time';
+    
+    // Calculate date filter based on period
+    let fromDate: Date | null = null;
+    const now = new Date();
+    switch (period) {
+      case '1d':
+        fromDate = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
+        break;
+      case '7d':
+        fromDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case '14d':
+        fromDate = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+        break;
+      case '30d':
+        fromDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case 'all-time':
+      default:
+        fromDate = null; // No filter
+        break;
+    }
+
+    // Get trades for basic stats (filtered by period if specified)
+    let tradesQuery = supabase
       .from(TABLES.TRADE)
       .select(`
         *,
         token:${TABLES.TOKEN}(*),
         wallet:${TABLES.SMART_WALLET}(id, address)
       `);
+    
+    if (fromDate) {
+      tradesQuery = tradesQuery.gte('timestamp', fromDate.toISOString());
+    }
+    
+    const { data: trades, error } = await tradesQuery;
 
     if (error) {
       throw new Error(`Failed to fetch trades: ${error.message}`);
     }
 
-    // Get closed lots for PnL and win rate calculations
-    const { data: closedLots, error: closedLotsError } = await supabase
+    // Get closed lots for PnL and win rate calculations (filtered by period if specified)
+    let closedLotsQuery = supabase
       .from(TABLES.CLOSED_LOT)
-      .select('tokenId, realizedPnl, realizedPnlPercent, costBasis, proceeds, walletId');
+      .select('tokenId, realizedPnl, realizedPnlPercent, costBasis, proceeds, walletId, exitTime');
+    
+    if (fromDate) {
+      closedLotsQuery = closedLotsQuery.gte('exitTime', fromDate.toISOString());
+    }
+    
+    const { data: closedLots, error: closedLotsError } = await closedLotsQuery;
 
     if (closedLotsError) {
       console.warn('⚠️  Failed to fetch closed lots for token stats:', closedLotsError.message);

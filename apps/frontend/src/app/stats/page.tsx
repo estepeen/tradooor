@@ -11,24 +11,34 @@ export default function StatsPage() {
   const [loading, setLoading] = useState(true);
   const [tokenSortBy, setTokenSortBy] = useState<'tradeCount' | 'totalPnl' | 'winRate' | 'totalVolume'>('tradeCount');
   const [tokenSortOrder, setTokenSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [tokenPeriod, setTokenPeriod] = useState<'1d' | '7d' | '14d' | '30d' | 'all-time'>('all-time');
 
   useEffect(() => {
     loadStats();
   }, []);
 
+  useEffect(() => {
+    loadTokenStats();
+  }, [tokenPeriod]);
+
   async function loadStats() {
     setLoading(true);
     try {
-      const [overviewData, tokenData] = await Promise.all([
-        fetchStatsOverview(),
-        fetchTokenStats(),
-      ]);
+      const overviewData = await fetchStatsOverview();
       setOverview(overviewData);
-      setTokenStats(tokenData);
     } catch (error) {
       console.error('Error loading stats:', error);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadTokenStats() {
+    try {
+      const tokenData = await fetchTokenStats(tokenPeriod);
+      setTokenStats(tokenData);
+    } catch (error) {
+      console.error('Error loading token stats:', error);
     }
   }
 
@@ -436,10 +446,31 @@ export default function StatsPage() {
         {/* Token Statistics */}
         {tokenStats && tokenStats.tokens && (
           <div className="mb-8">
-            <h2 className="text-2xl font-semibold mb-4">Token Statistics</h2>
+            <h2 className="text-2xl font-semibold mb-4">
+              Token Statistics
+              {tokenPeriod !== 'all-time' && (
+                <span className="text-lg font-normal text-muted-foreground ml-2">
+                  ({tokenPeriod})
+                </span>
+              )}
+            </h2>
             
             {/* Sort Controls */}
             <div className="mb-4 flex gap-4 items-center flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-muted-foreground">Period:</label>
+                <select
+                  value={tokenPeriod}
+                  onChange={(e) => setTokenPeriod(e.target.value as any)}
+                  className="px-3 py-2 text-sm border border-border rounded-md bg-background"
+                >
+                  <option value="all-time">All Time</option>
+                  <option value="30d">30 Days</option>
+                  <option value="14d">14 Days</option>
+                  <option value="7d">7 Days</option>
+                  <option value="1d">1 Day</option>
+                </select>
+              </div>
               <div className="flex items-center gap-2">
                 <label className="text-sm text-muted-foreground">Sort by:</label>
                 <select
