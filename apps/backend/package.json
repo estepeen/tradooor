@@ -40,6 +40,7 @@
     "find:token": "tsx src/scripts/find-token-by-name.ts",
     "debug:liquidity-tx": "tsx src/scripts/debug-liquidity-tx.ts",
     "convert:liquidity-to-void": "tsx src/scripts/convert-liquidity-to-void.ts",
+    "find:liquidity-trades": "tsx src/scripts/find-liquidity-trades.ts",
     "check:pnl-data": "tsx src/scripts/check-pnl-data.ts",
     "fix:wallet-types-positions": "tsx src/scripts/fix-wallet-types-positions.ts",
     "fix:wallet-revalue": "tsx src/scripts/revalue-wallet-trades.ts",
