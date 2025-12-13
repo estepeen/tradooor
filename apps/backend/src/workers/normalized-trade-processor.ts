@@ -3,11 +3,13 @@ import { NormalizedTradeRepository } from '../repositories/normalized-trade.repo
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { WalletProcessingQueueRepository } from '../repositories/wallet-processing-queue.repository.js';
 import { TradeValuationService } from '../services/trade-valuation.service.js';
+import { ConsensusWebhookService } from '../services/consensus-webhook.service.js';
 
 const normalizedTradeRepo = new NormalizedTradeRepository();
 const tradeRepo = new TradeRepository();
 const walletQueueRepo = new WalletProcessingQueueRepository();
 const valuationService = new TradeValuationService();
+const consensusService = new ConsensusWebhookService();
 
 const IDLE_DELAY_MS = Number(process.env.NORMALIZED_TRADE_WORKER_IDLE_MS || 1500);
 const BATCH_SIZE = Number(process.env.NORMALIZED_TRADE_WORKER_BATCH || 20);
@@ -104,6 +106,34 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
                         valuation.source === 'stable' ? '💵' : '❓';
     
     console.log(`${sourceEmoji} [NormalizedTradeWorker] Processed ${record.id} -> trade ${trade.id} (source: ${valuation.source})`);
+
+    // DŮLEŽITÉ: Po vytvoření BUY trade zkontroluj consensus (2+ wallets, stejný token, 2h okno)
+    // Paper trade se vytvoří při ceně druhého nákupu
+    if (trade.side === 'buy') {
+      setImmediate(async () => {
+        try {
+          await consensusService.checkConsensusAfterBuy(
+            trade.id,
+            trade.tokenId,
+            trade.walletId,
+            trade.timestamp
+          );
+        } catch (consensusError: any) {
+          console.warn(`⚠️  Error checking consensus for trade ${trade.id}:`, consensusError.message);
+        }
+      });
+    }
+
+    // Pro SELL trades uzavři odpovídající paper trade
+    if (trade.side === 'sell') {
+      setImmediate(async () => {
+        try {
+          await consensusService.processSellTrade(trade.id);
+        } catch (sellError: any) {
+          console.warn(`⚠️  Error processing SELL trade ${trade.id}:`, sellError.message);
+        }
+      });
+    }
   } catch (error: any) {
     const message = error?.message || 'Unknown error';
     console.error(`❌ [NormalizedTradeWorker] Failed to process ${record.id}: ${message}`);

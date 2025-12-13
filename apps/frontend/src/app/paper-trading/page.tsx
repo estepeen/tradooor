@@ -166,7 +166,7 @@ export default function PaperTradingPage() {
               <div className="text-sm text-muted-foreground">Losing Trades</div>
               <div className="text-2xl font-bold text-red-400">{losingTrades.length}</div>
             </div>
-          </div>
+        </div>
 
           {/* Trading Model Info - Only Consensus */}
           <div className="bg-purple-500/10 rounded-lg p-4 border border-purple-500/20 mb-6">
@@ -313,14 +313,14 @@ export default function PaperTradingPage() {
                         </td>
                         <td className="px-4 py-3 text-sm">
                           {trade.token?.mintAddress ? (
-                            <Link
+            <Link
                               href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-primary hover:underline"
                             >
                               {trade.token?.symbol ? `$${trade.token.symbol}` : trade.token?.name || trade.tokenId.substring(0, 8) + '...'}
-                            </Link>
+            </Link>
                           ) : (
                             trade.token?.symbol ? `$${trade.token.symbol}` : trade.token?.name || '-'
                           )}
@@ -452,8 +452,8 @@ export default function PaperTradingPage() {
                 )}
               </tbody>
             </table>
-          </div>
         </div>
+      </div>
       )}
     </div>
   );
