@@ -13,6 +13,20 @@
     "moduleResolution": "node"
   },
   "include": ["src/**/*"],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/test-*.ts",
+    "src/scripts/test-*.ts",
+    "src/scripts/debug-*.ts",
+    "src/scripts/fix-trade-amount.ts",
+    "src/scripts/test-current.ts",
+    "src/scripts/test-legacy-faulty.ts",
+    "src/scripts/test-sol-values.ts",
+    "src/scripts/test-token-metadata.ts",
+    "src/scripts/test-tx-amount.ts",
+    "src/test-*.ts",
+    "src/workers/backfill-token-symbols.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }
 
