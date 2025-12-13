@@ -270,7 +270,7 @@ async function monitorTrades() {
 (monitorTrades as any).lastSnapshotTime = null;
 
 // Spusť monitor
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   monitorTrades().catch((error) => {
     console.error('Fatal error:', error);
     process.exit(1);
