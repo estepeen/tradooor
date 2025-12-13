@@ -6,6 +6,7 @@ import { tradesRouter } from './routes/trades.js';
 import { statsRouter } from './routes/stats.js';
 import { tokensRouter } from './routes/tokens.js';
 import webhookRouter from './routes/webhooks.js';
+import paperTradingRouter from './routes/paper-trading.js';
 
 // Check if there's an error loading dotenv
 const dotenvResult = dotenv.config();
@@ -119,6 +120,7 @@ app.get('/', (req, res) => {
         stats: '/api/stats',
         tokensEnrich: '/api/tokens/enrich-symbols (POST, enrich token symbols from Helius)',
         webhooks: '/api/webhooks/quicknode (POST, receive QuickNode webhook notifications)',
+        paperTrading: '/api/paper-trading (GET portfolio, GET trades, POST copy-trade)',
       },
   });
 });
@@ -167,6 +169,7 @@ app.options('*', (req, res) => {
 app.use('/api/smart-wallets', smartWalletRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/stats', statsRouter);
+app.use('/api/paper-trading', paperTradingRouter);
 app.use('/api/tokens', tokensRouter);
 
 // Handle "route not found" errors

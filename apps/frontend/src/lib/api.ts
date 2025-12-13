@@ -171,3 +171,55 @@ export async function deletePosition(walletId: string, tokenId: string, sequence
   return res.json();
 }
 
+// Paper Trading API
+export async function fetchPaperTradingPortfolio() {
+  const res = await fetch(`${API_BASE_URL}/paper-trading/portfolio`, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) throw new Error('Failed to fetch paper trading portfolio');
+  return res.json();
+}
+
+export async function fetchPaperTrades(params?: {
+  walletId?: string;
+  status?: 'open' | 'closed' | 'cancelled';
+  limit?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.walletId) searchParams.set('walletId', params.walletId);
+  if (params?.status) searchParams.set('status', params.status);
+  if (params?.limit) searchParams.set('limit', params.limit.toString());
+
+  const url = `${API_BASE_URL}/paper-trading/trades${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) throw new Error('Failed to fetch paper trades');
+  return res.json();
+}
+
+export async function fetchPaperPortfolioHistory(limit?: number) {
+  const url = `${API_BASE_URL}/paper-trading/portfolio/history${limit ? `?limit=${limit}` : ''}`;
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) throw new Error('Failed to fetch portfolio history');
+  return res.json();
+}
+
+export async function copyTradeAsPaperTrade(tradeId: string, config?: any) {
+  const res = await fetch(`${API_BASE_URL}/paper-trading/copy-trade`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tradeId, config }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Failed to copy trade' }));
+    throw new Error(error.error || error.message || 'Failed to copy trade');
+  }
+  return res.json();
+}
+

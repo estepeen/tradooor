@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio, fetchWalletPortfolioRefresh } from '@/lib/api';
+import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio, fetchWalletPortfolioRefresh, deletePosition } from '@/lib/api';
 import { formatAddress, formatPercent, formatNumber, formatDate, copyToClipboard, formatMultiplier, formatDateTimeCZ, formatHoldTime } from '@/lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { SmartWallet, Trade } from '@solbot/shared';
@@ -27,6 +27,7 @@ export default function WalletDetailPage() {
   const [showAllClosedPositions, setShowAllClosedPositions] = useState(false);
   const [portfolioRefreshing, setPortfolioRefreshing] = useState(false);
   const [portfolioRefreshMsg, setPortfolioRefreshMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
+  const [deletingPosition, setDeletingPosition] = useState<string | null>(null);
 
   const loadData = useCallback(async () => {
     if (!walletId) return;
@@ -84,6 +85,20 @@ export default function WalletDetailPage() {
     setPortfolioLoading(true);
     try {
       const portfolioData = await fetchWalletPortfolio(walletId).catch(() => null);
+      setPortfolio(portfolioData);
+      setPortfolioLoaded(true);
+    } catch (error) {
+      console.error('Error loading portfolio:', error);
+    } finally {
+      setPortfolioLoading(false);
+    }
+  }
+
+  async function loadPortfolio() {
+    if (!walletId) return;
+    setPortfolioLoading(true);
+    try {
+      const portfolioData = await fetchWalletPortfolio(walletId, true).catch(() => null);
       setPortfolio(portfolioData);
       setPortfolioLoaded(true);
     } catch (error) {
@@ -372,6 +387,7 @@ export default function WalletDetailPage() {
                           <th className="px-4 py-3 text-right text-sm font-medium">SOLD</th>
                           <th className="px-4 py-3 text-right text-sm font-medium">PnL</th>
                           <th className="px-4 py-3 text-right text-sm font-medium">HOLD TIME</th>
+                          <th className="px-4 py-3 text-right text-sm font-medium">ACTIONS</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -381,7 +397,7 @@ export default function WalletDetailPage() {
                           if (closedPositions.length === 0) {
                             return (
                               <tr className="border-t border-border">
-                                <td colSpan={4} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                                <td colSpan={5} className="px-4 py-6 text-center text-sm text-muted-foreground">
                                   No closed positions
                                 </td>
                               </tr>
@@ -390,15 +406,41 @@ export default function WalletDetailPage() {
 
                           return closedPositions
                             .slice(0, showAllClosedPositions ? closedPositions.length : 10)
-                            .map((position: any) => {
+                            .map((position: any, index: number) => {
                               const token = position.token;
                               const totalSold = position.totalSold || 0;
                               const closedPnl = position.closedPnl || 0;
                               const closedPnlPercent = position.closedPnlPercent || 0;
                               const holdTimeMinutes = position.holdTimeMinutes;
+                              const sequenceNumber = position.sequenceNumber ?? null;
+                              const positionKey = sequenceNumber 
+                                ? `${position.tokenId}-${sequenceNumber}` 
+                                : `${position.tokenId}-${index}`;
+                              const isDeleting = deletingPosition === positionKey;
+                              
+                              const handleDelete = async () => {
+                                if (!confirm(`Are you sure you want to delete this closed trade? This will permanently delete the trade and all related data.`)) {
+                                  return;
+                                }
+                                
+                                setDeletingPosition(positionKey);
+                                try {
+                                  await deletePosition(walletId, position.tokenId, sequenceNumber || undefined);
+                                  // Reload portfolio data
+                                  await loadPortfolio();
+                                  setPortfolioRefreshMsg({ type: 'success', text: 'Closed trade deleted successfully' });
+                                  setTimeout(() => setPortfolioRefreshMsg(null), 3000);
+                                } catch (error: any) {
+                                  console.error('Failed to delete position:', error);
+                                  setPortfolioRefreshMsg({ type: 'error', text: error.message || 'Failed to delete closed trade' });
+                                  setTimeout(() => setPortfolioRefreshMsg(null), 5000);
+                                } finally {
+                                  setDeletingPosition(null);
+                                }
+                              };
                               
                               return (
-                                <tr key={position.tokenId} className="border-t border-border hover:bg-muted/50">
+                                <tr key={positionKey} className="border-t border-border hover:bg-muted/50">
                                   <td className="px-4 py-3 text-sm">
                                     {token?.mintAddress ? (
                                       <a
@@ -433,6 +475,20 @@ export default function WalletDetailPage() {
                                     {holdTimeMinutes !== null && holdTimeMinutes !== undefined
                                       ? formatHoldTime(holdTimeMinutes)
                                       : '-'}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <button
+                                      onClick={handleDelete}
+                                      disabled={isDeleting}
+                                      className="text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm px-2 py-1 rounded hover:bg-red-400/10 transition-colors"
+                                      title="Delete this closed trade"
+                                    >
+                                      {isDeleting ? 'Deleting...' : (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                        </svg>
+                                      )}
+                                    </button>
                                   </td>
                                 </tr>
                               );

@@ -1,0 +1,229 @@
+import express from 'express';
+import { PaperTradeRepository } from '../repositories/paper-trade.repository.js';
+import { PaperTradeService } from '../services/paper-trade.service.js';
+import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
+import { TokenRepository } from '../repositories/token.repository.js';
+
+const router = express.Router();
+
+/**
+ * GET /api/paper-trading/portfolio
+ * Získá aktuální portfolio stats
+ */
+router.get('/portfolio', async (req, res) => {
+  try {
+    const paperTradeService = new PaperTradeService();
+    const stats = await paperTradeService.getPortfolioStats();
+    
+    res.json({
+      success: true,
+      ...stats,
+    });
+  } catch (error: any) {
+    console.error('❌ Error fetching paper trading portfolio:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch portfolio',
+    });
+  }
+});
+
+/**
+ * GET /api/paper-trading/trades
+ * Získá seznam paper trades
+ */
+router.get('/trades', async (req, res) => {
+  try {
+    const walletId = req.query.walletId as string | undefined;
+    const status = req.query.status as 'open' | 'closed' | 'cancelled' | undefined;
+    const limit = req.query.limit ? Number(req.query.limit) : 100;
+
+    const paperTradeRepo = new PaperTradeRepository();
+    const smartWalletRepo = new SmartWalletRepository();
+    const tokenRepo = new TokenRepository();
+
+    let trades;
+    if (walletId) {
+      trades = await paperTradeRepo.findByWallet(walletId, {
+        status,
+        limit,
+        orderBy: 'timestamp',
+        orderDirection: 'desc',
+      });
+    } else {
+      // Get all trades
+      if (status === 'open') {
+        trades = await paperTradeRepo.findOpenPositions();
+      } else {
+        // For closed trades, we need to query all wallets
+        // For simplicity, get open positions and manually filter
+        const allOpen = await paperTradeRepo.findOpenPositions();
+        trades = status === 'closed' ? [] : allOpen; // TODO: Implement proper closed trades query
+      }
+    }
+
+    // Enrich with wallet and token data
+    const enrichedTrades = await Promise.all(
+      trades.map(async (trade) => {
+        const [wallet, token] = await Promise.all([
+          smartWalletRepo.findById(trade.walletId).catch(() => null),
+          tokenRepo.findById(trade.tokenId).catch(() => null),
+        ]);
+
+        return {
+          ...trade,
+          wallet: wallet ? {
+            id: wallet.id,
+            address: wallet.address,
+            label: wallet.label,
+          } : null,
+          token: token ? {
+            id: token.id,
+            symbol: token.symbol,
+            name: token.name,
+            mintAddress: token.mintAddress,
+          } : null,
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      trades: enrichedTrades,
+      total: enrichedTrades.length,
+    });
+  } catch (error: any) {
+    console.error('❌ Error fetching paper trades:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch trades',
+    });
+  }
+});
+
+/**
+ * GET /api/paper-trading/trades/:id
+ * Získá detail paper trade
+ */
+router.get('/trades/:id', async (req, res) => {
+  try {
+    const paperTradeRepo = new PaperTradeRepository();
+    const smartWalletRepo = new SmartWalletRepository();
+    const tokenRepo = new TokenRepository();
+
+    const trade = await paperTradeRepo.findById(req.params.id);
+    if (!trade) {
+      return res.status(404).json({
+        success: false,
+        error: 'Paper trade not found',
+      });
+    }
+
+    const [wallet, token] = await Promise.all([
+      smartWalletRepo.findById(trade.walletId).catch(() => null),
+      tokenRepo.findById(trade.tokenId).catch(() => null),
+    ]);
+
+    res.json({
+      success: true,
+      trade: {
+        ...trade,
+        wallet: wallet ? {
+          id: wallet.id,
+          address: wallet.address,
+          label: wallet.label,
+        } : null,
+        token: token ? {
+          id: token.id,
+          symbol: token.symbol,
+          name: token.name,
+          mintAddress: token.mintAddress,
+        } : null,
+      },
+    });
+  } catch (error: any) {
+    console.error('❌ Error fetching paper trade:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch trade',
+    });
+  }
+});
+
+/**
+ * POST /api/paper-trading/copy-trade
+ * Manuálně zkopíruje trade jako paper trade
+ */
+router.post('/copy-trade', async (req, res) => {
+  try {
+    const { tradeId, config } = req.body;
+
+    if (!tradeId) {
+      return res.status(400).json({
+        success: false,
+        error: 'tradeId is required',
+      });
+    }
+
+    const paperTradeService = new PaperTradeService();
+    const defaultConfig = {
+      enabled: true,
+      copyAllTrades: true,
+      positionSizePercent: 5,
+      maxOpenPositions: 10,
+    };
+
+    const finalConfig = { ...defaultConfig, ...config };
+    const paperTrade = await paperTradeService.copyBuyTrade(tradeId, finalConfig);
+
+    if (!paperTrade) {
+      return res.status(400).json({
+        success: false,
+        error: 'Trade could not be copied (may already be copied or does not meet criteria)',
+      });
+    }
+
+    res.json({
+      success: true,
+      paperTrade,
+    });
+  } catch (error: any) {
+    console.error('❌ Error copying trade:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to copy trade',
+    });
+  }
+});
+
+/**
+ * GET /api/paper-trading/portfolio/history
+ * Získá historii portfolio snapshots
+ */
+router.get('/portfolio/history', async (req, res) => {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 100;
+    const { data, error } = await (await import('../lib/supabase.js')).supabase
+      .from('PaperPortfolio')
+      .select('*')
+      .order('timestamp', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      throw new Error(error.message);
+    }
+
+    res.json({
+      success: true,
+      snapshots: data || [],
+    });
+  } catch (error: any) {
+    console.error('❌ Error fetching portfolio history:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch portfolio history',
+    });
+  }
+});
+
+export default router;

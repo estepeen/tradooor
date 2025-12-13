@@ -1,0 +1,210 @@
+import { PaperTradeRepository, PaperTradeRecord } from '../repositories/paper-trade.repository.js';
+import { TradeRepository } from '../repositories/trade.repository.js';
+import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
+import { TokenRepository } from '../repositories/token.repository.js';
+
+export interface PaperTradingConfig {
+  enabled: boolean;
+  copyAllTrades: boolean; // Kopírovat všechny trades, nebo jen vybrané wallets?
+  walletIds?: string[]; // Pokud není copyAllTrades, kopírovat jen tyto wallets
+  minWalletScore?: number; // Minimální score wallet pro kopírování
+  positionSizePercent?: number; // % portfolia na trade (default: 5%)
+  maxPositionSizeUsd?: number; // Max velikost pozice v USD
+  maxOpenPositions?: number; // Max počet otevřených pozic najednou
+}
+
+export class PaperTradeService {
+  private paperTradeRepo: PaperTradeRepository;
+  private tradeRepo: TradeRepository;
+  private smartWalletRepo: SmartWalletRepository;
+  private tokenRepo: TokenRepository;
+
+  constructor() {
+    this.paperTradeRepo = new PaperTradeRepository();
+    this.tradeRepo = new TradeRepository();
+    this.smartWalletRepo = new SmartWalletRepository();
+    this.tokenRepo = new TokenRepository();
+  }
+
+  /**
+   * Kopíruje BUY trade jako paper trade
+   */
+  async copyBuyTrade(
+    originalTradeId: string,
+    config: PaperTradingConfig
+  ): Promise<PaperTradeRecord | null> {
+    // 1. Načti původní trade
+    const originalTrade = await this.tradeRepo.findById(originalTradeId);
+    if (!originalTrade) {
+      throw new Error(`Trade not found: ${originalTradeId}`);
+    }
+
+    // 2. Validace - pouze BUY trades
+    if (originalTrade.side !== 'buy') {
+      console.log(`⏭️  Skipping ${originalTrade.side} trade (only copying BUY)`);
+      return null;
+    }
+
+    // 3. Validace - pouze non-void trades
+    if ((originalTrade.side as string).toLowerCase() === 'void') {
+      console.log(`⏭️  Skipping void trade`);
+      return null;
+    }
+
+    // 4. Validace wallet (pokud je filtrování zapnuté)
+    if (!config.copyAllTrades && config.walletIds) {
+      if (!config.walletIds.includes(originalTrade.walletId)) {
+        console.log(`⏭️  Skipping trade from wallet ${originalTrade.walletId} (not in allowed list)`);
+        return null;
+      }
+    }
+
+    // 5. Validace wallet score
+    if (config.minWalletScore !== undefined) {
+      const wallet = await this.smartWalletRepo.findById(originalTrade.walletId);
+      if (!wallet || wallet.score < config.minWalletScore) {
+        console.log(`⏭️  Skipping trade from wallet ${originalTrade.walletId} (score ${wallet?.score || 0} < ${config.minWalletScore})`);
+        return null;
+      }
+    }
+
+    // 6. Validace max otevřených pozic
+    if (config.maxOpenPositions) {
+      const openPositions = await this.paperTradeRepo.findOpenPositions();
+      if (openPositions.length >= config.maxOpenPositions) {
+        console.log(`⏭️  Skipping trade (max open positions reached: ${openPositions.length}/${config.maxOpenPositions})`);
+        return null;
+      }
+    }
+
+    // 7. Zkontroluj, jestli už tento trade není zkopírovaný
+    const existing = await this.paperTradeRepo.findByWallet(originalTrade.walletId, {
+      status: 'open',
+      limit: 1000,
+    });
+    const alreadyCopied = existing.some(pt => pt.originalTradeId === originalTradeId);
+    if (alreadyCopied) {
+      console.log(`⏭️  Trade ${originalTradeId} already copied`);
+      return null;
+    }
+
+    // 8. Vypočti position size
+    const positionSize = this.calculatePositionSize(originalTrade, config);
+
+    // 9. Vytvoř paper trade
+    const paperTrade = await this.paperTradeRepo.create({
+      walletId: originalTrade.walletId,
+      tokenId: originalTrade.tokenId,
+      originalTradeId: originalTradeId,
+      side: 'buy',
+      amountToken: positionSize.amountToken,
+      amountBase: positionSize.amountBase,
+      priceBasePerToken: Number(originalTrade.priceBasePerToken),
+      timestamp: new Date(originalTrade.timestamp),
+      status: 'open',
+      meta: {
+        copiedFrom: originalTradeId,
+        originalAmountToken: Number(originalTrade.amountToken),
+        originalAmountBase: Number(originalTrade.amountBase),
+        positionSizePercent: config.positionSizePercent || 5,
+      },
+    });
+
+    console.log(`✅ Copied BUY trade: ${originalTradeId} → PaperTrade ${paperTrade.id}`);
+    return paperTrade;
+  }
+
+  /**
+   * Uzavře paper trade (SELL) když původní trader prodal
+   */
+  async closePaperTrade(
+    originalSellTradeId: string,
+    config: PaperTradingConfig
+  ): Promise<PaperTradeRecord | null> {
+    // 1. Načti původní SELL trade
+    const originalSellTrade = await this.tradeRepo.findById(originalSellTradeId);
+    if (!originalSellTrade || originalSellTrade.side !== 'sell') {
+      return null;
+    }
+
+    // 2. Najdi otevřenou paper trade pozici pro tento token a wallet
+    const openPositions = await this.paperTradeRepo.findOpenPositions(originalSellTrade.walletId);
+    const matchingPosition = openPositions.find(
+      pos => pos.tokenId === originalSellTrade.tokenId && pos.walletId === originalSellTrade.walletId
+    );
+
+    if (!matchingPosition) {
+      console.log(`⏭️  No open paper position found for SELL trade ${originalSellTradeId}`);
+      return null;
+    }
+
+    // 3. Vypočti realized PnL
+    const entryPrice = matchingPosition.priceBasePerToken;
+    const exitPrice = Number(originalSellTrade.priceBasePerToken);
+    const realizedPnl = (exitPrice - entryPrice) * matchingPosition.amountToken;
+    const realizedPnlPercent = entryPrice > 0 ? ((exitPrice - entryPrice) / entryPrice) * 100 : 0;
+
+    // 4. Uzavři pozici
+    const closedTrade = await this.paperTradeRepo.update(matchingPosition.id, {
+      status: 'closed',
+      realizedPnl,
+      realizedPnlPercent,
+      closedAt: new Date(originalSellTrade.timestamp),
+      meta: {
+        ...matchingPosition.meta,
+        closedBy: originalSellTradeId,
+        exitPrice,
+        entryPrice,
+      },
+    });
+
+    console.log(`✅ Closed paper trade: ${matchingPosition.id} → PnL: ${realizedPnl.toFixed(2)} USD (${realizedPnlPercent.toFixed(2)}%)`);
+    return closedTrade;
+  }
+
+  /**
+   * Vypočítá velikost pozice pro paper trade
+   */
+  private calculatePositionSize(
+    originalTrade: any,
+    config: PaperTradingConfig
+  ): { amountToken: number; amountBase: number } {
+    const originalAmountBase = Number(originalTrade.amountBase);
+    
+    // Pokud je nastaven max position size, použij ho
+    if (config.maxPositionSizeUsd) {
+      const positionSize = Math.min(originalAmountBase, config.maxPositionSizeUsd);
+      const ratio = positionSize / originalAmountBase;
+      return {
+        amountToken: Number(originalTrade.amountToken) * ratio,
+        amountBase: positionSize,
+      };
+    }
+
+    // Pokud je nastaven position size percent, použij ho
+    // Pro teď použijeme fixní hodnotu (později můžeme přidat portfolio value tracking)
+    const positionSizePercent = config.positionSizePercent || 5;
+    const positionSize = originalAmountBase * (positionSizePercent / 100);
+    const ratio = positionSize / originalAmountBase;
+
+    return {
+      amountToken: Number(originalTrade.amountToken) * ratio,
+      amountBase: positionSize,
+    };
+  }
+
+  /**
+   * Získá aktuální portfolio stats
+   */
+  async getPortfolioStats() {
+    return await this.paperTradeRepo.getPortfolioStats();
+  }
+
+  /**
+   * Vytvoří portfolio snapshot
+   */
+  async createPortfolioSnapshot() {
+    const stats = await this.getPortfolioStats();
+    return await this.paperTradeRepo.createPortfolioSnapshot(stats);
+  }
+}

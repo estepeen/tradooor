@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio } from '@/lib/api';
+import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio, deletePosition } from '@/lib/api';
 import { formatAddress, formatPercent, formatNumber, formatDate, formatDateTimeCZ, formatHoldTime } from '@/lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { SmartWallet, Trade } from '@solbot/shared';
@@ -48,6 +48,7 @@ export default function WalletDetailPage() {
   const RECENT_TRADES_PER_PAGE = 50;
   const [tradesLoading, setTradesLoading] = useState<boolean>(true);
   const [loadingMoreTrades, setLoadingMoreTrades] = useState<boolean>(false);
+  const [deletingPosition, setDeletingPosition] = useState<string | null>(null);
   const [pnlLoading, setPnlLoading] = useState<boolean>(true);
   const [portfolioLoading, setPortfolioLoading] = useState<boolean>(true);
 
@@ -544,6 +545,7 @@ export default function WalletDetailPage() {
                         <th className="px-4 py-3 text-left text-sm font-medium">TOKEN</th>
                         <th className="px-4 py-3 text-right text-sm font-medium">PnL</th>
                         <th className="px-4 py-3 text-right text-sm font-medium">HOLD TIME</th>
+                        <th className="px-4 py-3 text-right text-sm font-medium">ACTIONS</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -565,7 +567,7 @@ export default function WalletDetailPage() {
                         if (closedPositions.length === 0) {
                           return (
                             <tr className="border-t border-border">
-                              <td colSpan={4} className="px-4 py-6 text-center text-sm text-muted-foreground">
+                              <td colSpan={5} className="px-4 py-6 text-center text-sm text-muted-foreground">
                                 No closed positions
                               </td>
                             </tr>
@@ -589,6 +591,28 @@ export default function WalletDetailPage() {
                           const positionKey = sequenceNumber 
                             ? `${position.tokenId}-${sequenceNumber}` 
                             : `${position.tokenId}-${index}`;
+                          
+                          const isDeleting = deletingPosition === positionKey;
+                          
+                          const handleDelete = async () => {
+                            if (!wallet?.id) return;
+                            if (!confirm(`Are you sure you want to delete this closed trade? This will permanently delete the trade and all related data.`)) {
+                              return;
+                            }
+                            
+                            setDeletingPosition(positionKey);
+                            try {
+                              await deletePosition(wallet.id, position.tokenId, sequenceNumber || undefined);
+                              // Reload portfolio data
+                              const portfolioData = await fetchWalletPortfolio(wallet.id, true);
+                              setPortfolio(portfolioData);
+                            } catch (error: any) {
+                              console.error('Failed to delete position:', error);
+                              alert(error.message || 'Failed to delete closed trade');
+                            } finally {
+                              setDeletingPosition(null);
+                            }
+                          };
 
                           return (
                             <tr key={positionKey} className="border-t border-border hover:bg-muted/50">
@@ -632,6 +656,20 @@ export default function WalletDetailPage() {
                               </td>
                               <td className="px-4 py-3 text-right text-sm font-mono">
                                 {holdTimeMinutes !== null ? formatHoldTime(holdTimeMinutes) : '-'}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <button
+                                  onClick={handleDelete}
+                                  disabled={isDeleting || !wallet?.id}
+                                  className="text-red-400 hover:text-red-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm px-2 py-1 rounded hover:bg-red-400/10 transition-colors"
+                                  title="Delete this closed trade"
+                                >
+                                  {isDeleting ? 'Deleting...' : (
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  )}
+                                </button>
                               </td>
                             </tr>
                           );
