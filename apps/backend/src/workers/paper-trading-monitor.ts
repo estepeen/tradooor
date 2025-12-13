@@ -78,59 +78,18 @@ async function monitorTrades() {
         return;
       }
 
-      // 2. Generuj signály a kopíruj nové BUY trades pomocí Model 1 (Smart Copy Trading)
-      if (newBuyTrades && newBuyTrades.length > 0) {
-        console.log(`📊 Found ${newBuyTrades.length} new BUY trades`);
-        
-        // Získej aktuální portfolio value pro position sizing
-        const portfolioStats = await paperTradeRepo.getPortfolioStats();
-        const currentPortfolioValue = portfolioStats.totalValueUsd || 1000;
-        
-        let copiedCount = 0;
-        let skippedCount = 0;
-        let signalsGenerated = 0;
-        
-        for (const trade of newBuyTrades) {
-          try {
-            // Nejdřív vygeneruj signál
-            const signal = await signalService.generateBuySignal(trade.id, {
-              minQualityScore: 40,
-              enableSmartCopy: true,
-              // Discord/Telegram webhooky budou implementovány později
-            });
-
-            if (signal) {
-              signalsGenerated++;
-            }
-
-            // Pak zkus kopírovat do paper tradingu
-            const result = await paperTradingModels.copyTradeSmartCopy(trade.id, currentPortfolioValue);
-            if (result.success) {
-              copiedCount++;
-              console.log(`   ✅ Copied trade ${trade.id.substring(0, 16)}... (Score: ${result.quality?.score.toFixed(1)}, Risk: ${result.quality?.riskLevel.level})`);
-            } else {
-              skippedCount++;
-              if (result.quality) {
-                console.log(`   ⏭️  Skipped trade ${trade.id.substring(0, 16)}... (Score: ${result.quality.score.toFixed(1)} < 40)`);
-              }
-            }
-          } catch (error: any) {
-            console.error(`❌ Error processing trade ${trade.id}:`, error.message);
-            skippedCount++;
-          }
-        }
-        
-        console.log(`   📊 Copied: ${copiedCount}, Skipped: ${skippedCount}, Signals: ${signalsGenerated}`);
-      }
-
-      // 2b. Zkontroluj consensus trades (Model 2)
+      // 2. Zkontroluj consensus trades (Model 2) - JEN CONSENSUS, žádný Smart Copy
+      // Získej aktuální portfolio value pro position sizing
+      const portfolioStats = await paperTradeRepo.getPortfolioStats();
+      const currentPortfolioValue = portfolioStats.totalValueUsd || 1000;
+      
       try {
         const consensusTrades = await paperTradingModels.findConsensusTrades(2); // 2h window
         if (consensusTrades.length > 0) {
-          console.log(`\n🎯 Found ${consensusTrades.length} consensus trades (2+ wallets, same token, 2h window)`);
+          console.log(`🎯 Found ${consensusTrades.length} consensus trades (2+ wallets, same token, 2h window)`);
           
-          const portfolioStats = await paperTradeRepo.getPortfolioStats();
-          const currentPortfolioValue = portfolioStats.totalValueUsd || 1000;
+          let copiedCount = 0;
+          let skippedCount = 0;
           
           for (const consensus of consensusTrades) {
             // Zkontroluj, jestli už není tento token v otevřených pozicích
@@ -140,18 +99,28 @@ async function monitorTrades() {
             if (!alreadyOpen) {
               try {
                 const result = await paperTradingModels.copyConsensusTrade(consensus, currentPortfolioValue);
-                if (result.success) {
+                if (result.success && result.paperTrades.length > 0) {
+                  copiedCount++;
                   console.log(`   ✅ Copied consensus trade: ${consensus.tokenId.substring(0, 16)}... (${consensus.walletCount} wallets, avg score: ${consensus.avgWalletScore.toFixed(1)})`);
+                } else {
+                  skippedCount++;
                 }
               } catch (error: any) {
                 console.error(`❌ Error copying consensus trade:`, error.message);
+                skippedCount++;
               }
+            } else {
+              skippedCount++;
+              console.log(`   ⏭️  Skipped consensus trade (token already in open positions): ${consensus.tokenId.substring(0, 16)}...`);
             }
           }
+          
+          console.log(`   📊 Consensus: Copied: ${copiedCount}, Skipped: ${skippedCount}`);
         }
       } catch (error: any) {
         console.error('❌ Error checking consensus trades:', error.message);
       }
+
 
       // 3. Najdi nové SELL trades a uzavři odpovídající paper trades
       const { data: newSellTrades, error: sellError } = await supabase
@@ -166,10 +135,11 @@ async function monitorTrades() {
         return;
       }
 
-      // 4. Generuj SELL signály a uzavři paper trades pro nové SELL trades
+      // 3. Uzavři paper trades pro nové SELL trades (pro všechny modely, včetně Consensus)
       if (newSellTrades && newSellTrades.length > 0) {
         console.log(`📊 Found ${newSellTrades.length} new SELL trades`);
         
+        let closedCount = 0;
         let signalsGenerated = 0;
         
         for (const trade of newSellTrades) {
@@ -183,16 +153,17 @@ async function monitorTrades() {
               signalsGenerated++;
             }
 
-            // Pak uzavři paper trade
-            await paperTradeService.closePaperTrade(trade.id, config);
+            // Pak uzavři paper trade (funguje pro všechny modely)
+            const closed = await paperTradeService.closePaperTrade(trade.id, config);
+            if (closed) {
+              closedCount++;
+            }
           } catch (error: any) {
             console.error(`❌ Error processing SELL trade ${trade.id}:`, error.message);
           }
         }
 
-        if (signalsGenerated > 0) {
-          console.log(`   📊 Generated ${signalsGenerated} SELL signals`);
-        }
+        console.log(`   📊 Closed: ${closedCount}, Signals: ${signalsGenerated}`);
       }
 
       // 5. Expiruj staré signály (starší než 24h)

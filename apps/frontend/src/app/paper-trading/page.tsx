@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { fetchPaperTradingPortfolio, fetchPaperTrades, fetchPaperPortfolioHistory, fetchConsensusTrades } from '@/lib/api';
 import { formatNumber, formatPercent, formatDate } from '@/lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -167,108 +168,53 @@ export default function PaperTradingPage() {
             </div>
           </div>
 
-          {/* Trading Models Info with Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <div className="bg-blue-500/10 rounded-lg p-4 border border-blue-500/20">
-              <h3 className="text-lg font-semibold mb-2">Model 1: Smart Copy Trading</h3>
-              <p className="text-sm text-muted-foreground mb-3">
-                Klasický copytrading - filtruje trades podle kvality wallet (score, win rate, recent PnL). Position size 5-20% podle rizika.
-              </p>
-              
-              {/* Stats for Smart Copy */}
-              {portfolio?.byModel?.['smart-copy'] && (
-                <div className="mt-4 pt-4 border-t border-blue-500/20">
-                  <div className="text-xs font-semibold text-blue-400 mb-2">Statistiky Smart Copy:</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <span className="text-muted-foreground">Trades:</span> {portfolio.byModel['smart-copy'].totalTrades}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Otevřené:</span> {portfolio.byModel['smart-copy'].openPositions}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Uzavřené:</span> {portfolio.byModel['smart-copy'].closedPositions}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Win Rate:</span> {portfolio.byModel['smart-copy'].winRate ? formatPercent(portfolio.byModel['smart-copy'].winRate) : 'N/A'}
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-muted-foreground">PnL:</span>{' '}
-                      <span className={portfolio.byModel['smart-copy'].totalPnlUsd >= 0 ? 'text-green-400' : 'text-red-400'}>
-                        ${formatNumber(portfolio.byModel['smart-copy'].totalPnlUsd, 2)} ({portfolio.byModel['smart-copy'].totalPnlPercent >= 0 ? '+' : ''}{formatPercent(portfolio.byModel['smart-copy'].totalPnlPercent / 100)})
-                      </span>
-                    </div>
+          {/* Trading Model Info - Only Consensus */}
+          <div className="bg-purple-500/10 rounded-lg p-4 border border-purple-500/20 mb-6">
+            <h3 className="text-lg font-semibold mb-2">Consensus Trading (Model 2)</h3>
+            <p className="text-sm text-muted-foreground mb-3">
+              Kopíruje tokeny, které koupily alespoň 2 smart wallets v rozestupu 2h. Position size: 2 wallets = 10%, 3+ wallets = 15%.
+            </p>
+            
+            {/* Stats for Consensus */}
+            {portfolio?.byModel?.['consensus'] && (
+              <div className="mt-4 pt-4 border-t border-purple-500/20">
+                <div className="text-xs font-semibold text-purple-400 mb-2">Statistiky Consensus:</div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <span className="text-muted-foreground">Trades:</span> {portfolio.byModel['consensus'].totalTrades}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Otevřené:</span> {portfolio.byModel['consensus'].openPositions}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Uzavřené:</span> {portfolio.byModel['consensus'].closedPositions}
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Win Rate:</span> {portfolio.byModel['consensus'].winRate ? formatPercent(portfolio.byModel['consensus'].winRate) : 'N/A'}
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground">PnL:</span>{' '}
+                    <span className={portfolio.byModel['consensus'].totalPnlUsd >= 0 ? 'text-green-400' : 'text-red-400'}>
+                      ${formatNumber(portfolio.byModel['consensus'].totalPnlUsd, 2)} ({portfolio.byModel['consensus'].totalPnlPercent >= 0 ? '+' : ''}{formatPercent(portfolio.byModel['consensus'].totalPnlPercent / 100)})
+                    </span>
                   </div>
                 </div>
-              )}
-
-              <div className="text-xs text-muted-foreground mt-3">
-                <div className="font-semibold mb-1">Vysvětlení tagů:</div>
-                <div className="mb-2">
-                  <span className="font-semibold text-blue-400">Smart Copy</span> - Klasický copytrading, kopíruje jednotlivé trades z kvalitních smart wallets
-                </div>
-                <div className="mb-2">
-                  <span className="text-green-400 font-semibold">Low</span> - Nízké riziko (wallet score 70+), position size: 15%
-                </div>
-                <div className="mb-2">
-                  <span className="text-yellow-400 font-semibold">Medium</span> - Střední riziko (wallet score 50-70), position size: 10%
-                </div>
-                <div className="mb-2">
-                  <span className="text-red-400 font-semibold">High</span> - Vysoké riziko (wallet score 40-50), position size: 5%
-                </div>
-                <div className="mt-2 text-xs">• Min score pro kopírování: 40/100</div>
               </div>
-            </div>
-            <div className="bg-purple-500/10 rounded-lg p-4 border border-purple-500/20">
-              <h3 className="text-lg font-semibold mb-2">Model 2: Consensus Trading</h3>
-              <p className="text-sm text-muted-foreground mb-3">
-                Kopíruje tokeny, které koupily alespoň 2 smart wallets v rozestupu 2h. Větší position size (15-20%).
-              </p>
-              
-              {/* Stats for Consensus */}
-              {portfolio?.byModel?.['consensus'] && (
-                <div className="mt-4 pt-4 border-t border-purple-500/20">
-                  <div className="text-xs font-semibold text-purple-400 mb-2">Statistiky Consensus:</div>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <span className="text-muted-foreground">Trades:</span> {portfolio.byModel['consensus'].totalTrades}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Otevřené:</span> {portfolio.byModel['consensus'].openPositions}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Uzavřené:</span> {portfolio.byModel['consensus'].closedPositions}
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Win Rate:</span> {portfolio.byModel['consensus'].winRate ? formatPercent(portfolio.byModel['consensus'].winRate) : 'N/A'}
-                    </div>
-                    <div className="col-span-2">
-                      <span className="text-muted-foreground">PnL:</span>{' '}
-                      <span className={portfolio.byModel['consensus'].totalPnlUsd >= 0 ? 'text-green-400' : 'text-red-400'}>
-                        ${formatNumber(portfolio.byModel['consensus'].totalPnlUsd, 2)} ({portfolio.byModel['consensus'].totalPnlPercent >= 0 ? '+' : ''}{formatPercent(portfolio.byModel['consensus'].totalPnlPercent / 100)})
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              )}
+            )}
 
-              <div className="text-xs text-muted-foreground mt-3">
-                <div className="font-semibold mb-1">Vysvětlení tagů:</div>
-                <div className="mb-2">
-                  <span className="font-semibold text-purple-400">Consensus</span> - Kopíruje tokeny, které koupily 2+ smart wallets současně (v rozestupu 2h)
-                </div>
-                <div className="mb-2">
-                  <span className="text-green-400 font-semibold">Low</span> - Nízké riziko (3+ wallets koupily stejný token), position size: 20%
-                </div>
-                <div className="mb-2">
-                  <span className="text-yellow-400 font-semibold">Medium</span> - Střední riziko (2 wallets koupily stejný token), position size: 15%
-                </div>
-                <div className="mt-2 text-xs">• Min 2 wallets, stejný token</div>
-                <div className="text-xs">• Max 2h rozestup mezi nákupy</div>
-                <div className="mt-2 text-purple-400 font-semibold">
-                  Aktuálně: {consensusTrades.length} consensus trades
-                </div>
+            <div className="text-xs text-muted-foreground mt-3">
+              <div className="font-semibold mb-1">Vysvětlení tagů:</div>
+              <div className="mb-2">
+                <span className="font-semibold text-purple-400">Consensus</span> - Kopíruje tokeny, které koupily 2+ smart wallets současně (v rozestupu 2h)
               </div>
+              <div className="mb-2">
+                <span className="text-green-400 font-semibold">Low</span> - Nízké riziko (3+ wallets koupily stejný token), position size: 15%
+              </div>
+              <div className="mb-2">
+                <span className="text-yellow-400 font-semibold">Medium</span> - Střední riziko (2 wallets koupily stejný token), position size: 10%
+              </div>
+              <div className="mt-2 text-xs">• Min 2 wallets, stejný token</div>
+              <div className="text-xs">• Max 2h rozestup mezi nákupy</div>
             </div>
           </div>
 
@@ -326,7 +272,7 @@ export default function PaperTradingPage() {
                   <th className="px-4 py-3 text-left text-sm font-medium">Date</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Wallet</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Token</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Side</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium">Type</th>
                   <th className="px-4 py-3 text-right text-sm font-medium">Amount</th>
                   <th className="px-4 py-3 text-right text-sm font-medium">Price</th>
                   <th className="px-4 py-3 text-right text-sm font-medium">Position Size</th>
@@ -354,13 +300,39 @@ export default function PaperTradingPage() {
                           {formatDate(new Date(trade.timestamp))}
                         </td>
                         <td className="px-4 py-3 text-sm">
-                          {trade.wallet?.label || trade.wallet?.address?.substring(0, 8) || '-'}
+                          {trade.wallet?.id ? (
+                            <Link 
+                              href={`/wallets/${trade.wallet.id}`}
+                              className="text-primary hover:underline"
+                            >
+                              {trade.wallet?.label || trade.wallet?.address?.substring(0, 8) || '-'}
+                            </Link>
+                          ) : (
+                            trade.wallet?.label || trade.wallet?.address?.substring(0, 8) || '-'
+                          )}
                         </td>
                         <td className="px-4 py-3 text-sm">
-                          {trade.token?.symbol ? `$${trade.token.symbol}` : trade.token?.name || '-'}
+                          {trade.token?.mintAddress ? (
+                            <Link
+                              href={`https://birdeye.so/solana/token/${trade.token.mintAddress}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline"
+                            >
+                              {trade.token?.symbol ? `$${trade.token.symbol}` : trade.token?.name || trade.tokenId.substring(0, 8) + '...'}
+                            </Link>
+                          ) : (
+                            trade.token?.symbol ? `$${trade.token.symbol}` : trade.token?.name || '-'
+                          )}
                         </td>
-                        <td className="px-4 py-3 text-right text-sm font-mono">
-                          {trade.side.toUpperCase()}
+                        <td className="px-4 py-3 text-right text-sm">
+                          <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                            trade.side === 'buy' 
+                              ? 'bg-green-500/20 text-green-400' 
+                              : 'bg-red-500/20 text-red-400'
+                          }`}>
+                            {trade.side.toUpperCase()}
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-right text-sm font-mono">
                           {formatNumber(trade.amountToken, 6)}

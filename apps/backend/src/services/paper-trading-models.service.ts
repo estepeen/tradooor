@@ -315,13 +315,11 @@ export class PaperTradingModelsService {
   ): Promise<{ success: boolean; paperTrades: any[] }> {
     const paperTrades: any[] = [];
 
-    // Pro consensus trades použij větší position size (15-20%)
-    // Vypočti position size na základě počtu wallets
-    let positionSizePercent = 15; // Base 15%
+    // Pro consensus trades použij position size podle počtu wallets
+    // 2 wallets = 10%, 3+ wallets = 15%
+    let positionSizePercent = 10; // Base 10% pro 2 wallets
     if (consensusTrade.walletCount >= 3) {
-      positionSizePercent = 20; // 3+ wallets = 20%
-    } else if (consensusTrade.avgWalletScore > 70) {
-      positionSizePercent = 18; // High score wallets = 18%
+      positionSizePercent = 15; // 3+ wallets = 15%
     }
 
     // Najdi všechny BUY trades pro tento token v časovém okně
@@ -346,6 +344,9 @@ export class PaperTradingModelsService {
       currentPortfolioValue
     );
 
+    // Urči risk level podle počtu wallets
+    const riskLevel = consensusTrade.walletCount >= 3 ? 'low' : 'medium';
+    
     const config: PaperTradingConfig = {
       enabled: true,
       copyAllTrades: false,
@@ -353,7 +354,7 @@ export class PaperTradingModelsService {
       maxPositionSizeUsd: positionSize.amountBase,
       meta: {
         model: 'consensus',
-        riskLevel: 'low',
+        riskLevel,
         qualityScore: consensusTrade.avgWalletScore,
       },
     };

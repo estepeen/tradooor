@@ -79,11 +79,26 @@ router.get('/trades', async (req, res) => {
       // Get all trades
       if (status === 'open') {
         trades = await paperTradeRepo.findOpenPositions();
+      } else if (status === 'closed') {
+        // Get all closed trades
+        const { data: closedData } = await supabase
+          .from('PaperTrade')
+          .select('*')
+          .eq('status', 'closed')
+          .order('closedAt', { ascending: false })
+          .limit(limit);
+        trades = (closedData || []).map((row: any) => paperTradeRepo['mapRow'](row));
       } else {
-        // For closed trades, we need to query all wallets
-        // For simplicity, get open positions and manually filter
-        const allOpen = await paperTradeRepo.findOpenPositions();
-        trades = status === 'closed' ? [] : allOpen; // TODO: Implement proper closed trades query
+        // Get all trades (open + closed)
+        const openTrades = await paperTradeRepo.findOpenPositions();
+        const { data: closedData } = await supabase
+          .from('PaperTrade')
+          .select('*')
+          .eq('status', 'closed')
+          .order('closedAt', { ascending: false })
+          .limit(limit);
+        const closedTrades = (closedData || []).map((row: any) => paperTradeRepo['mapRow'](row));
+        trades = [...openTrades, ...closedTrades].slice(0, limit);
       }
     }
 
