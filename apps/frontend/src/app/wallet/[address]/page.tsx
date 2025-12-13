@@ -688,7 +688,7 @@ export default function WalletDetailPage() {
                     </button>
                   </div>
                 )}
-              </div>
+            </div>
           )}
         </div>
             {/* Recent Trades */}

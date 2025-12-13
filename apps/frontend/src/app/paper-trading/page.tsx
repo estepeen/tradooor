@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { fetchPaperTradingPortfolio, fetchPaperTrades, fetchPaperPortfolioHistory, fetchConsensusTrades } from '@/lib/api';
+import { fetchPaperTradingPortfolio, fetchPaperTrades, fetchPaperPortfolioHistory, fetchConsensusTrades, fetchSignals } from '@/lib/api';
 import { formatNumber, formatPercent, formatDate } from '@/lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
@@ -11,6 +11,7 @@ export default function PaperTradingPage() {
   const [trades, setTrades] = useState<any[]>([]);
   const [portfolioHistory, setPortfolioHistory] = useState<any[]>([]);
   const [consensusTrades, setConsensusTrades] = useState<any[]>([]);
+  const [signals, setSignals] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'overview' | 'trades' | 'history'>('overview');
 
@@ -45,11 +46,13 @@ export default function PaperTradingPage() {
           return { snapshots: [] };
         }),
         fetchConsensusTrades(2).catch(() => ({ consensusTrades: [] })),
+        fetchSignals({ limit: 100 }).catch(() => ({ signals: [] })),
       ]);
       setPortfolio(portfolioData);
       setTrades(tradesData.trades || []);
       setPortfolioHistory(historyData.snapshots || []);
       setConsensusTrades(consensusData.consensusTrades || []);
+      setSignals((await fetchSignals({ limit: 100 }).catch(() => ({ signals: [] }))).signals || []);
     } catch (error) {
       console.error('Error loading paper trading data:', error);
       // Set default values on error
@@ -67,6 +70,7 @@ export default function PaperTradingPage() {
       setTrades([]);
       setPortfolioHistory([]);
       setConsensusTrades([]);
+      setSignals([]);
     } finally {
       setLoading(false);
     }
@@ -82,8 +86,15 @@ export default function PaperTradingPage() {
 
   const openTrades = trades.filter(t => t.status === 'open');
   const closedTrades = trades.filter(t => t.status === 'closed');
-  const winningTrades = closedTrades.filter(t => (t.realizedPnl || 0) > 0);
-  const losingTrades = closedTrades.filter(t => (t.realizedPnl || 0) < 0);
+  // Opravit výpočet winning/losing trades - použít realizedPnl, ale jen pokud je nastavené
+  const winningTrades = closedTrades.filter(t => {
+    const pnl = t.realizedPnl;
+    return pnl !== null && pnl !== undefined && Number(pnl) > 0;
+  });
+  const losingTrades = closedTrades.filter(t => {
+    const pnl = t.realizedPnl;
+    return pnl !== null && pnl !== undefined && Number(pnl) < 0;
+  });
   const winRate = closedTrades.length > 0 ? (winningTrades.length / closedTrades.length) * 100 : null;
 
   return (
@@ -168,55 +179,6 @@ export default function PaperTradingPage() {
             </div>
         </div>
 
-          {/* Trading Model Info - Only Consensus */}
-          <div className="bg-purple-500/10 rounded-lg p-4 border border-purple-500/20 mb-6">
-            <h3 className="text-lg font-semibold mb-2">Consensus Trading (Model 2)</h3>
-            <p className="text-sm text-muted-foreground mb-3">
-              Kopíruje tokeny, které koupily alespoň 2 smart wallets v rozestupu 2h. Position size: 2 wallets = 10%, 3+ wallets = 15%.
-            </p>
-            
-            {/* Stats for Consensus */}
-            {portfolio?.byModel?.['consensus'] && (
-              <div className="mt-4 pt-4 border-t border-purple-500/20">
-                <div className="text-xs font-semibold text-purple-400 mb-2">Statistiky Consensus:</div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <span className="text-muted-foreground">Trades:</span> {portfolio.byModel['consensus'].totalTrades}
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Otevřené:</span> {portfolio.byModel['consensus'].openPositions}
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Uzavřené:</span> {portfolio.byModel['consensus'].closedPositions}
-                  </div>
-                  <div>
-                    <span className="text-muted-foreground">Win Rate:</span> {portfolio.byModel['consensus'].winRate ? formatPercent(portfolio.byModel['consensus'].winRate) : 'N/A'}
-                  </div>
-                  <div className="col-span-2">
-                    <span className="text-muted-foreground">PnL:</span>{' '}
-                    <span className={portfolio.byModel['consensus'].totalPnlUsd >= 0 ? 'text-green-400' : 'text-red-400'}>
-                      ${formatNumber(portfolio.byModel['consensus'].totalPnlUsd, 2)} ({portfolio.byModel['consensus'].totalPnlPercent >= 0 ? '+' : ''}{formatPercent(portfolio.byModel['consensus'].totalPnlPercent / 100)})
-                    </span>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            <div className="text-xs text-muted-foreground mt-3">
-              <div className="font-semibold mb-1">Vysvětlení tagů:</div>
-              <div className="mb-2">
-                <span className="font-semibold text-purple-400">Consensus</span> - Kopíruje tokeny, které koupily 2+ smart wallets současně (v rozestupu 2h)
-              </div>
-              <div className="mb-2">
-                <span className="text-green-400 font-semibold">Low</span> - Nízké riziko (3+ wallets koupily stejný token), position size: 15%
-              </div>
-              <div className="mb-2">
-                <span className="text-yellow-400 font-semibold">Medium</span> - Střední riziko (2 wallets koupily stejný token), position size: 10%
-              </div>
-              <div className="mt-2 text-xs">• Min 2 wallets, stejný token</div>
-              <div className="text-xs">• Max 2h rozestup mezi nákupy</div>
-            </div>
-          </div>
 
           {/* Portfolio History Chart */}
           {portfolioHistory.length > 0 && (
@@ -453,8 +415,104 @@ export default function PaperTradingPage() {
               </tbody>
             </table>
         </div>
-      </div>
+        </div>
       )}
+
+      {/* Signals Table - Paper Trading History */}
+      <div className="mt-8 space-y-4">
+        <h2 className="text-2xl font-bold">Paper Trading History</h2>
+        <p className="text-muted-foreground text-sm mb-4">
+          Přehled všech nákupů a prodejů v rámci paper tradingu
+        </p>
+
+        {signals.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            No signals yet. Signals are generated automatically when consensus trades are executed.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left p-4">Type</th>
+                  <th className="text-left p-4">Token</th>
+                  <th className="text-left p-4">Price</th>
+                  <th className="text-left p-4">Amount</th>
+                  <th className="text-left p-4">Quality Score</th>
+                  <th className="text-left p-4">Risk</th>
+                  <th className="text-left p-4">Model</th>
+                  <th className="text-left p-4">Time</th>
+                  <th className="text-left p-4">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {signals.map((signal) => {
+                  const riskColor = 
+                    signal.riskLevel === 'low' ? 'text-green-400' :
+                    signal.riskLevel === 'medium' ? 'text-yellow-400' :
+                    signal.riskLevel === 'high' ? 'text-red-400' : 'text-muted-foreground';
+
+                  return (
+                    <tr key={signal.id} className="border-b border-border/50 hover:bg-muted/30">
+                      <td className="p-4">
+                        <span className={`px-2 py-1 rounded text-sm font-semibold ${
+                          signal.type === 'buy' 
+                            ? 'bg-green-500/20 text-green-400' 
+                            : 'bg-red-500/20 text-red-400'
+                        }`}>
+                          {signal.type.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="p-4 font-mono text-sm">
+                        {signal.tokenId?.substring(0, 16) || '-'}...
+                      </td>
+                      <td className="p-4">
+                        ${formatNumber(signal.priceBasePerToken || 0, 6)}
+                      </td>
+                      <td className="p-4">
+                        {formatNumber(signal.amountToken || 0, 4)} tokens
+                        <br />
+                        <span className="text-xs text-muted-foreground">
+                          ${formatNumber(signal.amountBase || 0, 2)}
+                        </span>
+                      </td>
+                      <td className="p-4">
+                        {signal.qualityScore !== null && signal.qualityScore !== undefined ? (
+                          <span className={signal.qualityScore >= 70 ? 'text-green-400' : signal.qualityScore >= 40 ? 'text-yellow-400' : 'text-red-400'}>
+                            {signal.qualityScore.toFixed(1)}/100
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground">N/A</span>
+                        )}
+                      </td>
+                      <td className={`p-4 ${riskColor}`}>
+                        {signal.riskLevel ? signal.riskLevel.toUpperCase() : 'N/A'}
+                      </td>
+                      <td className="p-4 text-sm text-muted-foreground">
+                        {signal.model || 'N/A'}
+                      </td>
+                      <td className="p-4 text-sm text-muted-foreground">
+                        {formatDate(signal.timestamp)}
+                      </td>
+                      <td className="p-4">
+                        <span className={`px-2 py-1 rounded text-xs ${
+                          signal.status === 'active' 
+                            ? 'bg-green-500/20 text-green-400' 
+                            : signal.status === 'executed'
+                            ? 'bg-blue-500/20 text-blue-400'
+                            : 'bg-muted text-muted-foreground'
+                        }`}>
+                          {signal.status}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
