@@ -34,7 +34,6 @@
     "src/test-swap-detection.ts",
     "src/test-tx-debug.ts",
     "src/workers/backfill-token-symbols.ts"
-  ],
-  "exclude": ["node_modules", "dist"]
+  ]
 }
 
