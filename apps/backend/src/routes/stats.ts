@@ -382,9 +382,12 @@ router.get('/tokens', async (req, res) => {
       if (trade.side === 'buy') stats.buyCount++;
       else stats.sellCount++;
       
-      // Add volume
-      const valueUsd = Number(trade.valueUsd || 0);
-      stats.totalVolume += valueUsd;
+      // Add volume - try multiple sources
+      const valueUsd = Number(trade.valueUsd || (trade as any).meta?.valueUsd || 0);
+      const amountBase = Number(trade.amountBase || 0);
+      // Use valueUsd if available, otherwise estimate from amountBase (assuming SOL price ~$150)
+      const volume = valueUsd > 0 ? valueUsd : (amountBase * 150); // Fallback estimate
+      stats.totalVolume += volume;
     }
 
     // Process closed lots for PnL and win rate
@@ -441,6 +444,8 @@ router.get('/tokens', async (req, res) => {
       })
       .sort((a, b) => b.tradeCount - a.tradeCount)
       .slice(0, 100); // Top 100 most traded tokens
+
+    console.log(`📊 Token stats calculated: ${tokenStats.length} tokens, period: ${period}, closed lots: ${closedLots?.length || 0}`);
 
     res.json({ tokens: tokenStats });
   } catch (error: any) {
