@@ -129,22 +129,34 @@ export class PaperTradeRepository {
   }
 
   async findOpenPositions(walletId?: string): Promise<PaperTradeRecord[]> {
-    let query = supabase
-      .from('PaperTrade')
-      .select('*')
-      .eq('status', 'open');
+    try {
+      let query = supabase
+        .from('PaperTrade')
+        .select('*')
+        .eq('status', 'open');
 
-    if (walletId) {
-      query = query.eq('walletId', walletId);
+      if (walletId) {
+        query = query.eq('walletId', walletId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        // Table might not exist yet
+        if (error.code === '42P01' || /does not exist/i.test(error.message)) {
+          console.warn('⚠️  PaperTrade table does not exist yet. Run ADD_PAPER_TRADING.sql migration.');
+          return [];
+        }
+        throw new Error(`Failed to find open positions: ${error.message}`);
+      }
+
+      return (data || []).map(row => this.mapRow(row));
+    } catch (error: any) {
+      if (error.message?.includes('does not exist') || error.message?.includes('42P01')) {
+        return [];
+      }
+      throw error;
     }
-
-    const { data, error } = await query;
-
-    if (error) {
-      throw new Error(`Failed to find open positions: ${error.message}`);
-    }
-
-    return (data || []).map(row => this.mapRow(row));
   }
 
   async update(id: string, data: Partial<{
@@ -189,72 +201,106 @@ export class PaperTradeRepository {
   }> {
     const INITIAL_CAPITAL_USD = 1000;
     
-    // Get all open positions
-    const openPositions = await this.findOpenPositions();
-    
-    // Get all closed positions
-    const { data: closedData, error: closedError } = await supabase
-      .from('PaperTrade')
-      .select('realizedPnl, realizedPnlPercent')
-      .eq('status', 'closed');
+    try {
+      // Get all open positions
+      const openPositions = await this.findOpenPositions();
+      
+      // Get all closed positions
+      const { data: closedData, error: closedError } = await supabase
+        .from('PaperTrade')
+        .select('realizedPnl, realizedPnlPercent')
+        .eq('status', 'closed');
 
-    if (closedError) {
-      throw new Error(`Failed to get closed positions: ${closedError.message}`);
+      if (closedError) {
+        // Table might not exist yet - return default values
+        if (closedError.code === '42P01' || /does not exist/i.test(closedError.message)) {
+          console.warn('⚠️  PaperTrade table does not exist yet. Run ADD_PAPER_TRADING.sql migration.');
+          return {
+            totalValueUsd: INITIAL_CAPITAL_USD,
+            totalCostUsd: 0,
+            totalPnlUsd: 0,
+            totalPnlPercent: 0,
+            openPositions: 0,
+            closedPositions: 0,
+            winRate: null,
+            totalTrades: 0,
+            initialCapital: INITIAL_CAPITAL_USD,
+          };
+        }
+        throw new Error(`Failed to get closed positions: ${closedError.message}`);
+      }
+
+      const closedPositions = closedData || [];
+      const totalTrades = openPositions.length + closedPositions.length;
+      
+      // Calculate total cost (sum of all buy amounts for open + closed)
+      const openCost = openPositions.reduce((sum, pos) => {
+        return sum + (pos.side === 'buy' ? pos.amountBase : 0);
+      }, 0);
+
+      // For closed positions, we need to get the original cost
+      const { data: closedTradesData } = await supabase
+        .from('PaperTrade')
+        .select('amountBase')
+        .eq('status', 'closed')
+        .eq('side', 'buy');
+
+      const closedCost = (closedTradesData || []).reduce((sum, pos) => {
+        return sum + toNumber(pos.amountBase);
+      }, 0);
+
+      const totalCostUsd = openCost + closedCost;
+
+      // Calculate total value (current value of open positions + realized PnL from closed + initial capital)
+      const totalRealizedPnl = closedPositions.reduce((sum, pos) => {
+        return sum + (toNumber(pos.realizedPnl) || 0);
+      }, 0);
+
+      // For open positions, we'd need current token prices to calculate current value
+      // For now, we'll use entry value (amountBase) - assumes no price change
+      const openPositionsValue = openPositions.reduce((sum, pos) => {
+        return sum + (pos.side === 'buy' ? pos.amountBase : 0);
+      }, 0);
+
+      // Total value = initial capital - total cost + open positions value + realized PnL
+      // Or simpler: initial capital + realized PnL + (open positions value - open cost)
+      const totalValueUsd = INITIAL_CAPITAL_USD + totalRealizedPnl + (openPositionsValue - openCost);
+      const totalPnlUsd = totalValueUsd - INITIAL_CAPITAL_USD;
+      const totalPnlPercent = INITIAL_CAPITAL_USD > 0 ? (totalPnlUsd / INITIAL_CAPITAL_USD) * 100 : 0;
+
+      // Calculate win rate
+      const winningTrades = closedPositions.filter(pos => (toNumber(pos.realizedPnl) || 0) > 0).length;
+      const winRate = closedPositions.length > 0 ? winningTrades / closedPositions.length : null;
+
+      return {
+        totalValueUsd,
+        totalCostUsd,
+        totalPnlUsd,
+        totalPnlPercent,
+        openPositions: openPositions.length,
+        closedPositions: closedPositions.length,
+        winRate,
+        totalTrades,
+        initialCapital: INITIAL_CAPITAL_USD,
+      };
+    } catch (error: any) {
+      // If table doesn't exist, return default values
+      if (error.message?.includes('does not exist') || error.message?.includes('42P01')) {
+        console.warn('⚠️  PaperTrade table does not exist yet. Run ADD_PAPER_TRADING.sql migration.');
+        return {
+          totalValueUsd: INITIAL_CAPITAL_USD,
+          totalCostUsd: 0,
+          totalPnlUsd: 0,
+          totalPnlPercent: 0,
+          openPositions: 0,
+          closedPositions: 0,
+          winRate: null,
+          totalTrades: 0,
+          initialCapital: INITIAL_CAPITAL_USD,
+        };
+      }
+      throw error;
     }
-
-    const closedPositions = closedData || [];
-    const totalTrades = openPositions.length + closedPositions.length;
-    
-    // Calculate total cost (sum of all buy amounts for open + closed)
-    const openCost = openPositions.reduce((sum, pos) => {
-      return sum + (pos.side === 'buy' ? pos.amountBase : 0);
-    }, 0);
-
-    // For closed positions, we need to get the original cost
-    const { data: closedTradesData } = await supabase
-      .from('PaperTrade')
-      .select('amountBase')
-      .eq('status', 'closed')
-      .eq('side', 'buy');
-
-    const closedCost = (closedTradesData || []).reduce((sum, pos) => {
-      return sum + toNumber(pos.amountBase);
-    }, 0);
-
-    const totalCostUsd = openCost + closedCost;
-
-    // Calculate total value (current value of open positions + realized PnL from closed + initial capital)
-    const totalRealizedPnl = closedPositions.reduce((sum, pos) => {
-      return sum + (toNumber(pos.realizedPnl) || 0);
-    }, 0);
-
-    // For open positions, we'd need current token prices to calculate current value
-    // For now, we'll use entry value (amountBase) - assumes no price change
-    const openPositionsValue = openPositions.reduce((sum, pos) => {
-      return sum + (pos.side === 'buy' ? pos.amountBase : 0);
-    }, 0);
-
-    // Total value = initial capital - total cost + open positions value + realized PnL
-    // Or simpler: initial capital + realized PnL + (open positions value - open cost)
-    const totalValueUsd = INITIAL_CAPITAL_USD + totalRealizedPnl + (openPositionsValue - openCost);
-    const totalPnlUsd = totalValueUsd - INITIAL_CAPITAL_USD;
-    const totalPnlPercent = INITIAL_CAPITAL_USD > 0 ? (totalPnlUsd / INITIAL_CAPITAL_USD) * 100 : 0;
-
-    // Calculate win rate
-    const winningTrades = closedPositions.filter(pos => (toNumber(pos.realizedPnl) || 0) > 0).length;
-    const winRate = closedPositions.length > 0 ? winningTrades / closedPositions.length : null;
-
-    return {
-      totalValueUsd,
-      totalCostUsd,
-      totalPnlUsd,
-      totalPnlPercent,
-      openPositions: openPositions.length,
-      closedPositions: closedPositions.length,
-      winRate,
-      totalTrades,
-      initialCapital: INITIAL_CAPITAL_USD,
-    };
   }
 
   async createPortfolioSnapshot(stats: {

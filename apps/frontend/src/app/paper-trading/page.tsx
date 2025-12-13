@@ -21,9 +21,28 @@ export default function PaperTradingPage() {
     setLoading(true);
     try {
       const [portfolioData, tradesData, historyData, consensusData] = await Promise.all([
-        fetchPaperTradingPortfolio(),
-        fetchPaperTrades({ limit: 100 }),
-        fetchPaperPortfolioHistory(100),
+        fetchPaperTradingPortfolio().catch((err) => {
+          console.error('Error fetching portfolio:', err);
+          return { 
+            totalValueUsd: 1000, 
+            totalCostUsd: 0, 
+            totalPnlUsd: 0, 
+            totalPnlPercent: 0, 
+            openPositions: 0, 
+            closedPositions: 0, 
+            winRate: null, 
+            totalTrades: 0,
+            initialCapital: 1000
+          };
+        }),
+        fetchPaperTrades({ limit: 100 }).catch((err) => {
+          console.error('Error fetching trades:', err);
+          return { trades: [] };
+        }),
+        fetchPaperPortfolioHistory(100).catch((err) => {
+          console.error('Error fetching history:', err);
+          return { snapshots: [] };
+        }),
         fetchConsensusTrades(2).catch(() => ({ consensusTrades: [] })),
       ]);
       setPortfolio(portfolioData);
@@ -32,6 +51,21 @@ export default function PaperTradingPage() {
       setConsensusTrades(consensusData.consensusTrades || []);
     } catch (error) {
       console.error('Error loading paper trading data:', error);
+      // Set default values on error
+      setPortfolio({ 
+        totalValueUsd: 1000, 
+        totalCostUsd: 0, 
+        totalPnlUsd: 0, 
+        totalPnlPercent: 0, 
+        openPositions: 0, 
+        closedPositions: 0, 
+        winRate: null, 
+        totalTrades: 0,
+        initialCapital: 1000
+      });
+      setTrades([]);
+      setPortfolioHistory([]);
+      setConsensusTrades([]);
     } finally {
       setLoading(false);
     }
