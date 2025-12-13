@@ -210,6 +210,26 @@ export class PaperTradeRepository {
     winRate: number | null;
     totalTrades: number;
     initialCapital: number;
+    byModel?: {
+      'smart-copy': {
+        totalTrades: number;
+        openPositions: number;
+        closedPositions: number;
+        totalPnlUsd: number;
+        totalPnlPercent: number;
+        winRate: number | null;
+        totalCostUsd: number;
+      };
+      'consensus': {
+        totalTrades: number;
+        openPositions: number;
+        closedPositions: number;
+        totalPnlUsd: number;
+        totalPnlPercent: number;
+        winRate: number | null;
+        totalCostUsd: number;
+      };
+    };
   }> {
     const INITIAL_CAPITAL_USD = 1000;
     
@@ -284,6 +304,47 @@ export class PaperTradeRepository {
       const winningTrades = closedPositions.filter(pos => (toNumber(pos.realizedPnl) || 0) > 0).length;
       const winRate = closedPositions.length > 0 ? winningTrades / closedPositions.length : null;
 
+      // Calculate stats by model
+      const smartCopyOpen = openPositions.filter(pos => pos.meta?.model === 'smart-copy');
+      const consensusOpen = openPositions.filter(pos => pos.meta?.model === 'consensus');
+      
+      // Get all closed trades with meta to filter by model
+      const { data: allClosedData } = await supabase
+        .from('PaperTrade')
+        .select('realizedPnl, realizedPnlPercent, amountBase, meta')
+        .eq('status', 'closed')
+        .eq('side', 'buy');
+      
+      const allClosed = allClosedData || [];
+      const smartCopyClosed = allClosed.filter((pos: any) => {
+        const meta = pos.meta || {};
+        return meta.model === 'smart-copy';
+      });
+      const consensusClosed = allClosed.filter((pos: any) => {
+        const meta = pos.meta || {};
+        return meta.model === 'consensus';
+      });
+
+      // Smart Copy stats
+      const smartCopyTotalTrades = smartCopyOpen.length + smartCopyClosed.length;
+      const smartCopyOpenCost = smartCopyOpen.reduce((sum, pos) => sum + pos.amountBase, 0);
+      const smartCopyClosedCost = smartCopyClosed.reduce((sum, pos) => toNumber(pos.amountBase), 0);
+      const smartCopyTotalCost = smartCopyOpenCost + smartCopyClosedCost;
+      const smartCopyTotalPnl = smartCopyClosed.reduce((sum, pos) => sum + (toNumber(pos.realizedPnl) || 0), 0);
+      const smartCopyTotalPnlPercent = smartCopyTotalCost > 0 ? (smartCopyTotalPnl / smartCopyTotalCost) * 100 : 0;
+      const smartCopyWinning = smartCopyClosed.filter(pos => (toNumber(pos.realizedPnl) || 0) > 0).length;
+      const smartCopyWinRate = smartCopyClosed.length > 0 ? smartCopyWinning / smartCopyClosed.length : null;
+
+      // Consensus stats
+      const consensusTotalTrades = consensusOpen.length + consensusClosed.length;
+      const consensusOpenCost = consensusOpen.reduce((sum, pos) => sum + pos.amountBase, 0);
+      const consensusClosedCost = consensusClosed.reduce((sum, pos) => toNumber(pos.amountBase), 0);
+      const consensusTotalCost = consensusOpenCost + consensusClosedCost;
+      const consensusTotalPnl = consensusClosed.reduce((sum, pos) => sum + (toNumber(pos.realizedPnl) || 0), 0);
+      const consensusTotalPnlPercent = consensusTotalCost > 0 ? (consensusTotalPnl / consensusTotalCost) * 100 : 0;
+      const consensusWinning = consensusClosed.filter(pos => (toNumber(pos.realizedPnl) || 0) > 0).length;
+      const consensusWinRate = consensusClosed.length > 0 ? consensusWinning / consensusClosed.length : null;
+
       return {
         totalValueUsd,
         totalCostUsd,
@@ -294,6 +355,26 @@ export class PaperTradeRepository {
         winRate,
         totalTrades,
         initialCapital: INITIAL_CAPITAL_USD,
+        byModel: {
+          'smart-copy': {
+            totalTrades: smartCopyTotalTrades,
+            openPositions: smartCopyOpen.length,
+            closedPositions: smartCopyClosed.length,
+            totalPnlUsd: smartCopyTotalPnl,
+            totalPnlPercent: smartCopyTotalPnlPercent,
+            winRate: smartCopyWinRate,
+            totalCostUsd: smartCopyTotalCost,
+          },
+          'consensus': {
+            totalTrades: consensusTotalTrades,
+            openPositions: consensusOpen.length,
+            closedPositions: consensusClosed.length,
+            totalPnlUsd: consensusTotalPnl,
+            totalPnlPercent: consensusTotalPnlPercent,
+            winRate: consensusWinRate,
+            totalCostUsd: consensusTotalCost,
+          },
+        },
       };
     } catch (error: any) {
       // If table doesn't exist, return default values

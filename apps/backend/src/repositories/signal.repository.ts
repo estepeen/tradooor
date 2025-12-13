@@ -70,6 +70,10 @@ export class SignalRepository {
       .single();
 
     if (error) {
+      // Table might not exist yet
+      if (error.code === '42P01' || /does not exist/i.test(error.message)) {
+        throw new Error('Signal table does not exist. Please run ADD_SIGNALS.sql migration in Supabase.');
+      }
       throw new Error(`Failed to create signal: ${error.message}`);
     }
 
@@ -85,6 +89,11 @@ export class SignalRepository {
 
     if (error) {
       if (error.code === 'PGRST116') return null;
+      // Table might not exist yet
+      if (error.code === '42P01' || /does not exist/i.test(error.message)) {
+        console.warn('⚠️  Signal table does not exist yet. Run ADD_SIGNALS.sql migration.');
+        return null;
+      }
       throw new Error(`Failed to find signal: ${error.message}`);
     }
 
