@@ -99,58 +99,63 @@ export class ConsensusWebhookService {
       console.log(`   🎯 Consensus found: ${uniqueWallets.size} wallets bought ${tokenId.substring(0, 16)}... in 2h window`);
       console.log(`      Using trade ${tradeToUseId.substring(0, 16)}... price: $${tradeToUsePrice.toFixed(6)}`);
 
-      // 5. Vypočti position size podle počtu wallets
-      const portfolioStats = await this.paperTradeRepo.getPortfolioStats();
-      const currentPortfolioValue = portfolioStats.totalValueUsd || INITIAL_CAPITAL_USD;
-      
-      let positionSizePercent = 10; // 2 wallets = 10%
-      if (uniqueWallets.size >= 3) {
-        positionSizePercent = 15; // 3+ wallets = 15%
-      }
-
-      const positionSize = (currentPortfolioValue * positionSizePercent) / 100;
+      // 5. Nejdřív vytvoř SIGNAL (primární zdroj)
       const riskLevel = uniqueWallets.size >= 3 ? 'low' : 'medium';
-
-      // 6. Vytvoř paper trade při ceně druhého nákupu
-      const config: PaperTradingConfig = {
-        enabled: true,
-        copyAllTrades: false,
-        positionSizePercent,
-        maxPositionSizeUsd: positionSize,
-        meta: {
-          model: 'consensus',
-          riskLevel,
-          walletCount: uniqueWallets.size,
-          consensusTriggerTradeId: newTradeId,
-        },
-      };
-
-      // Použij trade, který má být kopírován (druhý nebo aktuální)
-      const paperTrade = await this.paperTradeService.copyBuyTrade(tradeToUseId, config);
       
-      if (!paperTrade) {
-        console.warn(`   ⚠️  Failed to create paper trade for consensus`);
-        return { consensusFound: true };
-      }
-
-      console.log(`   ✅ Paper trade created: ${paperTrade.id.substring(0, 16)}... (${uniqueWallets.size} wallets, ${positionSizePercent}% position)`);
-
-      // 7. Vytvoř signál
       try {
-        const signal = await this.signalService.generateBuySignal(tradeToUseId, {
-          minQualityScore: 0, // Consensus trades mají automaticky vysokou kvalitu
-          enableConsensus: true,
-        });
+        // Vytvoř consensus signal
+        const signal = await this.signalService.generateConsensusSignal(
+          tradeToUseId,
+          uniqueWallets.size,
+          riskLevel
+        );
 
-        if (signal) {
-          console.log(`   📊 Signal created: ${signal.id.substring(0, 16)}...`);
-          return { consensusFound: true, paperTradeCreated: paperTrade, signalCreated: signal };
+        if (!signal) {
+          console.warn(`   ⚠️  Failed to create consensus signal`);
+          return { consensusFound: true };
+        }
+
+        console.log(`   📊 Consensus signal created: ${signal.id.substring(0, 16)}... (${uniqueWallets.size} wallets)`);
+
+        // 6. Z signalu vytvoř paper trade
+        const portfolioStats = await this.paperTradeRepo.getPortfolioStats();
+        const currentPortfolioValue = portfolioStats.totalValueUsd || INITIAL_CAPITAL_USD;
+        
+        let positionSizePercent = 10; // 2 wallets = 10%
+        if (uniqueWallets.size >= 3) {
+          positionSizePercent = 15; // 3+ wallets = 15%
+        }
+
+        const positionSize = (currentPortfolioValue * positionSizePercent) / 100;
+
+        const config: PaperTradingConfig = {
+          enabled: true,
+          copyAllTrades: false,
+          positionSizePercent,
+          maxPositionSizeUsd: positionSize,
+          meta: {
+            model: 'consensus',
+            riskLevel,
+            walletCount: uniqueWallets.size,
+            consensusTriggerTradeId: newTradeId,
+            signalId: signal.id, // Link paper trade to signal
+          },
+        };
+
+        // Vytvoř paper trade z signalu
+        const paperTrade = await this.paperTradeService.copyBuyTrade(tradeToUseId, config);
+        
+        if (paperTrade) {
+          console.log(`   ✅ Paper trade created from signal: ${paperTrade.id.substring(0, 16)}... (${uniqueWallets.size} wallets, ${positionSizePercent}% position)`);
+          return { consensusFound: true, signalCreated: signal, paperTradeCreated: paperTrade };
+        } else {
+          console.warn(`   ⚠️  Failed to create paper trade from signal`);
+          return { consensusFound: true, signalCreated: signal };
         }
       } catch (signalError: any) {
-        console.warn(`   ⚠️  Failed to create signal: ${signalError.message}`);
+        console.error(`❌ Error creating consensus signal: ${signalError.message}`);
+        return { consensusFound: false };
       }
-
-      return { consensusFound: true, paperTradeCreated: paperTrade };
     } catch (error: any) {
       console.error(`❌ Error checking consensus after buy:`, error.message);
       return { consensusFound: false };

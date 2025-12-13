@@ -100,6 +100,65 @@ export class SignalService {
   }
 
   /**
+   * Vygeneruje consensus signal (2+ wallets koupily stejný token)
+   */
+  async generateConsensusSignal(
+    tradeId: string,
+    walletCount: number,
+    riskLevel: 'low' | 'medium'
+  ): Promise<SignalRecord | null> {
+    // 1. Načti trade
+    const trade = await this.tradeRepo.findById(tradeId);
+    if (!trade || trade.side !== 'buy') {
+      return null;
+    }
+
+    // 2. Zkontroluj, jestli už není signál pro tento token (consensus)
+    const existing = await this.signalRepo.findActive({
+      tokenId: trade.tokenId,
+      type: 'buy',
+    });
+    
+    // Pokud už existuje consensus signal pro tento token, nepřidávej duplicitní
+    const consensusExists = existing.some(s => s.model === 'consensus' && s.tokenId === trade.tokenId);
+    if (consensusExists) {
+      console.log(`⏭️  Consensus signal already exists for token ${trade.tokenId.substring(0, 16)}...`);
+      return null;
+    }
+
+    // 3. Vytvoř consensus signal
+    const expiresAt = new Date();
+    expiresAt.setHours(expiresAt.getHours() + 24); // Expire after 24h
+
+    const signal = await this.signalRepo.create({
+      type: 'buy',
+      walletId: trade.walletId,
+      tokenId: trade.tokenId,
+      originalTradeId: tradeId,
+      priceBasePerToken: Number(trade.priceBasePerToken),
+      amountBase: Number(trade.amountBase),
+      amountToken: Number(trade.amountToken),
+      timestamp: new Date(trade.timestamp),
+      status: 'active',
+      expiresAt,
+      qualityScore: walletCount >= 3 ? 80 : 60, // Higher score for more wallets
+      riskLevel,
+      model: 'consensus',
+      reasoning: `Consensus: ${walletCount} smart wallets bought this token within 2h window`,
+      meta: {
+        walletCount,
+        consensusTriggerTradeId: tradeId,
+        originalAmountBase: Number(trade.amountBase),
+        originalAmountToken: Number(trade.amountToken),
+      },
+    });
+
+    console.log(`📊 Generated CONSENSUS signal: ${signal.id} (${walletCount} wallets, Risk: ${riskLevel})`);
+
+    return signal;
+  }
+
+  /**
    * Vygeneruje SELL signál z trade
    */
   async generateSellSignal(

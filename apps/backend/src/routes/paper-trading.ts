@@ -140,7 +140,7 @@ router.get('/trades', async (req, res) => {
 
     // Enrich with wallet and token data
     const enrichedTrades = await Promise.all(
-      trades.map(async (trade) => {
+      trades.map(async (trade: any) => {
         const [wallet, token] = await Promise.all([
           smartWalletRepo.findById(trade.walletId).catch(() => null),
           tokenRepo.findById(trade.tokenId).catch(() => null),
