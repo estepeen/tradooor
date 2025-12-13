@@ -57,7 +57,7 @@ module.exports = {
       cwd: process.cwd(),
       env: {
         NODE_ENV: 'production',
-        CRON_SCHEDULE: '0 * * * *', // Každou hodinu
+        CRON_SCHEDULE: '0 */3 * * *', // Každé 3 hodiny (sníženo z každé hodiny)
         RUN_ON_START: 'true', // Spusť hned při startu
       },
       error_file: './logs/missing-trades-cron-error.log',

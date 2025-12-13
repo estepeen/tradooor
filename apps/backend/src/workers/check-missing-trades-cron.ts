@@ -78,7 +78,20 @@ async function checkMissingTrades() {
     }
 
     const walletList = wallets ?? [];
-    console.log(`📊 Checking ${walletList.length} wallets...\n`);
+    
+    // OPTIMALIZACE: Filtruj pouze aktivní wallets (měly trades v posledních 7 dnech)
+    // Tím snížíme RPC volání pro neaktivní wallets
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const { data: recentTrades } = await supabase
+      .from(TABLES.TRADE)
+      .select('walletId')
+      .gte('timestamp', sevenDaysAgo.toISOString());
+    
+    const activeWalletIds = new Set((recentTrades || []).map(t => t.walletId));
+    const activeWallets = walletList.filter(w => activeWalletIds.has(w.id));
+    
+    console.log(`📊 Total wallets: ${walletList.length}, Active (7d): ${activeWallets.length}`);
+    console.log(`   ⚡ Only checking active wallets to reduce RPC usage\n`);
 
     // 3. Calculate time range (last 1 hour)
     const now = Date.now();
@@ -96,20 +109,19 @@ async function checkMissingTrades() {
     let totalAlreadyExists = 0;
     const walletsWithNewTrades = new Set<string>(); // Track wallets with new trades
 
-    // 4. Process each wallet
-    for (const wallet of walletList) {
+    // 4. Process each active wallet
+    for (const wallet of activeWallets) {
       try {
         console.log(`🔍 Checking wallet: ${wallet.address.substring(0, 8)}...`);
 
         const walletPubkey = new PublicKey(wallet.address);
         
-        // Get signatures for last hour
-        // Note: getSignaturesForAddress doesn't support 'until' parameter directly
-        // We'll fetch recent signatures and filter by time
+        // OPTIMALIZACE: Použij menší limit pro snížení RPC spotřeby
+        // Pro kontrolu za poslední hodinu stačí 100 signatures (většina wallets nemá tolik trades/hodinu)
         const signatures = await connection.getSignaturesForAddress(
           walletPubkey,
           {
-            limit: 1000, // Max per request
+            limit: 100, // Sníženo z 1000 na 100 - stačí pro kontrolu za poslední hodinu
           },
           'confirmed'
         );
@@ -189,12 +201,17 @@ async function checkMissingTrades() {
               }
             }
 
-            // Small delay to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, 100));
+            // OPTIMALIZACE: Zvětšen delay pro snížení RPC spotřeby
+            await new Promise(resolve => setTimeout(resolve, 200));
 
           } catch (error: any) {
             errors++;
             console.error(`   ❌ Error processing ${sigInfo.signature.substring(0, 16)}...: ${error.message}`);
+            // Pokud je to rate limit error, počkej déle
+            if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+              console.log(`   ⏳ Rate limit detected, waiting 2 seconds...`);
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
           }
         }
 
@@ -206,8 +223,8 @@ async function checkMissingTrades() {
         totalErrors += errors;
         totalAlreadyExists += alreadyExists;
 
-        // Delay between wallets to avoid rate limiting
-        await new Promise(resolve => setTimeout(resolve, 500));
+        // OPTIMALIZACE: Zvětšen delay mezi wallets pro snížení RPC spotřeby
+        await new Promise(resolve => setTimeout(resolve, 1000));
 
       } catch (error: any) {
         console.error(`  ❌ Error checking wallet ${wallet.address}:`, error.message);
@@ -277,12 +294,13 @@ async function checkMissingTrades() {
 }
 
 async function main() {
-  // Default: každou hodinu (0 * * * *)
-  const cronSchedule = process.env.CRON_SCHEDULE || '0 * * * *';
+  // Default: každé 3 hodiny (0 */3 * * *) - optimalizace pro snížení RPC spotřeby
+  const cronSchedule = process.env.CRON_SCHEDULE || '0 */3 * * *';
 
   console.log(`🚀 Starting missing trades check cron job`);
   console.log(`📅 Schedule: ${cronSchedule}`);
-  console.log(`   (Default: every 1 hour. Set CRON_SCHEDULE env var to customize)`);
+  console.log(`   (Default: every 3 hours. Set CRON_SCHEDULE env var to customize)`);
+  console.log(`   ⚡ Optimized: Only checks active wallets (trades in last 7 days)`);
 
   // Spusť jednou hned při startu (pro testování)
   if (process.env.RUN_ON_START !== 'false') {
