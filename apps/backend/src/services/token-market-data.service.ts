@@ -70,9 +70,10 @@ export class TokenMarketDataService {
       }
 
       const data = await response.json();
+      const responseData = data as any;
 
-      if (!data.success || !data.data) {
-        console.warn(`⚠️  Birdeye API returned success=false: ${data.message || 'Unknown error'}`);
+      if (!responseData.success || !responseData.data) {
+        console.warn(`⚠️  Birdeye API returned success=false: ${responseData.message || 'Unknown error'}`);
         return {
           marketCap: null,
           liquidity: null,
@@ -81,7 +82,7 @@ export class TokenMarketDataService {
         };
       }
 
-      const overview = data.data;
+      const overview = responseData.data;
       
       // Extract market data from Birdeye response
       // Birdeye token_overview returns: { marketcap, liquidity, volume_24h_usd, ... }
