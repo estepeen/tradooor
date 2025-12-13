@@ -1128,99 +1128,6 @@ export class HeliusClient {
 
       const tokenNetChanges = getTokenNetChangesForWallet();
 
-      // DETECT LIQUIDITY OPERATIONS: ADD/REMOVE LIQUIDITY
-      // Liquidity operations typically involve:
-      // - Multiple tokens changing simultaneously (both sides of LP pair)
-      // - Both tokens going in same direction (both increasing for ADD, both decreasing for REMOVE)
-      // NOTE: LP pairs can be:
-      //   1. Token/Token (both non-base) - e.g., BONK/SOL
-      //   2. Token/Base (one non-base, one base) - e.g., BONK/USDC
-      //   3. Base/Base (both base) - e.g., USDC/USDT (rare, but we filter these anyway)
-      const nonBaseTokenChanges = Array.from(tokenNetChanges.entries())
-        .filter(([mint]) => !BASE_MINTS.has(mint))
-        .filter(([, delta]) => Math.abs(delta) > TOKEN_NET_EPSILON);
-      
-      const baseTokenChanges = Array.from(tokenNetChanges.entries())
-        .filter(([mint]) => BASE_MINTS.has(mint))
-        .filter(([, delta]) => Math.abs(delta) > TOKEN_NET_EPSILON);
-      
-      // All token changes (for liquidity detection, we consider both base and non-base)
-      const allTokenChanges = Array.from(tokenNetChanges.entries())
-        .filter(([, delta]) => Math.abs(delta) > TOKEN_NET_EPSILON);
-      
-      let isLiquidityOperation = false;
-      let liquidityType: 'ADD' | 'REMOVE' | null = null;
-      
-      // Strategy 1: Check if we have 2+ non-base tokens (classic LP pair)
-      if (nonBaseTokenChanges.length >= 2) {
-        const allPositive = nonBaseTokenChanges.every(([, delta]) => delta > 0);
-        const allNegative = nonBaseTokenChanges.every(([, delta]) => delta < 0);
-        
-        if (allPositive || allNegative) {
-          isLiquidityOperation = true;
-          liquidityType = allPositive ? 'ADD' : 'REMOVE';
-          console.log(`   🟣 [Helius] Detected ${liquidityType} LIQUIDITY operation (non-base tokens) - creating void trade (wallet ${walletAddress.substring(0, 8)}...)`);
-          console.log(`      Token changes: ${nonBaseTokenChanges.map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ')}`);
-        }
-      }
-      
-      // Strategy 2: Check if we have 1 non-base + 1 base token (token/stablecoin LP pair)
-      // This is common for token/USDC or token/USDT pairs
-      if (!isLiquidityOperation && nonBaseTokenChanges.length >= 1 && baseTokenChanges.length >= 1 && allTokenChanges.length >= 2) {
-        const allPositive = allTokenChanges.every(([, delta]) => delta > 0);
-        const allNegative = allTokenChanges.every(([, delta]) => delta < 0);
-        
-        if (allPositive || allNegative) {
-          isLiquidityOperation = true;
-          liquidityType = allPositive ? 'ADD' : 'REMOVE';
-          console.log(`   🟣 [Helius] Detected ${liquidityType} LIQUIDITY operation (token/base pair) - creating void trade (wallet ${walletAddress.substring(0, 8)}...)`);
-          console.log(`      Token changes: ${allTokenChanges.map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ')}`);
-        }
-      }
-      
-      // Strategy 3: Check for known liquidity pool program IDs (strong signal)
-      const LIQUIDITY_PROGRAM_IDS = new Set([
-        '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8', // Raydium AMM
-        'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK', // Raydium CLMM
-        '9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP', // Orca Whirlpool
-        'whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc', // Orca Whirlpool (legacy)
-        'DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1', // Orca
-        '9KEPoZmtHUrBbhWN1v1KWLMkkwY6WtG6c3qP9EcX4bL1', // Orca V2
-      ]);
-      
-      // Check if any account in the transaction is a liquidity program
-      const involvesLiquidityProgram = heliusTx.accountData?.some((acc: any) => 
-        LIQUIDITY_PROGRAM_IDS.has(acc.account)
-      ) || false;
-      
-      // If we have a liquidity program AND 2+ tokens changing in same direction, it's almost certainly liquidity
-      if (involvesLiquidityProgram && allTokenChanges.length >= 2) {
-        const allPositive = allTokenChanges.every(([, delta]) => delta > 0);
-        const allNegative = allTokenChanges.every(([, delta]) => delta < 0);
-        if (allPositive || allNegative) {
-          isLiquidityOperation = true;
-          liquidityType = allPositive ? 'ADD' : 'REMOVE';
-          console.log(`   🟣 [Helius] Confirmed ${liquidityType} LIQUIDITY via liquidity program (wallet ${walletAddress.substring(0, 8)}...)`);
-          console.log(`      Token changes: ${allTokenChanges.map(([m, d]) => `${m.substring(0, 8)}...: ${d.toFixed(6)}`).join(', ')}`);
-        }
-      }
-
-      // If it's a liquidity operation, return early with void trade
-      if (isLiquidityOperation) {
-        return {
-          txSignature: heliusTx.signature,
-          tokenMint: nonBaseTokenChanges[0]?.[0] || allTokenChanges[0]?.[0] || '',
-          side: 'void' as any,
-          amountToken: 0,
-          amountBase: 0,
-          priceBasePerToken: 0,
-          baseToken: 'VOID',
-          timestamp: new Date(heliusTx.timestamp * 1000),
-          dex: heliusTx.source?.toLowerCase() || 'unknown',
-          liquidityType,
-        };
-      }
-
       const primaryTokenNet = (() => {
         let selected: { mint: string; netAmount: number } | null = null;
         for (const [mint, netAmount] of tokenNetChanges.entries()) {
@@ -1441,7 +1348,6 @@ export class HeliusClient {
             baseToken,
             timestamp: new Date(heliusTx.timestamp * 1000),
             dex: heliusTx.source.toLowerCase() || 'unknown',
-            liquidityType: undefined,
           };
         } else {
           console.log(`   ⚠️  Token net calculation failed for ${heliusTx.signature.substring(0, 8)}..., falling back to legacy logic`);
@@ -1579,7 +1485,6 @@ export class HeliusClient {
             baseToken, // SOL, USDC, USDT
             timestamp: new Date(heliusTx.timestamp * 1000),
             dex: heliusTx.source.toLowerCase() || 'unknown',
-            liquidityType: undefined,
           };
         }
       }
@@ -1700,7 +1605,6 @@ export class HeliusClient {
             baseToken, // SOL, USDC, USDT
             timestamp: new Date(heliusTx.timestamp * 1000),
             dex: heliusTx.source.toLowerCase() || 'unknown',
-            liquidityType: undefined,
           };
         } else {
           // DEBUG
