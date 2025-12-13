@@ -102,30 +102,42 @@ export class PaperTradeRepository {
     orderBy?: 'timestamp' | 'closedAt';
     orderDirection?: 'asc' | 'desc';
   }): Promise<PaperTradeRecord[]> {
-    let query = supabase
-      .from('PaperTrade')
-      .select('*')
-      .eq('walletId', walletId);
+    try {
+      let query = supabase
+        .from('PaperTrade')
+        .select('*')
+        .eq('walletId', walletId);
 
-    if (options?.status) {
-      query = query.eq('status', options.status);
+      if (options?.status) {
+        query = query.eq('status', options.status);
+      }
+
+      const orderBy = options?.orderBy || 'timestamp';
+      const orderDirection = options?.orderDirection || 'desc';
+      query = query.order(orderBy, { ascending: orderDirection === 'asc' });
+
+      if (options?.limit) {
+        query = query.limit(options.limit);
+      }
+
+      const { data: result, error: queryError } = await query;
+
+      if (queryError) {
+        // Table might not exist yet
+        if (queryError.code === '42P01' || /does not exist/i.test(queryError.message)) {
+          console.warn('⚠️  PaperTrade table does not exist yet. Run ADD_PAPER_TRADING.sql migration.');
+          return [];
+        }
+        throw new Error(`Failed to find paper trades: ${queryError.message}`);
+      }
+
+      return (result || []).map(row => this.mapRow(row));
+    } catch (error: any) {
+      if (error.message?.includes('does not exist') || error.message?.includes('42P01')) {
+        return [];
+      }
+      throw error;
     }
-
-    const orderBy = options?.orderBy || 'timestamp';
-    const orderDirection = options?.orderDirection || 'desc';
-    query = query.order(orderBy, { ascending: orderDirection === 'asc' });
-
-    if (options?.limit) {
-      query = query.limit(options.limit);
-    }
-
-    const { data: result, error: queryError } = await query;
-
-    if (queryError) {
-      throw new Error(`Failed to find paper trades: ${queryError.message}`);
-    }
-
-    return (result || []).map(row => this.mapRow(row));
   }
 
   async findOpenPositions(walletId?: string): Promise<PaperTradeRecord[]> {

@@ -18,6 +18,7 @@
 import { supabase, TABLES } from '../lib/supabase.js';
 import { PaperTradeService, PaperTradingConfig } from '../services/paper-trade.service.js';
 import { PaperTradingModelsService } from '../services/paper-trading-models.service.js';
+import { SignalService } from '../services/signal.service.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { PaperTradeRepository } from '../repositories/paper-trade.repository.js';
 
@@ -46,6 +47,7 @@ async function monitorTrades() {
 
   const paperTradeService = new PaperTradeService();
   const paperTradingModels = new PaperTradingModelsService();
+  const signalService = new SignalService();
   const paperTradeRepo = new PaperTradeRepository();
   const tradeRepo = new TradeRepository();
 
@@ -76,7 +78,7 @@ async function monitorTrades() {
         return;
       }
 
-      // 2. Kopíruj nové BUY trades pomocí Model 1 (Smart Copy Trading)
+      // 2. Generuj signály a kopíruj nové BUY trades pomocí Model 1 (Smart Copy Trading)
       if (newBuyTrades && newBuyTrades.length > 0) {
         console.log(`📊 Found ${newBuyTrades.length} new BUY trades`);
         
@@ -86,9 +88,23 @@ async function monitorTrades() {
         
         let copiedCount = 0;
         let skippedCount = 0;
+        let signalsGenerated = 0;
         
         for (const trade of newBuyTrades) {
           try {
+            // Nejdřív vygeneruj signál
+            const signal = await signalService.generateBuySignal(trade.id, {
+              minQualityScore: 40,
+              enableSmartCopy: true,
+              sendToDiscord: process.env.DISCORD_WEBHOOK_URL ? true : false,
+              sendToTelegram: process.env.TELEGRAM_BOT_TOKEN ? true : false,
+            });
+
+            if (signal) {
+              signalsGenerated++;
+            }
+
+            // Pak zkus kopírovat do paper tradingu
             const result = await paperTradingModels.copyTradeSmartCopy(trade.id, currentPortfolioValue);
             if (result.success) {
               copiedCount++;
@@ -100,12 +116,12 @@ async function monitorTrades() {
               }
             }
           } catch (error: any) {
-            console.error(`❌ Error copying trade ${trade.id}:`, error.message);
+            console.error(`❌ Error processing trade ${trade.id}:`, error.message);
             skippedCount++;
           }
         }
         
-        console.log(`   📊 Copied: ${copiedCount}, Skipped: ${skippedCount}`);
+        console.log(`   📊 Copied: ${copiedCount}, Skipped: ${skippedCount}, Signals: ${signalsGenerated}`);
       }
 
       // 2b. Zkontroluj consensus trades (Model 2)
@@ -151,23 +167,60 @@ async function monitorTrades() {
         return;
       }
 
-      // 4. Uzavři paper trades pro nové SELL trades
+      // 4. Generuj SELL signály a uzavři paper trades pro nové SELL trades
       if (newSellTrades && newSellTrades.length > 0) {
         console.log(`📊 Found ${newSellTrades.length} new SELL trades`);
         
+        let signalsGenerated = 0;
+        
         for (const trade of newSellTrades) {
           try {
+            // Nejdřív vygeneruj signál
+            const signal = await signalService.generateSellSignal(trade.id, {
+              sendToDiscord: process.env.DISCORD_WEBHOOK_URL ? true : false,
+              sendToTelegram: process.env.TELEGRAM_BOT_TOKEN ? true : false,
+            });
+
+            if (signal) {
+              signalsGenerated++;
+            }
+
+            // Pak uzavři paper trade
             await paperTradeService.closePaperTrade(trade.id, config);
           } catch (error: any) {
-            console.error(`❌ Error closing paper trade for SELL ${trade.id}:`, error.message);
+            console.error(`❌ Error processing SELL trade ${trade.id}:`, error.message);
           }
+        }
+
+        if (signalsGenerated > 0) {
+          console.log(`   📊 Generated ${signalsGenerated} SELL signals`);
         }
       }
 
-      // 5. Aktualizuj timestamp
+      // 5. Expiruj staré signály (starší než 24h)
+      try {
+        const expiredCount = await signalService.expireOldSignals(24);
+        if (expiredCount > 0) {
+          console.log(`⏰ Expired ${expiredCount} old signals`);
+        }
+      } catch (error: any) {
+        console.error('❌ Error expiring old signals:', error.message);
+      }
+
+      // 6. Zkontroluj stop losses (50% ztráta = automatický prodej)
+      try {
+        const stopLossClosed = await paperTradeService.checkStopLosses();
+        if (stopLossClosed > 0) {
+          console.log(`🛑 Closed ${stopLossClosed} positions due to stop loss (50% loss)`);
+        }
+      } catch (error: any) {
+        console.error('❌ Error checking stop losses:', error.message);
+      }
+
+      // 7. Aktualizuj timestamp
       lastCheckedTimestamp = new Date();
 
-      // 6. Vytvoř portfolio snapshot (každých 5 minut)
+      // 8. Vytvoř portfolio snapshot (každých 5 minut)
       const now = Date.now();
       if (!monitorTrades.lastSnapshotTime || now - monitorTrades.lastSnapshotTime > 5 * 60 * 1000) {
         try {
@@ -179,7 +232,7 @@ async function monitorTrades() {
         }
       }
 
-      // 7. Zobraz portfolio stats
+      // 9. Zobraz portfolio stats
       const stats = await paperTradeService.getPortfolioStats();
       console.log(`\n📊 Portfolio Stats:`);
       console.log(`   Total Value: $${stats.totalValueUsd.toFixed(2)}`);

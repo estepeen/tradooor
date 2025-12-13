@@ -38,6 +38,7 @@ export const TABLES = {
   TRADER_BEHAVIOR_PROFILE: 'TraderBehaviorProfile',
   PAPER_TRADE: 'PaperTrade',
   PAPER_PORTFOLIO: 'PaperPortfolio',
+  SIGNAL: 'Signal',
 } as const;
 
 /**

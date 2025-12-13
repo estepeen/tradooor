@@ -2,6 +2,7 @@ import { PaperTradeRepository, PaperTradeRecord } from '../repositories/paper-tr
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
+import { supabase, TABLES } from '../lib/supabase.js';
 
 export interface PaperTradingConfig {
   enabled: boolean;
@@ -171,6 +172,104 @@ export class PaperTradeService {
 
     console.log(`✅ Closed paper trade: ${matchingPosition.id} → PnL: ${realizedPnl.toFixed(2)} USD (${realizedPnlPercent.toFixed(2)}%)`);
     return closedTrade;
+  }
+
+  /**
+   * Uzavře paper trade kvůli stop loss (50% ztráta)
+   * @param paperTradeId ID paper trade k uzavření
+   * @param currentPrice Aktuální cena tokenu
+   */
+  async closePaperTradeStopLoss(
+    paperTradeId: string,
+    currentPrice: number
+  ): Promise<PaperTradeRecord | null> {
+    // 1. Načti paper trade
+    const paperTrade = await this.paperTradeRepo.findById(paperTradeId);
+    if (!paperTrade || paperTrade.status !== 'open') {
+      return null;
+    }
+
+    // 2. Vypočti PnL
+    const entryPrice = paperTrade.priceBasePerToken;
+    const exitPrice = currentPrice;
+    const realizedPnl = (exitPrice - entryPrice) * paperTrade.amountToken;
+    const realizedPnlPercent = entryPrice > 0 ? ((exitPrice - entryPrice) / entryPrice) * 100 : 0;
+
+    // 3. Uzavři pozici
+    const closedTrade = await this.paperTradeRepo.update(paperTradeId, {
+      status: 'closed',
+      realizedPnl,
+      realizedPnlPercent,
+      closedAt: new Date(),
+      meta: {
+        ...paperTrade.meta,
+        closedBy: 'stop-loss',
+        exitPrice,
+        entryPrice,
+        stopLossTriggered: true,
+      },
+    });
+
+    console.log(`🛑 Stop Loss triggered for paper trade ${paperTradeId} → PnL: ${realizedPnl.toFixed(2)} USD (${realizedPnlPercent.toFixed(2)}%)`);
+    return closedTrade;
+  }
+
+  /**
+   * Zkontroluje všechny otevřené pozice a uzavře ty, které dosáhly stop loss (50% ztráta)
+   */
+  async checkStopLosses(): Promise<number> {
+    const STOP_LOSS_PERCENT = -50; // 50% ztráta
+    let closedCount = 0;
+
+    try {
+      // 1. Načti všechny otevřené pozice
+      const openPositions = await this.paperTradeRepo.findOpenPositions();
+
+      // 2. Pro každou pozici zkontroluj aktuální cenu a PnL
+      for (const position of openPositions) {
+        try {
+          // Získej aktuální cenu tokenu z posledního trade pro tento token
+          const { data: latestTrades, error } = await supabase
+            .from(TABLES.TRADE)
+            .select('priceBasePerToken, timestamp')
+            .eq('tokenId', position.tokenId)
+            .order('timestamp', { ascending: false })
+            .limit(1);
+
+          if (error || !latestTrades || latestTrades.length === 0) {
+            // Pokud není dostupná aktuální cena, přeskoč
+            continue;
+          }
+
+          const latestTrade = latestTrades[0];
+          const currentPrice = Number(latestTrade.priceBasePerToken);
+          const entryPrice = position.priceBasePerToken;
+          
+          if (entryPrice <= 0) {
+            continue;
+          }
+
+          const pnlPercent = ((currentPrice - entryPrice) / entryPrice) * 100;
+
+          // 3. Pokud je ztráta >= 50%, uzavři pozici
+          if (pnlPercent <= STOP_LOSS_PERCENT) {
+            await this.closePaperTradeStopLoss(position.id, currentPrice);
+            closedCount++;
+          }
+        } catch (error: any) {
+          console.error(`❌ Error checking stop loss for position ${position.id}:`, error.message);
+        }
+      }
+
+      if (closedCount > 0) {
+        console.log(`🛑 Closed ${closedCount} positions due to stop loss (50% loss)`);
+      }
+
+      return closedCount;
+    } catch (error: any) {
+      console.error('❌ Error checking stop losses:', error.message);
+      return 0;
+    }
   }
 
   /**

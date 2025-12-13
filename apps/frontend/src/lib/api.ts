@@ -233,3 +233,29 @@ export async function fetchConsensusTrades(hours?: number) {
   return res.json();
 }
 
+export async function fetchSignals(options?: { type?: 'buy' | 'sell'; limit?: number }) {
+  const params = new URLSearchParams();
+  if (options?.type) params.append('type', options.type);
+  if (options?.limit) params.append('limit', options.limit.toString());
+  const url = `${API_BASE_URL}/signals${params.toString() ? `?${params.toString()}` : ''}`;
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) throw new Error('Failed to fetch signals');
+  return res.json();
+}
+
+export async function generateSignal(tradeId: string, config?: any) {
+  const res = await fetch(`${API_BASE_URL}/signals/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tradeId, config }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Failed to generate signal' }));
+    throw new Error(error.error || error.message || 'Failed to generate signal');
+  }
+  return res.json();
+}
+
