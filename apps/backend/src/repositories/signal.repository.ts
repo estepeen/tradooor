@@ -127,6 +127,11 @@ export class SignalRepository {
     const { data, error } = await query;
 
     if (error) {
+      // Table might not exist yet
+      if (error.code === '42P01' || /does not exist/i.test(error.message)) {
+        console.warn('⚠️  Signal table does not exist yet. Run ADD_SIGNALS.sql migration.');
+        return [];
+      }
       throw new Error(`Failed to find active signals: ${error.message}`);
     }
 
