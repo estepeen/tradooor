@@ -79,14 +79,16 @@ async function monitorTrades() {
       }
 
       // 2. Zkontroluj consensus trades (Model 2) - JEN CONSENSUS, žádný Smart Copy
+      // DŮLEŽITÉ: Kopíruje jen consensus trades, které obsahují alespoň jeden NOVÝ trade (novější než lastCheckedTimestamp)
       // Získej aktuální portfolio value pro position sizing
       const portfolioStats = await paperTradeRepo.getPortfolioStats();
       const currentPortfolioValue = portfolioStats.totalValueUsd || 1000;
       
       try {
-        const consensusTrades = await paperTradingModels.findConsensusTrades(2); // 2h window
+        // Předaj lastCheckedTimestamp, aby se kopírovaly jen consensus trades s novými trades
+        const consensusTrades = await paperTradingModels.findConsensusTrades(2, lastCheckedTimestamp); // 2h window, minTimestamp = lastCheckedTimestamp
         if (consensusTrades.length > 0) {
-          console.log(`🎯 Found ${consensusTrades.length} consensus trades (2+ wallets, same token, 2h window)`);
+          console.log(`🎯 Found ${consensusTrades.length} NEW consensus trades (2+ wallets, same token, 2h window, contains new trades)`);
           
           let copiedCount = 0;
           let skippedCount = 0;

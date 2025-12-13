@@ -152,22 +152,28 @@ export class PaperTradingModelsService {
   /**
    * Model 2: Consensus Trading
    * Hledá tokeny, které koupily alespoň 2 smart wallets v rozestupu 2h
+   * @param timeWindowHours - časové okno pro hledání consensus (default 2h)
+   * @param minTimestamp - minimální timestamp - kopíruje jen consensus trades, které obsahují alespoň jeden NOVÝ trade (novější než minTimestamp)
    */
   async findConsensusTrades(
-    timeWindowHours: number = 2
+    timeWindowHours: number = 2,
+    minTimestamp?: Date
   ): Promise<ConsensusTrade[]> {
     const timeWindowMs = timeWindowHours * 60 * 60 * 1000;
     const now = new Date();
     const windowStart = new Date(now.getTime() - timeWindowMs);
 
     // Najdi všechny BUY trades v časovém okně (posledních 2h)
-    const { data: recentBuys, error } = await supabase
+    // Pokud je minTimestamp, zahrneme i starší trades (pro consensus), ale filtrujeme jen ty, které mají alespoň jeden nový trade
+    let query = supabase
       .from(TABLES.TRADE)
       .select('id, walletId, tokenId, timestamp, amountBase, side')
       .eq('side', 'buy')
       .neq('side', 'void')
       .gte('timestamp', windowStart.toISOString())
       .order('timestamp', { ascending: true });
+    
+    const { data: recentBuys, error } = await query;
 
     if (error || !recentBuys) {
       console.error('Error fetching recent buys:', error);
@@ -212,6 +218,15 @@ export class PaperTradingModelsService {
 
         // Zkontroluj, jestli je v rozestupu 2h
         if (timeSpanMinutes <= timeWindowHours * 60) {
+          // Pokud je minTimestamp, zkontroluj, jestli consensus obsahuje alespoň jeden NOVÝ trade
+          if (minTimestamp) {
+            const hasNewTrade = trades.some(t => new Date(t.timestamp) > minTimestamp);
+            if (!hasNewTrade) {
+              // Tento consensus trade neobsahuje žádný nový trade, přeskoč ho
+              continue;
+            }
+          }
+
           const totalBuyAmount = trades.reduce((sum, t) => sum + Number(t.amountBase || 0), 0);
 
           consensusTrades.push({
