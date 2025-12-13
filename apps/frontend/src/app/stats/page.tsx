@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { fetchStatsOverview, fetchTokenStats } from '@/lib/api';
 import { formatNumber, formatPercent, formatHoldTime } from '@/lib/utils';
@@ -32,15 +32,18 @@ export default function StatsPage() {
     }
   }
 
-  const sortedTokens = tokenStats?.tokens ? [...tokenStats.tokens].sort((a: any, b: any) => {
-    const aValue = a[tokenSortBy] || 0;
-    const bValue = b[tokenSortBy] || 0;
-    if (tokenSortOrder === 'desc') {
-      return bValue - aValue;
-    } else {
-      return aValue - bValue;
-    }
-  }) : [];
+  const sortedTokens = useMemo(() => {
+    if (!tokenStats?.tokens) return [];
+    return [...tokenStats.tokens].sort((a: any, b: any) => {
+      const aValue = a[tokenSortBy] || 0;
+      const bValue = b[tokenSortBy] || 0;
+      if (tokenSortOrder === 'desc') {
+        return bValue - aValue;
+      } else {
+        return aValue - bValue;
+      }
+    });
+  }, [tokenStats, tokenSortBy, tokenSortOrder]);
 
   if (loading) {
     return (
@@ -489,12 +492,12 @@ export default function StatsPage() {
               <div className="border border-border rounded-lg p-4">
                 <div className="text-sm text-muted-foreground mb-1">Avg Win Rate</div>
                 <div className="text-2xl font-bold">
-                  {formatPercent(
-                    tokenStats.tokens
-                      .filter((t: any) => t.closedPositions > 0)
-                      .reduce((sum: number, t: any) => sum + (t.winRate || 0), 0) /
-                    tokenStats.tokens.filter((t: any) => t.closedPositions > 0).length || 0
-                  )}
+                  {(() => {
+                    const tokensWithPositions = tokenStats.tokens.filter((t: any) => t.closedPositions > 0);
+                    if (tokensWithPositions.length === 0) return '-';
+                    const avgWinRate = tokensWithPositions.reduce((sum: number, t: any) => sum + (t.winRate || 0), 0) / tokensWithPositions.length;
+                    return formatPercent(avgWinRate / 100);
+                  })()}
                 </div>
               </div>
             </div>
