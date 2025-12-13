@@ -96,8 +96,7 @@ async function monitorTrades() {
             const signal = await signalService.generateBuySignal(trade.id, {
               minQualityScore: 40,
               enableSmartCopy: true,
-              sendToDiscord: process.env.DISCORD_WEBHOOK_URL ? true : false,
-              sendToTelegram: process.env.TELEGRAM_BOT_TOKEN ? true : false,
+              // Discord/Telegram webhooky budou implementovány později
             });
 
             if (signal) {
@@ -177,8 +176,7 @@ async function monitorTrades() {
           try {
             // Nejdřív vygeneruj signál
             const signal = await signalService.generateSellSignal(trade.id, {
-              sendToDiscord: process.env.DISCORD_WEBHOOK_URL ? true : false,
-              sendToTelegram: process.env.TELEGRAM_BOT_TOKEN ? true : false,
+              // Discord/Telegram webhooky budou implementovány později
             });
 
             if (signal) {

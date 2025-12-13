@@ -8,8 +8,8 @@ export interface SignalGenerationConfig {
   enableSmartCopy?: boolean; // Generovat signály z Smart Copy modelu
   enableConsensus?: boolean; // Generovat signály z Consensus modelu
   signalExpirationHours?: number; // Po kolika hodinách signál expiruje (default: 24)
-  sendToDiscord?: boolean; // Poslat signál do Discord webhooku
-  sendToTelegram?: boolean; // Poslat signál do Telegram webhooku
+  // sendToDiscord?: boolean; // TODO: Implementovat později
+  // sendToTelegram?: boolean; // TODO: Implementovat později
 }
 
 export class SignalService {
@@ -157,63 +157,14 @@ export class SignalService {
 
   /**
    * Pošle notifikaci o signálu do Discord/Telegram
+   * TODO: Implementovat později
    */
   private async sendSignalNotification(
     signal: SignalRecord,
     config: SignalGenerationConfig
   ): Promise<void> {
-    const signalType = signal.type.toUpperCase();
-    const emoji = signal.type === 'buy' ? '🟢' : '🔴';
-    const riskEmoji = signal.riskLevel === 'low' ? '🟢' : signal.riskLevel === 'medium' ? '🟡' : '🔴';
-    
-    const message = {
-      content: `${emoji} **${signalType} SIGNAL**\n` +
-        `Token: \`${signal.tokenId.substring(0, 16)}...\`\n` +
-        `Price: $${signal.priceBasePerToken.toFixed(6)}\n` +
-        (signal.qualityScore ? `Quality Score: ${signal.qualityScore.toFixed(1)}/100 ${riskEmoji}\n` : '') +
-        (signal.riskLevel ? `Risk: ${signal.riskLevel.toUpperCase()}\n` : '') +
-        (signal.reasoning ? `Reason: ${signal.reasoning.substring(0, 200)}\n` : '') +
-        `\n[View on Tradooor](https://tradooor.stepanpanek.cz/signals)`,
-    };
-
-    // Discord webhook
-    if (config.sendToDiscord && process.env.DISCORD_WEBHOOK_URL) {
-      try {
-        await fetch(process.env.DISCORD_WEBHOOK_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(message),
-        });
-        console.log(`📤 Sent signal ${signal.id} to Discord`);
-      } catch (error: any) {
-        console.error(`❌ Failed to send signal to Discord:`, error.message);
-      }
-    }
-
-    // Telegram webhook
-    if (config.sendToTelegram && process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
-      try {
-        const telegramMessage = `${emoji} *${signalType} SIGNAL*\n` +
-          `Token: \`${signal.tokenId.substring(0, 16)}...\`\n` +
-          `Price: $${signal.priceBasePerToken.toFixed(6)}\n` +
-          (signal.qualityScore ? `Quality: ${signal.qualityScore.toFixed(1)}/100 ${riskEmoji}\n` : '') +
-          (signal.riskLevel ? `Risk: ${signal.riskLevel.toUpperCase()}\n` : '') +
-          (signal.reasoning ? `Reason: ${signal.reasoning.substring(0, 200)}\n` : '');
-
-        await fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: process.env.TELEGRAM_CHAT_ID,
-            text: telegramMessage,
-            parse_mode: 'Markdown',
-          }),
-        });
-        console.log(`📤 Sent signal ${signal.id} to Telegram`);
-      } catch (error: any) {
-        console.error(`❌ Failed to send signal to Telegram:`, error.message);
-      }
-    }
+    // Discord/Telegram webhooky budou implementovány později
+    // Prozatím jsou signály dostupné pouze na webu
   }
 
   /**
