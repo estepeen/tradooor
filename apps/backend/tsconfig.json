@@ -14,6 +14,8 @@
   },
   "include": ["src/**/*"],
   "exclude": [
+    "node_modules",
+    "dist",
     "src/**/*.test.ts",
     "src/test-*.ts",
     "src/scripts/test-*.ts",
@@ -24,7 +26,13 @@
     "src/scripts/test-sol-values.ts",
     "src/scripts/test-token-metadata.ts",
     "src/scripts/test-tx-amount.ts",
-    "src/test-*.ts",
+    "src/test-helius-*.ts",
+    "src/test-portfolio.ts",
+    "src/test-recent-swaps.ts",
+    "src/test-specific-tx-price.ts",
+    "src/test-specific-tx.ts",
+    "src/test-swap-detection.ts",
+    "src/test-tx-debug.ts",
     "src/workers/backfill-token-symbols.ts"
   ],
   "exclude": ["node_modules", "dist"]
