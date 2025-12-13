@@ -4,6 +4,7 @@ import { PaperTradeService } from '../services/paper-trade.service.js';
 import { PaperTradingModelsService } from '../services/paper-trading-models.service.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
+import { supabase } from '../lib/supabase.js';
 
 const router = express.Router();
 

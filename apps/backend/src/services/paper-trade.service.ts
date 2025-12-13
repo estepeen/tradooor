@@ -16,6 +16,9 @@ export interface PaperTradingConfig {
     model?: 'basic' | 'smart-copy' | 'consensus';
     riskLevel?: 'low' | 'medium' | 'high';
     qualityScore?: number;
+    walletCount?: number;
+    consensusTriggerTradeId?: string;
+    [key: string]: any; // Allow additional meta fields
   };
 }
 
