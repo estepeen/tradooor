@@ -1,6 +1,7 @@
 import express from 'express';
 import { PaperTradeRepository } from '../repositories/paper-trade.repository.js';
 import { PaperTradeService } from '../services/paper-trade.service.js';
+import { PaperTradingModelsService } from '../services/paper-trading-models.service.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
 
@@ -12,8 +13,8 @@ const router = express.Router();
  */
 router.get('/portfolio', async (req, res) => {
   try {
-    const paperTradeService = new PaperTradeService();
-    const stats = await paperTradeService.getPortfolioStats();
+    const paperTradeRepo = new PaperTradeRepository();
+    const stats = await paperTradeRepo.getPortfolioStats();
     
     res.json({
       success: true,
@@ -24,6 +25,30 @@ router.get('/portfolio', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to fetch portfolio',
+    });
+  }
+});
+
+/**
+ * GET /api/paper-trading/consensus-trades
+ * Získá aktuální consensus trades (Model 2)
+ */
+router.get('/consensus-trades', async (req, res) => {
+  try {
+    const timeWindowHours = req.query.hours ? Number(req.query.hours) : 2;
+    const paperTradingModels = new PaperTradingModelsService();
+    const consensusTrades = await paperTradingModels.findConsensusTrades(timeWindowHours);
+    
+    res.json({
+      success: true,
+      consensusTrades,
+      count: consensusTrades.length,
+    });
+  } catch (error: any) {
+    console.error('❌ Error fetching consensus trades:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch consensus trades',
     });
   }
 });

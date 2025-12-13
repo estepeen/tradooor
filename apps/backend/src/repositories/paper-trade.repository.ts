@@ -185,7 +185,10 @@ export class PaperTradeRepository {
     closedPositions: number;
     winRate: number | null;
     totalTrades: number;
+    initialCapital: number;
   }> {
+    const INITIAL_CAPITAL_USD = 1000;
+    
     // Get all open positions
     const openPositions = await this.findOpenPositions();
     
@@ -202,25 +205,40 @@ export class PaperTradeRepository {
     const closedPositions = closedData || [];
     const totalTrades = openPositions.length + closedPositions.length;
     
-    // Calculate total cost (sum of all buy amounts)
-    const totalCostUsd = openPositions.reduce((sum, pos) => {
+    // Calculate total cost (sum of all buy amounts for open + closed)
+    const openCost = openPositions.reduce((sum, pos) => {
       return sum + (pos.side === 'buy' ? pos.amountBase : 0);
     }, 0);
 
-    // Calculate total value (current value of open positions + realized PnL from closed)
+    // For closed positions, we need to get the original cost
+    const { data: closedTradesData } = await supabase
+      .from('PaperTrade')
+      .select('amountBase')
+      .eq('status', 'closed')
+      .eq('side', 'buy');
+
+    const closedCost = (closedTradesData || []).reduce((sum, pos) => {
+      return sum + toNumber(pos.amountBase);
+    }, 0);
+
+    const totalCostUsd = openCost + closedCost;
+
+    // Calculate total value (current value of open positions + realized PnL from closed + initial capital)
     const totalRealizedPnl = closedPositions.reduce((sum, pos) => {
       return sum + (toNumber(pos.realizedPnl) || 0);
     }, 0);
 
     // For open positions, we'd need current token prices to calculate current value
-    // For now, we'll use entry value (amountBase)
+    // For now, we'll use entry value (amountBase) - assumes no price change
     const openPositionsValue = openPositions.reduce((sum, pos) => {
       return sum + (pos.side === 'buy' ? pos.amountBase : 0);
     }, 0);
 
-    const totalValueUsd = openPositionsValue + totalRealizedPnl;
-    const totalPnlUsd = totalValueUsd - totalCostUsd;
-    const totalPnlPercent = totalCostUsd > 0 ? (totalPnlUsd / totalCostUsd) * 100 : 0;
+    // Total value = initial capital - total cost + open positions value + realized PnL
+    // Or simpler: initial capital + realized PnL + (open positions value - open cost)
+    const totalValueUsd = INITIAL_CAPITAL_USD + totalRealizedPnl + (openPositionsValue - openCost);
+    const totalPnlUsd = totalValueUsd - INITIAL_CAPITAL_USD;
+    const totalPnlPercent = INITIAL_CAPITAL_USD > 0 ? (totalPnlUsd / INITIAL_CAPITAL_USD) * 100 : 0;
 
     // Calculate win rate
     const winningTrades = closedPositions.filter(pos => (toNumber(pos.realizedPnl) || 0) > 0).length;
@@ -235,6 +253,7 @@ export class PaperTradeRepository {
       closedPositions: closedPositions.length,
       winRate,
       totalTrades,
+      initialCapital: INITIAL_CAPITAL_USD,
     };
   }
 

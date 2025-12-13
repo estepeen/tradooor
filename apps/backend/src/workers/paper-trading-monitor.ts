@@ -17,7 +17,9 @@
 
 import { supabase, TABLES } from '../lib/supabase.js';
 import { PaperTradeService, PaperTradingConfig } from '../services/paper-trade.service.js';
+import { PaperTradingModelsService } from '../services/paper-trading-models.service.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
+import { PaperTradeRepository } from '../repositories/paper-trade.repository.js';
 
 const PAPER_TRADING_ENABLED = process.env.PAPER_TRADING_ENABLED === 'true';
 const PAPER_TRADING_COPY_ALL = process.env.PAPER_TRADING_COPY_ALL !== 'false'; // Default: true
@@ -43,6 +45,8 @@ async function monitorTrades() {
   console.log(`  Max Open Positions: ${PAPER_TRADING_MAX_OPEN_POSITIONS}\n`);
 
   const paperTradeService = new PaperTradeService();
+  const paperTradingModels = new PaperTradingModelsService();
+  const paperTradeRepo = new PaperTradeRepository();
   const tradeRepo = new TradeRepository();
 
   const config: PaperTradingConfig = {
@@ -72,17 +76,66 @@ async function monitorTrades() {
         return;
       }
 
-      // 2. Kopíruj nové BUY trades
+      // 2. Kopíruj nové BUY trades pomocí Model 1 (Smart Copy Trading)
       if (newBuyTrades && newBuyTrades.length > 0) {
         console.log(`📊 Found ${newBuyTrades.length} new BUY trades`);
         
+        // Získej aktuální portfolio value pro position sizing
+        const portfolioStats = await paperTradeRepo.getPortfolioStats();
+        const currentPortfolioValue = portfolioStats.totalValueUsd || 1000;
+        
+        let copiedCount = 0;
+        let skippedCount = 0;
+        
         for (const trade of newBuyTrades) {
           try {
-            await paperTradeService.copyBuyTrade(trade.id, config);
+            const result = await paperTradingModels.copyTradeSmartCopy(trade.id, currentPortfolioValue);
+            if (result.success) {
+              copiedCount++;
+              console.log(`   ✅ Copied trade ${trade.id.substring(0, 16)}... (Score: ${result.quality?.score.toFixed(1)}, Risk: ${result.quality?.riskLevel.level})`);
+            } else {
+              skippedCount++;
+              if (result.quality) {
+                console.log(`   ⏭️  Skipped trade ${trade.id.substring(0, 16)}... (Score: ${result.quality.score.toFixed(1)} < 40)`);
+              }
+            }
           } catch (error: any) {
             console.error(`❌ Error copying trade ${trade.id}:`, error.message);
+            skippedCount++;
           }
         }
+        
+        console.log(`   📊 Copied: ${copiedCount}, Skipped: ${skippedCount}`);
+      }
+
+      // 2b. Zkontroluj consensus trades (Model 2)
+      try {
+        const consensusTrades = await paperTradingModels.findConsensusTrades(2); // 2h window
+        if (consensusTrades.length > 0) {
+          console.log(`\n🎯 Found ${consensusTrades.length} consensus trades (2+ wallets, same token, 2h window)`);
+          
+          const portfolioStats = await paperTradeRepo.getPortfolioStats();
+          const currentPortfolioValue = portfolioStats.totalValueUsd || 1000;
+          
+          for (const consensus of consensusTrades) {
+            // Zkontroluj, jestli už není tento token v otevřených pozicích
+            const openPositions = await paperTradeRepo.findOpenPositions();
+            const alreadyOpen = openPositions.some(pos => pos.tokenId === consensus.tokenId);
+            
+            if (!alreadyOpen) {
+              try {
+                const result = await paperTradingModels.copyConsensusTrade(consensus, currentPortfolioValue);
+                if (result.success) {
+                  console.log(`   ✅ Copied consensus trade: ${consensus.tokenId.substring(0, 16)}... (${consensus.walletCount} wallets, avg score: ${consensus.avgWalletScore.toFixed(1)})`);
+                }
+              } catch (error: any) {
+                console.error(`❌ Error copying consensus trade:`, error.message);
+              }
+            }
+          }
+        }
+      } catch (error: any) {
+        console.error('❌ Error checking consensus trades:', error.message);
       }
 
       // 3. Najdi nové SELL trades a uzavři odpovídající paper trades

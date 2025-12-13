@@ -11,10 +11,15 @@ export interface PaperTradingConfig {
   positionSizePercent?: number; // % portfolia na trade (default: 5%)
   maxPositionSizeUsd?: number; // Max velikost pozice v USD
   maxOpenPositions?: number; // Max počet otevřených pozic najednou
+  meta?: {
+    model?: 'basic' | 'smart-copy' | 'consensus';
+    riskLevel?: 'low' | 'medium' | 'high';
+    qualityScore?: number;
+  };
 }
 
 export class PaperTradeService {
-  private paperTradeRepo: PaperTradeRepository;
+  public paperTradeRepo: PaperTradeRepository;
   private tradeRepo: TradeRepository;
   private smartWalletRepo: SmartWalletRepository;
   private tokenRepo: TokenRepository;
@@ -89,15 +94,18 @@ export class PaperTradeService {
     }
 
     // 8. Vypočti position size
-    const positionSize = this.calculatePositionSize(originalTrade, config);
+    const positionSize = await this.calculatePositionSize(originalTrade, config);
 
     // 9. Vytvoř paper trade
+    // Vypočti amountToken na základě position size a ceny
+    const amountToken = positionSize.amountBase / Number(originalTrade.priceBasePerToken);
+
     const paperTrade = await this.paperTradeRepo.create({
       walletId: originalTrade.walletId,
       tokenId: originalTrade.tokenId,
       originalTradeId: originalTradeId,
       side: 'buy',
-      amountToken: positionSize.amountToken,
+      amountToken: amountToken,
       amountBase: positionSize.amountBase,
       priceBasePerToken: Number(originalTrade.priceBasePerToken),
       timestamp: new Date(originalTrade.timestamp),
@@ -107,6 +115,9 @@ export class PaperTradeService {
         originalAmountToken: Number(originalTrade.amountToken),
         originalAmountBase: Number(originalTrade.amountBase),
         positionSizePercent: config.positionSizePercent || 5,
+        model: config.meta?.model || 'basic',
+        riskLevel: config.meta?.riskLevel,
+        qualityScore: config.meta?.qualityScore,
       },
     });
 
@@ -165,11 +176,16 @@ export class PaperTradeService {
   /**
    * Vypočítá velikost pozice pro paper trade
    */
-  private calculatePositionSize(
+  private async calculatePositionSize(
     originalTrade: any,
     config: PaperTradingConfig
-  ): { amountToken: number; amountBase: number } {
+  ): Promise<{ amountToken: number; amountBase: number }> {
+    const INITIAL_CAPITAL_USD = 1000;
     const originalAmountBase = Number(originalTrade.amountBase);
+    
+    // Získej aktuální portfolio value
+    const portfolioStats = await this.paperTradeRepo.getPortfolioStats();
+    const currentPortfolioValue = portfolioStats.totalValueUsd || INITIAL_CAPITAL_USD;
     
     // Pokud je nastaven max position size, použij ho
     if (config.maxPositionSizeUsd) {
@@ -181,15 +197,20 @@ export class PaperTradeService {
       };
     }
 
-    // Pokud je nastaven position size percent, použij ho
-    // Pro teď použijeme fixní hodnotu (později můžeme přidat portfolio value tracking)
+    // Pokud je nastaven position size percent, použij ho z aktuálního portfolia
     const positionSizePercent = config.positionSizePercent || 5;
-    const positionSize = originalAmountBase * (positionSizePercent / 100);
-    const ratio = positionSize / originalAmountBase;
+    const positionSize = (currentPortfolioValue * positionSizePercent) / 100;
+    
+    // Omezení na min/max
+    const MIN_POSITION_SIZE_PERCENT = 5;
+    const MAX_POSITION_SIZE_PERCENT = 20;
+    const minPositionUsd = (currentPortfolioValue * MIN_POSITION_SIZE_PERCENT) / 100;
+    const maxPositionUsd = (currentPortfolioValue * MAX_POSITION_SIZE_PERCENT) / 100;
+    const finalPositionSize = Math.max(minPositionUsd, Math.min(maxPositionUsd, positionSize));
 
     return {
-      amountToken: Number(originalTrade.amountToken) * ratio,
-      amountBase: positionSize,
+      amountToken: 0, // Bude vypočítáno z positionSize a price
+      amountBase: finalPositionSize,
     };
   }
 

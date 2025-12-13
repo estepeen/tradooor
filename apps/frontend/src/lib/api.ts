@@ -223,3 +223,13 @@ export async function copyTradeAsPaperTrade(tradeId: string, config?: any) {
   return res.json();
 }
 
+export async function fetchConsensusTrades(hours?: number) {
+  const url = `${API_BASE_URL}/paper-trading/consensus-trades${hours ? `?hours=${hours}` : ''}`;
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) throw new Error('Failed to fetch consensus trades');
+  return res.json();
+}
+
