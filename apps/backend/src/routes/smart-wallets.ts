@@ -997,7 +997,7 @@ router.get('/:id/portfolio', async (req, res) => {
       try {
         console.log(`   🔍 Enriching ${tokensToEnrich.length} tokens with missing/garbage symbols...`);
         const { TokenMetadataBatchService } = await import('../services/token-metadata-batch.service.js');
-        const tokenMetadataBatchService = new TokenMetadataBatchService(heliusClient, tokenRepo);
+        const tokenMetadataBatchService = new TokenMetadataBatchService(tokenRepo);
         const enrichedMetadata = await tokenMetadataBatchService.getTokenMetadataBatch(tokensToEnrich);
         
         // Aktualizuj tokenDataMap s novými metadaty

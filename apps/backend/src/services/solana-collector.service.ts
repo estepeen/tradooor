@@ -3,7 +3,7 @@ import { TradeRepository } from '../repositories/trade.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
 import { WalletProcessingQueueRepository } from '../repositories/wallet-processing-queue.repository.js';
 import { NormalizedTradeRepository } from '../repositories/normalized-trade.repository.js';
-import { HeliusClient } from './helius-client.service.js';
+// HeliusClient removed - using QuickNode only
 import { TokenMetadataBatchService } from './token-metadata-batch.service.js';
 import { TokenPriceService } from './token-price.service.js';
 import { SolPriceService } from './sol-price.service.js';

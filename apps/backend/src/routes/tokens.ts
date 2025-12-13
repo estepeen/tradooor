@@ -1,13 +1,11 @@
 import { Router } from 'express';
 import { TokenRepository } from '../repositories/token.repository.js';
-import { HeliusClient } from '../services/helius-client.service.js';
 import { TokenMetadataBatchService } from '../services/token-metadata-batch.service.js';
 import { supabase, TABLES } from '../lib/supabase.js';
 
 const router = Router();
 const tokenRepo = new TokenRepository();
-const heliusClient = new HeliusClient();
-const tokenMetadataBatchService = new TokenMetadataBatchService(heliusClient, tokenRepo);
+const tokenMetadataBatchService = new TokenMetadataBatchService(tokenRepo);
 
 // POST /api/tokens/enrich-symbols - Hromadné doplnění/oprava symbolů a názvů tokenů
 router.post('/enrich-symbols', async (req, res) => {

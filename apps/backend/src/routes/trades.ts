@@ -1,6 +1,5 @@
 import { Router } from 'express';
 import { TradeRepository } from '../repositories/trade.repository.js';
-import { HeliusClient } from '../services/helius-client.service.js';
 import { SolPriceService } from '../services/sol-price.service.js';
 import { TokenPriceService } from '../services/token-price.service.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
@@ -14,7 +13,6 @@ import { BinancePriceService } from '../services/binance-price.service.js';
 
 const router = Router();
 const tradeRepo = new TradeRepository();
-const heliusClient = new HeliusClient();
 const solPriceService = new SolPriceService();
 const tokenPriceService = new TokenPriceService();
 const smartWalletRepo = new SmartWalletRepository();
