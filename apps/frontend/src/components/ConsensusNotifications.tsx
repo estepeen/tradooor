@@ -414,12 +414,8 @@ export default function ConsensusNotifications() {
                                           {trade.wallet.label}
                                         </Link>
                                         {' • '}
-                                        <span className="text-muted-foreground">
-                                          bought @ ${trade.priceBasePerToken.toFixed(6)} for ${formatAmount(trade.amountBase, 2)}
-                                        </span>
-                                        {' • '}
-                                        <span className={`text-xs ${isNewestTrade ? 'text-green-400' : 'text-muted-foreground'}`}>
-                                          {formatTimeAgo(trade.timestamp)}
+                                        <span className="text-green-400">
+                                          bought @ ${trade.priceBasePerToken.toFixed(6)} for ${formatAmount(trade.amountBase, 2)} • {formatTimeAgo(trade.timestamp)}
                                         </span>
                                       </div>
                                     );
