@@ -10,6 +10,7 @@ import { supabase, TABLES } from '../lib/supabase.js';
 // TokenMetadataBatchService removed - metadata se načítá pouze při webhooku, ne při každém requestu
 import { SolscanClient } from '../services/solscan-client.service.js';
 import { BinancePriceService } from '../services/binance-price.service.js';
+import { TokenSecurityService } from '../services/token-security.service.js';
 
 const router = Router();
 const tradeRepo = new TradeRepository();
@@ -26,6 +27,7 @@ const metricsCalculator = new MetricsCalculatorService(
 // TokenMetadataBatchService removed - metadata se načítá pouze při webhooku
 const solscanClient = new SolscanClient();
 const binancePriceService = new BinancePriceService();
+const tokenSecurityService = new TokenSecurityService();
 
 // GET /api/trades?walletId=xxx - Get trades for a wallet
 router.get('/', async (req, res) => {
@@ -525,22 +527,17 @@ router.get('/consensus-notifications', async (req, res) => {
     const limited = consensusNotifications.slice(0, limit);
 
     // Fetch token security data for each notification (honeypot, tax, holders, etc.)
-    const tokenMintAddresses = [...new Set(limited.map(n => n.token?.mintAddress).filter(Boolean))];
-    const tokenSecurityData = new Map<string, any>();
+    const tokenMintAddresses = [...new Set(limited.map(n => n.token?.mintAddress).filter(Boolean))] as string[];
+    let tokenSecurityData = new Map<string, any>();
     
-    // TODO: Implement token security data fetching from Birdeye API
-    // For now, return empty security data
-    for (const mintAddress of tokenMintAddresses) {
-      tokenSecurityData.set(mintAddress, {
-        honeypot: null,
-        buyTax: null,
-        sellTax: null,
-        marketCap: null,
-        holdersCount: null,
-        tokenAgeMinutes: null,
-        lpLocked: null,
-        top10HoldersPercent: null,
-      });
+    if (tokenMintAddresses.length > 0) {
+      try {
+        // Fetch security data in batch (with rate limiting)
+        tokenSecurityData = await tokenSecurityService.getTokenSecurityBatch(tokenMintAddresses);
+      } catch (securityError: any) {
+        console.warn(`⚠️  Error fetching token security data: ${securityError.message}`);
+        // Continue with empty security data
+      }
     }
 
     // Add security data to notifications

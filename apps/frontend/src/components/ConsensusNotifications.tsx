@@ -28,6 +28,7 @@ interface TokenSecurity {
   tokenAgeMinutes: number | null;
   lpLocked: boolean | null;
   top10HoldersPercent: number | null; // Percentage of supply held by top 10
+  dexPaid: boolean | null;
 }
 
 interface ConsensusNotification {
@@ -471,6 +472,15 @@ export default function ConsensusNotifications() {
                                         <span className="text-green-400">✓ LP Locked</span>
                                       ) : (
                                         <span className="text-yellow-400">⚠️ LP Unlocked</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {notification.tokenSecurity.dexPaid !== null && (
+                                    <div>
+                                      {notification.tokenSecurity.dexPaid ? (
+                                        <span className="text-green-400">✓ DEX Paid</span>
+                                      ) : (
+                                        <span className="text-yellow-400">⚠️ DEX Unpaid</span>
                                       )}
                                     </div>
                                   )}
