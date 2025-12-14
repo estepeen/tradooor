@@ -527,17 +527,21 @@ router.get('/consensus-notifications', async (req, res) => {
     const limited = consensusNotifications.slice(0, limit);
 
     // Fetch token security data for each notification (honeypot, tax, holders, etc.)
+    // DŮLEŽITÉ: Fetch asynchronně, aby to neblokovalo response (může trvat dlouho)
     const tokenMintAddresses = [...new Set(limited.map(n => n.token?.mintAddress).filter(Boolean))] as string[];
     let tokenSecurityData = new Map<string, any>();
     
+    // Pro rychlejší response, fetch security data asynchronně a vrať prázdná data
+    // Security data se načtou při dalším requestu (cached)
     if (tokenMintAddresses.length > 0) {
-      try {
-        // Fetch security data in batch (with rate limiting)
-        tokenSecurityData = await tokenSecurityService.getTokenSecurityBatch(tokenMintAddresses);
-      } catch (securityError: any) {
-        console.warn(`⚠️  Error fetching token security data: ${securityError.message}`);
-        // Continue with empty security data
-      }
+      // Fetch asynchronně - neblokuje response
+      setImmediate(async () => {
+        try {
+          await tokenSecurityService.getTokenSecurityBatch(tokenMintAddresses);
+        } catch (securityError: any) {
+          console.warn(`⚠️  Error fetching token security data: ${securityError.message}`);
+        }
+      });
     }
 
     // Add security data to notifications

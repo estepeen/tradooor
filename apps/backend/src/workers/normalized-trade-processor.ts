@@ -98,7 +98,8 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
 
     // DŮLEŽITÉ: Přepočítej closed positions okamžitě po každém novém trade
     // Toto zajišťuje, že closed positions jsou vždy aktuální
-    setImmediate(async () => {
+    // Použij setTimeout s 0 delay místo setImmediate pro lepší async handling
+    setTimeout(async () => {
       try {
         const walletData = await smartWalletRepo.findById(record.walletId);
         if (walletData) {
@@ -116,7 +117,7 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       } catch (closedLotsError: any) {
         console.warn(`⚠️  Failed to recalculate closed lots for wallet ${record.walletId}: ${closedLotsError?.message || closedLotsError}`);
       }
-    });
+    }, 0);
 
     // Také přidej do fronty pro přepočet metrik (score, win rate, atd.)
     try {
