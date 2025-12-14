@@ -64,6 +64,7 @@ model Token {
   tradeSequences        TradeSequence[]
   tradeOutcomes         TradeOutcome[]
   normalizedTrades      NormalizedTrade[]
+  consensusSignals      ConsensusSignal[]
   
   @@index([mintAddress])
   @@index([symbol])
@@ -337,5 +338,25 @@ model NormalizedTrade {
   @@unique([txSignature, walletId, side])
   @@index([status, timestamp])
   @@index([walletId, status])
+}
+
+/// Consensus trading signals - when 2+ wallets buy the same token within 2 hours
+model ConsensusSignal {
+  id                    String   @id @default(cuid())
+  tokenId               String
+  walletCount           Int      // Number of unique wallets in consensus
+  firstTradeTime        DateTime // Time of first trade in consensus
+  latestTradeTime       DateTime // Time of latest trade in consensus
+  trades                Json     // Array of trade data (wallet, amount, price, timestamp, etc.)
+  tokenSecurity         Json?    // Token security data (honeypot, tax, marketcap, etc.)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  token                 Token    @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+
+  @@index([tokenId])
+  @@index([latestTradeTime])
+  @@index([createdAt])
+  @@index([tokenId, firstTradeTime])
 }
 

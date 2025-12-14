@@ -233,6 +233,19 @@ export async function fetchConsensusTrades(hours?: number) {
   return res.json();
 }
 
+export async function fetchConsensusSignals(limit?: number) {
+  const searchParams = new URLSearchParams();
+  if (limit) searchParams.set('limit', limit.toString());
+
+  const url = `${API_BASE_URL}/trades/consensus-signals${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) throw new Error('Failed to fetch consensus signals');
+  return res.json();
+}
+
 export async function fetchSignals(options?: { type?: 'buy' | 'sell'; limit?: number }) {
   const params = new URLSearchParams();
   if (options?.type) params.append('type', options.type);

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { fetchPaperTradingPortfolio, fetchPaperTrades, fetchPaperPortfolioHistory, fetchConsensusTrades, fetchSignals } from '@/lib/api';
+import { fetchPaperTradingPortfolio, fetchPaperTrades, fetchPaperPortfolioHistory, fetchConsensusTrades, fetchSignals, fetchConsensusSignals } from '@/lib/api';
 import { formatNumber, formatPercent, formatDate } from '@/lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 
@@ -10,10 +10,11 @@ export default function PaperTradingPage() {
   const [portfolio, setPortfolio] = useState<any>(null);
   const [trades, setTrades] = useState<any[]>([]);
   const [portfolioHistory, setPortfolioHistory] = useState<any[]>([]);
-  const [consensusTrades, setConsensusTrades] = useState<any[]>([]);
-  const [signals, setSignals] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'overview' | 'trades' | 'history'>('overview');
+      const [consensusTrades, setConsensusTrades] = useState<any[]>([]);
+      const [signals, setSignals] = useState<any[]>([]);
+      const [consensusSignals, setConsensusSignals] = useState<any[]>([]);
+      const [loading, setLoading] = useState(true);
+      const [activeTab, setActiveTab] = useState<'overview' | 'trades' | 'history'>('overview');
 
   useEffect(() => {
     loadData();
@@ -47,12 +48,14 @@ export default function PaperTradingPage() {
         }),
         fetchConsensusTrades(2).catch(() => ({ consensusTrades: [] })),
         fetchSignals({ limit: 100 }).catch(() => ({ signals: [] })),
+        fetchConsensusSignals(100).catch(() => ({ signals: [] })),
       ]);
       setPortfolio(portfolioData);
       setTrades(tradesData.trades || []);
       setPortfolioHistory(historyData.snapshots || []);
       setConsensusTrades(consensusData.consensusTrades || []);
       setSignals((await fetchSignals({ limit: 100 }).catch(() => ({ signals: [] }))).signals || []);
+      setConsensusSignals((await fetchConsensusSignals(100).catch(() => ({ signals: [] }))).signals || []);
     } catch (error) {
       console.error('Error loading paper trading data:', error);
       // Set default values on error
@@ -217,13 +220,7 @@ export default function PaperTradingPage() {
         <div className="space-y-4">
           <div className="flex gap-4 mb-4">
             <span className="px-4 py-2 bg-primary text-primary-foreground rounded">
-              All ({trades.length})
-            </span>
-            <span className="px-4 py-2 bg-muted rounded">
-              Open ({openTrades.length})
-            </span>
-            <span className="px-4 py-2 bg-muted rounded">
-              Closed ({closedTrades.length})
+              Signals ({consensusSignals.length})
             </span>
           </div>
 
@@ -232,26 +229,66 @@ export default function PaperTradingPage() {
               <thead className="bg-muted/30">
                 <tr>
                   <th className="px-4 py-3 text-left text-sm font-medium">Date</th>
-                  <th className="px-4 py-3 text-left text-sm font-medium">Wallet</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Token</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Type</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Amount</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Price</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Position Size</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Model</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">Status</th>
-                  <th className="px-4 py-3 text-right text-sm font-medium">PnL</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Wallets</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium">First Trade</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium">Latest Trade</th>
+                  <th className="px-4 py-3 text-right text-sm font-medium">Trades</th>
                 </tr>
               </thead>
               <tbody>
-                {trades.length === 0 ? (
+                {consensusSignals.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-4 py-6 text-center text-muted-foreground">
-                      No paper trades yet. Start the paper trading monitor to begin copying trades.
+                    <td colSpan={6} className="px-4 py-6 text-center text-muted-foreground">
+                      No consensus signals yet. Signals are generated when 2+ wallets buy the same token within 2 hours.
                     </td>
                   </tr>
                 ) : (
-                  trades.map((trade) => {
+                  consensusSignals.map((signal) => {
+                    const trades = signal.trades || [];
+                    const firstTrade = trades.length > 0 ? trades[trades.length - 1] : null;
+                    const latestTrade = trades.length > 0 ? trades[0] : null;
+                    
+                    return (
+                      <tr key={signal.id} className="border-t border-border hover:bg-muted/50">
+                        <td className="px-4 py-3 text-sm">
+                          {formatDate(new Date(signal.createdAt))}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          {signal.token?.mintAddress ? (
+                            <Link
+                              href={`https://birdeye.so/solana/token/${signal.token.mintAddress}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-primary hover:underline"
+                            >
+                              {signal.token?.symbol ? `$${signal.token.symbol}` : signal.token?.name || signal.tokenId.substring(0, 8) + '...'}
+                            </Link>
+                          ) : (
+                            signal.token?.symbol ? `$${signal.token.symbol}` : signal.token?.name || '-'
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-sm">
+                          {signal.walletCount} wallet{signal.walletCount > 1 ? 's' : ''}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm text-muted-foreground">
+                          {firstTrade ? formatDate(new Date(firstTrade.timestamp)) : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm text-muted-foreground">
+                          {latestTrade ? formatDate(new Date(latestTrade.timestamp)) : '-'}
+                        </td>
+                        <td className="px-4 py-3 text-right text-sm">
+                          {trades.length} trade{trades.length > 1 ? 's' : ''}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
                     const model = trade.meta?.model || 'basic';
                     const riskLevel = trade.meta?.riskLevel || 'medium';
                     const positionSizePercent = trade.meta?.positionSizePercent || 5;

@@ -39,6 +39,7 @@ export const TABLES = {
   PAPER_TRADE: 'PaperTrade',
   PAPER_PORTFOLIO: 'PaperPortfolio',
   SIGNAL: 'Signal',
+  CONSENSUS_SIGNAL: 'ConsensusSignal',
 } as const;
 
 /**

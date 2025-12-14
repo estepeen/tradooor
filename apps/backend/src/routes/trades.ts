@@ -11,6 +11,7 @@ import { supabase, TABLES } from '../lib/supabase.js';
 import { SolscanClient } from '../services/solscan-client.service.js';
 import { BinancePriceService } from '../services/binance-price.service.js';
 import { TokenSecurityService } from '../services/token-security.service.js';
+import { ConsensusSignalRepository } from '../repositories/consensus-signal.repository.js';
 
 const router = Router();
 const tradeRepo = new TradeRepository();
@@ -345,6 +346,47 @@ router.get('/consensus-notifications', async (req, res) => {
 
     const since = new Date(Date.now() - hours * 60 * 60 * 1000);
 
+    // 1. Nejdřív zkontroluj, jestli už existují signals v databázi
+    try {
+      const existingSignals = await consensusSignalRepo.findRecent(limit, hours);
+      if (existingSignals && existingSignals.length > 0) {
+        // Vrať existující signals z databáze
+        const notifications = existingSignals.map((signal: any) => {
+          const token = Array.isArray(signal.token) ? signal.token[0] : signal.token;
+          return {
+            id: signal.id,
+            tokenId: signal.tokenId,
+            token: token || null,
+            walletCount: signal.walletCount,
+            trades: signal.trades || [],
+            firstTradeTime: signal.firstTradeTime,
+            latestTradeTime: signal.latestTradeTime,
+            createdAt: signal.createdAt,
+            tokenSecurity: signal.tokenSecurity || null,
+          };
+        });
+
+        // Fetch token security data asynchronně pro další request
+        const tokenMintAddresses = [...new Set(notifications.map((n: any) => n.token?.mintAddress).filter(Boolean))] as string[];
+        if (tokenMintAddresses.length > 0) {
+          setImmediate(async () => {
+            try {
+              await tokenSecurityService.getTokenSecurityBatch(tokenMintAddresses);
+            } catch (securityError: any) {
+              console.warn(`⚠️  Error fetching token security data: ${securityError.message}`);
+            }
+          });
+        }
+
+        return res.json({
+          notifications,
+          total: notifications.length,
+        });
+      }
+    } catch (dbError: any) {
+      console.warn(`⚠️  Error fetching existing signals from database: ${dbError.message}. Will compute new ones.`);
+    }
+
     // 1. Najdi všechny BUY trades za poslední hodinu
     const { data: recentBuys, error: buysError } = await supabase
       .from(TABLES.TRADE)
@@ -443,19 +485,84 @@ router.get('/consensus-notifications', async (req, res) => {
           const latestTrade = uniqueTrades[0]; // Nejnovější
           const firstTrade = uniqueTrades[uniqueTrades.length - 1]; // Nejstarší
 
-          // Zkontroluj, jestli už není notifikace pro tento token a časové okno
-          const existingNotification = consensusNotifications.find(n => 
-            n.tokenId === tokenId &&
-            Math.abs(new Date(n.firstTradeTime).getTime() - new Date(firstTrade.timestamp).getTime()) < CONSENSUS_WINDOW_MS
-          );
-
-          if (!existingNotification) {
-            consensusNotifications.push({
-              id: `consensus-${tokenId}-${firstTrade.timestamp}`,
+          // Zkontroluj, jestli už není notifikace v databázi pro tento token a časové okno
+          let existingSignal = null;
+          try {
+            existingSignal = await consensusSignalRepo.findByTokenAndTimeWindow(
               tokenId,
-              token: latestTrade.token,
-              walletCount: uniqueWallets.size,
-              trades: uniqueTrades.map((t: any) => {
+              new Date(firstTrade.timestamp),
+              CONSENSUS_WINDOW_MS
+            );
+          } catch (dbError: any) {
+            console.warn(`⚠️  Error checking existing signal in database: ${dbError.message}`);
+          }
+
+          const tradesData = uniqueTrades.map((t: any) => {
+            const wallet = Array.isArray(t.wallet) ? t.wallet[0] : t.wallet;
+            return {
+              id: t.id,
+              wallet: {
+                id: wallet?.id,
+                address: wallet?.address,
+                label: wallet?.label || wallet?.address?.substring(0, 8) + '...',
+              },
+              amountBase: parseFloat(t.amountBase || '0'),
+              amountToken: parseFloat(t.amountToken || '0'),
+              priceBasePerToken: parseFloat(t.priceBasePerToken || '0'),
+              timestamp: t.timestamp,
+              txSignature: t.txSignature,
+            };
+          });
+
+          if (!existingSignal) {
+            // Vytvoř nový signal v databázi
+            try {
+              const token = Array.isArray(latestTrade.token) ? latestTrade.token[0] : latestTrade.token;
+              const newSignal = await consensusSignalRepo.create({
+                tokenId,
+                walletCount: uniqueWallets.size,
+                firstTradeTime: firstTrade.timestamp,
+                latestTradeTime: latestTrade.timestamp,
+                trades: tradesData,
+                tokenSecurity: null, // Bude naplněno asynchronně
+              });
+
+              consensusNotifications.push({
+                id: newSignal.id,
+                tokenId,
+                token: token,
+                walletCount: uniqueWallets.size,
+                trades: tradesData,
+                firstTradeTime: firstTrade.timestamp,
+                latestTradeTime: latestTrade.timestamp,
+                createdAt: newSignal.createdAt,
+              });
+            } catch (createError: any) {
+              console.error(`❌ Error creating consensus signal: ${createError.message}`);
+              // Fallback: přidej do pole bez uložení do DB
+              consensusNotifications.push({
+                id: `consensus-${tokenId}-${firstTrade.timestamp}`,
+                tokenId,
+                token: latestTrade.token,
+                walletCount: uniqueWallets.size,
+                trades: tradesData,
+                firstTradeTime: firstTrade.timestamp,
+                latestTradeTime: latestTrade.timestamp,
+                createdAt: new Date().toISOString(),
+              });
+            }
+          } else {
+            // Aktualizuj existující signal v databázi - přidej nové wallets (jen první buy pro každou)
+            const existingTrades = (existingSignal.trades || []) as any[];
+            const existingWalletIds = new Set(existingTrades.map((et: any) => et.wallet?.id));
+            const newWallets = uniqueTrades.filter(t => {
+              const wallet = Array.isArray(t.wallet) ? t.wallet[0] : t.wallet;
+              return wallet?.id && !existingWalletIds.has(wallet.id);
+            });
+
+            if (newWallets.length > 0) {
+              // Přidej nové trades a seřaď od nejnovějšího
+              const newTradesData = newWallets.map((t: any) => {
                 const wallet = Array.isArray(t.wallet) ? t.wallet[0] : t.wallet;
                 return {
                   id: t.id,
@@ -470,48 +577,53 @@ router.get('/consensus-notifications', async (req, res) => {
                   timestamp: t.timestamp,
                   txSignature: t.txSignature,
                 };
-              }),
-              firstTradeTime: firstTrade.timestamp,
-              latestTradeTime: latestTrade.timestamp,
-              createdAt: new Date().toISOString(),
-            });
-          } else {
-            // Aktualizuj existující notifikaci - přidej nové wallets (jen první buy pro každou)
-            const existingWalletIds = new Set(existingNotification.trades.map((et: any) => et.wallet.id));
-            const newWallets = uniqueTrades.filter(t => {
-              const wallet = Array.isArray(t.wallet) ? t.wallet[0] : t.wallet;
-              return wallet?.id && !existingWalletIds.has(wallet.id);
-            });
+              });
 
-            if (newWallets.length > 0) {
-              // Přidej nové trades a seřaď od nejnovějšího
               const allTrades = [
-                ...newWallets.map((t: any) => {
-                  const wallet = Array.isArray(t.wallet) ? t.wallet[0] : t.wallet;
-                  return {
-                    id: t.id,
-                    wallet: {
-                      id: wallet?.id,
-                      address: wallet?.address,
-                      label: wallet?.label || wallet?.address?.substring(0, 8) + '...',
-                    },
-                    amountBase: parseFloat(t.amountBase || '0'),
-                    amountToken: parseFloat(t.amountToken || '0'),
-                    priceBasePerToken: parseFloat(t.priceBasePerToken || '0'),
-                    timestamp: t.timestamp,
-                    txSignature: t.txSignature,
-                  };
-                }),
-                ...existingNotification.trades
+                ...newTradesData,
+                ...existingTrades
               ].sort((a, b) => 
                 new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
               );
 
-              existingNotification.trades = allTrades;
-              existingNotification.walletCount = new Set(allTrades.map((t: any) => t.wallet.id)).size;
-              existingNotification.latestTradeTime = latestTrade.timestamp;
-              // Aktualizuj createdAt, aby se notifikace přesunula nahoru
-              existingNotification.createdAt = new Date().toISOString();
+              const newWalletCount = new Set(allTrades.map((t: any) => t.wallet?.id)).size;
+
+              // Aktualizuj signal v databázi
+              try {
+                await consensusSignalRepo.update(existingSignal.id, {
+                  walletCount: newWalletCount,
+                  latestTradeTime: latestTrade.timestamp,
+                  trades: allTrades,
+                });
+              } catch (updateError: any) {
+                console.error(`❌ Error updating consensus signal: ${updateError.message}`);
+              }
+
+              // Přidej do pole pro response
+              const token = Array.isArray(existingSignal.token) ? existingSignal.token[0] : existingSignal.token;
+              consensusNotifications.push({
+                id: existingSignal.id,
+                tokenId,
+                token: token,
+                walletCount: newWalletCount,
+                trades: allTrades,
+                firstTradeTime: existingSignal.firstTradeTime,
+                latestTradeTime: latestTrade.timestamp,
+                createdAt: existingSignal.createdAt,
+              });
+            } else {
+              // Žádné nové wallets, ale přidej do pole pro response
+              const token = Array.isArray(existingSignal.token) ? existingSignal.token[0] : existingSignal.token;
+              consensusNotifications.push({
+                id: existingSignal.id,
+                tokenId,
+                token: token,
+                walletCount: existingSignal.walletCount,
+                trades: existingTrades,
+                firstTradeTime: existingSignal.firstTradeTime,
+                latestTradeTime: existingSignal.latestTradeTime,
+                createdAt: existingSignal.createdAt,
+              });
             }
           }
         }
@@ -559,6 +671,38 @@ router.get('/consensus-notifications', async (req, res) => {
   } catch (error: any) {
     console.error('Error fetching consensus notifications:', error);
     res.status(500).json({ error: error.message || 'Failed to fetch consensus notifications' });
+  }
+});
+
+// GET /api/trades/consensus-signals - Get all consensus signals (for Paper Trading page)
+router.get('/consensus-signals', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit as string) || 100;
+
+    const signals = await consensusSignalRepo.findAll(limit);
+
+    const formattedSignals = signals.map((signal: any) => {
+      const token = Array.isArray(signal.token) ? signal.token[0] : signal.token;
+      return {
+        id: signal.id,
+        tokenId: signal.tokenId,
+        token: token || null,
+        walletCount: signal.walletCount,
+        trades: signal.trades || [],
+        firstTradeTime: signal.firstTradeTime,
+        latestTradeTime: signal.latestTradeTime,
+        createdAt: signal.createdAt,
+        tokenSecurity: signal.tokenSecurity || null,
+      };
+    });
+
+    res.json({
+      signals: formattedSignals,
+      total: formattedSignals.length,
+    });
+  } catch (error: any) {
+    console.error('Error fetching consensus signals:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch consensus signals' });
   }
 });
 
