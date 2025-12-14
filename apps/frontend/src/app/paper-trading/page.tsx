@@ -209,7 +209,7 @@ export default function PaperTradingPage() {
               <p className="text-muted-foreground">No portfolio history yet. Start paper trading to see performance over time.</p>
             </div>
           )}
-        </div>
+          </div>
       )}
 
       {/* Trades Tab */}

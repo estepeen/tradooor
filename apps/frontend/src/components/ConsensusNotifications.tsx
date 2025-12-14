@@ -375,25 +375,33 @@ export default function ConsensusNotifications() {
                               
                               {/* Trader list - modrá barva, nový formát */}
                               <div className="space-y-1 mb-2">
-                                {notification.trades.map((trade, idx) => (
-                                  <div key={trade.id} className="text-sm">
-                                    <Link
-                                      href={`/wallet/${trade.wallet.address}`}
-                                      className="text-blue-400 hover:text-blue-300 hover:underline"
-                                      onClick={(e) => e.stopPropagation()}
-                                    >
-                                      {trade.wallet.label}
-                                    </Link>
-                                    {' • '}
-                                    <span className="text-muted-foreground">
-                                      bought @ ${trade.priceBasePerToken.toFixed(6)} (token price) for ${formatAmount(trade.amountBase, 2)} (buy amount)
-                                    </span>
-                                    {' • '}
-                                    <span className="text-muted-foreground text-xs">
-                                      {formatTimeAgo(trade.timestamp)}
-                                    </span>
-                                  </div>
-                                ))}
+                                {notification.trades.map((trade, idx) => {
+                                  // Najdi nejnovější trade (nejvyšší timestamp)
+                                  const latestTrade = notification.trades.reduce((latest, t) => 
+                                    new Date(t.timestamp).getTime() > new Date(latest.timestamp).getTime() ? t : latest
+                                  );
+                                  const isNewestTrade = trade.id === latestTrade.id;
+                                  
+                                  return (
+                                    <div key={trade.id} className="text-sm">
+                                      <Link
+                                        href={`/wallet/${trade.wallet.address}`}
+                                        className="text-blue-400 hover:text-blue-300 hover:underline"
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        {trade.wallet.label}
+                                      </Link>
+                                      {' • '}
+                                      <span className="text-muted-foreground">
+                                        bought @ ${trade.priceBasePerToken.toFixed(6)} (token price) for ${formatAmount(trade.amountBase, 2)} (buy amount)
+                                      </span>
+                                      {' • '}
+                                      <span className={`text-xs ${isNewestTrade ? 'text-green-400' : 'text-muted-foreground'}`}>
+                                        {formatTimeAgo(trade.timestamp)}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
                               </div>
                               
                               {/* First trade / Latest - celé bílou barvou */}
