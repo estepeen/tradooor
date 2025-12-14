@@ -93,11 +93,16 @@ export default function ConsensusNotifications() {
         const trulyNew = newNotifications.filter((n: ConsensusNotification) => !existingIds.has(n.id));
         
         // Also check for updated notifications (new wallets added)
+        // DŮLEŽITÉ: Porovnej i timestamp, aby se nepočítaly jako nové, pokud se nic nezměnilo
         const updated = newNotifications.filter((n: ConsensusNotification) => {
           const existing = notifications.find(en => en.id === n.id);
           if (!existing) return false;
-          return n.walletCount > existing.walletCount || 
-                 new Date(n.latestTradeTime).getTime() > new Date(existing.latestTradeTime).getTime();
+          // Zkontroluj, jestli se skutečně změnilo walletCount nebo latestTradeTime
+          const walletCountChanged = n.walletCount > existing.walletCount;
+          const latestTradeTimeChanged = new Date(n.latestTradeTime).getTime() > new Date(existing.latestTradeTime).getTime();
+          // Zkontroluj, jestli se změnil počet trades (přidán nový trader)
+          const tradesCountChanged = n.trades.length > existing.trades.length;
+          return walletCountChanged || latestTradeTimeChanged || tradesCountChanged;
         });
         
         if (trulyNew.length > 0 || updated.length > 0) {
