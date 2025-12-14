@@ -524,8 +524,35 @@ router.get('/consensus-notifications', async (req, res) => {
     // Omez na limit
     const limited = consensusNotifications.slice(0, limit);
 
+    // Fetch token security data for each notification (honeypot, tax, holders, etc.)
+    const tokenMintAddresses = [...new Set(limited.map(n => n.token?.mintAddress).filter(Boolean))];
+    const tokenSecurityData = new Map<string, any>();
+    
+    // TODO: Implement token security data fetching from Birdeye API
+    // For now, return empty security data
+    for (const mintAddress of tokenMintAddresses) {
+      tokenSecurityData.set(mintAddress, {
+        honeypot: null,
+        buyTax: null,
+        sellTax: null,
+        marketCap: null,
+        holdersCount: null,
+        tokenAgeMinutes: null,
+        lpLocked: null,
+        top10HoldersPercent: null,
+      });
+    }
+
+    // Add security data to notifications
+    const notificationsWithSecurity = limited.map(notification => ({
+      ...notification,
+      tokenSecurity: notification.token?.mintAddress 
+        ? tokenSecurityData.get(notification.token.mintAddress) || null
+        : null,
+    }));
+
     res.json({
-      notifications: limited,
+      notifications: notificationsWithSecurity,
       total: consensusNotifications.length,
     });
   } catch (error: any) {

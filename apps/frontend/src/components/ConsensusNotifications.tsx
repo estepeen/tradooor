@@ -19,6 +19,17 @@ interface ConsensusTrade {
   txSignature: string;
 }
 
+interface TokenSecurity {
+  honeypot: boolean | null;
+  buyTax: number | null; // Percentage
+  sellTax: number | null; // Percentage
+  marketCap: number | null;
+  holdersCount: number | null;
+  tokenAgeMinutes: number | null;
+  lpLocked: boolean | null;
+  top10HoldersPercent: number | null; // Percentage of supply held by top 10
+}
+
 interface ConsensusNotification {
   id: string;
   tokenId: string;
@@ -33,6 +44,7 @@ interface ConsensusNotification {
   firstTradeTime: string;
   latestTradeTime: string;
   createdAt: string;
+  tokenSecurity?: TokenSecurity | null;
 }
 
 const STORAGE_KEY_LAST_SEEN_CONSENSUS_ID = 'tradooor_last_seen_consensus_id';
@@ -373,43 +385,97 @@ export default function ConsensusNotifications() {
                                 </span>
                               </div>
                               
+                              {/* Latest trade / First trader - přesunuto nahoru, celé bílou barvou */}
+                              <div className="text-xs text-foreground mb-2">
+                                Latest trade: {formatTimeAgo(notification.latestTradeTime)}
+                                {' • '}
+                                First trader: {formatTimeAgo(notification.firstTradeTime)}
+                              </div>
+                              
                               {/* Trader list - modrá barva, nový formát */}
                               <div className="space-y-1 mb-2">
-                                {notification.trades.map((trade, idx) => {
-                                  // Najdi nejnovější trade (nejvyšší timestamp)
+                                {(() => {
+                                  // Najdi nejnovější trade jednou před mapováním
                                   const latestTrade = notification.trades.reduce((latest, t) => 
                                     new Date(t.timestamp).getTime() > new Date(latest.timestamp).getTime() ? t : latest
                                   );
-                                  const isNewestTrade = trade.id === latestTrade.id;
                                   
-                                  return (
-                                    <div key={trade.id} className="text-sm">
-                                      <Link
-                                        href={`/wallet/${trade.wallet.address}`}
-                                        className="text-blue-400 hover:text-blue-300 hover:underline"
-                                        onClick={(e) => e.stopPropagation()}
-                                      >
-                                        {trade.wallet.label}
-                                      </Link>
-                                      {' • '}
-                                    <span className="text-muted-foreground">
-                                      bought @ ${trade.priceBasePerToken.toFixed(6)} for ${formatAmount(trade.amountBase, 2)}
-                                    </span>
-                                      {' • '}
-                                      <span className={`text-xs ${isNewestTrade ? 'text-green-400' : 'text-muted-foreground'}`}>
-                                        {formatTimeAgo(trade.timestamp)}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
+                                  return notification.trades.map((trade, idx) => {
+                                    const isNewestTrade = trade.id === latestTrade.id;
+                                    
+                                    return (
+                                      <div key={trade.id} className="text-sm">
+                                        <Link
+                                          href={`/wallet/${trade.wallet.address}`}
+                                          className="text-blue-400 hover:text-blue-300 hover:underline"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          {trade.wallet.label}
+                                        </Link>
+                                        {' • '}
+                                        <span className="text-muted-foreground">
+                                          bought @ ${trade.priceBasePerToken.toFixed(6)} for ${formatAmount(trade.amountBase, 2)}
+                                        </span>
+                                        {' • '}
+                                        <span className={`text-xs ${isNewestTrade ? 'text-green-400' : 'text-muted-foreground'}`}>
+                                          {formatTimeAgo(trade.timestamp)}
+                                        </span>
+                                      </div>
+                                    );
+                                  });
+                                })()}
                               </div>
                               
-                              {/* First trade / Latest - celé bílou barvou */}
-                              <div className="text-xs text-foreground">
-                                First trade: {formatTimeAgo(notification.firstTradeTime)}
-                                {' • '}
-                                Latest: {formatTimeAgo(notification.latestTradeTime)}
-                              </div>
+                              {/* Token info - honeypot, tax, marketcap, holders, atd. */}
+                              {notification.token.mintAddress && notification.tokenSecurity && (
+                                <div className="text-xs text-foreground/70 mt-2 pt-2 border-t border-border/50 space-y-1">
+                                  {notification.tokenSecurity.honeypot !== null && (
+                                    <div>
+                                      {notification.tokenSecurity.honeypot ? (
+                                        <span className="text-red-400">⚠️ Honeypot</span>
+                                      ) : (
+                                        <span className="text-green-400">✓ Safe</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {(notification.tokenSecurity.buyTax !== null || notification.tokenSecurity.sellTax !== null) && (
+                                    <div>
+                                      Tax: {notification.tokenSecurity.buyTax !== null ? `Buy ${notification.tokenSecurity.buyTax}%` : ''}
+                                      {notification.tokenSecurity.buyTax !== null && notification.tokenSecurity.sellTax !== null ? ' • ' : ''}
+                                      {notification.tokenSecurity.sellTax !== null ? `Sell ${notification.tokenSecurity.sellTax}%` : ''}
+                                    </div>
+                                  )}
+                                  {notification.tokenSecurity.marketCap !== null && (
+                                    <div>
+                                      Market Cap: ${formatAmount(notification.tokenSecurity.marketCap, 2)}
+                                    </div>
+                                  )}
+                                  {notification.tokenSecurity.holdersCount !== null && (
+                                    <div>
+                                      Holders: {formatAmount(notification.tokenSecurity.holdersCount, 0)}
+                                    </div>
+                                  )}
+                                  {notification.tokenSecurity.tokenAgeMinutes !== null && (
+                                    <div>
+                                      Age: {Math.round(notification.tokenSecurity.tokenAgeMinutes / 60)}h
+                                    </div>
+                                  )}
+                                  {notification.tokenSecurity.top10HoldersPercent !== null && (
+                                    <div>
+                                      Top 10: {notification.tokenSecurity.top10HoldersPercent.toFixed(1)}%
+                                    </div>
+                                  )}
+                                  {notification.tokenSecurity.lpLocked !== null && (
+                                    <div>
+                                      {notification.tokenSecurity.lpLocked ? (
+                                        <span className="text-green-400">✓ LP Locked</span>
+                                      ) : (
+                                        <span className="text-yellow-400">⚠️ LP Unlocked</span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
