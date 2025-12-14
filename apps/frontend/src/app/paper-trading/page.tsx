@@ -10,11 +10,11 @@ export default function PaperTradingPage() {
   const [portfolio, setPortfolio] = useState<any>(null);
   const [trades, setTrades] = useState<any[]>([]);
   const [portfolioHistory, setPortfolioHistory] = useState<any[]>([]);
-      const [consensusTrades, setConsensusTrades] = useState<any[]>([]);
-      const [signals, setSignals] = useState<any[]>([]);
-      const [consensusSignals, setConsensusSignals] = useState<any[]>([]);
-      const [loading, setLoading] = useState(true);
-      const [activeTab, setActiveTab] = useState<'overview' | 'trades' | 'history'>('overview');
+  const [consensusTrades, setConsensusTrades] = useState<any[]>([]);
+  const [signals, setSignals] = useState<any[]>([]);
+  const [consensusSignals, setConsensusSignals] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'overview' | 'trades' | 'history'>('overview');
 
   useEffect(() => {
     loadData();
@@ -47,15 +47,17 @@ export default function PaperTradingPage() {
           return { snapshots: [] };
         }),
         fetchConsensusTrades(2).catch(() => ({ consensusTrades: [] })),
-        fetchSignals({ limit: 100 }).catch(() => ({ signals: [] })),
-        fetchConsensusSignals(100).catch(() => ({ signals: [] })),
       ]);
+      
+      // Fetch signals separately
+      const signalsData = await fetchSignals({ limit: 100 }).catch(() => ({ signals: [] }));
+      const consensusSignalsData = await fetchConsensusSignals(100).catch(() => ({ signals: [] }));
       setPortfolio(portfolioData);
       setTrades(tradesData.trades || []);
       setPortfolioHistory(historyData.snapshots || []);
       setConsensusTrades(consensusData.consensusTrades || []);
-      setSignals((await fetchSignals({ limit: 100 }).catch(() => ({ signals: [] }))).signals || []);
-      setConsensusSignals((await fetchConsensusSignals(100).catch(() => ({ signals: [] }))).signals || []);
+      setSignals(signalsData.signals || []);
+      setConsensusSignals(consensusSignalsData.signals || []);
     } catch (error) {
       console.error('Error loading paper trading data:', error);
       // Set default values on error
@@ -74,6 +76,7 @@ export default function PaperTradingPage() {
       setPortfolioHistory([]);
       setConsensusTrades([]);
       setSignals([]);
+      setConsensusSignals([]);
     } finally {
       setLoading(false);
     }
