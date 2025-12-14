@@ -4,12 +4,16 @@ import { TradeRepository } from '../repositories/trade.repository.js';
 import { WalletProcessingQueueRepository } from '../repositories/wallet-processing-queue.repository.js';
 import { TradeValuationService } from '../services/trade-valuation.service.js';
 import { ConsensusWebhookService } from '../services/consensus-webhook.service.js';
+import { LotMatchingService } from '../services/lot-matching.service.js';
+import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 
 const normalizedTradeRepo = new NormalizedTradeRepository();
 const tradeRepo = new TradeRepository();
 const walletQueueRepo = new WalletProcessingQueueRepository();
 const valuationService = new TradeValuationService();
 const consensusService = new ConsensusWebhookService();
+const lotMatchingService = new LotMatchingService();
+const smartWalletRepo = new SmartWalletRepository();
 
 const IDLE_DELAY_MS = Number(process.env.NORMALIZED_TRADE_WORKER_IDLE_MS || 1500);
 const BATCH_SIZE = Number(process.env.NORMALIZED_TRADE_WORKER_BATCH || 20);
@@ -92,6 +96,29 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       valuationTimestamp: valuation.timestamp,
     });
 
+    // DŮLEŽITÉ: Přepočítej closed positions okamžitě po každém novém trade
+    // Toto zajišťuje, že closed positions jsou vždy aktuální
+    setImmediate(async () => {
+      try {
+        const walletData = await smartWalletRepo.findById(record.walletId);
+        if (walletData) {
+          const trackingStartTime = walletData.createdAt ? new Date(walletData.createdAt) : undefined;
+          const closedLots = await lotMatchingService.processTradesForWallet(
+            record.walletId,
+            undefined, // Process all tokens
+            trackingStartTime
+          );
+          await lotMatchingService.saveClosedLots(closedLots);
+          if (closedLots.length > 0) {
+            console.log(`   ✅ [ClosedLots] Updated ${closedLots.length} closed lots for wallet ${record.walletId.substring(0, 8)}...`);
+          }
+        }
+      } catch (closedLotsError: any) {
+        console.warn(`⚠️  Failed to recalculate closed lots for wallet ${record.walletId}: ${closedLotsError?.message || closedLotsError}`);
+      }
+    });
+
+    // Také přidej do fronty pro přepočet metrik (score, win rate, atd.)
     try {
       await walletQueueRepo.enqueue(record.walletId);
     } catch (enqueueError: any) {
