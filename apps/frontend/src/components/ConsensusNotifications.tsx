@@ -112,11 +112,24 @@ export default function ConsensusNotifications() {
                      new Date(n.latestTradeTime).getTime() > new Date(existing.latestTradeTime).getTime());
             });
             // Merge: keep existing, update changed, add new
+            // Pokud se aktualizovala notifikace (přidal se trader), přesuň ji úplně nahoru
             const merged = prev.map(p => {
               const updated = updatedOnes.find((u: ConsensusNotification) => u.id === p.id);
               return updated || p;
             });
-            return [...newOnes, ...merged].slice(0, MAX_NOTIFICATIONS);
+            
+            // Odděl aktualizované (přesunou se nahoru) a neaktualizované
+            const updatedIds = new Set(updatedOnes.map((u: ConsensusNotification) => u.id));
+            const notUpdated = merged.filter(p => !updatedIds.has(p.id));
+            const updated = merged.filter(p => updatedIds.has(p.id));
+            
+            // Seřaď aktualizované podle nejnovějšího času
+            updated.sort((a, b) => 
+              new Date(b.latestTradeTime).getTime() - new Date(a.latestTradeTime).getTime()
+            );
+            
+            // Nové + aktualizované (nahoře) + neaktualizované
+            return [...newOnes, ...updated, ...notUpdated].slice(0, MAX_NOTIFICATIONS);
           });
         }
       } else {

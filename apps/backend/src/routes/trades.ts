@@ -482,9 +482,21 @@ router.get('/consensus-notifications', async (req, res) => {
       for (const group of groups) {
         const uniqueWallets = new Set(group.map(t => t.walletId));
         if (uniqueWallets.size >= 2) {
-          // Najdi nejnovější trade v této skupině
-          const latestTrade = group[group.length - 1];
-          const firstTrade = group[0];
+          // Pro každou wallet vezmi jen první buy trade (nejstarší)
+          const firstTradePerWallet = new Map<string, typeof group[0]>();
+          for (const trade of group) {
+            if (!firstTradePerWallet.has(trade.walletId)) {
+              firstTradePerWallet.set(trade.walletId, trade);
+            }
+          }
+
+          // Převod na pole a seřazení od nejnovějšího (nejnovější nahoře)
+          const uniqueTrades = Array.from(firstTradePerWallet.values()).sort((a, b) => 
+            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+          );
+
+          const latestTrade = uniqueTrades[0]; // Nejnovější
+          const firstTrade = uniqueTrades[uniqueTrades.length - 1]; // Nejstarší
 
           // Zkontroluj, jestli už není notifikace pro tento token a časové okno
           const existingNotification = consensusNotifications.find(n => 
@@ -498,7 +510,7 @@ router.get('/consensus-notifications', async (req, res) => {
               tokenId,
               token: latestTrade.token,
               walletCount: uniqueWallets.size,
-              trades: group.map((t: any) => {
+              trades: uniqueTrades.map((t: any) => {
                 const wallet = Array.isArray(t.wallet) ? t.wallet[0] : t.wallet;
                 return {
                   id: t.id,
@@ -519,29 +531,42 @@ router.get('/consensus-notifications', async (req, res) => {
               createdAt: new Date().toISOString(),
             });
           } else {
-            // Aktualizuj existující notifikaci - přidej nové trades
-            const newWallets = group.filter(t => 
-              !existingNotification.trades.some((et: any) => et.wallet.id === t.walletId)
-            );
+            // Aktualizuj existující notifikaci - přidej nové wallets (jen první buy pro každou)
+            const existingWalletIds = new Set(existingNotification.trades.map((et: any) => et.wallet.id));
+            const newWallets = uniqueTrades.filter(t => {
+              const wallet = Array.isArray(t.wallet) ? t.wallet[0] : t.wallet;
+              return wallet?.id && !existingWalletIds.has(wallet.id);
+            });
+
             if (newWallets.length > 0) {
-              existingNotification.trades.push(...newWallets.map((t: any) => {
-                const wallet = Array.isArray(t.wallet) ? t.wallet[0] : t.wallet;
-                return {
-                  id: t.id,
-                  wallet: {
-                    id: wallet?.id,
-                    address: wallet?.address,
-                    label: wallet?.label || wallet?.address?.substring(0, 8) + '...',
-                  },
-                  amountBase: parseFloat(t.amountBase || '0'),
-                  amountToken: parseFloat(t.amountToken || '0'),
-                  priceBasePerToken: parseFloat(t.priceBasePerToken || '0'),
-                  timestamp: t.timestamp,
-                  txSignature: t.txSignature,
-                };
-              }));
-              existingNotification.walletCount = new Set(existingNotification.trades.map((t: any) => t.wallet.id)).size;
+              // Přidej nové trades a seřaď od nejnovějšího
+              const allTrades = [
+                ...newWallets.map((t: any) => {
+                  const wallet = Array.isArray(t.wallet) ? t.wallet[0] : t.wallet;
+                  return {
+                    id: t.id,
+                    wallet: {
+                      id: wallet?.id,
+                      address: wallet?.address,
+                      label: wallet?.label || wallet?.address?.substring(0, 8) + '...',
+                    },
+                    amountBase: parseFloat(t.amountBase || '0'),
+                    amountToken: parseFloat(t.amountToken || '0'),
+                    priceBasePerToken: parseFloat(t.priceBasePerToken || '0'),
+                    timestamp: t.timestamp,
+                    txSignature: t.txSignature,
+                  };
+                }),
+                ...existingNotification.trades
+              ].sort((a, b) => 
+                new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+              );
+
+              existingNotification.trades = allTrades;
+              existingNotification.walletCount = new Set(allTrades.map((t: any) => t.wallet.id)).size;
               existingNotification.latestTradeTime = latestTrade.timestamp;
+              // Aktualizuj createdAt, aby se notifikace přesunula nahoru
+              existingNotification.createdAt = new Date().toISOString();
             }
           }
         }
