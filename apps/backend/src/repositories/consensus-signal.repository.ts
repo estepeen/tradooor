@@ -12,7 +12,7 @@ export interface ConsensusSignalData {
 
 export class ConsensusSignalRepository {
   async create(data: ConsensusSignalData) {
-    const payload = {
+    const payload: any = {
       tokenId: data.tokenId,
       walletCount: data.walletCount,
       firstTradeTime: typeof data.firstTradeTime === 'string' 
@@ -22,8 +22,11 @@ export class ConsensusSignalRepository {
         ? data.latestTradeTime
         : data.latestTradeTime.toISOString(),
       trades: data.trades,
-      tokenSecurity: data.tokenSecurity || null,
     };
+    
+    if (data.tokenSecurity !== undefined) {
+      payload.tokenSecurity = data.tokenSecurity;
+    }
 
     const { data: result, error } = await supabase
       .from(TABLES.CONSENSUS_SIGNAL)
