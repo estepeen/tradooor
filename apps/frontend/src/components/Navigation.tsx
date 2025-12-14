@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Notifications from './Notifications';
+import ConsensusNotifications from './ConsensusNotifications';
 
 export default function Navigation() {
   const pathname = usePathname();
@@ -86,6 +87,7 @@ export default function Navigation() {
                 <path d="M8 12h4" />
               </svg>
             </Link>
+            <ConsensusNotifications />
             <Notifications />
           </div>
         </div>

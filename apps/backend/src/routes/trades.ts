@@ -335,4 +335,286 @@ router.get('/recent', async (req, res) => {
   }
 });
 
+// GET /api/trades/consensus-notifications - Get consensus notifications (2+ wallets buying same token within 2h)
+router.get('/consensus-notifications', async (req, res) => {
+  try {
+    const hours = parseInt(req.query.hours as string) || 1; // Default: last 1 hour
+    const limit = parseInt(req.query.limit as string) || 50;
+
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
+
+    // 1. Najdi všechny BUY trades za poslední hodinu
+    const { data: recentBuys, error: buysError } = await supabase
+      .from(TABLES.TRADE)
+      .select(`
+        id,
+        walletId,
+        tokenId,
+        timestamp,
+        amountBase,
+        amountToken,
+        priceBasePerToken,
+        txSignature,
+        token:${TABLES.TOKEN}(id, symbol, name, mintAddress),
+        wallet:${TABLES.SMART_WALLET}(id, address, label)
+      `)
+      .eq('side', 'buy')
+      .neq('side', 'void')
+      .gte('timestamp', since.toISOString())
+      .order('timestamp', { ascending: false });
+
+    if (buysError) {
+      throw new Error(`Failed to fetch recent buys: ${buysError.message}`);
+    }
+
+    if (!recentBuys || recentBuys.length === 0) {
+      // Přidej testovací notifikaci i když nejsou žádné trades
+      const testNotification = {
+        id: 'test-consensus-1',
+        tokenId: 'test-token-123',
+        token: {
+          id: 'test-token-123',
+          symbol: 'TEST',
+          name: 'Test Token',
+          mintAddress: 'TestMintAddress123456789',
+        },
+        walletCount: 3,
+        trades: [
+          {
+            id: 'test-trade-1',
+            wallet: {
+              id: 'test-wallet-1',
+              address: 'TestWallet1Address123456789',
+              label: 'Test Wallet 1',
+            },
+            amountBase: 100.5,
+            amountToken: 1000,
+            priceBasePerToken: 0.1005,
+            timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(), // 30 min ago
+            txSignature: 'test-tx-1',
+          },
+          {
+            id: 'test-trade-2',
+            wallet: {
+              id: 'test-wallet-2',
+              address: 'TestWallet2Address123456789',
+              label: 'Test Wallet 2',
+            },
+            amountBase: 250.75,
+            amountToken: 2500,
+            priceBasePerToken: 0.1003,
+            timestamp: new Date(Date.now() - 15 * 60 * 1000).toISOString(), // 15 min ago
+            txSignature: 'test-tx-2',
+          },
+          {
+            id: 'test-trade-3',
+            wallet: {
+              id: 'test-wallet-3',
+              address: 'TestWallet3Address123456789',
+              label: 'Test Wallet 3',
+            },
+            amountBase: 500.25,
+            amountToken: 5000,
+            priceBasePerToken: 0.10005,
+            timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 min ago
+            txSignature: 'test-tx-3',
+          },
+        ],
+        firstTradeTime: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+        latestTradeTime: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        createdAt: new Date().toISOString(),
+      };
+
+      return res.json({
+        notifications: [testNotification],
+        total: 1,
+      });
+    }
+
+    // 2. Seskup trades podle tokenId a najdi consensus (2+ wallets, max 2h rozestup)
+    const tokenGroups = new Map<string, typeof recentBuys>();
+    for (const trade of recentBuys) {
+      const tokenId = trade.tokenId;
+      if (!tokenGroups.has(tokenId)) {
+        tokenGroups.set(tokenId, []);
+      }
+      tokenGroups.get(tokenId)!.push(trade);
+    }
+
+    const consensusNotifications: any[] = [];
+
+    for (const [tokenId, trades] of tokenGroups.entries()) {
+      // Seřaď trades podle času
+      const sortedTrades = trades.sort((a, b) => 
+        new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+      );
+
+      // Najdi skupiny trades, které jsou v rozmezí 2h
+      const CONSENSUS_WINDOW_MS = 2 * 60 * 60 * 1000; // 2 hours
+      const groups: typeof sortedTrades[] = [];
+      let currentGroup: typeof sortedTrades = [];
+
+      for (const trade of sortedTrades) {
+        if (currentGroup.length === 0) {
+          currentGroup.push(trade);
+        } else {
+          const firstTradeTime = new Date(currentGroup[0].timestamp).getTime();
+          const currentTradeTime = new Date(trade.timestamp).getTime();
+          
+          if (currentTradeTime - firstTradeTime <= CONSENSUS_WINDOW_MS) {
+            currentGroup.push(trade);
+          } else {
+            // Nová skupina
+            if (currentGroup.length >= 2) {
+              groups.push([...currentGroup]);
+            }
+            currentGroup = [trade];
+          }
+        }
+      }
+
+      // Přidej poslední skupinu, pokud má 2+ trades
+      if (currentGroup.length >= 2) {
+        groups.push(currentGroup);
+      }
+
+      // Pro každou skupinu vytvoř notifikaci
+      for (const group of groups) {
+        const uniqueWallets = new Set(group.map(t => t.walletId));
+        if (uniqueWallets.size >= 2) {
+          // Najdi nejnovější trade v této skupině
+          const latestTrade = group[group.length - 1];
+          const firstTrade = group[0];
+
+          // Zkontroluj, jestli už není notifikace pro tento token a časové okno
+          const existingNotification = consensusNotifications.find(n => 
+            n.tokenId === tokenId &&
+            Math.abs(new Date(n.firstTradeTime).getTime() - new Date(firstTrade.timestamp).getTime()) < CONSENSUS_WINDOW_MS
+          );
+
+          if (!existingNotification) {
+            consensusNotifications.push({
+              id: `consensus-${tokenId}-${firstTrade.timestamp}`,
+              tokenId,
+              token: latestTrade.token,
+              walletCount: uniqueWallets.size,
+              trades: group.map(t => ({
+                id: t.id,
+                wallet: {
+                  id: t.wallet?.id,
+                  address: t.wallet?.address,
+                  label: t.wallet?.label || t.wallet?.address?.substring(0, 8) + '...',
+                },
+                amountBase: parseFloat(t.amountBase || '0'),
+                amountToken: parseFloat(t.amountToken || '0'),
+                priceBasePerToken: parseFloat(t.priceBasePerToken || '0'),
+                timestamp: t.timestamp,
+                txSignature: t.txSignature,
+              })),
+              firstTradeTime: firstTrade.timestamp,
+              latestTradeTime: latestTrade.timestamp,
+              createdAt: new Date().toISOString(),
+            });
+          } else {
+            // Aktualizuj existující notifikaci - přidej nové trades
+            const newWallets = group.filter(t => 
+              !existingNotification.trades.some((et: any) => et.wallet.id === t.walletId)
+            );
+            if (newWallets.length > 0) {
+              existingNotification.trades.push(...newWallets.map(t => ({
+                id: t.id,
+                wallet: {
+                  id: t.wallet?.id,
+                  address: t.wallet?.address,
+                  label: t.wallet?.label || t.wallet?.address?.substring(0, 8) + '...',
+                },
+                amountBase: parseFloat(t.amountBase || '0'),
+                amountToken: parseFloat(t.amountToken || '0'),
+                priceBasePerToken: parseFloat(t.priceBasePerToken || '0'),
+                timestamp: t.timestamp,
+                txSignature: t.txSignature,
+              })));
+              existingNotification.walletCount = new Set(existingNotification.trades.map((t: any) => t.wallet.id)).size;
+              existingNotification.latestTradeTime = latestTrade.timestamp;
+            }
+          }
+        }
+      }
+    }
+
+    // Seřaď podle nejnovějšího času
+    consensusNotifications.sort((a, b) => 
+      new Date(b.latestTradeTime).getTime() - new Date(a.latestTradeTime).getTime()
+    );
+
+    // Omez na limit
+    const limited = consensusNotifications.slice(0, limit);
+
+    // Přidej testovací notifikaci (první v seznamu)
+    const testNotification = {
+      id: 'test-consensus-1',
+      tokenId: 'test-token-123',
+      token: {
+        id: 'test-token-123',
+        symbol: 'TEST',
+        name: 'Test Token',
+        mintAddress: 'TestMintAddress123456789',
+      },
+      walletCount: 3,
+      trades: [
+        {
+          id: 'test-trade-1',
+          wallet: {
+            id: 'test-wallet-1',
+            address: 'TestWallet1Address123456789',
+            label: 'Test Wallet 1',
+          },
+          amountBase: 100.5,
+          amountToken: 1000,
+          priceBasePerToken: 0.1005,
+          timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(), // 30 min ago
+          txSignature: 'test-tx-1',
+        },
+        {
+          id: 'test-trade-2',
+          wallet: {
+            id: 'test-wallet-2',
+            address: 'TestWallet2Address123456789',
+            label: 'Test Wallet 2',
+          },
+          amountBase: 250.75,
+          amountToken: 2500,
+          priceBasePerToken: 0.1003,
+          timestamp: new Date(Date.now() - 15 * 60 * 1000).toISOString(), // 15 min ago
+          txSignature: 'test-tx-2',
+        },
+        {
+          id: 'test-trade-3',
+          wallet: {
+            id: 'test-wallet-3',
+            address: 'TestWallet3Address123456789',
+            label: 'Test Wallet 3',
+          },
+          amountBase: 500.25,
+          amountToken: 5000,
+          priceBasePerToken: 0.10005,
+          timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 min ago
+          txSignature: 'test-tx-3',
+        },
+      ],
+      firstTradeTime: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      latestTradeTime: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+
+    res.json({
+      notifications: [testNotification, ...limited],
+      total: consensusNotifications.length + 1, // +1 for test notification
+    });
+  } catch (error: any) {
+    console.error('Error fetching consensus notifications:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch consensus notifications' });
+  }
+});
+
 export { router as tradesRouter };

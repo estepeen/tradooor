@@ -259,3 +259,20 @@ export async function generateSignal(tradeId: string, config?: any) {
   return res.json();
 }
 
+export async function fetchConsensusNotifications(params?: {
+  hours?: number;
+  limit?: number;
+}) {
+  const searchParams = new URLSearchParams();
+  if (params?.hours) searchParams.set('hours', params.hours.toString());
+  if (params?.limit) searchParams.set('limit', params.limit.toString());
+
+  const url = `${API_BASE_URL}/trades/consensus-notifications${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+  const res = await fetch(url, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) throw new Error('Failed to fetch consensus notifications');
+  return res.json();
+}
+
