@@ -244,7 +244,7 @@ export default function ConsensusNotifications() {
           <path
             strokeLinecap="round"
             strokeLinejoin="round"
-            d="M12 2l-4 4-4 4 4 4 4-4 4-4-4-4zM4 14l4 4 4-4-4-4-4 4zM16 14l4 4-4 4-4-4 4-4z"
+            d="M12 2l9 9-9 9-9-9 9-9z"
           />
         </svg>
         {newNotificationsCount > 0 && (
