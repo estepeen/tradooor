@@ -498,19 +498,22 @@ router.get('/consensus-notifications', async (req, res) => {
               tokenId,
               token: latestTrade.token,
               walletCount: uniqueWallets.size,
-              trades: group.map(t => ({
-                id: t.id,
-                wallet: {
-                  id: t.wallet?.id,
-                  address: t.wallet?.address,
-                  label: t.wallet?.label || t.wallet?.address?.substring(0, 8) + '...',
-                },
-                amountBase: parseFloat(t.amountBase || '0'),
-                amountToken: parseFloat(t.amountToken || '0'),
-                priceBasePerToken: parseFloat(t.priceBasePerToken || '0'),
-                timestamp: t.timestamp,
-                txSignature: t.txSignature,
-              })),
+              trades: group.map((t: any) => {
+                const wallet = Array.isArray(t.wallet) ? t.wallet[0] : t.wallet;
+                return {
+                  id: t.id,
+                  wallet: {
+                    id: wallet?.id,
+                    address: wallet?.address,
+                    label: wallet?.label || wallet?.address?.substring(0, 8) + '...',
+                  },
+                  amountBase: parseFloat(t.amountBase || '0'),
+                  amountToken: parseFloat(t.amountToken || '0'),
+                  priceBasePerToken: parseFloat(t.priceBasePerToken || '0'),
+                  timestamp: t.timestamp,
+                  txSignature: t.txSignature,
+                };
+              }),
               firstTradeTime: firstTrade.timestamp,
               latestTradeTime: latestTrade.timestamp,
               createdAt: new Date().toISOString(),
@@ -521,19 +524,22 @@ router.get('/consensus-notifications', async (req, res) => {
               !existingNotification.trades.some((et: any) => et.wallet.id === t.walletId)
             );
             if (newWallets.length > 0) {
-              existingNotification.trades.push(...newWallets.map(t => ({
-                id: t.id,
-                wallet: {
-                  id: t.wallet?.id,
-                  address: t.wallet?.address,
-                  label: t.wallet?.label || t.wallet?.address?.substring(0, 8) + '...',
-                },
-                amountBase: parseFloat(t.amountBase || '0'),
-                amountToken: parseFloat(t.amountToken || '0'),
-                priceBasePerToken: parseFloat(t.priceBasePerToken || '0'),
-                timestamp: t.timestamp,
-                txSignature: t.txSignature,
-              })));
+              existingNotification.trades.push(...newWallets.map((t: any) => {
+                const wallet = Array.isArray(t.wallet) ? t.wallet[0] : t.wallet;
+                return {
+                  id: t.id,
+                  wallet: {
+                    id: wallet?.id,
+                    address: wallet?.address,
+                    label: wallet?.label || wallet?.address?.substring(0, 8) + '...',
+                  },
+                  amountBase: parseFloat(t.amountBase || '0'),
+                  amountToken: parseFloat(t.amountToken || '0'),
+                  priceBasePerToken: parseFloat(t.priceBasePerToken || '0'),
+                  timestamp: t.timestamp,
+                  txSignature: t.txSignature,
+                };
+              }));
               existingNotification.walletCount = new Set(existingNotification.trades.map((t: any) => t.wallet.id)).size;
               existingNotification.latestTradeTime = latestTrade.timestamp;
             }
