@@ -524,66 +524,9 @@ router.get('/consensus-notifications', async (req, res) => {
     // Omez na limit
     const limited = consensusNotifications.slice(0, limit);
 
-    // Přidej testovací notifikaci (první v seznamu)
-    const testNotification = {
-      id: 'test-consensus-1',
-      tokenId: 'test-token-123',
-      token: {
-        id: 'test-token-123',
-        symbol: 'TEST',
-        name: 'Test Token',
-        mintAddress: 'TestMintAddress123456789',
-      },
-      walletCount: 3,
-      trades: [
-        {
-          id: 'test-trade-1',
-          wallet: {
-            id: 'test-wallet-1',
-            address: 'TestWallet1Address123456789',
-            label: 'Test Wallet 1',
-          },
-          amountBase: 100.5,
-          amountToken: 1000,
-          priceBasePerToken: 0.1005,
-          timestamp: new Date(Date.now() - 30 * 60 * 1000).toISOString(), // 30 min ago
-          txSignature: 'test-tx-1',
-        },
-        {
-          id: 'test-trade-2',
-          wallet: {
-            id: 'test-wallet-2',
-            address: 'TestWallet2Address123456789',
-            label: 'Test Wallet 2',
-          },
-          amountBase: 250.75,
-          amountToken: 2500,
-          priceBasePerToken: 0.1003,
-          timestamp: new Date(Date.now() - 15 * 60 * 1000).toISOString(), // 15 min ago
-          txSignature: 'test-tx-2',
-        },
-        {
-          id: 'test-trade-3',
-          wallet: {
-            id: 'test-wallet-3',
-            address: 'TestWallet3Address123456789',
-            label: 'Test Wallet 3',
-          },
-          amountBase: 500.25,
-          amountToken: 5000,
-          priceBasePerToken: 0.10005,
-          timestamp: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 min ago
-          txSignature: 'test-tx-3',
-        },
-      ],
-      firstTradeTime: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-      latestTradeTime: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
-      createdAt: new Date().toISOString(),
-    };
-
     res.json({
-      notifications: [testNotification, ...limited],
-      total: consensusNotifications.length + 1, // +1 for test notification
+      notifications: limited,
+      total: consensusNotifications.length,
     });
   } catch (error: any) {
     console.error('Error fetching consensus notifications:', error);

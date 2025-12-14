@@ -113,8 +113,12 @@ export default function ConsensusNotifications() {
             const newOnes = newNotifications.filter((n: ConsensusNotification) => !prevIds.has(n.id));
             const updatedOnes = newNotifications.filter((n: ConsensusNotification) => {
               const existing = prev.find(p => p.id === n.id);
-              return existing && (n.walletCount > existing.walletCount || 
-                     new Date(n.latestTradeTime).getTime() > new Date(existing.latestTradeTime).getTime());
+              if (!existing) return false;
+              // Zkontroluj, jestli se skutečně změnilo walletCount, latestTradeTime nebo počet trades
+              const walletCountChanged = n.walletCount > existing.walletCount;
+              const latestTradeTimeChanged = new Date(n.latestTradeTime).getTime() > new Date(existing.latestTradeTime).getTime();
+              const tradesCountChanged = n.trades.length > existing.trades.length;
+              return walletCountChanged || latestTradeTimeChanged || tradesCountChanged;
             });
             // Merge: keep existing, update changed, add new
             // Pokud se aktualizovala notifikace (přidal se trader), přesuň ji úplně nahoru
@@ -332,64 +336,77 @@ export default function ConsensusNotifications() {
                 </div>
               ) : (
                 <div className="divide-y divide-border">
-                  {displayedNotifications.map((notification) => (
-                    <div
-                      key={notification.id}
-                      className="p-4 hover:bg-muted/50 transition-colors"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-2">
-                            <span className="text-xs font-semibold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
-                              CONSENSUS
-                            </span>
-                            <span className="text-xs text-muted-foreground">
-                              {notification.walletCount} wallet{notification.walletCount > 1 ? 's' : ''}
-                            </span>
-                          </div>
-                          <div className="mb-2">
-                            {notification.token.mintAddress ? (
-                              <a
-                                href={`https://birdeye.so/solana/token/${notification.token.mintAddress}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="font-medium text-foreground hover:underline"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                ${notification.token.symbol}
-                              </a>
-                            ) : (
-                              <span className="font-medium text-foreground">${notification.token.symbol}</span>
-                            )}
-                          </div>
-                          <div className="space-y-1 mb-2">
-                            {notification.trades.map((trade, idx) => (
-                              <div key={trade.id} className="text-sm text-muted-foreground">
-                                <Link
-                                  href={`/wallet/${trade.wallet.address}`}
-                                  className="font-medium hover:underline"
-                                  onClick={(e) => e.stopPropagation()}
-                                >
-                                  {trade.wallet.label}
-                                </Link>
-                                {' • '}
-                                <span>{formatAmount(trade.amountToken)} tokens</span>
-                                {' • '}
-                                <span>${formatAmount(trade.amountBase, 2)}</span>
-                                {' • '}
-                                <span className="text-xs">{formatTimeAgo(trade.timestamp)}</span>
+                  {displayedNotifications
+                    .filter((notification) => !notification.id.startsWith('test-'))
+                    .map((notification) => {
+                      const tokenPrice = notification.trades.length > 0 
+                        ? notification.trades[0].priceBasePerToken 
+                        : 0;
+                      
+                      return (
+                        <div
+                          key={notification.id}
+                          className="p-4 hover:bg-muted/50 transition-colors"
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              {/* BUY SIGNAL | Token | Wallets count */}
+                              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                                <span className="text-xs font-semibold px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                                  BUY SIGNAL
+                                </span>
+                                {notification.token.mintAddress ? (
+                                  <a
+                                    href={`https://birdeye.so/solana/token/${notification.token.mintAddress}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-medium text-foreground hover:underline"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    ${notification.token.symbol}
+                                  </a>
+                                ) : (
+                                  <span className="font-medium text-foreground">${notification.token.symbol}</span>
+                                )}
+                                <span className="text-xs text-muted-foreground">
+                                  {notification.walletCount} wallet{notification.walletCount > 1 ? 's' : ''}
+                                </span>
                               </div>
-                            ))}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            First trade: {formatTimeAgo(notification.firstTradeTime)}
-                            {' • '}
-                            Latest: {formatTimeAgo(notification.latestTradeTime)}
+                              
+                              {/* Trader list - modrá barva, nový formát */}
+                              <div className="space-y-1 mb-2">
+                                {notification.trades.map((trade, idx) => (
+                                  <div key={trade.id} className="text-sm">
+                                    <Link
+                                      href={`/wallet/${trade.wallet.address}`}
+                                      className="text-blue-400 hover:text-blue-300 hover:underline"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      {trade.wallet.label}
+                                    </Link>
+                                    {' • '}
+                                    <span className="text-muted-foreground">
+                                      bought @ ${trade.priceBasePerToken.toFixed(6)} (token price) for ${formatAmount(trade.amountBase, 2)} (buy amount)
+                                    </span>
+                                    {' • '}
+                                    <span className="text-muted-foreground text-xs">
+                                      {formatTimeAgo(trade.timestamp)}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                              
+                              {/* First trade / Latest - celé bílou barvou */}
+                              <div className="text-xs text-foreground">
+                                First trade: {formatTimeAgo(notification.firstTradeTime)}
+                                {' • '}
+                                Latest: {formatTimeAgo(notification.latestTradeTime)}
+                              </div>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </div>
-                  ))}
+                      );
+                    })}
                 </div>
               )}
 
