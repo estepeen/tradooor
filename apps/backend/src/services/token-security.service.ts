@@ -41,8 +41,9 @@ export class TokenSecurityService {
     }
 
     try {
-      // Birdeye Security Check API
-      const url = `https://public-api.birdeye.so/v1/token/security?address=${mintAddress}`;
+      // Birdeye Token Overview API - obsahuje security data (honeypot, tax, marketcap, holders)
+      // Alternativně můžeme použít /defi/token_overview, který má více dat
+      const url = `https://public-api.birdeye.so/defi/token_overview?address=${mintAddress}`;
       
       const response = await fetch(url, {
         headers: {
