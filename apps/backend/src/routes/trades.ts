@@ -366,9 +366,32 @@ router.get('/consensus-notifications', async (req, res) => {
           };
         });
 
-        // Fetch token security data asynchronně pro další request
+        // Fetch token security data - zkus z cache synchronně
         const tokenMintAddresses = [...new Set(notifications.map((n: any) => n.token?.mintAddress).filter(Boolean))] as string[];
+        const tokenSecurityData = new Map<string, any>();
+        
         if (tokenMintAddresses.length > 0) {
+          try {
+            const cachedData = await Promise.all(
+              tokenMintAddresses.map(async (mintAddress) => {
+                try {
+                  const security = await tokenSecurityService.getTokenSecurity(mintAddress);
+                  return [mintAddress, security];
+                } catch {
+                  return [mintAddress, null];
+                }
+              })
+            );
+            cachedData.forEach(([mintAddress, security]) => {
+              if (security) {
+                tokenSecurityData.set(mintAddress as string, security);
+              }
+            });
+          } catch (error: any) {
+            console.warn(`⚠️  Error fetching cached token security data: ${error.message}`);
+          }
+          
+          // Fetch asynchronně pro další request
           setImmediate(async () => {
             try {
               await tokenSecurityService.getTokenSecurityBatch(tokenMintAddresses);
@@ -378,8 +401,15 @@ router.get('/consensus-notifications', async (req, res) => {
           });
         }
 
+        const notificationsWithSecurity = notifications.map((notification: any) => ({
+          ...notification,
+          tokenSecurity: notification.token?.mintAddress 
+            ? tokenSecurityData.get(notification.token.mintAddress) || notification.tokenSecurity || null
+            : notification.tokenSecurity || null,
+        }));
+
         return res.json({
-          notifications,
+          notifications: notificationsWithSecurity,
           total: notifications.length,
         });
       }
@@ -639,14 +669,33 @@ router.get('/consensus-notifications', async (req, res) => {
     const limited = consensusNotifications.slice(0, limit);
 
     // Fetch token security data for each notification (honeypot, tax, holders, etc.)
-    // DŮLEŽITÉ: Fetch asynchronně, aby to neblokovalo response (může trvat dlouho)
+    // Zkus načíst z cache synchronně, pokud není v cache, fetch asynchronně pro další request
     const tokenMintAddresses = [...new Set(limited.map(n => n.token?.mintAddress).filter(Boolean))] as string[];
-    let tokenSecurityData = new Map<string, any>();
+    const tokenSecurityData = new Map<string, any>();
     
-    // Pro rychlejší response, fetch security data asynchronně a vrať prázdná data
-    // Security data se načtou při dalším requestu (cached)
+    // Zkus načíst z cache (rychlé)
     if (tokenMintAddresses.length > 0) {
-      // Fetch asynchronně - neblokuje response
+      try {
+        const cachedData = await Promise.all(
+          tokenMintAddresses.map(async (mintAddress) => {
+            try {
+              const security = await tokenSecurityService.getTokenSecurity(mintAddress);
+              return [mintAddress, security];
+            } catch {
+              return [mintAddress, null];
+            }
+          })
+        );
+        cachedData.forEach(([mintAddress, security]) => {
+          if (security) {
+            tokenSecurityData.set(mintAddress as string, security);
+          }
+        });
+      } catch (error: any) {
+        console.warn(`⚠️  Error fetching cached token security data: ${error.message}`);
+      }
+      
+      // Fetch asynchronně pro další request (pro tokeny, které nejsou v cache)
       setImmediate(async () => {
         try {
           await tokenSecurityService.getTokenSecurityBatch(tokenMintAddresses);

@@ -414,7 +414,7 @@ export default function ConsensusNotifications() {
                                           {trade.wallet.label}
                                         </Link>
                                         {' • '}
-                                        <span className="text-green-400">
+                                        <span className={isNewestTrade ? "text-green-400" : "text-muted-foreground"}>
                                           bought @ ${trade.priceBasePerToken.toFixed(6)} for ${formatAmount(trade.amountBase, 2)} • {formatTimeAgo(trade.timestamp)}
                                         </span>
                                       </div>
@@ -424,7 +424,7 @@ export default function ConsensusNotifications() {
                               </div>
                               
                               {/* Token info - honeypot, tax, marketcap, holders, atd. */}
-                              {notification.token.mintAddress && notification.tokenSecurity && (
+                              {notification.token?.mintAddress && notification.tokenSecurity && (
                                 <div className="text-xs text-foreground/70 mt-2 pt-2 border-t border-border/50 space-y-1">
                                   {notification.tokenSecurity.honeypot !== null && (
                                     <div>
