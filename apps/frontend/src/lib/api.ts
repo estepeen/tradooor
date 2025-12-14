@@ -276,3 +276,16 @@ export async function fetchConsensusNotifications(params?: {
   return res.json();
 }
 
+export async function recalculateWalletClosedPositions(walletId: string) {
+  const res = await fetch(`${API_BASE_URL}/smart-wallets/${walletId}/recalculate-closed-positions`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Failed to recalculate closed positions' }));
+    throw new Error(error.error || error.message || 'Failed to recalculate closed positions');
+  }
+  return res.json();
+}
+
