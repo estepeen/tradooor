@@ -113,7 +113,7 @@ export default function ConsensusNotifications() {
             });
             // Merge: keep existing, update changed, add new
             const merged = prev.map(p => {
-              const updated = updatedOnes.find(u => u.id === p.id);
+              const updated = updatedOnes.find((u: ConsensusNotification) => u.id === p.id);
               return updated || p;
             });
             return [...newOnes, ...merged].slice(0, MAX_NOTIFICATIONS);
