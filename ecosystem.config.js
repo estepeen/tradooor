@@ -147,7 +147,7 @@ module.exports = {
       cwd: process.cwd(),
       env: {
         NODE_ENV: 'production',
-        POSITION_UPDATE_INTERVAL_MS: '300000', // 5 minutes
+        POSITION_UPDATE_INTERVAL_MS: '60000', // 1 minute (checks every minute, updates based on market cap)
       },
       error_file: './logs/position-monitor-error.log',
       out_file: './logs/position-monitor-out.log',

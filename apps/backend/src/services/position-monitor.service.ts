@@ -16,6 +16,16 @@ import { DiscordNotificationService } from './discord-notification.service.js';
 import { RugCheckService } from './rugcheck.service.js';
 
 // ============================================
+// Helpers
+// ============================================
+
+function formatNumber(value: number, decimals: number = 2): string {
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  return value.toFixed(decimals);
+}
+
+// ============================================
 // Types
 // ============================================
 
@@ -264,12 +274,35 @@ export class PositionMonitorService {
   }
 
   /**
+   * Určí interval pro aktualizaci pozice na základě market capu
+   */
+  private getUpdateInterval(marketCapUsd: number): number {
+    if (marketCapUsd < 300000) return 1 * 60 * 1000;      // < 300k: 1 min
+    if (marketCapUsd < 500000) return 2 * 60 * 1000;      // 300k-500k: 2 min
+    if (marketCapUsd < 1000000) return 2 * 60 * 1000;     // 500k-1M: 2 min
+    return 5 * 60 * 1000;                                  // > 1M: 5 min
+  }
+
+  /**
    * Aktualizuje jednu pozici - cena, P&L, kontroluje exit podmínky
    */
   async updatePosition(position: VirtualPosition): Promise<{
     exitSignal?: ExitSignal;
     updated: boolean;
   }> {
+    // Urči interval na základě market capu
+    const marketCap = Number(position.currentMarketCapUsd || position.entryMarketCapUsd || 0);
+    const requiredInterval = this.getUpdateInterval(marketCap);
+    
+    // Zkontroluj, jestli už je čas na update
+    const lastUpdate = position.lastPriceUpdate ? new Date(position.lastPriceUpdate).getTime() : 0;
+    const timeSinceUpdate = Date.now() - lastUpdate;
+    
+    if (lastUpdate > 0 && timeSinceUpdate < requiredInterval) {
+      // Ještě není čas na update
+      return { updated: false };
+    }
+
     // Get token mint address
     const { data: token } = await supabase
       .from(TABLES.TOKEN)
@@ -288,6 +321,13 @@ export class PositionMonitorService {
     try {
       marketData = await this.tokenMarketData.getMarketData(token.mintAddress);
       currentPrice = marketData?.price;
+      
+      // Log source for debugging
+      if (marketData?.source) {
+        const intervalLabel = requiredInterval === 60000 ? '1min' : 
+                             requiredInterval === 120000 ? '2min' : '5min';
+        console.log(`   📡 ${token.symbol}: ${marketData.source} (MCap: $${formatNumber(marketData.marketCap || 0, 0)}, interval: ${intervalLabel})`);
+      }
     } catch (e) {
       // Use last known price
       currentPrice = position.currentPriceUsd || position.entryPriceUsd;

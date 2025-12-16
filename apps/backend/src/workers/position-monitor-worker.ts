@@ -1,11 +1,13 @@
 /**
  * Position Monitor Worker
  * 
- * Periodicky aktualizuje všechny otevřené pozice:
- * - Aktualizuje aktuální ceny
- * - Kontroluje SL/TP podmínky
- * - Generuje AI doporučení pro exit
- * - Posílá notifikace
+ * Dynamicky kontroluje pozice na základě market capu:
+ * - < 300k: každou 1 minutu (shitcoiny - rychlé změny)
+ * - 300k-500k: každé 2 minuty
+ * - 500k-1M: každé 2 minuty
+ * - > 1M: každých 5 minut (stabilnější tokeny)
+ * 
+ * Worker běží každou minutu, ale pozice se aktualizují jen když uplyne jejich interval
  */
 
 import 'dotenv/config';
@@ -13,9 +15,9 @@ import { PositionMonitorService } from '../services/position-monitor.service.js'
 
 const positionMonitor = new PositionMonitorService();
 
-// Config
-const UPDATE_INTERVAL_MS = Number(process.env.POSITION_UPDATE_INTERVAL_MS || 5 * 60 * 1000); // 5 minutes default
-const INITIAL_DELAY_MS = 30000; // 30 seconds initial delay
+// Kontroluj každou minutu (nejrychlejší interval pro malé tokeny)
+const UPDATE_INTERVAL_MS = 1 * 60 * 1000; // 1 minuta
+const INITIAL_DELAY_MS = 10000; // 10 seconds initial delay
 
 async function runPositionUpdate() {
   try {
@@ -33,7 +35,12 @@ async function runPositionUpdate() {
 
 async function main() {
   console.log('🚀 Position Monitor Worker starting...');
-  console.log(`   Update interval: ${UPDATE_INTERVAL_MS / 1000}s`);
+  console.log('   Dynamic intervals based on market cap:');
+  console.log('   - < 300k: 1 minute (shitcoins)');
+  console.log('   - 300k-500k: 2 minutes');
+  console.log('   - 500k-1M: 2 minutes');
+  console.log('   - > 1M: 5 minutes');
+  console.log(`   Check cycle: every ${UPDATE_INTERVAL_MS / 1000}s (1 min)`);
   console.log(`   Initial delay: ${INITIAL_DELAY_MS / 1000}s`);
   
   // Wait initial delay to let other services start
@@ -42,7 +49,7 @@ async function main() {
   // Run first update
   await runPositionUpdate();
   
-  // Schedule periodic updates
+  // Schedule updates every minute
   setInterval(runPositionUpdate, UPDATE_INTERVAL_MS);
   
   console.log('✅ Position Monitor Worker running. Press Ctrl+C to stop.');
