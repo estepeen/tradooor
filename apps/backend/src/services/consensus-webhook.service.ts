@@ -14,6 +14,7 @@ import { TradeRepository } from '../repositories/trade.repository.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { AIDecisionService } from './ai-decision.service.js';
 import { TokenMarketDataService } from './token-market-data.service.js';
+import { DiscordNotificationService, SignalNotificationData } from './discord-notification.service.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
@@ -26,6 +27,7 @@ export class ConsensusWebhookService {
   private smartWalletRepo: SmartWalletRepository;
   private aiDecisionService: AIDecisionService;
   private tokenMarketData: TokenMarketDataService;
+  private discordNotification: DiscordNotificationService;
 
   constructor() {
     this.paperTradeService = new PaperTradeService();
@@ -35,6 +37,7 @@ export class ConsensusWebhookService {
     this.smartWalletRepo = new SmartWalletRepository();
     this.aiDecisionService = new AIDecisionService();
     this.tokenMarketData = new TokenMarketDataService();
+    this.discordNotification = new DiscordNotificationService();
   }
 
   /**
@@ -124,22 +127,98 @@ export class ConsensusWebhookService {
         console.log(`   📊 Consensus signal created: ${signal.id.substring(0, 16)}... (${uniqueWallets.size} wallets)`);
 
         // 5b. AI Evaluace signálu
+        let aiDecisionResult: any = null;
+        let marketDataResult: any = null;
+        let walletsData: any[] = [];
+        
         try {
-          const aiDecision = await this.evaluateSignalWithAI(
+          aiDecisionResult = await this.evaluateSignalWithAI(
             signal,
             tradeToUse,
             uniqueWallets.size,
             sortedBuys
           );
           
-          if (aiDecision) {
-            console.log(`   🤖 AI Decision: ${aiDecision.decision} (${aiDecision.confidence}% confidence)`);
+          if (aiDecisionResult) {
+            console.log(`   🤖 AI Decision: ${aiDecisionResult.decision} (${aiDecisionResult.confidence}% confidence)`);
             
             // Aktualizuj Signal s AI rozhodnutím
-            await this.updateSignalWithAI(signal.id, aiDecision);
+            await this.updateSignalWithAI(signal.id, aiDecisionResult);
           }
         } catch (aiError: any) {
           console.warn(`   ⚠️  AI evaluation failed: ${aiError.message}`);
+        }
+
+        // 5c. Pošli Discord notifikaci
+        try {
+          // Načti token info
+          const { data: token } = await supabase
+            .from(TABLES.TOKEN)
+            .select('symbol, mintAddress')
+            .eq('id', tradeToUse.tokenId)
+            .single();
+
+          // Načti market data
+          try {
+            marketDataResult = await this.tokenMarketData.getMarketData(token?.mintAddress);
+          } catch (e) {
+            // ignoruj
+          }
+
+          // Načti wallet info
+          const walletIds = sortedBuys.map(b => b.walletId);
+          const { data: wallets } = await supabase
+            .from(TABLES.SMART_WALLET)
+            .select('id, address, label, score')
+            .in('id', walletIds);
+
+          walletsData = wallets || [];
+          const avgWalletScore = walletsData.length > 0
+            ? walletsData.reduce((sum, w) => sum + (w.score || 0), 0) / walletsData.length
+            : 50;
+
+          // Spočítej SL/TP ceny
+          const entryPrice = Number(tradeToUse.priceBasePerToken || 0);
+          const stopLossPriceUsd = aiDecisionResult?.stopLossPercent && entryPrice
+            ? entryPrice * (1 - aiDecisionResult.stopLossPercent / 100)
+            : undefined;
+          const takeProfitPriceUsd = aiDecisionResult?.takeProfitPercent && entryPrice
+            ? entryPrice * (1 + aiDecisionResult.takeProfitPercent / 100)
+            : undefined;
+
+          // Sestaví data pro notifikaci
+          const notificationData: SignalNotificationData = {
+            tokenSymbol: token?.symbol || 'Unknown',
+            tokenMint: token?.mintAddress || '',
+            signalType: 'consensus',
+            strength: uniqueWallets.size >= 3 ? 'strong' : 'medium',
+            walletCount: uniqueWallets.size,
+            avgWalletScore,
+            entryPriceUsd: entryPrice,
+            marketCapUsd: marketDataResult?.marketCap,
+            liquidityUsd: marketDataResult?.liquidity,
+            volume24hUsd: marketDataResult?.volume24h,
+            tokenAgeMinutes: marketDataResult?.ageMinutes,
+            aiDecision: aiDecisionResult?.decision,
+            aiConfidence: aiDecisionResult?.confidence,
+            aiReasoning: aiDecisionResult?.reasoning,
+            aiPositionPercent: aiDecisionResult?.suggestedPositionPercent,
+            stopLossPercent: aiDecisionResult?.stopLossPercent,
+            takeProfitPercent: aiDecisionResult?.takeProfitPercent,
+            stopLossPriceUsd,
+            takeProfitPriceUsd,
+            aiRiskScore: aiDecisionResult?.riskScore,
+            wallets: walletsData.map(w => ({
+              label: w.label,
+              address: w.address,
+              score: w.score || 0,
+            })),
+          };
+
+          // Pošli notifikaci
+          await this.discordNotification.sendSignalNotification(notificationData);
+        } catch (discordError: any) {
+          console.warn(`   ⚠️  Discord notification failed: ${discordError.message}`);
         }
 
         // 6. Z signalu vytvoř paper trade

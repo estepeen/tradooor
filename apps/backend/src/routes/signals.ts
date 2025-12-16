@@ -5,6 +5,7 @@ import { AdvancedSignalsService } from '../services/advanced-signals.service.js'
 import { AIDecisionService } from '../services/ai-decision.service.js';
 import { ConsensusSignalRepository } from '../repositories/consensus-signal.repository.js';
 import { TokenMarketDataService } from '../services/token-market-data.service.js';
+import { DiscordNotificationService } from '../services/discord-notification.service.js';
 import { supabase, TABLES } from '../lib/supabase.js';
 
 const router = express.Router();
@@ -14,6 +15,7 @@ const advancedSignals = new AdvancedSignalsService();
 const aiDecision = new AIDecisionService();
 const consensusSignalRepo = new ConsensusSignalRepository();
 const tokenMarketData = new TokenMarketDataService();
+const discordNotification = new DiscordNotificationService();
 
 /**
  * GET /api/signals/unified
@@ -932,6 +934,38 @@ router.get('/ai/performance', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to fetch AI performance',
+    });
+  }
+});
+
+// ============================================
+// Discord Notification Endpoints
+// ============================================
+
+/**
+ * POST /api/signals/discord/test
+ * Pošle testovací Discord notifikaci
+ */
+router.post('/discord/test', async (req, res) => {
+  try {
+    const success = await discordNotification.sendTestNotification();
+    
+    if (success) {
+      res.json({
+        success: true,
+        message: 'Test notification sent to Discord',
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: 'Failed to send Discord notification. Check DISCORD_WEBHOOK_URL in .env',
+      });
+    }
+  } catch (error: any) {
+    console.error('❌ Error sending Discord test notification:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to send Discord test notification',
     });
   }
 });
