@@ -6,6 +6,7 @@ import { AIDecisionService } from '../services/ai-decision.service.js';
 import { ConsensusSignalRepository } from '../repositories/consensus-signal.repository.js';
 import { TokenMarketDataService } from '../services/token-market-data.service.js';
 import { DiscordNotificationService } from '../services/discord-notification.service.js';
+import { RugCheckService } from '../services/rugcheck.service.js';
 import { supabase, TABLES } from '../lib/supabase.js';
 
 const router = express.Router();
@@ -16,6 +17,7 @@ const aiDecision = new AIDecisionService();
 const consensusSignalRepo = new ConsensusSignalRepository();
 const tokenMarketData = new TokenMarketDataService();
 const discordNotification = new DiscordNotificationService();
+const rugCheck = new RugCheckService();
 
 /**
  * GET /api/signals/unified
@@ -102,6 +104,28 @@ router.get('/unified', async (req, res) => {
             .limit(1)
             .single();
           
+          // Načti security data z RugCheck
+          let securityData: any = null;
+          if (token.mintAddress) {
+            try {
+              const rugReport = await rugCheck.getReport(token.mintAddress);
+              if (rugReport) {
+                securityData = {
+                  riskLevel: rugReport.riskLevel,
+                  riskScore: rugReport.riskScore,
+                  isLpLocked: rugReport.isLpLocked,
+                  lpLockedPercent: rugReport.lpLockedPercent,
+                  isDexPaid: rugReport.isDexPaid,
+                  isMintable: rugReport.isMintable,
+                  isFreezable: rugReport.isFreezable,
+                  risks: rugReport.risks,
+                };
+              }
+            } catch (e) {
+              // RugCheck není kritický
+            }
+          }
+          
           // Spočítej price change
           const currentPrice = marketData?.price || 0;
           const priceChangePercent = entryPriceUsd > 0 && currentPrice > 0
@@ -158,6 +182,9 @@ router.get('/unified', async (req, res) => {
             status: 'active' as const,
             qualityScore: Math.round(avgWalletScore * 0.5 + cs.walletCount * 15),
             riskLevel,
+            
+            // Security (RugCheck)
+            security: securityData,
             
             // Timestamps
             firstTradeTime: cs.firstTradeTime,

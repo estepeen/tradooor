@@ -33,6 +33,18 @@ export interface SignalNotificationData {
   takeProfitPriceUsd?: number;
   aiRiskScore?: number;
   
+  // Security (RugCheck)
+  security?: {
+    riskLevel: 'safe' | 'low' | 'medium' | 'high' | 'critical';
+    riskScore: number;
+    isLpLocked: boolean;
+    lpLockedPercent?: number;
+    isDexPaid: boolean;
+    isMintable: boolean;
+    isFreezable: boolean;
+    risks: string[];
+  };
+  
   // Wallets with trade details
   wallets?: Array<{
     label?: string;
@@ -231,6 +243,44 @@ export class DiscordNotificationService {
           inline: true,
         });
       }
+    }
+
+    // Security (RugCheck)
+    if (data.security) {
+      const sec = data.security;
+      const riskEmoji = {
+        'safe': '✅',
+        'low': '🟢',
+        'medium': '🟡',
+        'high': '🟠',
+        'critical': '🔴',
+      }[sec.riskLevel] || '❓';
+
+      const securityLines = [
+        `${riskEmoji} **Risk:** ${sec.riskLevel.toUpperCase()} (${sec.riskScore}/100)`,
+      ];
+
+      // Flags
+      const flags = [];
+      if (sec.isLpLocked) flags.push(`🔒 LP ${sec.lpLockedPercent ? `${sec.lpLockedPercent.toFixed(0)}%` : 'Locked'}`);
+      if (sec.isDexPaid) flags.push('💰 DEX Paid');
+      if (!sec.isMintable) flags.push('✅ Mint Off');
+      if (!sec.isFreezable) flags.push('✅ No Freeze');
+      
+      if (flags.length > 0) {
+        securityLines.push(flags.join(' • '));
+      }
+
+      // Top risks
+      if (sec.risks && sec.risks.length > 0) {
+        securityLines.push(`⚠️ ${sec.risks.slice(0, 2).join(', ')}`);
+      }
+
+      fields.push({
+        name: '🛡️ Security',
+        value: securityLines.join('\n'),
+        inline: true,
+      });
     }
 
     // Wallets with trade details (show all)

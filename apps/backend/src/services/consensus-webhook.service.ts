@@ -15,6 +15,7 @@ import { SmartWalletRepository } from '../repositories/smart-wallet.repository.j
 import { AIDecisionService } from './ai-decision.service.js';
 import { TokenMarketDataService } from './token-market-data.service.js';
 import { DiscordNotificationService, SignalNotificationData } from './discord-notification.service.js';
+import { RugCheckService } from './rugcheck.service.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
@@ -28,6 +29,7 @@ export class ConsensusWebhookService {
   private aiDecisionService: AIDecisionService;
   private tokenMarketData: TokenMarketDataService;
   private discordNotification: DiscordNotificationService;
+  private rugCheck: RugCheckService;
 
   constructor() {
     this.paperTradeService = new PaperTradeService();
@@ -38,6 +40,7 @@ export class ConsensusWebhookService {
     this.aiDecisionService = new AIDecisionService();
     this.tokenMarketData = new TokenMarketDataService();
     this.discordNotification = new DiscordNotificationService();
+    this.rugCheck = new RugCheckService();
   }
 
   /**
@@ -241,6 +244,27 @@ export class ConsensusWebhookService {
             ? entryPrice * (1 + aiDecisionResult.takeProfitPercent / 100)
             : undefined;
 
+          // Načti security data z RugCheck
+          let securityData: SignalNotificationData['security'] | undefined;
+          try {
+            const rugReport = await this.rugCheck.getReport(token?.mintAddress || '');
+            if (rugReport) {
+              securityData = {
+                riskLevel: rugReport.riskLevel,
+                riskScore: rugReport.riskScore,
+                isLpLocked: rugReport.isLpLocked,
+                lpLockedPercent: rugReport.lpLockedPercent,
+                isDexPaid: rugReport.isDexPaid,
+                isMintable: rugReport.isMintable,
+                isFreezable: rugReport.isFreezable,
+                risks: rugReport.risks,
+              };
+              console.log(`   🛡️  RugCheck: ${rugReport.riskLevel} (${rugReport.riskScore}/100)`);
+            }
+          } catch (rugError: any) {
+            console.warn(`   ⚠️  RugCheck failed: ${rugError.message}`);
+          }
+
           // Sestaví data pro notifikaci
           // Najdi nejnovější wallet (který se právě přidal)
           const newestWallet = walletsData.sort((a, b) => 
@@ -279,6 +303,7 @@ export class ConsensusWebhookService {
               tradePrice: w.tradePrice,
               tradeTime: w.tradeTime,
             })),
+            security: securityData,
           };
 
           // Pošli notifikaci

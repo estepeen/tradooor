@@ -50,6 +50,18 @@ interface Signal {
   aiTakeProfitPercent?: number;
   aiRiskScore?: number;
   
+  // Security (RugCheck)
+  security?: {
+    riskLevel: 'safe' | 'low' | 'medium' | 'high' | 'critical';
+    riskScore: number;
+    isLpLocked: boolean;
+    lpLockedPercent?: number;
+    isDexPaid: boolean;
+    isMintable: boolean;
+    isFreezable: boolean;
+    risks: string[];
+  };
+  
   // Status
   status: 'active' | 'executed' | 'expired' | 'closed';
   qualityScore: number;
@@ -216,7 +228,8 @@ export default function SignalsPage() {
                 <th className="px-4 py-3">Signal</th>
                 <th className="px-4 py-3">Wallets</th>
                 <th className="px-4 py-3">Entry Price</th>
-                <th className="px-4 py-3">Market Data</th>
+                <th className="px-4 py-3">Market</th>
+                <th className="px-4 py-3">Security</th>
                 <th className="px-4 py-3">AI Decision</th>
                 <th className="px-4 py-3">SL / TP</th>
                 <th className="px-4 py-3">Time</th>
@@ -331,6 +344,62 @@ export default function SignalsPage() {
                               : `${signal.tokenAgeMinutes}m`}
                           </span>
                         </div>
+                      )}
+                    </td>
+
+                    {/* Security (RugCheck) */}
+                    <td className="px-4 py-4 text-xs">
+                      {signal.security ? (
+                        <div>
+                          {/* Risk Level Badge */}
+                          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-bold ${
+                            signal.security.riskLevel === 'safe' ? 'bg-green-500/20 text-green-400' :
+                            signal.security.riskLevel === 'low' ? 'bg-green-500/20 text-green-300' :
+                            signal.security.riskLevel === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                            signal.security.riskLevel === 'high' ? 'bg-orange-500/20 text-orange-400' :
+                            'bg-red-500/20 text-red-400'
+                          }`}>
+                            {signal.security.riskLevel === 'safe' ? '✅' :
+                             signal.security.riskLevel === 'low' ? '🟢' :
+                             signal.security.riskLevel === 'medium' ? '🟡' :
+                             signal.security.riskLevel === 'high' ? '🟠' : '🔴'}
+                            {' '}{signal.security.riskLevel.toUpperCase()}
+                          </div>
+                          <div className="text-gray-500 mt-1">Score: {signal.security.riskScore}/100</div>
+                          
+                          {/* Flags */}
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {signal.security.isLpLocked && (
+                              <span className="text-green-400" title={`LP Locked ${signal.security.lpLockedPercent ? `${signal.security.lpLockedPercent}%` : ''}`}>
+                                🔒
+                              </span>
+                            )}
+                            {signal.security.isDexPaid && (
+                              <span className="text-green-400" title="DEX Paid">💰</span>
+                            )}
+                            {!signal.security.isMintable && (
+                              <span className="text-green-400" title="Mint Renounced">✓M</span>
+                            )}
+                            {!signal.security.isFreezable && (
+                              <span className="text-green-400" title="No Freeze">✓F</span>
+                            )}
+                            {signal.security.isMintable && (
+                              <span className="text-red-400" title="Mintable!">⚠️M</span>
+                            )}
+                            {signal.security.isFreezable && (
+                              <span className="text-red-400" title="Can Freeze!">⚠️F</span>
+                            )}
+                          </div>
+                          
+                          {/* Top Risk */}
+                          {signal.security.risks && signal.security.risks.length > 0 && (
+                            <div className="text-orange-400 text-xs mt-1 truncate max-w-[120px]" title={signal.security.risks.join(', ')}>
+                              {signal.security.risks[0]}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-gray-500">No data</span>
                       )}
                     </td>
 
