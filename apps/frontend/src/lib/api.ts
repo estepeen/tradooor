@@ -246,9 +246,16 @@ export async function fetchConsensusSignals(limit?: number) {
   return res.json();
 }
 
-export async function fetchSignals(options?: { type?: 'buy' | 'sell'; limit?: number }) {
+export async function fetchSignals(options?: { 
+  type?: 'buy' | 'sell'; 
+  model?: string;
+  status?: 'active' | 'executed' | 'expired';
+  limit?: number;
+}) {
   const params = new URLSearchParams();
   if (options?.type) params.append('type', options.type);
+  if (options?.model) params.append('model', options.model);
+  if (options?.status) params.append('status', options.status);
   if (options?.limit) params.append('limit', options.limit.toString());
   const url = `${API_BASE_URL}/signals${params.toString() ? `?${params.toString()}` : ''}`;
   const res = await fetch(url, {
@@ -256,6 +263,46 @@ export async function fetchSignals(options?: { type?: 'buy' | 'sell'; limit?: nu
     headers: { 'Cache-Control': 'no-cache' },
   });
   if (!res.ok) throw new Error('Failed to fetch signals');
+  return res.json();
+}
+
+export async function fetchSignalTypes() {
+  const res = await fetch(`${API_BASE_URL}/signals/types`, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) throw new Error('Failed to fetch signal types');
+  return res.json();
+}
+
+export async function fetchSignalsSummary() {
+  const res = await fetch(`${API_BASE_URL}/signals/summary`, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) throw new Error('Failed to fetch signals summary');
+  return res.json();
+}
+
+export async function evaluateSignalWithAI(signalId?: string, tradeId?: string) {
+  const res = await fetch(`${API_BASE_URL}/signals/ai/evaluate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ signalId, tradeId }),
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Failed to evaluate signal' }));
+    throw new Error(error.error || error.message || 'Failed to evaluate signal');
+  }
+  return res.json();
+}
+
+export async function fetchAIPerformance() {
+  const res = await fetch(`${API_BASE_URL}/signals/ai/performance`, {
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) throw new Error('Failed to fetch AI performance');
   return res.json();
 }
 

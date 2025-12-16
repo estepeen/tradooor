@@ -1,0 +1,636 @@
+/**
+ * Advanced Signals Service
+ * 
+ * Generuje různé typy signálů nad rámec základního consensus:
+ * - Whale Entry: Top trader nakoupí velkou pozici
+ * - Early Sniper: Smart wallet jako první koupí nový token
+ * - Momentum: Price/volume spike + smart wallet entry
+ * - Re-entry: Wallet znovu kupuje token kde předtím profitovala
+ * - Exit Warning: Více wallets začne prodávat
+ * - Hot Token: 3+ wallets s avg score >70 koupí stejný token
+ * - Accumulation: Wallet postupně akumuluje pozici
+ */
+
+import { supabase, TABLES } from '../lib/supabase.js';
+import { SignalRepository, SignalRecord } from '../repositories/signal.repository.js';
+import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
+import { TradeRepository } from '../repositories/trade.repository.js';
+import { TokenRepository } from '../repositories/token.repository.js';
+
+// Signal type definitions
+export type AdvancedSignalType = 
+  | 'whale-entry'
+  | 'early-sniper'
+  | 'momentum'
+  | 're-entry'
+  | 'exit-warning'
+  | 'hot-token'
+  | 'accumulation'
+  | 'consensus';
+
+export interface SignalContext {
+  walletScore: number;
+  walletWinRate: number;
+  walletRecentPnl30d: number;
+  tokenAge: number; // minutes since first trade
+  tokenLiquidity?: number;
+  tokenVolume24h?: number;
+  consensusWalletCount?: number;
+  previousPnlOnToken?: number; // For re-entry signals
+  positionSizeUsd?: number;
+  walletAvgPositionUsd?: number;
+}
+
+export interface AdvancedSignal {
+  type: AdvancedSignalType;
+  strength: 'weak' | 'medium' | 'strong';
+  confidence: number; // 0-100
+  reasoning: string;
+  context: SignalContext;
+  suggestedAction: 'buy' | 'sell' | 'hold' | 'watch';
+  suggestedPositionPercent?: number;
+  riskLevel: 'low' | 'medium' | 'high';
+}
+
+// Thresholds for signal generation
+const THRESHOLDS = {
+  WHALE_MIN_SCORE: 80,
+  WHALE_MIN_POSITION_MULTIPLIER: 2, // 2x their average position
+  EARLY_SNIPER_MAX_TOKEN_AGE_MINUTES: 30,
+  EARLY_SNIPER_MIN_WALLET_SCORE: 65,
+  MOMENTUM_MIN_PRICE_CHANGE_5M: 10, // 10%
+  MOMENTUM_MIN_VOLUME_SPIKE: 3, // 3x normal volume
+  REENTRY_MIN_PREVIOUS_PNL: 20, // 20% profit on previous trade
+  EXIT_WARNING_MIN_SELLERS: 2,
+  HOT_TOKEN_MIN_WALLETS: 3,
+  HOT_TOKEN_MIN_AVG_SCORE: 70,
+  ACCUMULATION_MIN_BUYS: 3,
+  ACCUMULATION_TIME_WINDOW_HOURS: 6,
+};
+
+export class AdvancedSignalsService {
+  private signalRepo: SignalRepository;
+  private smartWalletRepo: SmartWalletRepository;
+  private tradeRepo: TradeRepository;
+  private tokenRepo: TokenRepository;
+
+  constructor() {
+    this.signalRepo = new SignalRepository();
+    this.smartWalletRepo = new SmartWalletRepository();
+    this.tradeRepo = new TradeRepository();
+    this.tokenRepo = new TokenRepository();
+  }
+
+  /**
+   * Analyzuje trade a vrací všechny relevantní signály
+   */
+  async analyzeTradeForSignals(tradeId: string): Promise<AdvancedSignal[]> {
+    const signals: AdvancedSignal[] = [];
+
+    try {
+      // Načti trade s wallet a token daty
+      const { data: trade, error } = await supabase
+        .from(TABLES.TRADE)
+        .select(`
+          *,
+          wallet:SmartWallet(*),
+          token:Token(*)
+        `)
+        .eq('id', tradeId)
+        .single();
+
+      if (error || !trade) {
+        console.warn(`Trade not found for signal analysis: ${tradeId}`);
+        return signals;
+      }
+
+      const wallet = trade.wallet as any;
+      const token = trade.token as any;
+
+      if (!wallet || !token) {
+        return signals;
+      }
+
+      // Základní context
+      const context: SignalContext = {
+        walletScore: wallet.score || 0,
+        walletWinRate: wallet.winRate || 0,
+        walletRecentPnl30d: wallet.recentPnl30dPercent || 0,
+        tokenAge: await this.getTokenAgeMinutes(token.id),
+        positionSizeUsd: Number(trade.amountBase || 0) * 150, // Rough SOL->USD conversion
+      };
+
+      // Spusť všechny detektory paralelně
+      if (trade.side === 'buy') {
+        const [
+          whaleSignal,
+          sniperSignal,
+          momentumSignal,
+          reentrySignal,
+          hotTokenSignal,
+          accumulationSignal,
+        ] = await Promise.all([
+          this.detectWhaleEntry(trade, wallet, context),
+          this.detectEarlySniper(trade, wallet, token, context),
+          this.detectMomentum(trade, wallet, token, context),
+          this.detectReentry(trade, wallet, token, context),
+          this.detectHotToken(trade, token, context),
+          this.detectAccumulation(trade, wallet, token, context),
+        ]);
+
+        if (whaleSignal) signals.push(whaleSignal);
+        if (sniperSignal) signals.push(sniperSignal);
+        if (momentumSignal) signals.push(momentumSignal);
+        if (reentrySignal) signals.push(reentrySignal);
+        if (hotTokenSignal) signals.push(hotTokenSignal);
+        if (accumulationSignal) signals.push(accumulationSignal);
+      } else if (trade.side === 'sell') {
+        const exitSignal = await this.detectExitWarning(trade, token, context);
+        if (exitSignal) signals.push(exitSignal);
+      }
+
+      return signals;
+    } catch (error) {
+      console.error(`Error analyzing trade for signals: ${error}`);
+      return signals;
+    }
+  }
+
+  /**
+   * 🐋 Whale Entry Detection
+   * Top trader (score >80) nakoupí pozici větší než 2x jeho průměr
+   */
+  private async detectWhaleEntry(
+    trade: any,
+    wallet: any,
+    context: SignalContext
+  ): Promise<AdvancedSignal | null> {
+    if (wallet.score < THRESHOLDS.WHALE_MIN_SCORE) {
+      return null;
+    }
+
+    // Získej průměrnou velikost pozice wallety
+    const { data: recentTrades } = await supabase
+      .from(TABLES.TRADE)
+      .select('amountBase')
+      .eq('walletId', wallet.id)
+      .eq('side', 'buy')
+      .order('timestamp', { ascending: false })
+      .limit(20);
+
+    if (!recentTrades || recentTrades.length < 5) {
+      return null;
+    }
+
+    const avgPosition = recentTrades.reduce((sum, t) => sum + Number(t.amountBase || 0), 0) / recentTrades.length;
+    const currentPosition = Number(trade.amountBase || 0);
+    const positionMultiplier = currentPosition / avgPosition;
+
+    if (positionMultiplier < THRESHOLDS.WHALE_MIN_POSITION_MULTIPLIER) {
+      return null;
+    }
+
+    context.walletAvgPositionUsd = avgPosition * 150;
+
+    const strength = positionMultiplier >= 4 ? 'strong' : positionMultiplier >= 3 ? 'medium' : 'weak';
+    const confidence = Math.min(95, 60 + wallet.score / 5 + positionMultiplier * 5);
+
+    return {
+      type: 'whale-entry',
+      strength,
+      confidence,
+      reasoning: `🐋 Whale Entry: Top trader (score ${wallet.score.toFixed(0)}) nakoupil ${positionMultiplier.toFixed(1)}x větší pozici než obvykle. Win rate: ${(wallet.winRate * 100).toFixed(0)}%`,
+      context,
+      suggestedAction: 'buy',
+      suggestedPositionPercent: strength === 'strong' ? 15 : strength === 'medium' ? 10 : 7,
+      riskLevel: 'low',
+    };
+  }
+
+  /**
+   * 🎯 Early Sniper Detection
+   * Smart wallet jako první koupí nový token (< 30 min starý)
+   */
+  private async detectEarlySniper(
+    trade: any,
+    wallet: any,
+    token: any,
+    context: SignalContext
+  ): Promise<AdvancedSignal | null> {
+    if (wallet.score < THRESHOLDS.EARLY_SNIPER_MIN_WALLET_SCORE) {
+      return null;
+    }
+
+    if (context.tokenAge > THRESHOLDS.EARLY_SNIPER_MAX_TOKEN_AGE_MINUTES) {
+      return null;
+    }
+
+    // Je tento trade první BUY od smart wallets?
+    const { data: earlierBuys } = await supabase
+      .from(TABLES.TRADE)
+      .select('id')
+      .eq('tokenId', token.id)
+      .eq('side', 'buy')
+      .lt('timestamp', trade.timestamp)
+      .limit(1);
+
+    const isFirstSmartWalletBuy = !earlierBuys || earlierBuys.length === 0;
+
+    if (!isFirstSmartWalletBuy) {
+      return null;
+    }
+
+    const strength = context.tokenAge < 5 ? 'strong' : context.tokenAge < 15 ? 'medium' : 'weak';
+    const confidence = Math.min(90, 50 + wallet.score / 3 + (30 - context.tokenAge));
+
+    return {
+      type: 'early-sniper',
+      strength,
+      confidence,
+      reasoning: `🎯 Early Sniper: Smart wallet (score ${wallet.score.toFixed(0)}) je první, kdo koupil ${token.symbol || 'token'} (${context.tokenAge.toFixed(0)} min starý)`,
+      context,
+      suggestedAction: 'buy',
+      suggestedPositionPercent: strength === 'strong' ? 12 : strength === 'medium' ? 8 : 5,
+      riskLevel: context.tokenAge < 10 ? 'high' : 'medium', // Nové tokeny jsou riskantnější
+    };
+  }
+
+  /**
+   * 📈 Momentum Detection
+   * Price/volume spike + smart wallet entry
+   */
+  private async detectMomentum(
+    trade: any,
+    wallet: any,
+    token: any,
+    context: SignalContext
+  ): Promise<AdvancedSignal | null> {
+    // Potřebujeme market data - zkus načíst z TradeFeature
+    const { data: tradeFeature } = await supabase
+      .from(TABLES.TRADE_FEATURE)
+      .select('trend5mPercent, volume1hUsd, volume24hUsd')
+      .eq('tradeId', trade.id)
+      .single();
+
+    if (!tradeFeature) {
+      return null;
+    }
+
+    const priceChange5m = Number(tradeFeature.trend5mPercent || 0);
+    const volume1h = Number(tradeFeature.volume1hUsd || 0);
+    const volume24h = Number(tradeFeature.volume24hUsd || 0);
+
+    // Vypočti volume spike (1h vs 24h average)
+    const avgHourlyVolume = volume24h / 24;
+    const volumeSpike = avgHourlyVolume > 0 ? volume1h / avgHourlyVolume : 0;
+
+    context.tokenVolume24h = volume24h;
+
+    const hasPriceSpike = priceChange5m >= THRESHOLDS.MOMENTUM_MIN_PRICE_CHANGE_5M;
+    const hasVolumeSpike = volumeSpike >= THRESHOLDS.MOMENTUM_MIN_VOLUME_SPIKE;
+
+    if (!hasPriceSpike && !hasVolumeSpike) {
+      return null;
+    }
+
+    const strength = hasPriceSpike && hasVolumeSpike ? 'strong' : 'medium';
+    const confidence = Math.min(85, 40 + priceChange5m + volumeSpike * 5 + wallet.score / 5);
+
+    return {
+      type: 'momentum',
+      strength,
+      confidence,
+      reasoning: `📈 Momentum: ${token.symbol || 'Token'} +${priceChange5m.toFixed(1)}% (5m), volume ${volumeSpike.toFixed(1)}x normal. Smart wallet (score ${wallet.score.toFixed(0)}) nakupuje.`,
+      context,
+      suggestedAction: 'buy',
+      suggestedPositionPercent: strength === 'strong' ? 10 : 7,
+      riskLevel: 'medium',
+    };
+  }
+
+  /**
+   * 🔄 Re-entry Detection
+   * Wallet znovu kupuje token kde předtím profitovala
+   */
+  private async detectReentry(
+    trade: any,
+    wallet: any,
+    token: any,
+    context: SignalContext
+  ): Promise<AdvancedSignal | null> {
+    // Najdi předchozí uzavřené pozice na tomto tokenu
+    const { data: closedLots } = await supabase
+      .from(TABLES.CLOSED_LOT)
+      .select('realizedRoiPercent, closedAt')
+      .eq('walletId', wallet.id)
+      .eq('tokenMint', token.mintAddress)
+      .order('closedAt', { ascending: false })
+      .limit(5);
+
+    if (!closedLots || closedLots.length === 0) {
+      return null;
+    }
+
+    // Spočítej průměrný PnL na předchozích trades
+    const avgPnl = closedLots.reduce((sum, lot) => sum + Number(lot.realizedRoiPercent || 0), 0) / closedLots.length;
+    const profitableTrades = closedLots.filter(lot => Number(lot.realizedRoiPercent || 0) > 0).length;
+    const winRateOnToken = profitableTrades / closedLots.length;
+
+    context.previousPnlOnToken = avgPnl;
+
+    if (avgPnl < THRESHOLDS.REENTRY_MIN_PREVIOUS_PNL) {
+      return null;
+    }
+
+    const strength = avgPnl >= 50 && winRateOnToken >= 0.8 ? 'strong' : avgPnl >= 30 ? 'medium' : 'weak';
+    const confidence = Math.min(90, 50 + avgPnl / 2 + winRateOnToken * 20);
+
+    return {
+      type: 're-entry',
+      strength,
+      confidence,
+      reasoning: `🔄 Re-entry: Wallet se vrací k ${token.symbol || 'tokenu'} kde předtím vydělala avg +${avgPnl.toFixed(0)}% (${profitableTrades}/${closedLots.length} profitable)`,
+      context,
+      suggestedAction: 'buy',
+      suggestedPositionPercent: strength === 'strong' ? 12 : strength === 'medium' ? 8 : 5,
+      riskLevel: 'low',
+    };
+  }
+
+  /**
+   * 📉 Exit Warning Detection
+   * Více smart wallets začne prodávat stejný token
+   */
+  private async detectExitWarning(
+    trade: any,
+    token: any,
+    context: SignalContext
+  ): Promise<AdvancedSignal | null> {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+
+    // Najdi všechny SELL trades na tento token v posledních 2h
+    const { data: recentSells } = await supabase
+      .from(TABLES.TRADE)
+      .select('walletId')
+      .eq('tokenId', token.id)
+      .eq('side', 'sell')
+      .gte('timestamp', twoHoursAgo.toISOString());
+
+    if (!recentSells) {
+      return null;
+    }
+
+    const uniqueSellers = new Set(recentSells.map(t => t.walletId));
+    const sellerCount = uniqueSellers.size;
+
+    if (sellerCount < THRESHOLDS.EXIT_WARNING_MIN_SELLERS) {
+      return null;
+    }
+
+    const strength = sellerCount >= 4 ? 'strong' : sellerCount >= 3 ? 'medium' : 'weak';
+    const confidence = Math.min(85, 40 + sellerCount * 15);
+
+    return {
+      type: 'exit-warning',
+      strength,
+      confidence,
+      reasoning: `📉 Exit Warning: ${sellerCount} smart wallets prodává ${token.symbol || 'token'} v posledních 2h`,
+      context,
+      suggestedAction: 'sell',
+      riskLevel: 'high',
+    };
+  }
+
+  /**
+   * 🔥 Hot Token Detection
+   * 3+ wallets s avg score >70 koupí stejný token
+   */
+  private async detectHotToken(
+    trade: any,
+    token: any,
+    context: SignalContext
+  ): Promise<AdvancedSignal | null> {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+
+    // Najdi všechny BUY trades na tento token v posledních 2h
+    const { data: recentBuys } = await supabase
+      .from(TABLES.TRADE)
+      .select(`
+        walletId,
+        wallet:SmartWallet(score)
+      `)
+      .eq('tokenId', token.id)
+      .eq('side', 'buy')
+      .gte('timestamp', twoHoursAgo.toISOString());
+
+    if (!recentBuys) {
+      return null;
+    }
+
+    // Unique wallets se score
+    const walletScores = new Map<string, number>();
+    for (const buy of recentBuys) {
+      const wallet = buy.wallet as any;
+      if (wallet?.score && !walletScores.has(buy.walletId)) {
+        walletScores.set(buy.walletId, wallet.score);
+      }
+    }
+
+    const walletCount = walletScores.size;
+    if (walletCount < THRESHOLDS.HOT_TOKEN_MIN_WALLETS) {
+      return null;
+    }
+
+    const avgScore = Array.from(walletScores.values()).reduce((sum, s) => sum + s, 0) / walletCount;
+    if (avgScore < THRESHOLDS.HOT_TOKEN_MIN_AVG_SCORE) {
+      return null;
+    }
+
+    context.consensusWalletCount = walletCount;
+
+    const strength = walletCount >= 5 && avgScore >= 80 ? 'strong' : walletCount >= 4 ? 'medium' : 'weak';
+    const confidence = Math.min(95, 50 + walletCount * 8 + avgScore / 5);
+
+    return {
+      type: 'hot-token',
+      strength,
+      confidence,
+      reasoning: `🔥 Hot Token: ${walletCount} kvalitních wallets (avg score ${avgScore.toFixed(0)}) koupilo ${token.symbol || 'token'} v 2h`,
+      context,
+      suggestedAction: 'buy',
+      suggestedPositionPercent: strength === 'strong' ? 15 : strength === 'medium' ? 10 : 7,
+      riskLevel: 'low',
+    };
+  }
+
+  /**
+   * 📦 Accumulation Detection
+   * Wallet postupně akumuluje pozici (3+ nákupy během 6h)
+   */
+  private async detectAccumulation(
+    trade: any,
+    wallet: any,
+    token: any,
+    context: SignalContext
+  ): Promise<AdvancedSignal | null> {
+    const sixHoursAgo = new Date(Date.now() - THRESHOLDS.ACCUMULATION_TIME_WINDOW_HOURS * 60 * 60 * 1000);
+
+    // Najdi všechny BUY trades této wallet na tento token v posledních 6h
+    const { data: recentBuys } = await supabase
+      .from(TABLES.TRADE)
+      .select('id, amountBase, timestamp')
+      .eq('walletId', wallet.id)
+      .eq('tokenId', token.id)
+      .eq('side', 'buy')
+      .gte('timestamp', sixHoursAgo.toISOString())
+      .order('timestamp', { ascending: true });
+
+    if (!recentBuys || recentBuys.length < THRESHOLDS.ACCUMULATION_MIN_BUYS) {
+      return null;
+    }
+
+    const totalAmount = recentBuys.reduce((sum, t) => sum + Number(t.amountBase || 0), 0);
+    const buyCount = recentBuys.length;
+
+    const strength = buyCount >= 5 ? 'strong' : buyCount >= 4 ? 'medium' : 'weak';
+    const confidence = Math.min(85, 40 + buyCount * 10 + wallet.score / 5);
+
+    return {
+      type: 'accumulation',
+      strength,
+      confidence,
+      reasoning: `📦 Accumulation: Wallet (score ${wallet.score.toFixed(0)}) akumuluje ${token.symbol || 'token'} - ${buyCount} nákupů za ${THRESHOLDS.ACCUMULATION_TIME_WINDOW_HOURS}h`,
+      context,
+      suggestedAction: 'buy',
+      suggestedPositionPercent: strength === 'strong' ? 10 : 7,
+      riskLevel: 'medium',
+    };
+  }
+
+  /**
+   * Uloží signál do databáze
+   */
+  async saveSignal(
+    trade: any,
+    signal: AdvancedSignal
+  ): Promise<SignalRecord | null> {
+    try {
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 24);
+
+      return await this.signalRepo.create({
+        type: signal.suggestedAction === 'sell' ? 'sell' : 'buy',
+        walletId: trade.walletId,
+        tokenId: trade.tokenId,
+        originalTradeId: trade.id,
+        priceBasePerToken: Number(trade.priceBasePerToken || 0),
+        amountBase: Number(trade.amountBase || 0),
+        amountToken: Number(trade.amountToken || 0),
+        timestamp: new Date(trade.timestamp),
+        status: 'active',
+        expiresAt,
+        qualityScore: signal.confidence,
+        riskLevel: signal.riskLevel,
+        model: signal.type as any, // Extended model type
+        reasoning: signal.reasoning,
+        meta: {
+          signalType: signal.type,
+          strength: signal.strength,
+          context: signal.context,
+          suggestedPositionPercent: signal.suggestedPositionPercent,
+        },
+      });
+    } catch (error) {
+      console.error(`Failed to save signal: ${error}`);
+      return null;
+    }
+  }
+
+  /**
+   * Zpracuje trade a uloží všechny relevantní signály
+   */
+  async processTradeForSignals(tradeId: string): Promise<{
+    signals: AdvancedSignal[];
+    savedCount: number;
+  }> {
+    const signals = await this.analyzeTradeForSignals(tradeId);
+    
+    if (signals.length === 0) {
+      return { signals: [], savedCount: 0 };
+    }
+
+    // Načti trade pro uložení
+    const { data: trade } = await supabase
+      .from(TABLES.TRADE)
+      .select('*')
+      .eq('id', tradeId)
+      .single();
+
+    if (!trade) {
+      return { signals, savedCount: 0 };
+    }
+
+    // Ulož pouze signály s confidence > 50
+    let savedCount = 0;
+    for (const signal of signals) {
+      if (signal.confidence >= 50) {
+        const saved = await this.saveSignal(trade, signal);
+        if (saved) savedCount++;
+      }
+    }
+
+    return { signals, savedCount };
+  }
+
+  /**
+   * Helper: Získá stáří tokenu v minutách
+   */
+  private async getTokenAgeMinutes(tokenId: string): Promise<number> {
+    const { data: firstTrade } = await supabase
+      .from(TABLES.TRADE)
+      .select('timestamp')
+      .eq('tokenId', tokenId)
+      .order('timestamp', { ascending: true })
+      .limit(1)
+      .single();
+
+    if (!firstTrade) {
+      return 0;
+    }
+
+    const firstTradeTime = new Date(firstTrade.timestamp);
+    const now = new Date();
+    return (now.getTime() - firstTradeTime.getTime()) / (1000 * 60);
+  }
+
+  /**
+   * Získá shrnutí všech aktivních signálů
+   */
+  async getActiveSignalsSummary(): Promise<{
+    byType: Record<string, number>;
+    byStrength: Record<string, number>;
+    total: number;
+  }> {
+    const signals = await this.signalRepo.findActive({ limit: 100 });
+    
+    const byType: Record<string, number> = {};
+    const byStrength: Record<string, number> = { weak: 0, medium: 0, strong: 0 };
+
+    for (const signal of signals) {
+      const type = (signal.meta as any)?.signalType || signal.model || 'unknown';
+      const strength = (signal.meta as any)?.strength || 'unknown';
+      
+      byType[type] = (byType[type] || 0) + 1;
+      if (strength in byStrength) {
+        byStrength[strength]++;
+      }
+    }
+
+    return {
+      byType,
+      byStrength,
+      total: signals.length,
+    };
+  }
+}
+

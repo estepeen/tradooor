@@ -8,6 +8,7 @@ import { LotMatchingService } from '../services/lot-matching.service.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
 import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
+import { AdvancedSignalsService } from '../services/advanced-signals.service.js';
 
 const normalizedTradeRepo = new NormalizedTradeRepository();
 const tradeRepo = new TradeRepository();
@@ -18,6 +19,10 @@ const lotMatchingService = new LotMatchingService();
 const smartWalletRepo = new SmartWalletRepository();
 const metricsHistoryRepo = new MetricsHistoryRepository();
 const metricsCalculator = new MetricsCalculatorService(smartWalletRepo, tradeRepo, metricsHistoryRepo);
+const advancedSignals = new AdvancedSignalsService();
+
+// Enable/disable advanced signals processing
+const ENABLE_ADVANCED_SIGNALS = process.env.ENABLE_ADVANCED_SIGNALS !== 'false';
 
 // Track wallets that need metrics recalculation (debounce)
 const walletMetricsDebounce = new Map<string, NodeJS.Timeout>(); // walletId -> timeout
@@ -194,6 +199,24 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
           );
         } catch (consensusError: any) {
           console.warn(`⚠️  Error checking consensus for trade ${trade.id}:`, consensusError.message);
+        }
+      });
+    }
+
+    // Rozšířené signály: Analyzuj trade a ulož všechny detekované signály
+    // Zahrnuje: whale-entry, early-sniper, momentum, re-entry, hot-token, accumulation
+    if (ENABLE_ADVANCED_SIGNALS) {
+      setImmediate(async () => {
+        try {
+          const { signals, savedCount } = await advancedSignals.processTradeForSignals(trade.id);
+          if (signals.length > 0) {
+            console.log(`🎯 [AdvancedSignals] Detected ${signals.length} signals for trade ${trade.id.substring(0, 8)}... (saved: ${savedCount})`);
+            for (const signal of signals) {
+              console.log(`   📊 ${signal.type} (${signal.strength}): ${signal.reasoning.substring(0, 80)}...`);
+            }
+          }
+        } catch (signalError: any) {
+          console.warn(`⚠️  Error processing advanced signals for trade ${trade.id}:`, signalError.message);
         }
       });
     }
