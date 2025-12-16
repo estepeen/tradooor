@@ -33,11 +33,14 @@ export interface SignalNotificationData {
   takeProfitPriceUsd?: number;
   aiRiskScore?: number;
   
-  // Wallets
+  // Wallets with trade details
   wallets?: Array<{
     label?: string;
     address: string;
     score: number;
+    tradeAmountUsd?: number;
+    tradePrice?: number;
+    tradeTime?: string;
   }>;
 }
 
@@ -230,18 +233,31 @@ export class DiscordNotificationService {
       }
     }
 
-    // Wallets (if available, show top 3)
+    // Wallets with trade details (show all)
     if (data.wallets && data.wallets.length > 0) {
-      const topWallets = data.wallets.slice(0, 3);
-      const walletList = topWallets.map((w, i) => {
+      const walletDetails = data.wallets.map((w) => {
         const name = w.label || `${w.address.substring(0, 6)}...`;
-        return `${i + 1}. **${name}** (${w.score}/100)`;
+        const parts = [`**${name}**`];
+        
+        if (w.tradeAmountUsd) {
+          parts.push(`$${this.formatNumber(w.tradeAmountUsd, 2)}`);
+        }
+        if (w.tradePrice) {
+          parts.push(`@ $${this.formatNumber(w.tradePrice, 8)}`);
+        }
+        if (w.tradeTime) {
+          const time = new Date(w.tradeTime);
+          const timeStr = time.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
+          parts.push(`• ${timeStr}`);
+        }
+        
+        return parts.join(' ');
       }).join('\n');
       
       fields.push({
-        name: '👛 Top Wallets',
-        value: walletList,
-        inline: true,
+        name: '👛 Traders',
+        value: walletDetails || 'No wallet data',
+        inline: false,
       });
     }
 
@@ -329,9 +345,9 @@ export class DiscordNotificationService {
       takeProfitPriceUsd: 0.000002468,
       aiRiskScore: 4,
       wallets: [
-        { label: 'Whale1', address: 'ABC123...', score: 92 },
-        { label: 'Sniper', address: 'DEF456...', score: 85 },
-        { address: 'GHI789...', score: 78 },
+        { label: 'Whale1', address: 'ABC123...', score: 92, tradeAmountUsd: 520, tradePrice: 0.000001234, tradeTime: new Date(Date.now() - 5 * 60000).toISOString() },
+        { label: 'Sniper', address: 'DEF456...', score: 85, tradeAmountUsd: 380, tradePrice: 0.000001156, tradeTime: new Date(Date.now() - 15 * 60000).toISOString() },
+        { address: 'GHI789...', score: 78, tradeAmountUsd: 210, tradePrice: 0.000001089, tradeTime: new Date(Date.now() - 25 * 60000).toISOString() },
       ],
     };
 

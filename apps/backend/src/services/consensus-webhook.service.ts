@@ -172,7 +172,17 @@ export class ConsensusWebhookService {
             .select('id, address, label, score')
             .in('id', walletIds);
 
-          walletsData = wallets || [];
+          // Spoj wallet info s trade info
+          walletsData = (wallets || []).map(w => {
+            const trade = sortedBuys.find(b => b.walletId === w.id);
+            return {
+              ...w,
+              tradeAmountUsd: trade ? Number(trade.amountBase || 0) : undefined,
+              tradePrice: trade ? Number(trade.priceBasePerToken || 0) : undefined,
+              tradeTime: trade?.timestamp,
+            };
+          });
+          
           const avgWalletScore = walletsData.length > 0
             ? walletsData.reduce((sum, w) => sum + (w.score || 0), 0) / walletsData.length
             : 50;
@@ -212,6 +222,9 @@ export class ConsensusWebhookService {
               label: w.label,
               address: w.address,
               score: w.score || 0,
+              tradeAmountUsd: w.tradeAmountUsd,
+              tradePrice: w.tradePrice,
+              tradeTime: w.tradeTime,
             })),
           };
 
