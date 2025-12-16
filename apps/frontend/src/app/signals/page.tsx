@@ -228,17 +228,34 @@ export default function SignalsPage() {
                     <td className="px-4 py-4">
                       <div className="flex items-center gap-2">
                         <div>
-                          <div className="font-semibold text-white">
-                            {signal.tokenSymbol || 'Unknown'}
-                          </div>
                           <a
-                            href={`https://solscan.io/token/${signal.tokenMint}`}
+                            href={`https://birdeye.so/token/${signal.tokenMint}?chain=solana`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-xs text-gray-500 hover:text-blue-400"
+                            className="font-semibold text-white hover:text-blue-400 transition-colors"
                           >
-                            {signal.tokenMint?.substring(0, 8)}...
+                            {signal.tokenSymbol || 'Unknown'}
                           </a>
+                          <div className="flex gap-2 mt-1">
+                            <a
+                              href={`https://birdeye.so/token/${signal.tokenMint}?chain=solana`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-gray-500 hover:text-green-400"
+                              title="View on Birdeye"
+                            >
+                              🦅 Birdeye
+                            </a>
+                            <a
+                              href={`https://solscan.io/token/${signal.tokenMint}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-gray-500 hover:text-blue-400"
+                              title="View on Solscan"
+                            >
+                              🔍 Solscan
+                            </a>
+                          </div>
                         </div>
                       </div>
                     </td>

@@ -123,25 +123,25 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
     if (now - lastRecalc >= CLOSED_LOT_DEBOUNCE_MS) {
       walletClosedLotDebounce.set(record.walletId, now);
       
-      setTimeout(async () => {
-        try {
-          const walletData = await smartWalletRepo.findById(record.walletId);
-          if (walletData) {
-            const trackingStartTime = walletData.createdAt ? new Date(walletData.createdAt) : undefined;
-            const closedLots = await lotMatchingService.processTradesForWallet(
-              record.walletId,
-              undefined, // Process all tokens
-              trackingStartTime
-            );
-            await lotMatchingService.saveClosedLots(closedLots);
-            if (closedLots.length > 0) {
-              console.log(`   ✅ [ClosedLots] Updated ${closedLots.length} closed lots for wallet ${record.walletId.substring(0, 8)}...`);
-            }
+    setTimeout(async () => {
+      try {
+        const walletData = await smartWalletRepo.findById(record.walletId);
+        if (walletData) {
+          const trackingStartTime = walletData.createdAt ? new Date(walletData.createdAt) : undefined;
+          const closedLots = await lotMatchingService.processTradesForWallet(
+            record.walletId,
+            undefined, // Process all tokens
+            trackingStartTime
+          );
+          await lotMatchingService.saveClosedLots(closedLots);
+          if (closedLots.length > 0) {
+            console.log(`   ✅ [ClosedLots] Updated ${closedLots.length} closed lots for wallet ${record.walletId.substring(0, 8)}...`);
           }
-        } catch (closedLotsError: any) {
-          console.warn(`⚠️  Failed to recalculate closed lots for wallet ${record.walletId}: ${closedLotsError?.message || closedLotsError}`);
         }
-      }, 0);
+      } catch (closedLotsError: any) {
+        console.warn(`⚠️  Failed to recalculate closed lots for wallet ${record.walletId}: ${closedLotsError?.message || closedLotsError}`);
+      }
+    }, 0);
     } else {
       console.log(`   ⏭️  [ClosedLots] Skipping recalculation for wallet ${record.walletId.substring(0, 8)}... (debounced, last recalc ${Math.round((now - lastRecalc) / 1000)}s ago)`);
     }

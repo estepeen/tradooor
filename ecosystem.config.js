@@ -139,26 +139,5 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
     },
-    // Monitoring worker for Level 1 & 2 features
-    // - Signal outcome tracking
-    // - Price alert monitoring  
-    // - Stats aggregation
-    // - Daily summary notifications
-    {
-      name: 'tradooor-monitoring-cron',
-      script: 'pnpm',
-      args: '--filter backend monitoring:cron',
-      cwd: process.cwd(),
-      env: {
-        NODE_ENV: 'production',
-      },
-      error_file: './logs/monitoring-cron-error.log',
-      out_file: './logs/monitoring-cron-out.log',
-      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      merge_logs: true,
-      autorestart: true,
-      max_restarts: 10,
-      min_uptime: '10s',
-    },
   ],
 };

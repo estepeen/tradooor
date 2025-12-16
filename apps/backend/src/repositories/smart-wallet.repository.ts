@@ -111,12 +111,12 @@ export class SmartWalletRepository {
           sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
           
           const { data: recentTrades, error: recentError } = await supabase
-            .from(TABLES.TRADE)
+        .from(TABLES.TRADE)
             .select('walletId, timestamp')
             .in('walletId', walletIds)
             .gte('timestamp', sevenDaysAgo.toISOString())
             .order('timestamp', { ascending: false });
-          
+
           if (!recentError && recentTrades) {
             // Group by walletId and get max timestamp (first one since ordered desc)
             const lastTradeMap = new Map<string, string>();
@@ -132,7 +132,7 @@ export class SmartWalletRepository {
             wallets.forEach((wallet: any) => {
               wallet.lastTradeTimestamp = lastTradeMap.get(wallet.id) || null;
             });
-          } else {
+            } else {
             // If fallback also fails, set all to null (non-blocking)
             wallets.forEach((wallet: any) => {
               wallet.lastTradeTimestamp = null;
@@ -140,13 +140,13 @@ export class SmartWalletRepository {
           }
         } else if (lastTrades) {
           // RPC success - use the aggregated results
-          const lastTradeMap = new Map<string, string>();
+      const lastTradeMap = new Map<string, string>();
           for (const row of lastTrades) {
             if (row.wallet_id && row.last_timestamp) {
               lastTradeMap.set(row.wallet_id, new Date(row.last_timestamp).toISOString());
-            }
-          }
-          
+        }
+        }
+
           wallets.forEach((wallet: any) => {
             wallet.lastTradeTimestamp = lastTradeMap.get(wallet.id) || null;
           });
