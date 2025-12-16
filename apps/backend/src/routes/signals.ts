@@ -3,6 +3,8 @@ import { SignalService } from '../services/signal.service.js';
 import { SignalRepository } from '../repositories/signal.repository.js';
 import { AdvancedSignalsService } from '../services/advanced-signals.service.js';
 import { AIDecisionService } from '../services/ai-decision.service.js';
+import { ConsensusSignalRepository } from '../repositories/consensus-signal.repository.js';
+import { TokenMarketDataService } from '../services/token-market-data.service.js';
 import { supabase, TABLES } from '../lib/supabase.js';
 
 const router = express.Router();
@@ -10,6 +12,171 @@ const signalService = new SignalService();
 const signalRepo = new SignalRepository();
 const advancedSignals = new AdvancedSignalsService();
 const aiDecision = new AIDecisionService();
+const consensusSignalRepo = new ConsensusSignalRepository();
+const tokenMarketData = new TokenMarketDataService();
+
+/**
+ * GET /api/signals/unified
+ * Unified signály - agregované a deduplikované pro trading
+ * Kombinuje ConsensusSignal (primární zdroj) s AI evaluacemi
+ */
+router.get('/unified', async (req, res) => {
+  try {
+    const { limit = 50, hours = 48 } = req.query;
+    
+    // 1. Načti ConsensusSignals (jsou už deduplikované per-token)
+    const consensusSignals = await consensusSignalRepo.findAll(Number(limit));
+    
+    // 2. Pro každý consensus signal vybuduj unified strukturu
+    const unifiedSignals = await Promise.all(
+      consensusSignals.map(async (cs: any) => {
+        try {
+          const token = cs.token || {};
+          const trades = cs.trades || [];
+          
+          // Aggreguj info o walletech z trades
+          const wallets = await Promise.all(
+            trades.map(async (t: any) => {
+              // Zkus načíst wallet info
+              const { data: wallet } = await supabase
+                .from(TABLES.SMART_WALLET)
+                .select('address, label, score, winRate')
+                .eq('id', t.walletId)
+                .single();
+              
+              return {
+                address: wallet?.address || t.walletAddress || 'Unknown',
+                label: wallet?.label || t.walletLabel,
+                score: wallet?.score || 0,
+                winRate: wallet?.winRate || 0,
+                tradePrice: Number(t.priceBasePerToken || 0),
+                tradeAmount: Number(t.amountBase || t.amountUsd || 0),
+                tradeTime: t.timestamp,
+              };
+            })
+          );
+          
+          // Spočítej průměrné score
+          const avgWalletScore = wallets.length > 0 
+            ? wallets.reduce((sum, w) => sum + (w.score || 0), 0) / wallets.length 
+            : 0;
+          
+          // Najdi nejlepší entry price (první nákup)
+          const sortedWallets = [...wallets].sort((a, b) => 
+            new Date(a.tradeTime).getTime() - new Date(b.tradeTime).getTime()
+          );
+          const firstTrade = sortedWallets[0];
+          const entryPriceUsd = firstTrade?.tradePrice || 0;
+          
+          // Zkus načíst aktuální market data
+          let marketData: any = null;
+          if (token.mintAddress) {
+            try {
+              marketData = await tokenMarketData.getMarketData(token.mintAddress);
+            } catch (e) {
+              // Market data není kritická
+            }
+          }
+          
+          // Zkus načíst AI decision z Signal tabulky (pokud existuje)
+          const { data: relatedSignal } = await supabase
+            .from(TABLES.SIGNAL)
+            .select('*')
+            .eq('tokenId', cs.tokenId)
+            .eq('model', 'consensus')
+            .order('createdAt', { ascending: false })
+            .limit(1)
+            .single();
+          
+          // Spočítej price change
+          const currentPrice = marketData?.price || 0;
+          const priceChangePercent = entryPriceUsd > 0 && currentPrice > 0
+            ? ((currentPrice - entryPriceUsd) / entryPriceUsd) * 100
+            : undefined;
+          
+          // Urči strength na základě wallet count a scores
+          let strength: 'weak' | 'medium' | 'strong' = 'medium';
+          if (cs.walletCount >= 3 && avgWalletScore >= 70) strength = 'strong';
+          else if (cs.walletCount === 2 && avgWalletScore < 50) strength = 'weak';
+          
+          // Urči risk level
+          let riskLevel: 'low' | 'medium' | 'high' = 'medium';
+          if (cs.walletCount >= 3 && avgWalletScore >= 70) riskLevel = 'low';
+          else if (cs.walletCount === 2 && avgWalletScore < 50) riskLevel = 'high';
+          
+          return {
+            id: cs.id,
+            tokenId: cs.tokenId,
+            tokenSymbol: token.symbol || 'Unknown',
+            tokenMint: token.mintAddress || '',
+            type: 'buy' as const,
+            signalType: 'consensus',
+            strength,
+            
+            // Traders info
+            walletCount: cs.walletCount || wallets.length,
+            wallets: wallets.slice(0, 5), // Max 5 pro UI
+            avgWalletScore: Math.round(avgWalletScore),
+            
+            // Prices
+            entryPriceUsd,
+            currentPriceUsd: currentPrice || undefined,
+            priceChangePercent,
+            stopLossPrice: relatedSignal?.stopLossPriceUsd ? Number(relatedSignal.stopLossPriceUsd) : undefined,
+            takeProfitPrice: relatedSignal?.takeProfitPriceUsd ? Number(relatedSignal.takeProfitPriceUsd) : undefined,
+            
+            // Market data
+            marketCapUsd: marketData?.marketCap,
+            liquidityUsd: marketData?.liquidity,
+            volume24hUsd: marketData?.volume24h,
+            tokenAgeMinutes: marketData?.ageMinutes,
+            
+            // AI Decision (z relatedSignal pokud existuje)
+            aiDecision: relatedSignal?.aiDecision as any,
+            aiConfidence: relatedSignal?.aiConfidence ? Number(relatedSignal.aiConfidence) : undefined,
+            aiReasoning: relatedSignal?.aiReasoning,
+            aiPositionPercent: relatedSignal?.aiSuggestedPositionPercent ? Number(relatedSignal.aiSuggestedPositionPercent) : undefined,
+            aiStopLossPercent: relatedSignal?.aiStopLossPercent ? Number(relatedSignal.aiStopLossPercent) : undefined,
+            aiTakeProfitPercent: relatedSignal?.aiTakeProfitPercent ? Number(relatedSignal.aiTakeProfitPercent) : undefined,
+            aiRiskScore: relatedSignal?.aiRiskScore ? Number(relatedSignal.aiRiskScore) : undefined,
+            
+            // Status
+            status: 'active' as const,
+            qualityScore: Math.round(avgWalletScore * 0.5 + cs.walletCount * 15),
+            riskLevel,
+            
+            // Timestamps
+            firstTradeTime: cs.firstTradeTime,
+            latestTradeTime: cs.latestTradeTime,
+            createdAt: cs.createdAt || cs.firstTradeTime,
+            expiresAt: undefined,
+          };
+        } catch (err) {
+          console.warn(`Error processing consensus signal ${cs.id}:`, err);
+          return null;
+        }
+      })
+    );
+    
+    // Filter out nulls and sort by latest trade time
+    const validSignals = unifiedSignals
+      .filter(s => s !== null)
+      .sort((a, b) => new Date(b!.latestTradeTime).getTime() - new Date(a!.latestTradeTime).getTime());
+    
+    res.json({
+      success: true,
+      signals: validSignals,
+      count: validSignals.length,
+      source: 'consensus',
+    });
+  } catch (error: any) {
+    console.error('❌ Error fetching unified signals:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch unified signals',
+    });
+  }
+});
 
 /**
  * GET /api/signals
@@ -311,6 +478,83 @@ router.post('/expire-old', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to expire old signals',
+    });
+  }
+});
+
+/**
+ * POST /api/signals/cleanup-duplicates
+ * Smaže duplicitní signály - ponechá pouze jeden per token
+ */
+router.post('/cleanup-duplicates', async (req, res) => {
+  try {
+    // 1. Najdi duplicitní tokeny
+    const { data: duplicates, error: findError } = await supabase
+      .from(TABLES.SIGNAL)
+      .select('tokenId')
+      .eq('model', 'consensus');
+
+    if (findError) {
+      throw new Error(`Failed to find signals: ${findError.message}`);
+    }
+
+    // Spočítej duplicity
+    const tokenCounts: Record<string, number> = {};
+    (duplicates || []).forEach((s: any) => {
+      tokenCounts[s.tokenId] = (tokenCounts[s.tokenId] || 0) + 1;
+    });
+
+    const duplicateTokens = Object.entries(tokenCounts)
+      .filter(([_, count]) => count > 1)
+      .map(([tokenId, count]) => ({ tokenId, count }));
+
+    if (duplicateTokens.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No duplicates found',
+        deleted: 0,
+      });
+    }
+
+    // 2. Pro každý token s duplicitami ponech jen nejnovější
+    let deletedCount = 0;
+    for (const { tokenId } of duplicateTokens) {
+      // Najdi všechny signály pro token
+      const { data: tokenSignals } = await supabase
+        .from(TABLES.SIGNAL)
+        .select('id, createdAt')
+        .eq('tokenId', tokenId)
+        .eq('model', 'consensus')
+        .order('createdAt', { ascending: false });
+
+      if (tokenSignals && tokenSignals.length > 1) {
+        // Smaž všechny kromě nejnovějšího
+        const idsToDelete = tokenSignals.slice(1).map((s: any) => s.id);
+        
+        const { error: deleteError } = await supabase
+          .from(TABLES.SIGNAL)
+          .delete()
+          .in('id', idsToDelete);
+
+        if (!deleteError) {
+          deletedCount += idsToDelete.length;
+        }
+      }
+    }
+
+    console.log(`🧹 Cleaned up ${deletedCount} duplicate signals`);
+
+    res.json({
+      success: true,
+      message: `Cleaned up ${deletedCount} duplicate signals`,
+      deleted: deletedCount,
+      duplicateTokens: duplicateTokens.length,
+    });
+  } catch (error: any) {
+    console.error('❌ Error cleaning up duplicates:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to clean up duplicates',
     });
   }
 });
