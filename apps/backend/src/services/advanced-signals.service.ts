@@ -18,6 +18,7 @@ import { TradeRepository } from '../repositories/trade.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
 import { TokenMarketDataService } from './token-market-data.service.js';
 import { AIDecisionService, AIContext, AIDecision } from './ai-decision.service.js';
+import { DiscordNotificationService, SignalNotificationData } from './discord-notification.service.js';
 
 // Signal type definitions
 export type AdvancedSignalType = 
@@ -69,20 +70,20 @@ export interface AdvancedSignal {
   aiDecision?: AIDecision;
 }
 
-// Thresholds for signal generation
+// Thresholds for signal generation (relaxed for more signals)
 const THRESHOLDS = {
-  WHALE_MIN_SCORE: 80,
-  WHALE_MIN_POSITION_MULTIPLIER: 2, // 2x their average position
-  EARLY_SNIPER_MAX_TOKEN_AGE_MINUTES: 30,
-  EARLY_SNIPER_MIN_WALLET_SCORE: 65,
-  MOMENTUM_MIN_PRICE_CHANGE_5M: 10, // 10%
-  MOMENTUM_MIN_VOLUME_SPIKE: 3, // 3x normal volume
-  REENTRY_MIN_PREVIOUS_PNL: 20, // 20% profit on previous trade
+  WHALE_MIN_SCORE: 70,                    // Was 80
+  WHALE_MIN_POSITION_MULTIPLIER: 1.5,     // Was 2 - 1.5x their average position
+  EARLY_SNIPER_MAX_TOKEN_AGE_MINUTES: 60, // Was 30 - up to 1 hour old
+  EARLY_SNIPER_MIN_WALLET_SCORE: 55,      // Was 65
+  MOMENTUM_MIN_PRICE_CHANGE_5M: 5,        // Was 10% - 5% price change
+  MOMENTUM_MIN_VOLUME_SPIKE: 2,           // Was 3 - 2x normal volume
+  REENTRY_MIN_PREVIOUS_PNL: 10,           // Was 20% - 10% profit on previous trade
   EXIT_WARNING_MIN_SELLERS: 2,
   HOT_TOKEN_MIN_WALLETS: 3,
-  HOT_TOKEN_MIN_AVG_SCORE: 70,
-  ACCUMULATION_MIN_BUYS: 3,
-  ACCUMULATION_TIME_WINDOW_HOURS: 6,
+  HOT_TOKEN_MIN_AVG_SCORE: 60,            // Was 70
+  ACCUMULATION_MIN_BUYS: 2,               // Was 3
+  ACCUMULATION_TIME_WINDOW_HOURS: 12,     // Was 6
 };
 
 export class AdvancedSignalsService {
@@ -92,6 +93,7 @@ export class AdvancedSignalsService {
   private tokenRepo: TokenRepository;
   private tokenMarketData: TokenMarketDataService;
   private aiDecision: AIDecisionService;
+  private discordNotification: DiscordNotificationService;
 
   constructor() {
     this.signalRepo = new SignalRepository();
@@ -100,6 +102,7 @@ export class AdvancedSignalsService {
     this.tokenMarketData = new TokenMarketDataService();
     this.aiDecision = new AIDecisionService();
     this.tokenRepo = new TokenRepository();
+    this.discordNotification = new DiscordNotificationService();
   }
 
   /**
@@ -685,7 +688,49 @@ export class AdvancedSignalsService {
 
       // Save enhanced signal
       const saved = await this.saveEnhancedSignal(trade, signal, marketData);
-      if (saved) savedCount++;
+      if (saved) {
+        savedCount++;
+        
+        // Send Discord notification for BUY signals
+        if (signal.suggestedAction === 'buy') {
+          try {
+            const notificationData: SignalNotificationData = {
+              tokenSymbol: token?.symbol || 'Unknown',
+              tokenMint: token?.mintAddress || '',
+              signalType: signal.type,
+              strength: signal.strength,
+              walletCount: signal.context.consensusWalletCount || 1,
+              avgWalletScore: signal.context.walletScore || 0,
+              entryPriceUsd: signal.entryPriceUsd || 0,
+              marketCapUsd: marketData.marketCap || undefined,
+              liquidityUsd: marketData.liquidity || undefined,
+              volume24hUsd: marketData.volume24h || undefined,
+              tokenAgeMinutes: marketData.tokenAgeMinutes || undefined,
+              aiDecision: signal.aiDecision?.decision,
+              aiConfidence: signal.aiDecision?.confidence,
+              aiReasoning: signal.aiDecision?.reasoning,
+              aiPositionPercent: signal.aiDecision?.suggestedPositionPercent,
+              stopLossPercent: signal.aiDecision?.stopLossPercent,
+              takeProfitPercent: signal.aiDecision?.takeProfitPercent,
+              stopLossPriceUsd: signal.stopLossPriceUsd,
+              takeProfitPriceUsd: signal.takeProfitPriceUsd,
+              aiRiskScore: signal.aiDecision?.riskScore,
+              wallets: [{
+                label: wallet?.label,
+                address: wallet?.address || '',
+                score: wallet?.score || 0,
+                tradeAmountUsd: Number(trade.amountBase || 0),
+                tradePrice: Number(trade.priceBasePerToken || 0),
+                tradeTime: trade.timestamp,
+              }],
+            };
+            
+            await this.discordNotification.sendSignalNotification(notificationData);
+          } catch (discordError: any) {
+            console.warn(`⚠️  Discord notification failed: ${discordError.message}`);
+          }
+        }
+      }
     }
 
     return { signals, savedCount, aiEvaluated };

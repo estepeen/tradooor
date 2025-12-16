@@ -37,22 +37,31 @@ router.get('/unified', async (req, res) => {
           const trades = cs.trades || [];
           
           // Aggreguj info o walletech z trades
+          // trades array má strukturu: {id, wallet: {id, address, label}, amountBase, priceBasePerToken, timestamp}
           const wallets = await Promise.all(
             trades.map(async (t: any) => {
-              // Zkus načíst wallet info
-              const { data: wallet } = await supabase
-                .from(TABLES.SMART_WALLET)
-                .select('address, label, score, winRate')
-                .eq('id', t.walletId)
-                .single();
+              // Wallet může být uložen jako nested objekt nebo jako walletId
+              const walletData = t.wallet || {};
+              const walletId = walletData.id || t.walletId;
+              
+              // Zkus načíst aktuální wallet data z DB (pro score)
+              let dbWallet: any = null;
+              if (walletId) {
+                const { data } = await supabase
+                  .from(TABLES.SMART_WALLET)
+                  .select('address, label, score, winRate')
+                  .eq('id', walletId)
+                  .single();
+                dbWallet = data;
+              }
               
               return {
-                address: wallet?.address || t.walletAddress || 'Unknown',
-                label: wallet?.label || t.walletLabel,
-                score: wallet?.score || 0,
-                winRate: wallet?.winRate || 0,
+                address: dbWallet?.address || walletData.address || 'Unknown',
+                label: dbWallet?.label || walletData.label || null,
+                score: dbWallet?.score || 0,
+                winRate: dbWallet?.winRate || 0,
                 tradePrice: Number(t.priceBasePerToken || 0),
-                tradeAmount: Number(t.amountBase || t.amountUsd || 0),
+                tradeAmount: Number(t.amountBase || 0),
                 tradeTime: t.timestamp,
               };
             })
