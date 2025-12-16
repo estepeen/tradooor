@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { fetchSignals, fetchSignalsSummary, fetchSignalTypes, evaluateSignalWithAI, fetchAIPerformance } from '@/lib/api';
 import { formatNumber, formatPercent, formatDate } from '@/lib/utils';
-import Spinner from '@/components/Spinner';
+import { Spinner } from '@/components/Spinner';
 
 // Signal type configuration with icons and colors
 const SIGNAL_CONFIG: Record<string, { icon: string; color: string; bgColor: string }> = {
