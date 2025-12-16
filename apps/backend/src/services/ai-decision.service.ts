@@ -298,7 +298,10 @@ Important guidelines:
       throw new Error(`Groq API error: ${error}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
     
     return {
       content: data.choices?.[0]?.message?.content || '',
@@ -347,7 +350,10 @@ Important guidelines:
       throw new Error(`OpenAI API error: ${error}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+      usage?: { prompt_tokens?: number; completion_tokens?: number };
+    };
     
     return {
       content: data.choices?.[0]?.message?.content || '',
@@ -392,7 +398,10 @@ Important guidelines:
       throw new Error(`Claude API error: ${error}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as {
+      content?: Array<{ text?: string }>;
+      usage?: { input_tokens?: number; output_tokens?: number };
+    };
     
     return {
       content: data.content?.[0]?.text || '',

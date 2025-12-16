@@ -28,6 +28,7 @@ const metricsCalculator = new MetricsCalculatorService(
 // TokenMetadataBatchService removed - metadata se načítá pouze při webhooku
 const solscanClient = new SolscanClient();
 const binancePriceService = new BinancePriceService();
+const consensusSignalRepo = new ConsensusSignalRepository();
 const tokenSecurityService = new TokenSecurityService();
 
 // GET /api/trades?walletId=xxx - Get trades for a wallet
