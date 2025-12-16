@@ -3,11 +3,16 @@
  * Used for tracking market conditions at entry/exit for copytrading analysis
  */
 
-interface TokenMarketData {
+export interface TokenMarketData {
+  price: number | null; // Current price in USD
   marketCap: number | null; // Market cap in USD
   liquidity: number | null; // Liquidity in USD
   volume24h: number | null; // 24h volume in USD
   tokenAgeMinutes: number | null; // Token age in minutes (from creation)
+  ageMinutes: number | null; // Alias for tokenAgeMinutes
+  holders?: number | null; // Number of holders
+  topHolderPercent?: number | null; // Top holder %
+  top10HolderPercent?: number | null; // Top 10 holders %
 }
 
 export class TokenMarketDataService {
@@ -35,10 +40,12 @@ export class TokenMarketDataService {
     if (!this.birdeyeApiKey) {
       console.warn('⚠️  BIRDEYE_API_KEY not set, cannot fetch market data');
       return {
+        price: null,
         marketCap: null,
         liquidity: null,
         volume24h: null,
         tokenAgeMinutes: null,
+        ageMinutes: null,
       };
     }
 
@@ -62,10 +69,12 @@ export class TokenMarketDataService {
           console.warn(`⚠️  Birdeye API error (${response.status}): ${errorText.substring(0, 200)}`);
         }
         return {
+          price: null,
           marketCap: null,
           liquidity: null,
           volume24h: null,
           tokenAgeMinutes: null,
+          ageMinutes: null,
         };
       }
 
@@ -75,10 +84,12 @@ export class TokenMarketDataService {
       if (!responseData.success || !responseData.data) {
         console.warn(`⚠️  Birdeye API returned success=false: ${responseData.message || 'Unknown error'}`);
         return {
+          price: null,
           marketCap: null,
           liquidity: null,
           volume24h: null,
           tokenAgeMinutes: null,
+          ageMinutes: null,
         };
       }
 
@@ -105,11 +116,20 @@ export class TokenMarketDataService {
         tokenAgeMinutes = Math.round((now.getTime() - createdAtDate.getTime()) / (1000 * 60));
       }
 
+      // Get price from overview
+      const price = overview.price !== undefined ? Number(overview.price) :
+                    (overview.v24hUSD !== undefined && overview.supply !== undefined 
+                      ? Number(overview.v24hUSD) / Number(overview.supply) 
+                      : null);
+
       const result: TokenMarketData = {
+        price,
         marketCap,
         liquidity,
         volume24h,
         tokenAgeMinutes,
+        ageMinutes: tokenAgeMinutes,
+        holders: overview.holder || overview.holders || null,
       };
 
       // Cache the result
@@ -119,10 +139,12 @@ export class TokenMarketDataService {
     } catch (error: any) {
       console.warn(`⚠️  Error fetching market data for ${mintAddress.substring(0, 8)}...: ${error.message}`);
       return {
+        price: null,
         marketCap: null,
         liquidity: null,
         volume24h: null,
         tokenAgeMinutes: null,
+        ageMinutes: null,
       };
     }
   }
