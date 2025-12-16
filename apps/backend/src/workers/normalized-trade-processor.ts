@@ -6,6 +6,8 @@ import { TradeValuationService } from '../services/trade-valuation.service.js';
 import { ConsensusWebhookService } from '../services/consensus-webhook.service.js';
 import { LotMatchingService } from '../services/lot-matching.service.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
+import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
+import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
 
 const normalizedTradeRepo = new NormalizedTradeRepository();
 const tradeRepo = new TradeRepository();
@@ -14,9 +16,20 @@ const valuationService = new TradeValuationService();
 const consensusService = new ConsensusWebhookService();
 const lotMatchingService = new LotMatchingService();
 const smartWalletRepo = new SmartWalletRepository();
+const metricsHistoryRepo = new MetricsHistoryRepository();
+const metricsCalculator = new MetricsCalculatorService(smartWalletRepo, tradeRepo, metricsHistoryRepo);
 
-const IDLE_DELAY_MS = Number(process.env.NORMALIZED_TRADE_WORKER_IDLE_MS || 1500);
-const BATCH_SIZE = Number(process.env.NORMALIZED_TRADE_WORKER_BATCH || 20);
+// Track wallets that need metrics recalculation (debounce)
+const walletMetricsDebounce = new Map<string, NodeJS.Timeout>(); // walletId -> timeout
+const METRICS_DEBOUNCE_MS = 10000; // 10 seconds debounce for metrics calculation
+
+const IDLE_DELAY_MS = Number(process.env.NORMALIZED_TRADE_WORKER_IDLE_MS || 3000); // Increased from 1500ms to 3000ms
+const BATCH_SIZE = Number(process.env.NORMALIZED_TRADE_WORKER_BATCH || 10); // Reduced from 20 to 10 for lower CPU usage
+const DELAY_BETWEEN_TRADES_MS = 200; // Add delay between processing trades
+
+// Debounce map for closed lot recalculation - prevents recalculating same wallet multiple times in short period
+const walletClosedLotDebounce = new Map<string, number>(); // walletId -> last recalculation timestamp
+const CLOSED_LOT_DEBOUNCE_MS = 5000; // 5 seconds debounce (short enough to not delay updates, long enough to batch rapid trades)
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -96,30 +109,63 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       valuationTimestamp: valuation.timestamp,
     });
 
-    // DŮLEŽITÉ: Přepočítej closed positions okamžitě po každém novém trade
-    // Toto zajišťuje, že closed positions jsou vždy aktuální
-    // Použij setTimeout s 0 delay místo setImmediate pro lepší async handling
-    setTimeout(async () => {
-      try {
-        const walletData = await smartWalletRepo.findById(record.walletId);
-        if (walletData) {
-          const trackingStartTime = walletData.createdAt ? new Date(walletData.createdAt) : undefined;
-          const closedLots = await lotMatchingService.processTradesForWallet(
-            record.walletId,
-            undefined, // Process all tokens
-            trackingStartTime
-          );
-          await lotMatchingService.saveClosedLots(closedLots);
-          if (closedLots.length > 0) {
-            console.log(`   ✅ [ClosedLots] Updated ${closedLots.length} closed lots for wallet ${record.walletId.substring(0, 8)}...`);
+    // DŮLEŽITÉ: Přepočítej closed positions s debounce
+    // Debounce zabraňuje přepočítávání stejné walletky vícekrát během krátké doby
+    // Toto výrazně snižuje CPU zatížení při vysokém objemu trades
+    const lastRecalc = walletClosedLotDebounce.get(record.walletId) || 0;
+    const now = Date.now();
+    
+    if (now - lastRecalc >= CLOSED_LOT_DEBOUNCE_MS) {
+      walletClosedLotDebounce.set(record.walletId, now);
+      
+      setTimeout(async () => {
+        try {
+          const walletData = await smartWalletRepo.findById(record.walletId);
+          if (walletData) {
+            const trackingStartTime = walletData.createdAt ? new Date(walletData.createdAt) : undefined;
+            const closedLots = await lotMatchingService.processTradesForWallet(
+              record.walletId,
+              undefined, // Process all tokens
+              trackingStartTime
+            );
+            await lotMatchingService.saveClosedLots(closedLots);
+            if (closedLots.length > 0) {
+              console.log(`   ✅ [ClosedLots] Updated ${closedLots.length} closed lots for wallet ${record.walletId.substring(0, 8)}...`);
+            }
           }
+        } catch (closedLotsError: any) {
+          console.warn(`⚠️  Failed to recalculate closed lots for wallet ${record.walletId}: ${closedLotsError?.message || closedLotsError}`);
         }
-      } catch (closedLotsError: any) {
-        console.warn(`⚠️  Failed to recalculate closed lots for wallet ${record.walletId}: ${closedLotsError?.message || closedLotsError}`);
-      }
-    }, 0);
+      }, 0);
+    } else {
+      console.log(`   ⏭️  [ClosedLots] Skipping recalculation for wallet ${record.walletId.substring(0, 8)}... (debounced, last recalc ${Math.round((now - lastRecalc) / 1000)}s ago)`);
+    }
 
-    // Také přidej do fronty pro přepočet metrik (score, win rate, atd.)
+    // SELL trades: Calculate metrics immediately (with debounce) for instant UI update
+    // This ensures closed positions and PnL are updated without waiting for the queue worker
+    if (trade.side === 'sell') {
+      // Clear any existing debounce timer for this wallet
+      const existingTimeout = walletMetricsDebounce.get(record.walletId);
+      if (existingTimeout) {
+        clearTimeout(existingTimeout);
+      }
+      
+      // Set new debounce timer - calculate metrics after METRICS_DEBOUNCE_MS
+      const timeout = setTimeout(async () => {
+        walletMetricsDebounce.delete(record.walletId);
+        try {
+          console.log(`📊 [Metrics] Calculating metrics for wallet ${record.walletId.substring(0, 8)}... (triggered by SELL trade)`);
+          await metricsCalculator.calculateMetricsForWallet(record.walletId);
+          console.log(`✅ [Metrics] Metrics updated for wallet ${record.walletId.substring(0, 8)}...`);
+        } catch (metricsError: any) {
+          console.warn(`⚠️  Failed to calculate metrics for wallet ${record.walletId}: ${metricsError?.message || metricsError}`);
+        }
+      }, METRICS_DEBOUNCE_MS);
+      
+      walletMetricsDebounce.set(record.walletId, timeout);
+    }
+    
+    // Also enqueue for queue worker as backup (in case immediate calculation fails)
     try {
       await walletQueueRepo.enqueue(record.walletId);
     } catch (enqueueError: any) {
@@ -187,8 +233,13 @@ async function runWorker() {
         continue;
       }
 
-      for (const record of pending) {
-        await processNormalizedTrade(record);
+      for (let i = 0; i < pending.length; i++) {
+        await processNormalizedTrade(pending[i]);
+        
+        // Add delay between trades to reduce CPU spikes (except for last trade)
+        if (i < pending.length - 1 && DELAY_BETWEEN_TRADES_MS > 0) {
+          await sleep(DELAY_BETWEEN_TRADES_MS);
+        }
       }
     } catch (loopError: any) {
       console.error('❌ [NormalizedTradeWorker] Loop error:', loopError?.message || loopError);

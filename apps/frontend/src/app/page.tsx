@@ -63,11 +63,12 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, search, minScore, sortBy, sortOrder, selectedTags]);
 
-  // Auto-refresh every 30 seconds
+  // Auto-refresh every 5 minutes (reduced from 30s to lower CPU usage)
+  // The data doesn't change that frequently, and this prevents excessive DB queries
   useEffect(() => {
     const interval = setInterval(() => {
       loadWallets();
-    }, 30000); // 30 seconds
+    }, 300000); // 5 minutes (was 30 seconds)
 
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps

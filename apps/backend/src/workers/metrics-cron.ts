@@ -60,9 +60,14 @@ async function calculateAllMetrics() {
     let successCount = 0;
     let errorCount = 0;
 
-    for (const wallet of walletList) {
+    // Add delay between wallet processing to reduce CPU spikes
+    // This spreads the load over time instead of hitting the database with all wallets at once
+    const DELAY_BETWEEN_WALLETS_MS = 500; // 500ms delay between each wallet
+    
+    for (let i = 0; i < walletList.length; i++) {
+      const wallet = walletList[i];
       try {
-        console.log(`  Processing: ${wallet.address.substring(0, 8)}...`);
+        console.log(`  Processing (${i + 1}/${walletList.length}): ${wallet.address.substring(0, 8)}...`);
         
         // DŮLEŽITÉ: Vytvoř ClosedLot před výpočtem metrik (jednotný princip)
         // Zajišťuje, že PnL se počítá POUZE z ClosedLot
@@ -83,6 +88,11 @@ async function calculateAllMetrics() {
         // Nyní přepočítej metriky (které používají POUZE ClosedLot)
         await metricsCalculator.calculateMetricsForWallet(wallet.id);
         successCount++;
+        
+        // Add delay between wallets to reduce CPU spikes (except for last wallet)
+        if (i < walletList.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_WALLETS_MS));
+        }
       } catch (error) {
         console.error(`  ❌ Error processing ${wallet.address}:`, error);
         errorCount++;

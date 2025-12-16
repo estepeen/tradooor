@@ -302,3 +302,16 @@ export async function recalculateWalletClosedPositions(walletId: string) {
   return res.json();
 }
 
+export async function recalculateWallet(walletId: string) {
+  const res = await fetch(`${API_BASE_URL}/smart-wallets/${walletId}/recalculate`, {
+    method: 'POST',
+    cache: 'no-store',
+    headers: { 'Cache-Control': 'no-cache' },
+  });
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Failed to recalculate wallet' }));
+    throw new Error(error.error || error.message || 'Failed to recalculate wallet');
+  }
+  return res.json();
+}
+

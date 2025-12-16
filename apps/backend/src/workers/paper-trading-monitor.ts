@@ -29,7 +29,7 @@ const PAPER_TRADING_POSITION_SIZE_PERCENT = process.env.PAPER_TRADING_POSITION_S
 const PAPER_TRADING_MAX_POSITION_SIZE_USD = process.env.PAPER_TRADING_MAX_POSITION_SIZE_USD ? Number(process.env.PAPER_TRADING_MAX_POSITION_SIZE_USD) : undefined;
 const PAPER_TRADING_MAX_OPEN_POSITIONS = process.env.PAPER_TRADING_MAX_OPEN_POSITIONS ? Number(process.env.PAPER_TRADING_MAX_OPEN_POSITIONS) : 10;
 
-const CHECK_INTERVAL_MS = 30000; // Check every 30 seconds
+const CHECK_INTERVAL_MS = 300000; // Check every 5 minutes (reduced from 30s to lower CPU usage)
 
 async function monitorTrades() {
   if (!PAPER_TRADING_ENABLED) {

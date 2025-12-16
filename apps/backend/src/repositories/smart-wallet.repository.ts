@@ -90,83 +90,73 @@ export class SmartWalletRepository {
       throw new Error(`Failed to fetch wallets: ${error.message}`);
     }
 
-    // Get last trade timestamp and recent PnL in USD for each wallet
+    // Get last trade timestamp for each wallet using a SINGLE aggregated query
+    // This replaces N+1 queries (200+ individual queries) with just ONE query
     if (wallets && wallets.length > 0) {
       const walletIds = wallets.map(w => w.id);
       
-      // Fetch last trade timestamp for each wallet
-      // Use Promise.all to fetch the most recent trade for each wallet in parallel
-      const lastTradePromises = walletIds.map(async (walletId) => {
-        const { data: lastTrade, error } = await supabase
-        .from(TABLES.TRADE)
-          .select('timestamp')
-          .eq('walletId', walletId)
-          .order('timestamp', { ascending: false })
-          .limit(1)
-          .single();
-
-        if (error) {
-          // If no trades found, that's OK - return null
-          if (error.code === 'PGRST116') {
-            return { walletId, timestamp: null };
-        }
-          // Don't log full HTML errors from Supabase/Cloudflare (too verbose)
-          const errorMsg = typeof error.message === 'string' && error.message.length > 200
-            ? error.message.substring(0, 200) + '...'
-            : error.message;
-          // Only log non-HTML errors (Supabase 500 errors are often HTML from Cloudflare)
-          if (!errorMsg?.includes('<!DOCTYPE html>') && !errorMsg?.includes('<html')) {
-            console.error(`❌ Error fetching last trade for wallet ${walletId}:`, errorMsg);
-          }
-          return { walletId, timestamp: null };
-        }
-
-        if (lastTrade && lastTrade.timestamp) {
-          try {
-            // Convert to ISO string to ensure proper JSON serialization
-            const timestamp = lastTrade.timestamp instanceof Date 
-              ? lastTrade.timestamp.toISOString()
-              : new Date(lastTrade.timestamp).toISOString();
-            
-            // Validate that timestamp is valid
-            if (!isNaN(new Date(timestamp).getTime())) {
-              return { walletId, timestamp };
-            } else {
-              console.warn(`⚠️ Invalid timestamp for wallet ${walletId}:`, lastTrade.timestamp);
-              return { walletId, timestamp: null };
-              }
-          } catch (error) {
-            console.error(`❌ Error parsing timestamp for wallet ${walletId}:`, error, lastTrade.timestamp);
-            return { walletId, timestamp: null };
-          }
-        }
-
-        return { walletId, timestamp: null };
-          });
+      try {
+        // Use raw SQL via Supabase RPC or a single query with grouping
+        // Fetch max timestamp per walletId in one query
+        const { data: lastTrades, error: lastTradesError } = await supabase
+          .rpc('get_last_trade_timestamps', { wallet_ids: walletIds });
+        
+        if (lastTradesError) {
+          // Fallback: If RPC doesn't exist, use a simpler approach with a single query
+          // This is still better than N+1 queries - fetch recent trades and group client-side
+          console.log('📊 Using fallback query for last trade timestamps (RPC not available)');
           
-      // Wait for all queries to complete
-      const lastTradeResults = await Promise.all(lastTradePromises);
-
-      // Create a map of walletId -> lastTradeTimestamp (as ISO string)
-      const lastTradeMap = new Map<string, string>();
-      for (const result of lastTradeResults) {
-        if (result.timestamp) {
-          lastTradeMap.set(result.walletId, result.timestamp);
+          // Fetch trades from last 7 days for these wallets (much smaller dataset)
+          const sevenDaysAgo = new Date();
+          sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+          
+          const { data: recentTrades, error: recentError } = await supabase
+            .from(TABLES.TRADE)
+            .select('walletId, timestamp')
+            .in('walletId', walletIds)
+            .gte('timestamp', sevenDaysAgo.toISOString())
+            .order('timestamp', { ascending: false });
+          
+          if (!recentError && recentTrades) {
+            // Group by walletId and get max timestamp (first one since ordered desc)
+            const lastTradeMap = new Map<string, string>();
+            for (const trade of recentTrades) {
+              if (!lastTradeMap.has(trade.walletId)) {
+                const timestamp = trade.timestamp instanceof Date 
+                  ? trade.timestamp.toISOString()
+                  : new Date(trade.timestamp).toISOString();
+                lastTradeMap.set(trade.walletId, timestamp);
+              }
+            }
+            
+            wallets.forEach((wallet: any) => {
+              wallet.lastTradeTimestamp = lastTradeMap.get(wallet.id) || null;
+            });
+          } else {
+            // If fallback also fails, set all to null (non-blocking)
+            wallets.forEach((wallet: any) => {
+              wallet.lastTradeTimestamp = null;
+            });
+          }
+        } else if (lastTrades) {
+          // RPC success - use the aggregated results
+          const lastTradeMap = new Map<string, string>();
+          for (const row of lastTrades) {
+            if (row.wallet_id && row.last_timestamp) {
+              lastTradeMap.set(row.wallet_id, new Date(row.last_timestamp).toISOString());
+            }
+          }
+          
+          wallets.forEach((wallet: any) => {
+            wallet.lastTradeTimestamp = lastTradeMap.get(wallet.id) || null;
+          });
         }
-        }
-
-      // Add lastTradeTimestamp to each wallet (as ISO string)
+      } catch (error) {
+        console.warn('⚠️ Error fetching last trade timestamps, continuing without:', error);
         wallets.forEach((wallet: any) => {
-          wallet.lastTradeTimestamp = lastTradeMap.get(wallet.id) || null;
+          wallet.lastTradeTimestamp = null;
         });
-
-      // Debug: Log wallets without lastTradeTimestamp (only if they have trades)
-      const walletsWithoutTimestamp = wallets.filter((w: any) => !w.lastTradeTimestamp && w.totalTrades > 0);
-      if (walletsWithoutTimestamp.length > 0) {
-        console.log(`⚠️ ${walletsWithoutTimestamp.length} wallets with trades but without lastTradeTimestamp:`, 
-          walletsWithoutTimestamp.map((w: any) => ({ id: w.id, address: w.address, totalTrades: w.totalTrades })));
       }
-
     }
 
     // Map recentPnl30dUsd (DB) to recentPnl30dBase (SOL) for all wallets

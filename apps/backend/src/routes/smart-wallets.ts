@@ -1535,6 +1535,76 @@ router.delete('/:id/positions/:tokenId', async (req, res) => {
   }
 });
 
+// POST /api/smart-wallets/:id/recalculate - Force recalculate closed positions and metrics
+// Use this endpoint when closed positions or PnL appear incorrect
+router.post('/:id/recalculate', async (req, res) => {
+  try {
+    const identifier = req.params.id;
+    
+    // Find wallet - support both ID and address
+    let wallet = await smartWalletRepo.findById(identifier);
+    if (!wallet) {
+      wallet = await smartWalletRepo.findByAddress(identifier);
+    }
+    if (!wallet) {
+      return res.status(404).json({ error: 'Wallet not found' });
+    }
+
+    console.log(`🔄 [Recalculate] Starting recalculation for wallet ${wallet.address.substring(0, 8)}...`);
+    
+    // 1. Get wallet tracking start time
+    const trackingStartTime = wallet.createdAt ? new Date(wallet.createdAt) : undefined;
+    
+    // 2. Recalculate closed lots (FIFO matching)
+    console.log(`   📊 Recalculating closed lots...`);
+    const closedLots = await lotMatchingService.processTradesForWallet(
+      wallet.id,
+      undefined, // Process all tokens
+      trackingStartTime
+    );
+    await lotMatchingService.saveClosedLots(closedLots);
+    console.log(`   ✅ Created ${closedLots.length} closed lots`);
+    
+    // 3. Recalculate metrics
+    console.log(`   📊 Recalculating metrics...`);
+    const metricsResult = await metricsCalculator.calculateMetricsForWallet(wallet.id);
+    console.log(`   ✅ Metrics updated: score=${metricsResult?.score ?? 'n/a'}, totalTrades=${metricsResult?.totalTrades ?? 0}`);
+    
+    // 4. Invalidate portfolio cache
+    console.log(`   🗑️ Invalidating portfolio cache...`);
+    const { error: deleteError } = await supabase
+      .from('PortfolioBaseline')
+      .delete()
+      .eq('walletId', wallet.id);
+    
+    if (deleteError) {
+      console.warn(`   ⚠️ Failed to invalidate portfolio cache: ${deleteError.message}`);
+    }
+    
+    // 5. Fetch updated wallet data
+    const updatedWallet = await smartWalletRepo.findById(wallet.id);
+    
+    res.json({
+      success: true,
+      message: `Recalculated ${closedLots.length} closed lots and updated metrics`,
+      closedLotsCount: closedLots.length,
+      metrics: {
+        score: updatedWallet?.score ?? 0,
+        totalTrades: updatedWallet?.totalTrades ?? 0,
+        winRate: updatedWallet?.winRate ?? 0,
+        recentPnl30dUsd: updatedWallet?.recentPnl30dUsd ?? 0,
+        recentPnl30dPercent: updatedWallet?.recentPnl30dPercent ?? 0,
+      },
+    });
+  } catch (error: any) {
+    console.error('❌ Error recalculating wallet:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error?.message || 'Unknown error',
+    });
+  }
+});
+
 // GET /api/smart-wallets/:id/copytrading-analytics - Get copytrading analytics for a wallet
 // Provides insights for copytrading bot conditions
 router.get('/:id/copytrading-analytics', async (req, res) => {

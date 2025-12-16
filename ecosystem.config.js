@@ -119,5 +119,25 @@ module.exports = {
       autorestart: false, // Run once, not continuously
       cron_restart: '0 2 * * *', // Run daily at 2 AM
     },
+    // IMPORTANT: This worker processes the wallet queue for metrics recalculation
+    // When a trade is processed, the wallet is enqueued for metrics update
+    // This worker picks up those jobs and recalculates closed lots + metrics
+    {
+      name: 'tradooor-wallet-processing-queue',
+      script: 'pnpm',
+      args: '--filter backend metrics:worker',
+      cwd: process.cwd(),
+      env: {
+        NODE_ENV: 'production',
+        METRICS_WORKER_IDLE_MS: '3000', // 3 seconds idle between jobs
+      },
+      error_file: './logs/wallet-processing-queue-error.log',
+      out_file: './logs/wallet-processing-queue-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
   ],
 };
