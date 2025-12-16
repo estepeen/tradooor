@@ -82,7 +82,8 @@
     "recalculate-all-portfolio-cache": "tsx src/scripts/recalculate-all-portfolio-cache.ts",
     "recalculate-all-positions-metrics-and-portfolio": "tsx src/scripts/recalculate-all-positions-metrics-and-portfolio.ts",
     "backfill:cron": "tsx src/workers/backfill-cron.ts",
-    "monitoring:cron": "tsx src/workers/monitoring-cron.ts"
+    "monitoring:cron": "tsx src/workers/monitoring-cron.ts",
+    "position:monitor": "tsx src/workers/position-monitor-worker.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.87.6",

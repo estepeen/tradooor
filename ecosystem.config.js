@@ -139,5 +139,23 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
     },
+    // Position Monitor - tracks virtual positions and generates exit signals
+    {
+      name: 'tradooor-position-monitor',
+      script: 'pnpm',
+      args: '--filter backend position:monitor',
+      cwd: process.cwd(),
+      env: {
+        NODE_ENV: 'production',
+        POSITION_UPDATE_INTERVAL_MS: '300000', // 5 minutes
+      },
+      error_file: './logs/position-monitor-error.log',
+      out_file: './logs/position-monitor-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
   ],
 };

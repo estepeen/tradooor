@@ -9,6 +9,7 @@ import { SmartWalletRepository } from '../repositories/smart-wallet.repository.j
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
 import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
 import { AdvancedSignalsService } from '../services/advanced-signals.service.js';
+import { PositionMonitorService } from '../services/position-monitor.service.js';
 
 const normalizedTradeRepo = new NormalizedTradeRepository();
 const tradeRepo = new TradeRepository();
@@ -20,6 +21,7 @@ const smartWalletRepo = new SmartWalletRepository();
 const metricsHistoryRepo = new MetricsHistoryRepository();
 const metricsCalculator = new MetricsCalculatorService(smartWalletRepo, tradeRepo, metricsHistoryRepo);
 const advancedSignals = new AdvancedSignalsService();
+const positionMonitor = new PositionMonitorService();
 
 // Enable/disable advanced signals processing
 const ENABLE_ADVANCED_SIGNALS = process.env.ENABLE_ADVANCED_SIGNALS !== 'false';
@@ -168,6 +170,25 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       }, METRICS_DEBOUNCE_MS);
       
       walletMetricsDebounce.set(record.walletId, timeout);
+      
+      // Detect if this sell is from a tracked position (exit signal)
+      setImmediate(async () => {
+        try {
+          const exitSignal = await positionMonitor.detectWalletExit(
+            trade.id,
+            record.walletId,
+            record.tokenId,
+            Number(trade.amountBase || 0),
+            Number(trade.priceBasePerToken || 0)
+          );
+          if (exitSignal) {
+            console.log(`🚨 [ExitSignal] ${exitSignal.type} detected for position - ${exitSignal.recommendation}`);
+          }
+        } catch (exitError: any) {
+          // Non-critical - just log
+          console.warn(`⚠️  Exit detection failed: ${exitError.message}`);
+        }
+      });
     }
     
     // Also enqueue for queue worker as backup (in case immediate calculation fails)

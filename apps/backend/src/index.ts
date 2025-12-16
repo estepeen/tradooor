@@ -9,6 +9,7 @@ import webhookRouter from './routes/webhooks.js';
 import paperTradingRouter from './routes/paper-trading.js';
 import signalsRouter from './routes/signals.js';
 import analyticsRouter from './routes/analytics.js';
+import positionsRouter from './routes/positions.js';
 
 // Check if there's an error loading dotenv
 const dotenvResult = dotenv.config();
@@ -176,6 +177,7 @@ app.use('/api/paper-trading', paperTradingRouter);
 app.use('/api/signals', signalsRouter);
 app.use('/api/tokens', tokensRouter);
 app.use('/api/analytics', analyticsRouter);
+app.use('/api/positions', positionsRouter);
 
 // Handle "route not found" errors
 app.use((req, res, next) => {

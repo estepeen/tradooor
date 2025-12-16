@@ -33,7 +33,7 @@ export default function Navigation() {
               <Link
                 href="/"
                 className={`px-4 py-2 rounded-md transition-colors ${
-                  isActive('/') && !isActive('/wallets/add') && !isActive('/wallet/') && !isActive('/stats') && !isActive('/signals')
+                  isActive('/') && !isActive('/wallets/add') && !isActive('/wallet/') && !isActive('/stats') && !isActive('/signals') && !isActive('/positions')
                     ? 'bg-primary text-primary-foreground'
                     : 'hover:bg-muted'
                 }`}
@@ -59,6 +59,16 @@ export default function Navigation() {
                 }`}
               >
                 📊 Signals
+              </Link>
+              <Link
+                href="/positions"
+                className={`px-4 py-2 rounded-md transition-colors ${
+                  isActive('/positions')
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted'
+                }`}
+              >
+                📈 Positions
               </Link>
           </div>
           <div className="flex items-center gap-3">

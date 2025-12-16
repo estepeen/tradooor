@@ -16,6 +16,7 @@ import { AIDecisionService } from './ai-decision.service.js';
 import { TokenMarketDataService } from './token-market-data.service.js';
 import { DiscordNotificationService, SignalNotificationData } from './discord-notification.service.js';
 import { RugCheckService } from './rugcheck.service.js';
+import { PositionMonitorService } from './position-monitor.service.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
@@ -30,6 +31,7 @@ export class ConsensusWebhookService {
   private tokenMarketData: TokenMarketDataService;
   private discordNotification: DiscordNotificationService;
   private rugCheck: RugCheckService;
+  private positionMonitor: PositionMonitorService;
 
   constructor() {
     this.paperTradeService = new PaperTradeService();
@@ -41,6 +43,7 @@ export class ConsensusWebhookService {
     this.tokenMarketData = new TokenMarketDataService();
     this.discordNotification = new DiscordNotificationService();
     this.rugCheck = new RugCheckService();
+    this.positionMonitor = new PositionMonitorService();
   }
 
   /**
@@ -322,6 +325,20 @@ export class ConsensusWebhookService {
 
           // Pošli notifikaci
           await this.discordNotification.sendSignalNotification(notificationData);
+          
+          // 5d. Vytvoř virtuální pozici pro exit monitoring
+          try {
+            const walletIdsList = Array.from(uniqueWallets);
+            await this.positionMonitor.createPositionFromConsensus(
+              signal.id,
+              tokenId,
+              entryPrice,
+              walletIdsList,
+              { marketCap: marketDataResult?.marketCap, liquidity: marketDataResult?.liquidity }
+            );
+          } catch (posError: any) {
+            console.warn(`   ⚠️  Position creation failed: ${posError.message}`);
+          }
         } catch (discordError: any) {
           console.warn(`   ⚠️  Discord notification failed: ${discordError.message}`);
         }
