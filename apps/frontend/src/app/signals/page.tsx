@@ -297,11 +297,73 @@ export default function SignalsPage() {
                       {signal.reasoning || 'No reasoning provided'}
                     </p>
                     
+                    {/* Entry/Exit Info */}
+                    {signal.entryPriceUsd && (
+                      <div className="flex flex-wrap gap-4 text-sm mb-3 p-3 bg-gray-900/50 rounded-lg">
+                        <div>
+                          <span className="text-gray-400">Entry:</span>
+                          <span className="text-white ml-1 font-mono">${formatNumber(signal.entryPriceUsd, 6)}</span>
+                        </div>
+                        {signal.stopLossPriceUsd && (
+                          <div>
+                            <span className="text-gray-400">SL:</span>
+                            <span className="text-red-400 ml-1 font-mono">${formatNumber(signal.stopLossPriceUsd, 6)}</span>
+                            {signal.aiStopLossPercent && (
+                              <span className="text-gray-500 ml-1">(-{signal.aiStopLossPercent}%)</span>
+                            )}
+                          </div>
+                        )}
+                        {signal.takeProfitPriceUsd && (
+                          <div>
+                            <span className="text-gray-400">TP:</span>
+                            <span className="text-green-400 ml-1 font-mono">${formatNumber(signal.takeProfitPriceUsd, 6)}</span>
+                            {signal.aiTakeProfitPercent && (
+                              <span className="text-gray-500 ml-1">(+{signal.aiTakeProfitPercent}%)</span>
+                            )}
+                          </div>
+                        )}
+                        {signal.suggestedHoldTimeMinutes && (
+                          <div>
+                            <span className="text-gray-400">Hold:</span>
+                            <span className="text-blue-400 ml-1">
+                              {signal.suggestedHoldTimeMinutes >= 60 
+                                ? `${Math.round(signal.suggestedHoldTimeMinutes / 60)}h`
+                                : `${signal.suggestedHoldTimeMinutes}m`
+                              }
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Token Market Data */}
+                    {(signal.tokenMarketCapUsd || signal.tokenLiquidityUsd || signal.tokenVolume24hUsd) && (
+                      <div className="flex flex-wrap gap-4 text-xs text-gray-400 mb-2">
+                        {signal.tokenMarketCapUsd && (
+                          <span>MCap: <span className="text-white">${formatNumber(signal.tokenMarketCapUsd, 0)}</span></span>
+                        )}
+                        {signal.tokenLiquidityUsd && (
+                          <span>Liq: <span className="text-white">${formatNumber(signal.tokenLiquidityUsd, 0)}</span></span>
+                        )}
+                        {signal.tokenVolume24hUsd && (
+                          <span>Vol 24h: <span className="text-white">${formatNumber(signal.tokenVolume24hUsd, 0)}</span></span>
+                        )}
+                        {signal.tokenAgeMinutes && (
+                          <span>Age: <span className="text-white">
+                            {signal.tokenAgeMinutes >= 60 
+                              ? `${Math.round(signal.tokenAgeMinutes / 60)}h`
+                              : `${signal.tokenAgeMinutes}m`
+                            }
+                          </span></span>
+                        )}
+                      </div>
+                    )}
+
                     {/* Meta Info */}
                     <div className="flex flex-wrap gap-4 text-xs text-gray-400">
                       <span>Score: <span className="text-white">{signal.qualityScore?.toFixed(0) || '-'}</span></span>
-                      {signal.meta?.suggestedPositionPercent && (
-                        <span>Position: <span className="text-white">{signal.meta.suggestedPositionPercent}%</span></span>
+                      {(signal.aiSuggestedPositionPercent || signal.meta?.suggestedPositionPercent) && (
+                        <span>Position: <span className="text-white">{signal.aiSuggestedPositionPercent || signal.meta.suggestedPositionPercent}%</span></span>
                       )}
                       {signal.wallet && (
                         <span>
@@ -321,8 +383,29 @@ export default function SignalsPage() {
                   
                   {/* Right: Actions & AI Result */}
                   <div className="flex flex-col items-end gap-2">
-                    {/* AI Evaluation Button */}
-                    {signal.status === 'active' && !aiResult && (
+                    {/* Show inline AI decision if already evaluated */}
+                    {signal.aiDecision && (
+                      <div className={`px-3 py-1 rounded-full text-sm font-medium ${
+                        signal.aiDecision === 'buy' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
+                        signal.aiDecision === 'skip' ? 'bg-gray-500/20 text-gray-400 border border-gray-500/30' :
+                        'bg-red-500/20 text-red-400 border border-red-500/30'
+                      }`}>
+                        🤖 {signal.aiDecision.toUpperCase()} ({signal.aiConfidence?.toFixed(0)}%)
+                      </div>
+                    )}
+                    
+                    {/* AI Risk Score */}
+                    {signal.aiRiskScore && (
+                      <div className={`text-xs ${
+                        signal.aiRiskScore <= 3 ? 'text-green-400' :
+                        signal.aiRiskScore <= 6 ? 'text-yellow-400' : 'text-red-400'
+                      }`}>
+                        Risk: {signal.aiRiskScore}/10
+                      </div>
+                    )}
+                    
+                    {/* AI Evaluation Button - only if not already evaluated */}
+                    {signal.status === 'active' && !signal.aiDecision && !aiResult && (
                       <button
                         onClick={() => handleEvaluateWithAI(signal.id)}
                         disabled={evaluatingId === signal.id}

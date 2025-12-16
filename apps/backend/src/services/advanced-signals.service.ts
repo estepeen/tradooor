@@ -16,6 +16,8 @@ import { SignalRepository, SignalRecord } from '../repositories/signal.repositor
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
+import { TokenMarketDataService } from './token-market-data.service.js';
+import { AIDecisionService, AIContext, AIDecision } from './ai-decision.service.js';
 
 // Signal type definitions
 export type AdvancedSignalType = 
@@ -32,13 +34,20 @@ export interface SignalContext {
   walletScore: number;
   walletWinRate: number;
   walletRecentPnl30d: number;
+  walletTotalTrades?: number;
+  walletAvgHoldTimeMin?: number;
   tokenAge: number; // minutes since first trade
+  tokenSymbol?: string;
+  tokenMint?: string;
   tokenLiquidity?: number;
   tokenVolume24h?: number;
+  tokenMarketCap?: number;
+  tokenHolders?: number;
   consensusWalletCount?: number;
   previousPnlOnToken?: number; // For re-entry signals
   positionSizeUsd?: number;
   walletAvgPositionUsd?: number;
+  entryPriceUsd?: number;
 }
 
 export interface AdvancedSignal {
@@ -50,6 +59,14 @@ export interface AdvancedSignal {
   suggestedAction: 'buy' | 'sell' | 'hold' | 'watch';
   suggestedPositionPercent?: number;
   riskLevel: 'low' | 'medium' | 'high';
+  // Enhanced fields for trading bot
+  entryPriceUsd?: number;
+  suggestedExitPriceUsd?: number;
+  stopLossPriceUsd?: number;
+  takeProfitPriceUsd?: number;
+  suggestedHoldTimeMinutes?: number;
+  // AI decision (filled after AI evaluation)
+  aiDecision?: AIDecision;
 }
 
 // Thresholds for signal generation
@@ -73,11 +90,15 @@ export class AdvancedSignalsService {
   private smartWalletRepo: SmartWalletRepository;
   private tradeRepo: TradeRepository;
   private tokenRepo: TokenRepository;
+  private tokenMarketData: TokenMarketDataService;
+  private aiDecision: AIDecisionService;
 
   constructor() {
     this.signalRepo = new SignalRepository();
     this.smartWalletRepo = new SmartWalletRepository();
     this.tradeRepo = new TradeRepository();
+    this.tokenMarketData = new TokenMarketDataService();
+    this.aiDecision = new AIDecisionService();
     this.tokenRepo = new TokenRepository();
   }
 
@@ -548,38 +569,208 @@ export class AdvancedSignalsService {
 
   /**
    * Zpracuje trade a uloží všechny relevantní signály
+   * Včetně token market data a AI evaluace
    */
   async processTradeForSignals(tradeId: string): Promise<{
     signals: AdvancedSignal[];
     savedCount: number;
+    aiEvaluated: number;
   }> {
     const signals = await this.analyzeTradeForSignals(tradeId);
     
     if (signals.length === 0) {
-      return { signals: [], savedCount: 0 };
+      return { signals: [], savedCount: 0, aiEvaluated: 0 };
     }
 
-    // Načti trade pro uložení
+    // Načti trade s token daty
     const { data: trade } = await supabase
       .from(TABLES.TRADE)
-      .select('*')
+      .select(`
+        *,
+        token:Token(*),
+        wallet:SmartWallet(*)
+      `)
       .eq('id', tradeId)
       .single();
 
     if (!trade) {
-      return { signals, savedCount: 0 };
+      return { signals, savedCount: 0, aiEvaluated: 0 };
     }
 
-    // Ulož pouze signály s confidence > 50
-    let savedCount = 0;
-    for (const signal of signals) {
-      if (signal.confidence >= 50) {
-        const saved = await this.saveSignal(trade, signal);
-        if (saved) savedCount++;
+    const token = trade.token as any;
+    const wallet = trade.wallet as any;
+
+    // Fetch token market data
+    let marketData = {
+      marketCap: null as number | null,
+      liquidity: null as number | null,
+      volume24h: null as number | null,
+      tokenAgeMinutes: null as number | null,
+    };
+
+    if (token?.mintAddress) {
+      try {
+        marketData = await this.tokenMarketData.getMarketData(token.mintAddress);
+      } catch (e) {
+        console.warn(`Failed to fetch market data for ${token.mintAddress}`);
       }
     }
 
-    return { signals, savedCount };
+    // Calculate entry price
+    const entryPriceUsd = Number(trade.priceBasePerToken || 0);
+
+    let savedCount = 0;
+    let aiEvaluated = 0;
+
+    for (const signal of signals) {
+      if (signal.confidence < 50) continue;
+
+      // Enrich signal context with market data
+      signal.context.tokenSymbol = token?.symbol;
+      signal.context.tokenMint = token?.mintAddress;
+      signal.context.tokenMarketCap = marketData.marketCap || undefined;
+      signal.context.tokenLiquidity = marketData.liquidity || undefined;
+      signal.context.tokenVolume24h = marketData.volume24h || undefined;
+      signal.context.entryPriceUsd = entryPriceUsd;
+      signal.context.walletTotalTrades = wallet?.totalTrades;
+      signal.context.walletAvgHoldTimeMin = wallet?.avgHoldingTimeMin;
+      signal.entryPriceUsd = entryPriceUsd;
+
+      // Calculate SL/TP based on risk level
+      if (entryPriceUsd > 0) {
+        const slPercent = signal.riskLevel === 'low' ? 0.20 : signal.riskLevel === 'medium' ? 0.30 : 0.40;
+        const tpPercent = signal.riskLevel === 'low' ? 0.50 : signal.riskLevel === 'medium' ? 0.75 : 1.00;
+        signal.stopLossPriceUsd = entryPriceUsd * (1 - slPercent);
+        signal.takeProfitPriceUsd = entryPriceUsd * (1 + tpPercent);
+        signal.suggestedHoldTimeMinutes = signal.riskLevel === 'low' ? 120 : signal.riskLevel === 'medium' ? 60 : 30;
+      }
+
+      // AI Evaluation (if GROQ_API_KEY is set)
+      if (process.env.GROQ_API_KEY && signal.suggestedAction === 'buy') {
+        try {
+          const aiContext: AIContext = {
+            signal,
+            signalType: signal.type,
+            walletScore: signal.context.walletScore,
+            walletWinRate: signal.context.walletWinRate,
+            walletRecentPnl30d: signal.context.walletRecentPnl30d,
+            walletTotalTrades: signal.context.walletTotalTrades || 0,
+            walletAvgHoldTimeMin: signal.context.walletAvgHoldTimeMin || 60,
+            tokenSymbol: signal.context.tokenSymbol,
+            tokenAge: signal.context.tokenAge,
+            tokenLiquidity: signal.context.tokenLiquidity,
+            tokenVolume24h: signal.context.tokenVolume24h,
+            tokenMarketCap: signal.context.tokenMarketCap,
+            otherWalletsCount: signal.context.consensusWalletCount,
+            consensusStrength: signal.strength,
+          };
+
+          const aiResult = await this.aiDecision.evaluateSignal(signal, aiContext);
+          signal.aiDecision = aiResult;
+          aiEvaluated++;
+
+          // Update SL/TP based on AI recommendation
+          if (aiResult.decision === 'buy' && entryPriceUsd > 0) {
+            signal.stopLossPriceUsd = entryPriceUsd * (1 - (aiResult.stopLossPercent || 25) / 100);
+            signal.takeProfitPriceUsd = entryPriceUsd * (1 + (aiResult.takeProfitPercent || 50) / 100);
+            signal.suggestedHoldTimeMinutes = aiResult.expectedHoldTimeMinutes;
+            signal.suggestedPositionPercent = aiResult.suggestedPositionPercent;
+          }
+
+          console.log(`🤖 AI evaluated ${signal.type}: ${aiResult.decision} (${aiResult.confidence}% confidence)`);
+        } catch (aiError: any) {
+          console.warn(`⚠️  AI evaluation failed: ${aiError.message}`);
+        }
+      }
+
+      // Save enhanced signal
+      const saved = await this.saveEnhancedSignal(trade, signal, marketData);
+      if (saved) savedCount++;
+    }
+
+    return { signals, savedCount, aiEvaluated };
+  }
+
+  /**
+   * Uloží rozšířený signál s market data a AI rozhodnutím
+   */
+  private async saveEnhancedSignal(
+    trade: any,
+    signal: AdvancedSignal,
+    marketData: { marketCap: number | null; liquidity: number | null; volume24h: number | null; tokenAgeMinutes: number | null }
+  ): Promise<SignalRecord | null> {
+    try {
+      const expiresAt = new Date();
+      expiresAt.setHours(expiresAt.getHours() + 24);
+
+      const insertData: any = {
+        type: signal.suggestedAction === 'sell' ? 'sell' : 'buy',
+        walletId: trade.walletId,
+        tokenId: trade.tokenId,
+        originalTradeId: trade.id,
+        priceBasePerToken: Number(trade.priceBasePerToken || 0),
+        amountBase: Number(trade.amountBase || 0),
+        amountToken: Number(trade.amountToken || 0),
+        timestamp: new Date(trade.timestamp),
+        status: 'active',
+        expiresAt,
+        qualityScore: signal.confidence,
+        riskLevel: signal.riskLevel,
+        model: signal.type,
+        reasoning: signal.reasoning,
+        strength: signal.strength,
+        // Entry/Exit prices
+        entryPriceUsd: signal.entryPriceUsd,
+        suggestedExitPriceUsd: signal.takeProfitPriceUsd,
+        stopLossPriceUsd: signal.stopLossPriceUsd,
+        takeProfitPriceUsd: signal.takeProfitPriceUsd,
+        suggestedHoldTimeMinutes: signal.suggestedHoldTimeMinutes,
+        // Token market data
+        tokenMarketCapUsd: marketData.marketCap,
+        tokenLiquidityUsd: marketData.liquidity,
+        tokenVolume24hUsd: marketData.volume24h,
+        tokenAgeMinutes: marketData.tokenAgeMinutes || Math.round(signal.context.tokenAge),
+        // Meta
+        meta: {
+          signalType: signal.type,
+          strength: signal.strength,
+          context: signal.context,
+          suggestedPositionPercent: signal.suggestedPositionPercent,
+        },
+      };
+
+      // Add AI decision data if available
+      if (signal.aiDecision) {
+        insertData.aiDecision = signal.aiDecision.decision;
+        insertData.aiConfidence = signal.aiDecision.confidence;
+        insertData.aiReasoning = signal.aiDecision.reasoning;
+        insertData.aiSuggestedPositionPercent = signal.aiDecision.suggestedPositionPercent;
+        insertData.aiStopLossPercent = signal.aiDecision.stopLossPercent;
+        insertData.aiTakeProfitPercent = signal.aiDecision.takeProfitPercent;
+        insertData.aiRiskScore = signal.aiDecision.riskScore;
+      }
+
+      // Use direct Supabase insert for new columns
+      const { data, error } = await supabase
+        .from('Signal')
+        .insert(insertData)
+        .select()
+        .single();
+
+      if (error) {
+        // Fallback to basic save if new columns don't exist yet
+        if (error.message?.includes('column') || error.code === '42703') {
+          console.warn('⚠️  Enhanced Signal columns not found, using basic save');
+          return this.saveSignal(trade, signal);
+        }
+        throw error;
+      }
+
+      return data as any;
+    } catch (error) {
+      console.error(`Failed to save enhanced signal: ${error}`);
+      return null;
+    }
   }
 
   /**
