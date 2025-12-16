@@ -257,9 +257,23 @@ export class ConsensusWebhookService {
                 isDexPaid: rugReport.isDexPaid,
                 isMintable: rugReport.isMintable,
                 isFreezable: rugReport.isFreezable,
+                isHoneypot: rugReport.isHoneypot,
+                honeypotReason: rugReport.honeypotReason,
+                buyTax: rugReport.buyTax,
+                sellTax: rugReport.sellTax,
+                hasDangerousTax: rugReport.hasDangerousTax,
                 risks: rugReport.risks,
               };
-              console.log(`   🛡️  RugCheck: ${rugReport.riskLevel} (${rugReport.riskScore}/100)`);
+              
+              // Log security status
+              if (rugReport.isHoneypot) {
+                console.log(`   🍯🚨 HONEYPOT DETECTED for ${token?.symbol}! ${rugReport.honeypotReason || ''}`);
+              } else {
+                const taxInfo = rugReport.buyTax !== undefined || rugReport.sellTax !== undefined
+                  ? ` | Tax: B${rugReport.buyTax || 0}%/S${rugReport.sellTax || 0}%`
+                  : '';
+                console.log(`   🛡️  RugCheck: ${rugReport.riskLevel} (${rugReport.riskScore}/100)${taxInfo}`);
+              }
             }
           } catch (rugError: any) {
             console.warn(`   ⚠️  RugCheck failed: ${rugError.message}`);

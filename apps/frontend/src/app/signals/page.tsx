@@ -59,6 +59,11 @@ interface Signal {
     isDexPaid: boolean;
     isMintable: boolean;
     isFreezable: boolean;
+    isHoneypot: boolean;
+    honeypotReason?: string;
+    buyTax?: number;
+    sellTax?: number;
+    hasDangerousTax: boolean;
     risks: string[];
   };
   
@@ -351,51 +356,73 @@ export default function SignalsPage() {
                     <td className="px-4 py-4 text-xs">
                       {signal.security ? (
                         <div>
-                          {/* Risk Level Badge */}
-                          <div className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-bold ${
-                            signal.security.riskLevel === 'safe' ? 'bg-green-500/20 text-green-400' :
-                            signal.security.riskLevel === 'low' ? 'bg-green-500/20 text-green-300' :
-                            signal.security.riskLevel === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                            signal.security.riskLevel === 'high' ? 'bg-orange-500/20 text-orange-400' :
-                            'bg-red-500/20 text-red-400'
-                          }`}>
-                            {signal.security.riskLevel === 'safe' ? '✅' :
-                             signal.security.riskLevel === 'low' ? '🟢' :
-                             signal.security.riskLevel === 'medium' ? '🟡' :
-                             signal.security.riskLevel === 'high' ? '🟠' : '🔴'}
-                            {' '}{signal.security.riskLevel.toUpperCase()}
-                          </div>
-                          <div className="text-gray-500 mt-1">Score: {signal.security.riskScore}/100</div>
-                          
-                          {/* Flags */}
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {signal.security.isLpLocked && (
-                              <span className="text-green-400" title={`LP Locked ${signal.security.lpLockedPercent ? `${signal.security.lpLockedPercent}%` : ''}`}>
-                                🔒
-                              </span>
-                            )}
-                            {signal.security.isDexPaid && (
-                              <span className="text-green-400" title="DEX Paid">💰</span>
-                            )}
-                            {!signal.security.isMintable && (
-                              <span className="text-green-400" title="Mint Renounced">✓M</span>
-                            )}
-                            {!signal.security.isFreezable && (
-                              <span className="text-green-400" title="No Freeze">✓F</span>
-                            )}
-                            {signal.security.isMintable && (
-                              <span className="text-red-400" title="Mintable!">⚠️M</span>
-                            )}
-                            {signal.security.isFreezable && (
-                              <span className="text-red-400" title="Can Freeze!">⚠️F</span>
-                            )}
-                          </div>
-                          
-                          {/* Top Risk */}
-                          {signal.security.risks && signal.security.risks.length > 0 && (
-                            <div className="text-orange-400 text-xs mt-1 truncate max-w-[120px]" title={signal.security.risks.join(', ')}>
-                              {signal.security.risks[0]}
+                          {/* 🍯 HONEYPOT CHECK FIRST - CRITICAL! */}
+                          {signal.security.isHoneypot ? (
+                            <div className="bg-red-500/30 border border-red-500 rounded p-2">
+                              <div className="text-red-400 font-bold text-sm">🍯 HONEYPOT!</div>
+                              <div className="text-red-300 text-xs">⛔ DO NOT BUY</div>
+                              {signal.security.honeypotReason && (
+                                <div className="text-red-200 text-xs mt-1 truncate max-w-[120px]" title={signal.security.honeypotReason}>
+                                  {signal.security.honeypotReason}
+                                </div>
+                              )}
                             </div>
+                          ) : (
+                            <>
+                              {/* Risk Level Badge */}
+                              <div className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-bold ${
+                                signal.security.riskLevel === 'safe' ? 'bg-green-500/20 text-green-400' :
+                                signal.security.riskLevel === 'low' ? 'bg-green-500/20 text-green-300' :
+                                signal.security.riskLevel === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
+                                signal.security.riskLevel === 'high' ? 'bg-orange-500/20 text-orange-400' :
+                                'bg-red-500/20 text-red-400'
+                              }`}>
+                                {signal.security.riskLevel === 'safe' ? '✅' :
+                                 signal.security.riskLevel === 'low' ? '🟢' :
+                                 signal.security.riskLevel === 'medium' ? '🟡' :
+                                 signal.security.riskLevel === 'high' ? '🟠' : '🔴'}
+                                {' '}{signal.security.riskLevel.toUpperCase()}
+                              </div>
+                              
+                              {/* 💸 TAX INFO */}
+                              {(signal.security.buyTax !== undefined || signal.security.sellTax !== undefined) && (
+                                <div className={`mt-1 ${signal.security.hasDangerousTax ? 'text-orange-400' : 'text-gray-400'}`}>
+                                  💸 B: {signal.security.buyTax ?? '?'}% / S: {signal.security.sellTax ?? '?'}%
+                                  {signal.security.hasDangerousTax && <span className="text-red-400 ml-1">⚠️</span>}
+                                </div>
+                              )}
+                              
+                              {/* Flags */}
+                              <div className="flex flex-wrap gap-1 mt-1">
+                                {signal.security.isLpLocked && (
+                                  <span className="text-green-400" title={`LP Locked ${signal.security.lpLockedPercent ? `${signal.security.lpLockedPercent}%` : ''}`}>
+                                    🔒
+                                  </span>
+                                )}
+                                {signal.security.isDexPaid && (
+                                  <span className="text-green-400" title="DEX Paid">💰</span>
+                                )}
+                                {!signal.security.isMintable && (
+                                  <span className="text-green-400" title="Mint Renounced">✓M</span>
+                                )}
+                                {!signal.security.isFreezable && (
+                                  <span className="text-green-400" title="No Freeze">✓F</span>
+                                )}
+                                {signal.security.isMintable && (
+                                  <span className="text-red-400" title="Mintable!">⚠️M</span>
+                                )}
+                                {signal.security.isFreezable && (
+                                  <span className="text-red-400" title="Can Freeze!">⚠️F</span>
+                                )}
+                              </div>
+                              
+                              {/* Top Risk */}
+                              {signal.security.risks && signal.security.risks.length > 0 && (
+                                <div className="text-orange-400 text-xs mt-1 truncate max-w-[120px]" title={signal.security.risks.join(', ')}>
+                                  {signal.security.risks[0]}
+                                </div>
+                              )}
+                            </>
                           )}
                         </div>
                       ) : (

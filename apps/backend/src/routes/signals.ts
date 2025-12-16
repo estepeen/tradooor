@@ -118,6 +118,11 @@ router.get('/unified', async (req, res) => {
                   isDexPaid: rugReport.isDexPaid,
                   isMintable: rugReport.isMintable,
                   isFreezable: rugReport.isFreezable,
+                  isHoneypot: rugReport.isHoneypot,
+                  honeypotReason: rugReport.honeypotReason,
+                  buyTax: rugReport.buyTax,
+                  sellTax: rugReport.sellTax,
+                  hasDangerousTax: rugReport.hasDangerousTax,
                   risks: rugReport.risks,
                 };
               }

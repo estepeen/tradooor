@@ -10,6 +10,7 @@
  * - Freeze authority
  * - Top holders distribution
  * - Honeypot detection
+ * - Buy/Sell tax
  * - DEX Paid status
  */
 
@@ -30,6 +31,16 @@ export interface RugCheckReport {
   isLpLocked: boolean;
   lpLockedPercent?: number;
   lpLockDuration?: string; // e.g. "30 days", "forever"
+  
+  // 🍯 HONEYPOT DETECTION
+  isHoneypot: boolean;      // CRITICAL: Can't sell!
+  honeypotReason?: string;  // Why it's a honeypot
+  
+  // 💸 BUY/SELL TAX
+  buyTax?: number;          // % tax on buy (0-100)
+  sellTax?: number;         // % tax on sell (0-100)
+  transferTax?: number;     // % tax on transfer
+  hasDangerousTax: boolean; // Tax > 10%
   
   // DEX info
   isDexPaid: boolean;
@@ -207,11 +218,109 @@ export class RugCheckService {
                      data.isRugged === true ||
                      riskLevel === 'critical';
 
+    // 🍯 HONEYPOT DETECTION
+    let isHoneypot = false;
+    let honeypotReason: string | undefined;
+    
+    // Check various honeypot indicators
+    if (data.isHoneypot === true || data.honeypot === true) {
+      isHoneypot = true;
+      honeypotReason = 'Detected as honeypot';
+    }
+    
+    // Check if selling is disabled/blocked
+    if (data.canSell === false || data.sellable === false) {
+      isHoneypot = true;
+      honeypotReason = 'Selling is disabled';
+    }
+    
+    // Check risks array for honeypot indicators
+    if (data.risks && Array.isArray(data.risks)) {
+      for (const risk of data.risks) {
+        const riskName = (risk.name || risk.type || risk.description || '').toLowerCase();
+        if (riskName.includes('honeypot') || 
+            riskName.includes('honey pot') ||
+            riskName.includes('cannot sell') ||
+            riskName.includes('can\'t sell') ||
+            riskName.includes('sell blocked') ||
+            riskName.includes('no sell')) {
+          isHoneypot = true;
+          honeypotReason = risk.name || risk.description || 'Honeypot detected in risks';
+        }
+      }
+    }
+    
+    // Check fileMeta for honeypot flags (some APIs use this)
+    if (data.fileMeta?.honeypot || data.tokenMeta?.honeypot) {
+      isHoneypot = true;
+      honeypotReason = 'Token metadata indicates honeypot';
+    }
+
+    if (isHoneypot) {
+      risks.unshift('🍯 HONEYPOT - CANNOT SELL!');
+      riskLevel = 'critical';
+      riskScore = Math.max(riskScore, 95);
+    }
+
+    // 💸 BUY/SELL TAX
+    let buyTax: number | undefined;
+    let sellTax: number | undefined;
+    let transferTax: number | undefined;
+    let hasDangerousTax = false;
+
+    // Parse tax from various API response formats
+    if (data.tax) {
+      buyTax = Number(data.tax.buy || data.tax.buyTax || 0);
+      sellTax = Number(data.tax.sell || data.tax.sellTax || 0);
+      transferTax = Number(data.tax.transfer || data.tax.transferTax || 0);
+    } else if (data.taxes) {
+      buyTax = Number(data.taxes.buy || data.taxes.buyTax || 0);
+      sellTax = Number(data.taxes.sell || data.taxes.sellTax || 0);
+      transferTax = Number(data.taxes.transfer || 0);
+    } else {
+      // Try direct fields
+      buyTax = data.buyTax !== undefined ? Number(data.buyTax) : undefined;
+      sellTax = data.sellTax !== undefined ? Number(data.sellTax) : undefined;
+      transferTax = data.transferTax !== undefined ? Number(data.transferTax) : undefined;
+    }
+
+    // Check markets for tax info
+    if (data.markets && Array.isArray(data.markets)) {
+      for (const market of data.markets) {
+        if (market.buyTax !== undefined && (buyTax === undefined || market.buyTax > buyTax)) {
+          buyTax = Number(market.buyTax);
+        }
+        if (market.sellTax !== undefined && (sellTax === undefined || market.sellTax > sellTax)) {
+          sellTax = Number(market.sellTax);
+        }
+      }
+    }
+
+    // Check for dangerous tax levels
+    const TAX_DANGER_THRESHOLD = 10; // 10% is considered dangerous
+    if ((buyTax && buyTax > TAX_DANGER_THRESHOLD) || 
+        (sellTax && sellTax > TAX_DANGER_THRESHOLD)) {
+      hasDangerousTax = true;
+    }
+
+    // Very high tax might indicate honeypot
+    if (sellTax && sellTax >= 90) {
+      isHoneypot = true;
+      honeypotReason = `Sell tax is ${sellTax}% - effectively a honeypot`;
+      risks.unshift(`🍯 SELL TAX ${sellTax}% = HONEYPOT`);
+    } else if (sellTax && sellTax > TAX_DANGER_THRESHOLD) {
+      risks.unshift(`💸 High sell tax: ${sellTax}%`);
+    }
+
+    if (buyTax && buyTax > TAX_DANGER_THRESHOLD) {
+      risks.unshift(`💸 High buy tax: ${buyTax}%`);
+    }
+
     // Collect all warnings from API
     if (data.risks && Array.isArray(data.risks)) {
       for (const risk of data.risks) {
         const riskName = risk.name || risk.type || risk.description;
-        if (riskName && !risks.includes(riskName)) {
+        if (riskName && !risks.some(r => r.includes(riskName))) {
           risks.push(riskName);
         }
       }
@@ -229,11 +338,17 @@ export class RugCheckService {
       isLpLocked,
       lpLockedPercent,
       lpLockDuration,
+      isHoneypot,
+      honeypotReason,
+      buyTax,
+      sellTax,
+      transferTax,
+      hasDangerousTax,
       isDexPaid,
       topHolderPercent,
       top10HoldersPercent,
       holderCount,
-      risks: risks.slice(0, 5), // Max 5 risks
+      risks: risks.slice(0, 7), // Max 7 risks (increased for honeypot/tax)
       raw: data,
     };
   }
@@ -265,17 +380,38 @@ export class RugCheckService {
     safe: boolean;
     riskLevel: string;
     mainRisk?: string;
+    isHoneypot: boolean;
+    hasDangerousTax: boolean;
   }> {
     const report = await this.getReport(mintAddress);
     
     if (!report) {
-      return { safe: false, riskLevel: 'unknown', mainRisk: 'Could not fetch security data' };
+      return { 
+        safe: false, 
+        riskLevel: 'unknown', 
+        mainRisk: 'Could not fetch security data',
+        isHoneypot: false,
+        hasDangerousTax: false,
+      };
+    }
+
+    // CRITICAL: Honeypot = never safe
+    if (report.isHoneypot) {
+      return {
+        safe: false,
+        riskLevel: 'critical',
+        mainRisk: report.honeypotReason || '🍯 HONEYPOT',
+        isHoneypot: true,
+        hasDangerousTax: report.hasDangerousTax,
+      };
     }
 
     return {
-      safe: report.riskLevel === 'safe' || report.riskLevel === 'low',
+      safe: (report.riskLevel === 'safe' || report.riskLevel === 'low') && !report.hasDangerousTax,
       riskLevel: report.riskLevel,
       mainRisk: report.risks[0],
+      isHoneypot: false,
+      hasDangerousTax: report.hasDangerousTax,
     };
   }
 
@@ -284,6 +420,15 @@ export class RugCheckService {
    */
   formatForDiscord(report: RugCheckReport): string {
     const lines: string[] = [];
+    
+    // 🍯 HONEYPOT WARNING FIRST
+    if (report.isHoneypot) {
+      lines.push('🚨🍯 **HONEYPOT DETECTED - DO NOT BUY!** 🍯🚨');
+      if (report.honeypotReason) {
+        lines.push(`Reason: ${report.honeypotReason}`);
+      }
+      return lines.join('\n');
+    }
     
     // Risk level emoji
     const riskEmoji = {
@@ -296,20 +441,37 @@ export class RugCheckService {
 
     lines.push(`${riskEmoji} **Risk:** ${report.riskLevel.toUpperCase()} (${report.riskScore}/100)`);
 
+    // 💸 TAX INFO
+    if (report.buyTax !== undefined || report.sellTax !== undefined) {
+      const taxInfo: string[] = [];
+      if (report.buyTax !== undefined) {
+        const buyEmoji = report.buyTax > 10 ? '⚠️' : '✓';
+        taxInfo.push(`${buyEmoji} Buy: ${report.buyTax}%`);
+      }
+      if (report.sellTax !== undefined) {
+        const sellEmoji = report.sellTax > 10 ? '⚠️' : '✓';
+        taxInfo.push(`${sellEmoji} Sell: ${report.sellTax}%`);
+      }
+      lines.push(`💸 Tax: ${taxInfo.join(' | ')}`);
+    }
+
     // Security flags
     const flags: string[] = [];
-    if (report.isLpLocked) flags.push(`🔒 LP Locked ${report.lpLockedPercent ? `(${report.lpLockedPercent.toFixed(0)}%)` : ''}`);
+    if (report.isLpLocked) flags.push(`🔒 LP ${report.lpLockedPercent ? `${report.lpLockedPercent.toFixed(0)}%` : 'Locked'}`);
     if (report.isDexPaid) flags.push('💰 DEX Paid');
-    if (!report.isMintable) flags.push('✅ Mint Renounced');
+    if (!report.isMintable) flags.push('✅ Mint Off');
     if (!report.isFreezable) flags.push('✅ No Freeze');
     
     if (flags.length > 0) {
       lines.push(flags.join(' • '));
     }
 
-    // Top risks
-    if (report.risks.length > 0) {
-      lines.push(`⚠️ ${report.risks.slice(0, 3).join(', ')}`);
+    // Top risks (excluding honeypot/tax which are shown above)
+    const otherRisks = report.risks.filter(r => 
+      !r.includes('HONEYPOT') && !r.includes('tax')
+    );
+    if (otherRisks.length > 0) {
+      lines.push(`⚠️ ${otherRisks.slice(0, 2).join(', ')}`);
     }
 
     return lines.join('\n');

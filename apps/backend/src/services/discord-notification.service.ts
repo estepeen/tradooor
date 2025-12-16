@@ -42,6 +42,11 @@ export interface SignalNotificationData {
     isDexPaid: boolean;
     isMintable: boolean;
     isFreezable: boolean;
+    isHoneypot: boolean;
+    honeypotReason?: string;
+    buyTax?: number;
+    sellTax?: number;
+    hasDangerousTax: boolean;
     risks: string[];
   };
   
@@ -248,39 +253,65 @@ export class DiscordNotificationService {
     // Security (RugCheck)
     if (data.security) {
       const sec = data.security;
-      const riskEmoji = {
-        'safe': '✅',
-        'low': '🟢',
-        'medium': '🟡',
-        'high': '🟠',
-        'critical': '🔴',
-      }[sec.riskLevel] || '❓';
-
-      const securityLines = [
-        `${riskEmoji} **Risk:** ${sec.riskLevel.toUpperCase()} (${sec.riskScore}/100)`,
-      ];
-
-      // Flags
-      const flags = [];
-      if (sec.isLpLocked) flags.push(`🔒 LP ${sec.lpLockedPercent ? `${sec.lpLockedPercent.toFixed(0)}%` : 'Locked'}`);
-      if (sec.isDexPaid) flags.push('💰 DEX Paid');
-      if (!sec.isMintable) flags.push('✅ Mint Off');
-      if (!sec.isFreezable) flags.push('✅ No Freeze');
       
-      if (flags.length > 0) {
-        securityLines.push(flags.join(' • '));
-      }
+      // 🍯 HONEYPOT CHECK FIRST - CRITICAL!
+      if (sec.isHoneypot) {
+        fields.push({
+          name: '🚨🍯 HONEYPOT DETECTED',
+          value: `**⛔ DO NOT BUY!**\n${sec.honeypotReason || 'Cannot sell this token'}`,
+          inline: false,
+        });
+        // Don't show other security info for honeypot
+      } else {
+        const riskEmoji = {
+          'safe': '✅',
+          'low': '🟢',
+          'medium': '🟡',
+          'high': '🟠',
+          'critical': '🔴',
+        }[sec.riskLevel] || '❓';
 
-      // Top risks
-      if (sec.risks && sec.risks.length > 0) {
-        securityLines.push(`⚠️ ${sec.risks.slice(0, 2).join(', ')}`);
-      }
+        const securityLines = [
+          `${riskEmoji} **Risk:** ${sec.riskLevel.toUpperCase()} (${sec.riskScore}/100)`,
+        ];
 
-      fields.push({
-        name: '🛡️ Security',
-        value: securityLines.join('\n'),
-        inline: true,
-      });
+        // 💸 TAX INFO
+        if (sec.buyTax !== undefined || sec.sellTax !== undefined) {
+          const taxParts = [];
+          if (sec.buyTax !== undefined) {
+            const buyEmoji = sec.buyTax > 10 ? '⚠️' : '';
+            taxParts.push(`Buy: ${buyEmoji}${sec.buyTax}%`);
+          }
+          if (sec.sellTax !== undefined) {
+            const sellEmoji = sec.sellTax > 10 ? '⚠️' : '';
+            taxParts.push(`Sell: ${sellEmoji}${sec.sellTax}%`);
+          }
+          securityLines.push(`💸 Tax: ${taxParts.join(' | ')}`);
+        }
+
+        // Flags
+        const flags = [];
+        if (sec.isLpLocked) flags.push(`🔒 LP ${sec.lpLockedPercent ? `${sec.lpLockedPercent.toFixed(0)}%` : 'Locked'}`);
+        if (sec.isDexPaid) flags.push('💰 DEX Paid');
+        if (!sec.isMintable) flags.push('✅ Mint Off');
+        if (!sec.isFreezable) flags.push('✅ No Freeze');
+        
+        if (flags.length > 0) {
+          securityLines.push(flags.join(' • '));
+        }
+
+        // Top risks (excluding tax which is shown above)
+        const otherRisks = (sec.risks || []).filter((r: string) => !r.toLowerCase().includes('tax'));
+        if (otherRisks.length > 0) {
+          securityLines.push(`⚠️ ${otherRisks.slice(0, 2).join(', ')}`);
+        }
+
+        fields.push({
+          name: '🛡️ Security',
+          value: securityLines.join('\n'),
+          inline: true,
+        });
+      }
     }
 
     // Wallets with trade details (show all)
