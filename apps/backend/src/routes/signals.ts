@@ -483,6 +483,87 @@ router.post('/expire-old', async (req, res) => {
 });
 
 /**
+ * POST /api/signals/cleanup-all-duplicates
+ * Smaže duplicity z obou tabulek - Signal i ConsensusSignal
+ */
+router.post('/cleanup-all-duplicates', async (req, res) => {
+  try {
+    let deletedSignals = 0;
+    let deletedConsensus = 0;
+
+    // 1. Cleanup Signal table duplicates
+    const { data: signals } = await supabase
+      .from(TABLES.SIGNAL)
+      .select('id, tokenId, createdAt')
+      .eq('model', 'consensus')
+      .order('createdAt', { ascending: false });
+
+    if (signals) {
+      const tokenMap = new Map<string, string[]>();
+      signals.forEach((s: any) => {
+        const ids = tokenMap.get(s.tokenId) || [];
+        ids.push(s.id);
+        tokenMap.set(s.tokenId, ids);
+      });
+
+      for (const [tokenId, ids] of tokenMap.entries()) {
+        if (ids.length > 1) {
+          // Keep only the first (newest), delete rest
+          const idsToDelete = ids.slice(1);
+          const { error } = await supabase
+            .from(TABLES.SIGNAL)
+            .delete()
+            .in('id', idsToDelete);
+          if (!error) deletedSignals += idsToDelete.length;
+        }
+      }
+    }
+
+    // 2. Cleanup ConsensusSignal table duplicates
+    const { data: consensusSignals } = await supabase
+      .from(TABLES.CONSENSUS_SIGNAL)
+      .select('id, tokenId, latestTradeTime')
+      .order('latestTradeTime', { ascending: false });
+
+    if (consensusSignals) {
+      const tokenMap = new Map<string, string[]>();
+      consensusSignals.forEach((s: any) => {
+        const ids = tokenMap.get(s.tokenId) || [];
+        ids.push(s.id);
+        tokenMap.set(s.tokenId, ids);
+      });
+
+      for (const [tokenId, ids] of tokenMap.entries()) {
+        if (ids.length > 1) {
+          // Keep only the first (newest), delete rest
+          const idsToDelete = ids.slice(1);
+          const { error } = await supabase
+            .from(TABLES.CONSENSUS_SIGNAL)
+            .delete()
+            .in('id', idsToDelete);
+          if (!error) deletedConsensus += idsToDelete.length;
+        }
+      }
+    }
+
+    console.log(`🧹 Cleanup: Deleted ${deletedSignals} Signal duplicates, ${deletedConsensus} ConsensusSignal duplicates`);
+
+    res.json({
+      success: true,
+      message: `Cleaned up ${deletedSignals + deletedConsensus} total duplicates`,
+      deletedSignals,
+      deletedConsensus,
+    });
+  } catch (error: any) {
+    console.error('❌ Error cleaning up all duplicates:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to clean up duplicates',
+    });
+  }
+});
+
+/**
  * POST /api/signals/cleanup-duplicates
  * Smaže duplicitní signály - ponechá pouze jeden per token
  */
@@ -683,6 +764,153 @@ router.get('/ai/history', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to fetch AI decision history',
+    });
+  }
+});
+
+/**
+ * POST /api/signals/ai/reevaluate-all
+ * Re-evaluuje všechny active signály bez AI decision
+ */
+router.post('/ai/reevaluate-all', async (req, res) => {
+  try {
+    // Najdi všechny active signály bez AI decision
+    const { data: signalsToEvaluate, error } = await supabase
+      .from(TABLES.SIGNAL)
+      .select(`
+        *,
+        token:Token(*),
+        wallet:SmartWallet(*)
+      `)
+      .eq('status', 'active')
+      .is('aiDecision', null)
+      .order('createdAt', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      throw new Error(`Failed to fetch signals: ${error.message}`);
+    }
+
+    if (!signalsToEvaluate || signalsToEvaluate.length === 0) {
+      return res.json({
+        success: true,
+        message: 'No signals to evaluate',
+        evaluated: 0,
+      });
+    }
+
+    console.log(`🤖 Re-evaluating ${signalsToEvaluate.length} signals with AI...`);
+
+    let evaluatedCount = 0;
+    const results = [];
+
+    for (const signal of signalsToEvaluate) {
+      try {
+        // Načti market data
+        let marketData: any = null;
+        if (signal.token?.mintAddress) {
+          try {
+            marketData = await tokenMarketData.getMarketData(signal.token.mintAddress);
+          } catch (e) {
+            // ignoruj
+          }
+        }
+
+        // Vytvoř context (must match SignalContext interface)
+        const context = {
+          // Required fields
+          walletScore: signal.wallet?.score || 50,
+          walletWinRate: signal.wallet?.winRate || 0.5,
+          walletRecentPnl30d: 0, // Not available in this context
+          // Optional fields  
+          walletTotalTrades: 100,
+          walletAvgHoldTimeMin: 60,
+          tokenAge: marketData?.ageMinutes || 0,
+          tokenSymbol: signal.token?.symbol || 'Unknown',
+          tokenMint: signal.token?.mintAddress,
+          tokenLiquidity: marketData?.liquidity || 0,
+          tokenVolume24h: marketData?.volume24h || 0,
+          tokenMarketCap: marketData?.marketCap || 0,
+          consensusWalletCount: (signal.meta as any)?.walletCount || 1,
+          entryPriceUsd: Number(signal.priceBasePerToken || 0),
+        };
+
+        // Vytvoř signál pro AI
+        const walletCount = (signal.meta as any)?.walletCount || 1;
+        const signalForAI = {
+          type: (signal.model || 'consensus') as 'consensus' | 'whale-entry' | 'early-sniper' | 'momentum' | 're-entry' | 'exit-warning' | 'hot-token' | 'accumulation',
+          strength: (walletCount >= 3 ? 'strong' : 'medium') as 'weak' | 'medium' | 'strong',
+          confidence: signal.qualityScore || 50,
+          reasoning: signal.reasoning || '',
+          suggestedAction: signal.type as 'buy' | 'sell',
+          riskLevel: (signal.riskLevel || 'medium') as 'low' | 'medium' | 'high',
+          context,
+        };
+
+        // Zavolej AI
+        const decision = await aiDecision.evaluateSignal(signalForAI, context);
+        
+        if (decision) {
+          // Aktualizuj signal
+          const entryPrice = Number(signal.priceBasePerToken || 0);
+          const stopLossPrice = entryPrice > 0 && decision.stopLossPercent
+            ? entryPrice * (1 - decision.stopLossPercent / 100)
+            : null;
+          const takeProfitPrice = entryPrice > 0 && decision.takeProfitPercent
+            ? entryPrice * (1 + decision.takeProfitPercent / 100)
+            : null;
+
+          await supabase
+            .from(TABLES.SIGNAL)
+            .update({
+              aiDecision: decision.decision,
+              aiConfidence: decision.confidence,
+              aiReasoning: decision.reasoning,
+              aiSuggestedPositionPercent: decision.suggestedPositionPercent,
+              aiStopLossPercent: decision.stopLossPercent,
+              aiTakeProfitPercent: decision.takeProfitPercent,
+              aiRiskScore: decision.riskScore,
+              entryPriceUsd: entryPrice,
+              stopLossPriceUsd: stopLossPrice,
+              takeProfitPriceUsd: takeProfitPrice,
+              suggestedHoldTimeMinutes: decision.expectedHoldTimeMinutes,
+              tokenMarketCapUsd: marketData?.marketCap,
+              tokenLiquidityUsd: marketData?.liquidity,
+              tokenVolume24hUsd: marketData?.volume24h,
+              tokenAgeMinutes: marketData?.ageMinutes,
+              updatedAt: new Date().toISOString(),
+            })
+            .eq('id', signal.id);
+
+          evaluatedCount++;
+          results.push({
+            signalId: signal.id,
+            token: signal.token?.symbol,
+            decision: decision.decision,
+            confidence: decision.confidence,
+          });
+
+          console.log(`   ✅ ${signal.token?.symbol}: ${decision.decision} (${decision.confidence}%)`);
+        }
+
+        // Rate limiting - čekej 500ms mezi voláními
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (signalError: any) {
+        console.warn(`   ⚠️  Failed to evaluate signal ${signal.id}: ${signalError.message}`);
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Re-evaluated ${evaluatedCount}/${signalsToEvaluate.length} signals`,
+      evaluated: evaluatedCount,
+      results,
+    });
+  } catch (error: any) {
+    console.error('❌ Error re-evaluating signals:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to re-evaluate signals',
     });
   }
 });
