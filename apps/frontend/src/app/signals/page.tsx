@@ -279,14 +279,20 @@ export default function SignalsPage() {
                     {/* Wallets */}
                     <td className="px-4 py-4">
                       <div className="text-white font-medium">{signal.walletCount} wallets</div>
-                      <div className="text-xs text-gray-400">
+                      <div className="text-xs text-gray-400 mb-1">
                         Avg score: {signal.avgWalletScore?.toFixed(0) || '-'}
                       </div>
-                      {signal.wallets?.slice(0, 2).map((w, i) => (
-                        <div key={i} className="text-xs text-gray-500 truncate max-w-[120px]">
-                          {w.label || w.address?.substring(0, 8)}...
-                        </div>
-                      ))}
+                      <div className="flex flex-wrap gap-1">
+                        {signal.wallets?.map((w, i) => (
+                          <span 
+                            key={i} 
+                            className="inline-block px-1.5 py-0.5 bg-gray-700/50 rounded text-xs text-blue-300"
+                            title={`Score: ${w.score || 0}/100`}
+                          >
+                            {w.label || `${w.address?.substring(0, 6)}...`}
+                          </span>
+                        ))}
+                      </div>
                     </td>
 
                     {/* Entry Price */}

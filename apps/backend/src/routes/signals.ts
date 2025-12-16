@@ -63,12 +63,15 @@ router.get('/unified', async (req, res) => {
             ? wallets.reduce((sum, w) => sum + (w.score || 0), 0) / wallets.length 
             : 0;
           
-          // Najdi nejlepší entry price (první nákup)
+          // Seřaď wallety podle času trade
           const sortedWallets = [...wallets].sort((a, b) => 
             new Date(a.tradeTime).getTime() - new Date(b.tradeTime).getTime()
           );
-          const firstTrade = sortedWallets[0];
-          const entryPriceUsd = firstTrade?.tradePrice || 0;
+          
+          // Entry price = cena DRUHÉHO nákupu (kdy vzniká consensus)
+          // Pokud je jen 1 wallet, použij jeho cenu
+          const consensusTrade = sortedWallets.length >= 2 ? sortedWallets[1] : sortedWallets[0];
+          const entryPriceUsd = consensusTrade?.tradePrice || 0;
           
           // Zkus načíst aktuální market data
           let marketData: any = null;
