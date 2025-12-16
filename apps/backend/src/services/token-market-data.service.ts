@@ -20,7 +20,7 @@ export interface TokenMarketData {
 export class TokenMarketDataService {
   private birdeyeApiKey: string | undefined;
   private cache = new Map<string, { data: TokenMarketData; timestamp: number }>();
-  
+
   constructor() {
     this.birdeyeApiKey = process.env.BIRDEYE_API_KEY;
   }
@@ -100,8 +100,8 @@ export class TokenMarketDataService {
     if (cached) {
       const cacheTTL = this.getCacheTTL(cached.data.marketCap);
       if (Date.now() - cached.timestamp < cacheTTL) {
-        return cached.data;
-      }
+      return cached.data;
+    }
     }
 
     // 1. Try DexScreener first (free, better coverage)
