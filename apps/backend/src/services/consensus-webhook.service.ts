@@ -108,23 +108,68 @@ export class ConsensusWebhookService {
       console.log(`   🎯 Consensus found: ${uniqueWallets.size} wallets bought ${tokenId.substring(0, 16)}... in 2h window`);
       console.log(`      Using trade ${tradeToUseId.substring(0, 16)}... price: $${tradeToUsePrice.toFixed(6)}`);
 
-      // 5. Nejdřív vytvoř SIGNAL (primární zdroj)
+      // 5. Zkontroluj existující signál a urči typ notifikace
       const riskLevel = uniqueWallets.size >= 3 ? 'low' : 'medium';
+      let isUpdate = false;
+      let previousWalletCount = 0;
       
-      try {
-        // Vytvoř consensus signal
-        const signal = await this.signalService.generateConsensusSignal(
-          tradeToUseId,
-          uniqueWallets.size,
-          riskLevel
-        );
+      // Zkontroluj, jestli už existuje signal pro tento token
+      const { data: existingSignal } = await supabase
+        .from(TABLES.SIGNAL)
+        .select('id, meta')
+        .eq('tokenId', tokenId)
+        .eq('model', 'consensus')
+        .eq('status', 'active')
+        .single();
 
-        if (!signal) {
-          console.warn(`   ⚠️  Failed to create consensus signal`);
+      if (existingSignal) {
+        previousWalletCount = (existingSignal.meta as any)?.walletCount || 0;
+        
+        // Pokud je stejný nebo menší počet wallets, skip
+        if (uniqueWallets.size <= previousWalletCount) {
+          console.log(`   ⏭️  Consensus already notified for ${previousWalletCount} wallets, current: ${uniqueWallets.size}`);
           return { consensusFound: true };
         }
+        
+        // Nový wallet se přidal - update!
+        isUpdate = true;
+        console.log(`   📈 Consensus update: ${previousWalletCount} → ${uniqueWallets.size} wallets`);
+        
+        // Aktualizuj existující signal
+        await supabase
+          .from(TABLES.SIGNAL)
+          .update({
+            meta: {
+              ...existingSignal.meta as object,
+              walletCount: uniqueWallets.size,
+              lastUpdateTradeId: newTradeId,
+            },
+            qualityScore: uniqueWallets.size >= 4 ? 90 : uniqueWallets.size >= 3 ? 80 : 60,
+            riskLevel,
+            reasoning: `Consensus: ${uniqueWallets.size} smart wallets bought this token within 2h window`,
+            updatedAt: new Date().toISOString(),
+          })
+          .eq('id', existingSignal.id);
+      }
+      
+      try {
+        let signal: any = existingSignal;
+        
+        // Vytvoř nový signal pouze pokud neexistuje
+        if (!existingSignal) {
+          signal = await this.signalService.generateConsensusSignal(
+            tradeToUseId,
+            uniqueWallets.size,
+            riskLevel
+          );
 
-        console.log(`   📊 Consensus signal created: ${signal.id.substring(0, 16)}... (${uniqueWallets.size} wallets)`);
+          if (!signal) {
+            console.warn(`   ⚠️  Failed to create consensus signal`);
+            return { consensusFound: true };
+          }
+          
+          console.log(`   📊 Consensus signal created: ${signal.id.substring(0, 16)}... (${uniqueWallets.size} wallets)`);
+        }
 
         // 5b. AI Evaluace signálu
         let aiDecisionResult: any = null;
@@ -197,11 +242,16 @@ export class ConsensusWebhookService {
             : undefined;
 
           // Sestaví data pro notifikaci
+          // Najdi nejnovější wallet (který se právě přidal)
+          const newestWallet = walletsData.sort((a, b) => 
+            new Date(b.tradeTime || 0).getTime() - new Date(a.tradeTime || 0).getTime()
+          )[0];
+
           const notificationData: SignalNotificationData = {
             tokenSymbol: token?.symbol || 'Unknown',
             tokenMint: token?.mintAddress || '',
-            signalType: 'consensus',
-            strength: uniqueWallets.size >= 3 ? 'strong' : 'medium',
+            signalType: isUpdate ? 'consensus-update' : 'consensus',
+            strength: uniqueWallets.size >= 4 ? 'strong' : uniqueWallets.size >= 3 ? 'medium' : 'weak',
             walletCount: uniqueWallets.size,
             avgWalletScore,
             entryPriceUsd: entryPrice,
@@ -211,7 +261,10 @@ export class ConsensusWebhookService {
             tokenAgeMinutes: marketDataResult?.ageMinutes,
             aiDecision: aiDecisionResult?.decision,
             aiConfidence: aiDecisionResult?.confidence,
-            aiReasoning: aiDecisionResult?.reasoning,
+            // Pro update přidej info o novém walletovi
+            aiReasoning: isUpdate 
+              ? `🆕 Nový trader přidán: ${newestWallet?.label || 'Unknown'} (celkem ${uniqueWallets.size} wallets)`
+              : aiDecisionResult?.reasoning,
             aiPositionPercent: aiDecisionResult?.suggestedPositionPercent,
             stopLossPercent: aiDecisionResult?.stopLossPercent,
             takeProfitPercent: aiDecisionResult?.takeProfitPercent,

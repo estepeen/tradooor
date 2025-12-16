@@ -290,6 +290,7 @@ export class DiscordNotificationService {
   private getSignalEmoji(signalType: string): string {
     const emojis: Record<string, string> = {
       'consensus': '🤝',
+      'consensus-update': '📈',
       'whale-entry': '🐋',
       'early-sniper': '🎯',
       'hot-token': '🔥',
@@ -297,6 +298,9 @@ export class DiscordNotificationService {
       'momentum': '📈',
       'accumulation': '📦',
       'exit-warning': '⚠️',
+      'conviction-buy': '💪',
+      'volume-spike': '📊',
+      'large-position': '💰',
     };
     return emojis[signalType] || '📊';
   }

@@ -29,7 +29,11 @@ export type AdvancedSignalType =
   | 'exit-warning'
   | 'hot-token'
   | 'accumulation'
-  | 'consensus';
+  | 'consensus'
+  | 'conviction-buy'    // Trader buys >2x their average trade size
+  | 'large-position'    // Trader has significant % of supply
+  | 'volume-spike'      // Token has unusual high volume
+  | 'consensus-update'; // New wallet joined existing consensus
 
 export interface SignalContext {
   walletScore: number;
@@ -84,6 +88,12 @@ const THRESHOLDS = {
   HOT_TOKEN_MIN_AVG_SCORE: 60,            // Was 70
   ACCUMULATION_MIN_BUYS: 2,               // Was 3
   ACCUMULATION_TIME_WINDOW_HOURS: 12,     // Was 6
+  // New thresholds
+  CONVICTION_BUY_MULTIPLIER: 2,           // Trade size >2x average = conviction
+  CONVICTION_MIN_WALLET_SCORE: 60,        // Wallet must have decent score
+  VOLUME_SPIKE_MULTIPLIER: 5,             // 5x normal volume = spike
+  VOLUME_SPIKE_MIN_USD: 50000,            // Minimum $50k volume to trigger
+  LARGE_POSITION_MIN_USD: 1000,           // $1000+ position
 };
 
 export class AdvancedSignalsService {
@@ -153,6 +163,8 @@ export class AdvancedSignalsService {
           reentrySignal,
           hotTokenSignal,
           accumulationSignal,
+          convictionSignal,
+          volumeSpikeSignal,
         ] = await Promise.all([
           this.detectWhaleEntry(trade, wallet, context),
           this.detectEarlySniper(trade, wallet, token, context),
@@ -160,6 +172,8 @@ export class AdvancedSignalsService {
           this.detectReentry(trade, wallet, token, context),
           this.detectHotToken(trade, token, context),
           this.detectAccumulation(trade, wallet, token, context),
+          this.detectConvictionBuy(trade, wallet, token, context),
+          this.detectVolumeSpike(trade, wallet, token, context),
         ]);
 
         if (whaleSignal) signals.push(whaleSignal);
@@ -168,6 +182,8 @@ export class AdvancedSignalsService {
         if (reentrySignal) signals.push(reentrySignal);
         if (hotTokenSignal) signals.push(hotTokenSignal);
         if (accumulationSignal) signals.push(accumulationSignal);
+        if (convictionSignal) signals.push(convictionSignal);
+        if (volumeSpikeSignal) signals.push(volumeSpikeSignal);
       } else if (trade.side === 'sell') {
         const exitSignal = await this.detectExitWarning(trade, token, context);
         if (exitSignal) signals.push(exitSignal);
@@ -527,6 +543,113 @@ export class AdvancedSignalsService {
       context,
       suggestedAction: 'buy',
       suggestedPositionPercent: strength === 'strong' ? 10 : 7,
+      riskLevel: 'medium',
+    };
+  }
+
+  /**
+   * 💪 Conviction Buy Detection
+   * Trader nakupuje >2x více než je jeho průměr = vysoká conviction
+   */
+  private async detectConvictionBuy(
+    trade: any,
+    wallet: any,
+    token: any,
+    context: SignalContext
+  ): Promise<AdvancedSignal | null> {
+    if (wallet.score < THRESHOLDS.CONVICTION_MIN_WALLET_SCORE) {
+      return null;
+    }
+
+    // Získej průměrnou velikost trade této wallet
+    const { data: recentTrades } = await supabase
+      .from(TABLES.TRADE)
+      .select('amountBase')
+      .eq('walletId', wallet.id)
+      .eq('side', 'buy')
+      .order('timestamp', { ascending: false })
+      .limit(30);
+
+    if (!recentTrades || recentTrades.length < 5) {
+      return null;
+    }
+
+    const avgTradeSize = recentTrades.reduce((sum, t) => sum + Number(t.amountBase || 0), 0) / recentTrades.length;
+    const currentTradeSize = Number(trade.amountBase || 0);
+    const multiplier = avgTradeSize > 0 ? currentTradeSize / avgTradeSize : 0;
+
+    if (multiplier < THRESHOLDS.CONVICTION_BUY_MULTIPLIER) {
+      return null;
+    }
+
+    // Přidej do context
+    context.walletAvgPositionUsd = avgTradeSize * 150; // Rough SOL->USD
+    context.positionSizeUsd = currentTradeSize * 150;
+
+    const strength = multiplier >= 5 ? 'strong' : multiplier >= 3 ? 'medium' : 'weak';
+    const confidence = Math.min(95, 55 + multiplier * 8 + wallet.score / 5);
+
+    return {
+      type: 'conviction-buy',
+      strength,
+      confidence,
+      reasoning: `💪 Conviction Buy: ${wallet.label || 'Trader'} (score ${wallet.score.toFixed(0)}) nakoupil ${multiplier.toFixed(1)}x více než obvykle (${currentTradeSize.toFixed(2)} SOL vs avg ${avgTradeSize.toFixed(2)} SOL)`,
+      context,
+      suggestedAction: 'buy',
+      suggestedPositionPercent: Math.min(20, strength === 'strong' ? 15 : strength === 'medium' ? 10 : 7),
+      riskLevel: multiplier >= 4 ? 'low' : 'medium', // Vysoká conviction = nižší risk
+    };
+  }
+
+  /**
+   * 📊 Volume Spike Detection
+   * Token má extrémně vysoký volume
+   */
+  private async detectVolumeSpike(
+    trade: any,
+    wallet: any,
+    token: any,
+    context: SignalContext
+  ): Promise<AdvancedSignal | null> {
+    // Zkus načíst volume data
+    const { data: tradeFeature } = await supabase
+      .from(TABLES.TRADE_FEATURE)
+      .select('volume1hUsd, volume24hUsd')
+      .eq('tradeId', trade.id)
+      .single();
+
+    if (!tradeFeature) {
+      return null;
+    }
+
+    const volume1h = Number(tradeFeature.volume1hUsd || 0);
+    const volume24h = Number(tradeFeature.volume24hUsd || 0);
+
+    if (volume24h < THRESHOLDS.VOLUME_SPIKE_MIN_USD) {
+      return null;
+    }
+
+    // Spočítej volume spike (1h vs 24h average hourly)
+    const avgHourlyVolume = volume24h / 24;
+    const volumeSpike = avgHourlyVolume > 0 ? volume1h / avgHourlyVolume : 0;
+
+    if (volumeSpike < THRESHOLDS.VOLUME_SPIKE_MULTIPLIER) {
+      return null;
+    }
+
+    context.tokenVolume24h = volume24h;
+
+    const strength = volumeSpike >= 10 ? 'strong' : volumeSpike >= 7 ? 'medium' : 'weak';
+    const confidence = Math.min(90, 50 + volumeSpike * 3 + wallet.score / 10);
+
+    return {
+      type: 'volume-spike',
+      strength,
+      confidence,
+      reasoning: `📊 Volume Spike: ${token.symbol || 'Token'} má ${volumeSpike.toFixed(1)}x vyšší volume než obvykle ($${(volume1h / 1000).toFixed(0)}K/h vs avg $${(avgHourlyVolume / 1000).toFixed(0)}K/h). Smart wallet nakupuje.`,
+      context,
+      suggestedAction: 'buy',
+      suggestedPositionPercent: strength === 'strong' ? 12 : 8,
       riskLevel: 'medium',
     };
   }
