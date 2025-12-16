@@ -2,8 +2,13 @@
  * AI Decision Service
  * 
  * LLM-powered rozhodovací vrstva pro trading signály.
- * Používá OpenAI GPT-4 nebo Claude pro:
- * - Evaluaci signálů
+ * Podporuje multiple providers:
+ * - Groq (FREE, default) - Llama 3.1 70B, extrémně rychlé (~200ms)
+ * - OpenAI GPT-4 / GPT-4o-mini
+ * - Anthropic Claude 3.5 Sonnet
+ * 
+ * Features:
+ * - Evaluace signálů
  * - Generování doporučení
  * - Position sizing
  * - Risk assessment
@@ -64,15 +69,23 @@ export interface AIContext {
   similarTradesAvgPnl?: number;
 }
 
+export type AIModel = 
+  | 'groq'           // FREE - Llama 3.1 70B (default, recommended)
+  | 'groq-fast'      // FREE - Llama 3.1 8B (faster, less accurate)
+  | 'gpt-4-turbo' 
+  | 'gpt-4o' 
+  | 'gpt-4o-mini' 
+  | 'claude-3-5-sonnet';
+
 export interface AIDecisionConfig {
-  model?: 'gpt-4-turbo' | 'gpt-4o' | 'gpt-4o-mini' | 'claude-3-5-sonnet';
+  model?: AIModel;
   temperature?: number;
   minConfidenceThreshold?: number;
   enableLogging?: boolean;
 }
 
 const DEFAULT_CONFIG: AIDecisionConfig = {
-  model: 'gpt-4o-mini',
+  model: 'groq',  // FREE! Llama 3.1 70B via Groq
   temperature: 0.3,
   minConfidenceThreshold: 60,
   enableLogging: true,
@@ -80,13 +93,21 @@ const DEFAULT_CONFIG: AIDecisionConfig = {
 
 export class AIDecisionService {
   private config: AIDecisionConfig;
+  private groqApiKey?: string;
   private openaiApiKey?: string;
   private anthropicApiKey?: string;
 
   constructor(config?: AIDecisionConfig) {
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.groqApiKey = process.env.GROQ_API_KEY;
     this.openaiApiKey = process.env.OPENAI_API_KEY;
     this.anthropicApiKey = process.env.ANTHROPIC_API_KEY;
+    
+    // Log which provider is being used
+    const model = this.config.model || 'groq';
+    if (model.startsWith('groq') && !this.groqApiKey) {
+      console.warn('⚠️  GROQ_API_KEY not set - AI decisions will use fallback rules');
+    }
   }
 
   /**
@@ -219,13 +240,71 @@ Important guidelines:
     promptTokens?: number;
     completionTokens?: number;
   }> {
-    const model = this.config.model || 'gpt-4o-mini';
+    const model = this.config.model || 'groq';
     
-    if (model.startsWith('claude')) {
+    if (model.startsWith('groq')) {
+      return this.callGroq(prompt, model);
+    } else if (model.startsWith('claude')) {
       return this.callClaude(prompt);
     } else {
       return this.callOpenAI(prompt, model);
     }
+  }
+
+  /**
+   * Zavolá Groq API (FREE tier - Llama 3.1)
+   * https://console.groq.com - get free API key
+   */
+  private async callGroq(prompt: string, model: string): Promise<{
+    content: string;
+    promptTokens?: number;
+    completionTokens?: number;
+  }> {
+    if (!this.groqApiKey) {
+      throw new Error('GROQ_API_KEY not set. Get free key at https://console.groq.com');
+    }
+
+    // Select model based on config
+    const groqModel = model === 'groq-fast' 
+      ? 'llama-3.1-8b-instant'      // Faster, less accurate
+      : 'llama-3.1-70b-versatile';  // Default, best quality
+
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.groqApiKey}`,
+      },
+      body: JSON.stringify({
+        model: groqModel,
+        messages: [
+          {
+            role: 'system',
+            content: 'You are an expert Solana memecoin trader. Always respond with valid JSON only, no markdown formatting, no code blocks.',
+          },
+          {
+            role: 'user',
+            content: prompt,
+          },
+        ],
+        temperature: this.config.temperature || 0.3,
+        max_tokens: 1024,
+        response_format: { type: 'json_object' },
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Groq API error: ${error}`);
+    }
+
+    const data = await response.json();
+    
+    return {
+      content: data.choices?.[0]?.message?.content || '',
+      promptTokens: data.usage?.prompt_tokens,
+      completionTokens: data.usage?.completion_tokens,
+    };
   }
 
   /**
@@ -350,7 +429,7 @@ Important guidelines:
         takeProfitPercent: Math.min(200, Math.max(20, parsed.takeProfitPercent || 50)),
         expectedHoldTimeMinutes: Math.min(1440, Math.max(5, parsed.expectedHoldTimeMinutes || 60)),
         riskScore: Math.min(10, Math.max(1, parsed.riskScore || 5)),
-        model: this.config.model || 'gpt-4o-mini',
+        model: this.config.model || 'groq',
         promptTokens: response.promptTokens,
         completionTokens: response.completionTokens,
         createdAt: new Date(),
