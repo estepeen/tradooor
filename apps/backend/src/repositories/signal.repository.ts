@@ -167,6 +167,20 @@ export class SignalRepository {
     status?: 'active' | 'executed' | 'expired' | 'cancelled';
     expiresAt?: Date | null;
     meta?: Record<string, any> | null;
+    qualityScore?: number | null;
+    riskLevel?: 'low' | 'medium' | 'high' | null;
+    reasoning?: string | null;
+    aiDecision?: string | null;
+    aiConfidence?: number | null;
+    aiReasoning?: string | null;
+    aiSuggestedPositionPercent?: number | null;
+    aiStopLossPercent?: number | null;
+    aiTakeProfitPercent?: number | null;
+    aiRiskScore?: number | null;
+    entryPriceUsd?: number | null;
+    stopLossPriceUsd?: number | null;
+    takeProfitPriceUsd?: number | null;
+    suggestedHoldTimeMinutes?: number | null;
   }): Promise<SignalRecord> {
     const updateData: any = {
       updatedAt: new Date(),
@@ -183,12 +197,55 @@ export class SignalRepository {
     if (updates.meta !== undefined) {
       updateData.meta = updates.meta;
     }
+    if (updates.qualityScore !== undefined) {
+      updateData.qualityScore = updates.qualityScore;
+    }
+    if (updates.riskLevel !== undefined) {
+      updateData.riskLevel = updates.riskLevel;
+    }
+    if (updates.reasoning !== undefined) {
+      updateData.reasoning = updates.reasoning;
+    }
+    // AI fields - these may not exist in schema yet, but we'll try
+    if (updates.aiDecision !== undefined) {
+      (updateData as any).aiDecision = updates.aiDecision;
+    }
+    if (updates.aiConfidence !== undefined) {
+      (updateData as any).aiConfidence = updates.aiConfidence;
+    }
+    if (updates.aiReasoning !== undefined) {
+      (updateData as any).aiReasoning = updates.aiReasoning;
+    }
+    if (updates.aiSuggestedPositionPercent !== undefined) {
+      (updateData as any).aiSuggestedPositionPercent = updates.aiSuggestedPositionPercent;
+    }
+    if (updates.aiStopLossPercent !== undefined) {
+      (updateData as any).aiStopLossPercent = updates.aiStopLossPercent;
+    }
+    if (updates.aiTakeProfitPercent !== undefined) {
+      (updateData as any).aiTakeProfitPercent = updates.aiTakeProfitPercent;
+    }
+    if (updates.aiRiskScore !== undefined) {
+      (updateData as any).aiRiskScore = updates.aiRiskScore;
+    }
+    if (updates.entryPriceUsd !== undefined) {
+      (updateData as any).entryPriceUsd = updates.entryPriceUsd;
+    }
+    if (updates.stopLossPriceUsd !== undefined) {
+      (updateData as any).stopLossPriceUsd = updates.stopLossPriceUsd;
+    }
+    if (updates.takeProfitPriceUsd !== undefined) {
+      (updateData as any).takeProfitPriceUsd = updates.takeProfitPriceUsd;
+    }
+    if (updates.suggestedHoldTimeMinutes !== undefined) {
+      (updateData as any).suggestedHoldTimeMinutes = updates.suggestedHoldTimeMinutes;
+    }
 
     const result = await prisma.signal.update({
       where: { id },
       data: {
         ...updateData,
-        meta: updates.meta as any,
+        meta: updates.meta !== undefined ? (updates.meta as any) : undefined,
       },
     });
 
@@ -237,5 +294,40 @@ export class SignalRepository {
     });
 
     return result.count;
+  }
+
+  /**
+   * Najde aktivní signál pro token a model (pro consensus detection)
+   */
+  async findActiveByTokenAndModel(tokenId: string, model: string): Promise<SignalRecord | null> {
+    const result = await prisma.signal.findFirst({
+      where: {
+        tokenId,
+        model: model as any,
+        status: 'active',
+      },
+    });
+
+    if (!result) return null;
+    return {
+      id: result.id,
+      type: result.type as any,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      originalTradeId: result.originalTradeId ?? null,
+      priceBasePerToken: Number(result.priceBasePerToken),
+      amountBase: result.amountBase ? Number(result.amountBase) : null,
+      amountToken: result.amountToken ? Number(result.amountToken) : null,
+      timestamp: result.timestamp,
+      status: result.status as any,
+      expiresAt: result.expiresAt ?? null,
+      qualityScore: result.qualityScore ? Number(result.qualityScore) : null,
+      riskLevel: (result.riskLevel as any) ?? null,
+      model: (result.model as any) ?? null,
+      reasoning: result.reasoning ?? null,
+      meta: (result.meta as any) ?? null,
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+    };
   }
 }

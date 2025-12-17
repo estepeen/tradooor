@@ -268,4 +268,44 @@ export class TradeRepository {
 
     return result.count;
   }
+
+  /**
+   * Najde všechny BUY trades pro token v časovém okně (pro consensus detection)
+   */
+  async findBuysByTokenAndTimeWindow(
+    tokenId: string,
+    fromDate: Date,
+    toDate: Date
+  ) {
+    const trades = await prisma.trade.findMany({
+      where: {
+        tokenId,
+        side: 'buy',
+        timestamp: {
+          gte: fromDate,
+          lte: toDate,
+        },
+      },
+      select: {
+        id: true,
+        walletId: true,
+        tokenId: true,
+        timestamp: true,
+        amountBase: true,
+        priceBasePerToken: true,
+        side: true,
+      },
+      orderBy: { timestamp: 'asc' },
+    });
+
+    return trades.map(t => ({
+      id: t.id,
+      walletId: t.walletId,
+      tokenId: t.tokenId,
+      timestamp: t.timestamp,
+      amountBase: Number(t.amountBase),
+      priceBasePerToken: Number(t.priceBasePerToken),
+      side: t.side,
+    }));
+  }
 }

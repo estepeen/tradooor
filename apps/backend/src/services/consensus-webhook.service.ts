@@ -6,12 +6,14 @@
  * Pokud ano a je to 2+ wallet, vytvoří signál a paper trade při ceně druhého nákupu.
  */
 
-import { supabase, TABLES } from '../lib/supabase.js';
+import { prisma } from '../lib/prisma.js';
 import { PaperTradeService, PaperTradingConfig } from './paper-trade.service.js';
 import { PaperTradeRepository } from '../repositories/paper-trade.repository.js';
 import { SignalService } from './signal.service.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
+import { TokenRepository } from '../repositories/token.repository.js';
+import { SignalRepository } from '../repositories/signal.repository.js';
 import { AIDecisionService } from './ai-decision.service.js';
 import { TokenMarketDataService } from './token-market-data.service.js';
 import { DiscordNotificationService, SignalNotificationData } from './discord-notification.service.js';
@@ -27,6 +29,8 @@ export class ConsensusWebhookService {
   private signalService: SignalService;
   private tradeRepo: TradeRepository;
   private smartWalletRepo: SmartWalletRepository;
+  private tokenRepo: TokenRepository;
+  private signalRepo: SignalRepository;
   private aiDecisionService: AIDecisionService;
   private tokenMarketData: TokenMarketDataService;
   private discordNotification: DiscordNotificationService;
@@ -39,6 +43,8 @@ export class ConsensusWebhookService {
     this.signalService = new SignalService();
     this.tradeRepo = new TradeRepository();
     this.smartWalletRepo = new SmartWalletRepository();
+    this.tokenRepo = new TokenRepository();
+    this.signalRepo = new SignalRepository();
     this.aiDecisionService = new AIDecisionService();
     this.tokenMarketData = new TokenMarketDataService();
     this.discordNotification = new DiscordNotificationService();
@@ -72,17 +78,13 @@ export class ConsensusWebhookService {
       const timeWindowStart = new Date(timestamp.getTime() - CONSENSUS_TIME_WINDOW_HOURS * 60 * 60 * 1000);
       const timeWindowEnd = new Date(timestamp.getTime() + CONSENSUS_TIME_WINDOW_HOURS * 60 * 60 * 1000);
 
-      const { data: recentBuys, error } = await supabase
-        .from(TABLES.TRADE)
-        .select('id, walletId, tokenId, timestamp, amountBase, priceBasePerToken, side')
-        .eq('tokenId', tokenId)
-        .eq('side', 'buy')
-        .neq('side', 'void')
-        .gte('timestamp', timeWindowStart.toISOString())
-        .lte('timestamp', timeWindowEnd.toISOString())
-        .order('timestamp', { ascending: true });
+      const recentBuys = await this.tradeRepo.findBuysByTokenAndTimeWindow(
+        tokenId,
+        timeWindowStart,
+        timeWindowEnd
+      );
 
-      if (error || !recentBuys || recentBuys.length === 0) {
+      if (!recentBuys || recentBuys.length === 0) {
         return { consensusFound: false };
       }
 
@@ -120,13 +122,7 @@ export class ConsensusWebhookService {
       let previousWalletCount = 0;
       
       // Zkontroluj, jestli už existuje signal pro tento token
-      const { data: existingSignal } = await supabase
-        .from(TABLES.SIGNAL)
-        .select('id, meta')
-        .eq('tokenId', tokenId)
-        .eq('model', 'consensus')
-        .eq('status', 'active')
-        .single();
+      const existingSignal = await this.signalRepo.findActiveByTokenAndModel(tokenId, 'consensus');
 
       if (existingSignal) {
         previousWalletCount = (existingSignal.meta as any)?.walletCount || 0;
@@ -142,20 +138,16 @@ export class ConsensusWebhookService {
         console.log(`   📈 Consensus update: ${previousWalletCount} → ${uniqueWallets.size} wallets`);
         
         // Aktualizuj existující signal
-        await supabase
-          .from(TABLES.SIGNAL)
-          .update({
-            meta: {
-              ...existingSignal.meta as object,
-              walletCount: uniqueWallets.size,
-              lastUpdateTradeId: newTradeId,
-            },
-            qualityScore: uniqueWallets.size >= 4 ? 90 : uniqueWallets.size >= 3 ? 80 : 60,
-            riskLevel,
-            reasoning: `Consensus: ${uniqueWallets.size} smart wallets bought this token within 2h window`,
-            updatedAt: new Date().toISOString(),
-          })
-          .eq('id', existingSignal.id);
+        await this.signalRepo.update(existingSignal.id, {
+          meta: {
+            ...(existingSignal.meta as object || {}),
+            walletCount: uniqueWallets.size,
+            lastUpdateTradeId: newTradeId,
+          },
+          qualityScore: uniqueWallets.size >= 4 ? 90 : uniqueWallets.size >= 3 ? 80 : 60,
+          riskLevel,
+          reasoning: `Consensus: ${uniqueWallets.size} smart wallets bought this token within 2h window`,
+        });
       }
       
       try {
@@ -203,39 +195,42 @@ export class ConsensusWebhookService {
         // 5c. Pošli Discord notifikaci
         try {
           // Načti token info
-          const { data: token } = await supabase
-            .from(TABLES.TOKEN)
-            .select('symbol, mintAddress')
-            .eq('id', tradeToUse.tokenId)
-            .single();
+          const token = await this.tokenRepo.findById(tradeToUse.tokenId);
 
           // Načti market data
           try {
-            marketDataResult = await this.tokenMarketData.getMarketData(token?.mintAddress);
+            marketDataResult = await this.tokenMarketData.getMarketData(token?.mintAddress || '');
           } catch (e) {
             // ignoruj
           }
 
           // Načti wallet info
           const walletIds = sortedBuys.map(b => b.walletId);
-          const { data: wallets } = await supabase
-            .from(TABLES.SMART_WALLET)
-            .select('id, address, label, score')
-            .in('id', walletIds);
+          const wallets = await prisma.smartWallet.findMany({
+            where: {
+              id: { in: walletIds },
+            },
+            select: {
+              id: true,
+              address: true,
+              label: true,
+              score: true,
+            },
+          });
 
           // Spoj wallet info s trade info
-          walletsData = (wallets || []).map(w => {
+          walletsData = wallets.map(w => {
             const trade = sortedBuys.find(b => b.walletId === w.id);
             return {
               ...w,
-              tradeAmountUsd: trade ? Number(trade.amountBase || 0) : undefined,
-              tradePrice: trade ? Number(trade.priceBasePerToken || 0) : undefined,
-              tradeTime: trade?.timestamp,
+              tradeAmountUsd: trade ? trade.amountBase : undefined,
+              tradePrice: trade ? trade.priceBasePerToken : undefined,
+              tradeTime: trade?.timestamp.toISOString(),
             };
           });
           
           const avgWalletScore = walletsData.length > 0
-            ? walletsData.reduce((sum, w) => sum + (w.score || 0), 0) / walletsData.length
+            ? walletsData.reduce((sum, w) => sum + (Number(w.score) || 0), 0) / walletsData.length
             : 50;
 
           // Spočítej SL/TP ceny
@@ -313,9 +308,9 @@ export class ConsensusWebhookService {
             takeProfitPriceUsd,
             aiRiskScore: aiDecisionResult?.riskScore,
             wallets: walletsData.map(w => ({
-              label: w.label,
+              label: w.label || null,
               address: w.address,
-              score: w.score || 0,
+              score: Number(w.score) || 0,
               tradeAmountUsd: w.tradeAmountUsd,
               tradePrice: w.tradePrice,
               tradeTime: w.tradeTime,
@@ -429,11 +424,7 @@ export class ConsensusWebhookService {
   ): Promise<any> {
     try {
       // 1. Načti token info
-      const { data: token } = await supabase
-        .from(TABLES.TOKEN)
-        .select('*')
-        .eq('id', trade.tokenId)
-        .single();
+      const token = await this.tokenRepo.findById(trade.tokenId);
 
       if (!token) return null;
 
@@ -447,17 +438,25 @@ export class ConsensusWebhookService {
 
       // 3. Načti wallet info pro všechny zúčastněné wallety
       const walletIds = [...new Set(allBuys.map(b => b.walletId))];
-      const { data: wallets } = await supabase
-        .from(TABLES.SMART_WALLET)
-        .select('id, score, winRate, totalPnlPercent, tags')
-        .in('id', walletIds);
+      const wallets = await prisma.smartWallet.findMany({
+        where: {
+          id: { in: walletIds },
+        },
+        select: {
+          id: true,
+          score: true,
+          winRate: true,
+          avgPnlPercent: true,
+          tags: true,
+        },
+      });
 
       const avgWalletScore = wallets && wallets.length > 0
-        ? wallets.reduce((sum, w) => sum + (w.score || 0), 0) / wallets.length
+        ? wallets.reduce((sum, w) => sum + (Number(w.score) || 0), 0) / wallets.length
         : 50;
 
       const avgWinRate = wallets && wallets.length > 0
-        ? wallets.reduce((sum, w) => sum + (w.winRate || 0), 0) / wallets.length
+        ? wallets.reduce((sum, w) => sum + (Number(w.winRate) || 0), 0) / wallets.length
         : 0.5;
 
       // 4. Spočítej celkový volume
@@ -469,7 +468,7 @@ export class ConsensusWebhookService {
         walletScore: avgWalletScore,
         walletWinRate: avgWinRate,
         walletRecentPnl30d: wallets && wallets.length > 0
-          ? wallets.reduce((sum, w) => sum + (w.totalPnlPercent || 0), 0) / wallets.length
+          ? wallets.reduce((sum, w) => sum + (Number(w.avgPnlPercent) || 0), 0) / wallets.length
           : 0,
         // Optional context
         walletTotalTrades: 100, // placeholder
@@ -511,13 +510,9 @@ export class ConsensusWebhookService {
   private async updateSignalWithAI(signalId: string, aiDecision: any): Promise<void> {
     try {
       // Získej původní signal pro entry price
-      const { data: signal } = await supabase
-        .from(TABLES.SIGNAL)
-        .select('priceBasePerToken')
-        .eq('id', signalId)
-        .single();
+      const signal = await this.signalRepo.findById(signalId);
 
-      const entryPrice = signal ? Number(signal.priceBasePerToken) : 0;
+      const entryPrice = signal ? signal.priceBasePerToken : 0;
       
       // Spočítej SL/TP ceny
       const stopLossPrice = entryPrice > 0 && aiDecision.stopLossPercent
@@ -528,23 +523,19 @@ export class ConsensusWebhookService {
         ? entryPrice * (1 + aiDecision.takeProfitPercent / 100)
         : null;
 
-      await supabase
-        .from(TABLES.SIGNAL)
-        .update({
-          aiDecision: aiDecision.decision,
-          aiConfidence: aiDecision.confidence,
-          aiReasoning: aiDecision.reasoning,
-          aiSuggestedPositionPercent: aiDecision.suggestedPositionPercent,
-          aiStopLossPercent: aiDecision.stopLossPercent,
-          aiTakeProfitPercent: aiDecision.takeProfitPercent,
-          aiRiskScore: aiDecision.riskScore,
-          entryPriceUsd: entryPrice,
-          stopLossPriceUsd: stopLossPrice,
-          takeProfitPriceUsd: takeProfitPrice,
-          suggestedHoldTimeMinutes: aiDecision.expectedHoldTimeMinutes,
-          updatedAt: new Date().toISOString(),
-        })
-        .eq('id', signalId);
+      await this.signalRepo.update(signalId, {
+        aiDecision: aiDecision.decision,
+        aiConfidence: aiDecision.confidence,
+        aiReasoning: aiDecision.reasoning,
+        aiSuggestedPositionPercent: aiDecision.suggestedPositionPercent,
+        aiStopLossPercent: aiDecision.stopLossPercent,
+        aiTakeProfitPercent: aiDecision.takeProfitPercent,
+        aiRiskScore: aiDecision.riskScore,
+        entryPriceUsd: entryPrice,
+        stopLossPriceUsd: stopLossPrice,
+        takeProfitPriceUsd: takeProfitPrice,
+        suggestedHoldTimeMinutes: aiDecision.expectedHoldTimeMinutes,
+      });
 
       console.log(`   💾 Signal ${signalId.substring(0, 8)}... updated with AI decision`);
     } catch (error: any) {
