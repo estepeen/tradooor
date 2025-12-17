@@ -255,14 +255,15 @@ export class ClosedLotRepository {
       }
       
       // CRITICAL: Prisma expects Float type, not Integer
-      // Ensure it's explicitly a Float by using parseFloat (even if it's already a number)
-      // This ensures Prisma's binary protocol receives it as Float, not Integer
-      holdTimeMinutesValue = parseFloat(String(holdTimeMinutesValue));
+      // PostgreSQL binary protocol is strict about Float vs Integer types
+      // Even for 0, we need to ensure it's sent as Float (0.0) not Integer (0)
+      // Use toFixed(1) to ensure decimal part, then parseFloat to get proper Float
+      holdTimeMinutesValue = parseFloat(Number(holdTimeMinutesValue).toFixed(1));
       
       // Double-check it's still valid after conversion
       if (isNaN(holdTimeMinutesValue) || !isFinite(holdTimeMinutesValue)) {
-        console.error(`⚠️  holdTimeMinutes became invalid after parseFloat: ${holdTimeMinutesValue} -> using 0`);
-        holdTimeMinutesValue = 0;
+        console.error(`⚠️  holdTimeMinutes became invalid after conversion: ${holdTimeMinutesValue} -> using 0.0`);
+        holdTimeMinutesValue = 0.0; // Explicit Float, not Integer
       }
       
       const data: any = {
@@ -276,9 +277,10 @@ export class ClosedLotRepository {
         exitTime: lot.exitTime ? new Date(lot.exitTime) : new Date(),
         // CRITICAL: Parameter 9 - Prisma expects Float type (not Integer)
         // PostgreSQL binary protocol is strict about Float vs Integer types
-        // Ensure it's explicitly a Float by using parseFloat (even for integers)
-        // This ensures Prisma sends it as Float in binary protocol, not Integer
-        holdTimeMinutes: parseFloat(Number(holdTimeMinutesValue).toFixed(1)),
+        // Ensure it's explicitly a Float by ensuring it has decimal part
+        // Even 0 must be 0.0 to be sent as Float in binary protocol
+        // Value is already converted to Float with toFixed(1) above
+        holdTimeMinutes: holdTimeMinutesValue,
         costBasis: toDecimal(lot.costBasis) || new Prisma.Decimal(0),
         proceeds: toDecimal(lot.proceeds) || new Prisma.Decimal(0),
         realizedPnl: toDecimal(lot.realizedPnl) || new Prisma.Decimal(0),
