@@ -171,10 +171,19 @@ export class TradeFeatureRepository {
 
     updateData.updatedAt = new Date();
 
-    await prisma.tradeFeature.update({
+    // Use updateMany instead of update to avoid error if record doesn't exist
+    // This is safe because we only update realized metrics, which are optional
+    const result = await prisma.tradeFeature.updateMany({
       where: { tradeId: data.tradeId },
       data: updateData,
     });
+
+    // If no record was updated, it means TradeFeature doesn't exist for this trade
+    // This is fine - not all trades have TradeFeature records
+    if (result.count === 0) {
+      // Silently skip - this is expected for trades without features
+      return;
+    }
   }
 
   async findByTradeId(tradeId: string): Promise<TradeFeatureRecord | null> {
