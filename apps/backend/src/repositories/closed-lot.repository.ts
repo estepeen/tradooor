@@ -254,8 +254,16 @@ export class ClosedLotRepository {
         holdTimeMinutesValue = 0;
       }
       
-      // Explicitly convert to Float (not Decimal) - Prisma requires this
-      holdTimeMinutesValue = parseFloat(holdTimeMinutesValue.toString());
+      // CRITICAL: Prisma expects Float type, not Integer
+      // Ensure it's explicitly a Float by using parseFloat (even if it's already a number)
+      // This ensures Prisma's binary protocol receives it as Float, not Integer
+      holdTimeMinutesValue = parseFloat(String(holdTimeMinutesValue));
+      
+      // Double-check it's still valid after conversion
+      if (isNaN(holdTimeMinutesValue) || !isFinite(holdTimeMinutesValue)) {
+        console.error(`⚠️  holdTimeMinutes became invalid after parseFloat: ${holdTimeMinutesValue} -> using 0`);
+        holdTimeMinutesValue = 0;
+      }
       
       const data: any = {
         id: lot.id || generateId(),
@@ -266,7 +274,10 @@ export class ClosedLotRepository {
         exitPrice: toDecimal(lot.exitPrice) || new Prisma.Decimal(0),
         entryTime: lot.entryTime ? new Date(lot.entryTime) : new Date(),
         exitTime: lot.exitTime ? new Date(lot.exitTime) : new Date(),
-        holdTimeMinutes: holdTimeMinutesValue, // CRITICAL: Parameter 9 - must be valid number
+        // CRITICAL: Parameter 9 - Prisma expects Float type
+        // Ensure it's explicitly a Float (not Integer) by using parseFloat
+        // Even if value is already a number, parseFloat ensures it's treated as Float in Prisma's binary protocol
+        holdTimeMinutes: parseFloat(String(holdTimeMinutesValue)),
         costBasis: toDecimal(lot.costBasis) || new Prisma.Decimal(0),
         proceeds: toDecimal(lot.proceeds) || new Prisma.Decimal(0),
         realizedPnl: toDecimal(lot.realizedPnl) || new Prisma.Decimal(0),
