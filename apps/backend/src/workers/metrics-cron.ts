@@ -1,6 +1,6 @@
 import dotenv from 'dotenv';
 import cron from 'node-cron';
-import { supabase, TABLES } from '../lib/supabase.js';
+import { prisma } from '../lib/prisma.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
@@ -46,15 +46,18 @@ async function calculateAllMetrics() {
   const lotMatchingService = new LotMatchingService();
 
   try {
-    const { data: wallets, error } = await supabase
-      .from(TABLES.SMART_WALLET)
-      .select('id, address');
+    // Use Prisma to get all wallets (no pagination needed for cron job)
+    const wallets = await prisma.smartWallet.findMany({
+      select: {
+        id: true,
+        address: true,
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
 
-    if (error) {
-      throw new Error(`Failed to fetch wallets: ${error.message}`);
-    }
-
-    const walletList = wallets ?? [];
+    const walletList = wallets;
     console.log(`📊 Processing ${walletList.length} wallets...`);
 
     let successCount = 0;
