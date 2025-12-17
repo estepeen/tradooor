@@ -31,13 +31,20 @@ export class TokenRepository {
     }
   }
 
-  async findOrCreate(data: {
-    mintAddress: string;
-    symbol?: string;
-    name?: string;
-    decimals?: number;
-    forceUpdate?: boolean;
-  }) {
+    async findById(id: string) {
+      const token = await prisma.token.findUnique({
+        where: { id },
+      });
+      return token;
+    }
+
+    async findOrCreate(data: {
+      mintAddress: string;
+      symbol?: string;
+      name?: string;
+      decimals?: number;
+      forceUpdate?: boolean;
+    }) {
     const existing = await this.findByMintAddress(data.mintAddress);
     
     if (existing) {

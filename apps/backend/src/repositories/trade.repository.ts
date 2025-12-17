@@ -1,4 +1,4 @@
-import prisma, { generateId } from '../lib/prisma.js';
+import { prisma, generateId } from '../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 
 export class TradeRepository {
@@ -29,7 +29,11 @@ export class TradeRepository {
     }
 
     if (params?.toDate) {
-      where.timestamp = { ...where.timestamp, lte: params.toDate };
+      if (!where.timestamp) {
+        where.timestamp = { lte: params.toDate };
+      } else {
+        where.timestamp = { ...where.timestamp as any, lte: params.toDate };
+      }
     }
 
     const [trades, total] = await Promise.all([
@@ -204,7 +208,7 @@ export class TradeRepository {
     pnlUsd?: number;
     pnlPercent?: number;
   }) {
-    const updateData: Prisma.TradeUpdateInput = {};
+    const updateData: any = {};
 
     if (data.side !== undefined) {
       updateData.side = data.side;

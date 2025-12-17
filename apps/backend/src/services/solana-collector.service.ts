@@ -752,7 +752,7 @@ export class SolanaCollectorService {
 
       // 4. DŮLEŽITÉ: Fetch token metadata if missing - MUSÍME POČKAT na výsledek před uložením trade!
       // Pokud token nemá symbol/name, zkusíme fetchovat z Birdeye/DexScreener/Metaplex/Helius
-      if (!token.symbol || !token.name) {
+      if (!token || !token.symbol || !token.name) {
         try {
           console.log(`   🔍 Token ${normalized.tokenMint.substring(0, 8)}... missing metadata, fetching from Birdeye/DexScreener/Metaplex...`);
           const metadataMap = await this.tokenMetadataBatchService.getTokenMetadataBatch([normalized.tokenMint]);
@@ -781,6 +781,11 @@ export class SolanaCollectorService {
       const existing = await this.tradeRepo.findBySignature(normalized.txSignature);
       if (existing) {
         return { saved: false, reason: 'duplicate' };
+      }
+
+      if (!token) {
+        console.error(`❌ Token not found/created for ${normalized.tokenMint}`);
+        return { saved: false, reason: 'token_not_found' };
       }
 
       await this.tradeRepo.create({
@@ -892,7 +897,7 @@ export class SolanaCollectorService {
       });
 
       // 4. Fetch token metadata if missing (same as Helius path)
-      if (!token.symbol || !token.name) {
+      if (!token || !token.symbol || !token.name) {
         try {
           console.log(
             `   🔍 Token ${normalized.tokenMint.substring(
@@ -939,6 +944,12 @@ export class SolanaCollectorService {
       const existing = await this.tradeRepo.findBySignature(normalized.txSignature);
       if (existing) {
         return { saved: false, reason: 'duplicate' };
+      }
+
+      // Ensure token exists after metadata fetch
+      if (!token) {
+        console.error(`❌ Token not found/created for ${normalized.tokenMint}`);
+        return { saved: false, reason: 'token_not_found' };
       }
 
       // DŮLEŽITÉ: Po opravě normalizeQuickNodeSwap je baseToken VŽDY SOL/USDC/USDT

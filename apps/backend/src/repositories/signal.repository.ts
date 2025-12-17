@@ -1,4 +1,4 @@
-import prisma, { generateId } from '../lib/prisma.js';
+import { prisma, generateId } from '../lib/prisma.js';
 
 export interface SignalRecord {
   id: string;

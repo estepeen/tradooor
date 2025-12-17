@@ -1,4 +1,4 @@
-import prisma from '../lib/prisma.js';
+import { prisma } from '../lib/prisma.js';
 
 const toNumber = (value: any) => (value === null || value === undefined ? 0 : Number(value));
 

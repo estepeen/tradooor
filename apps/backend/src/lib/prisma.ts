@@ -5,13 +5,17 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 // Create Prisma client instance
-export const prisma = new PrismaClient({
+const prismaClient = new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
 });
 
+// Export as both default and named for flexibility
+export const prisma = prismaClient;
+export default prismaClient;
+
 // Handle graceful shutdown
 process.on('beforeExit', async () => {
-  await prisma.$disconnect();
+  await prismaClient.$disconnect();
 });
 
 // Database table names (for compatibility with existing code)
