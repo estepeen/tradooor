@@ -280,7 +280,8 @@ export class ClosedLotRepository {
       // Validate that buyTradeId and sellTradeId reference existing Trade records
       // NOTE: sellTradeId is NOT NULL in database, so we must provide a valid Trade ID or create a placeholder
       let buyTradeId = lot.buyTradeId ?? null;
-      let sellTradeId = lot.sellTradeId ?? null;
+      // CRITICAL: sellTradeId is NOT NULL - initialize immediately to prevent NULL
+      let sellTradeId: string = lot.sellTradeId || `synthetic-${generateId()}`;
       
       // Check if Trade records exist (only if IDs are provided)
       if (buyTradeId) {
