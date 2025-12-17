@@ -91,6 +91,7 @@
     "@solbot/shared": "workspace:*",
     "@supabase/supabase-js": "^2.81.1",
     "@types/ws": "^8.18.1",
+    "@prisma/client": "^5.22.0",
     "cors": "^2.8.5",
     "csv-parse": "^6.1.0",
     "dotenv": "^16.3.1",
