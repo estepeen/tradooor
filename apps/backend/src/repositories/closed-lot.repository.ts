@@ -367,17 +367,26 @@ export class ClosedLotRepository {
         console.error(`❌ CRITICAL: sellTradeId was still null/empty after processing, generated: ${sellTradeId}`);
       }
       
-      // If sellTradeId is a synthetic ID, create a placeholder Trade to satisfy foreign key constraint
-      if (sellTradeId.startsWith('synthetic-')) {
-        try {
-          // Check if placeholder Trade already exists
-          const placeholderExists = await prisma.trade.findUnique({ where: { id: sellTradeId }, select: { id: true } });
-          if (!placeholderExists) {
-            // Create placeholder Trade with minimal required data
+      // If sellTradeId is a synthetic ID or doesn't exist, create a placeholder Trade to satisfy foreign key constraint
+      // First, check if Trade exists
+      let tradeExists = false;
+      try {
+        const trade = await prisma.trade.findUnique({ where: { id: sellTradeId }, select: { id: true } });
+        tradeExists = !!trade;
+      } catch (error) {
+        console.warn(`⚠️  Failed to check if Trade exists: ${sellTradeId}`, error);
+      }
+      
+      if (!tradeExists) {
+        // Trade doesn't exist - create placeholder or use existing
+        if (sellTradeId.startsWith('synthetic-')) {
+          // Try to create placeholder Trade
+          try {
+            const txSignature = `synthetic-${sellTradeId}-${Date.now()}`; // Ensure uniqueness
             await prisma.trade.create({
               data: {
                 id: sellTradeId,
-                txSignature: `synthetic-${sellTradeId}`, // Must be unique
+                txSignature: txSignature,
                 walletId: lot.walletId,
                 tokenId: lot.tokenId,
                 side: 'sell',
@@ -389,11 +398,31 @@ export class ClosedLotRepository {
                 meta: { synthetic: true, reason: 'placeholder_for_closed_lot' },
               },
             });
-            console.log(`✅ Created placeholder Trade: ${sellTradeId}`);
+            console.log(`✅ Created placeholder Trade: ${sellTradeId} with txSignature: ${txSignature}`);
+          } catch (error: any) {
+            // If creation fails (e.g., duplicate txSignature), try to use existing Trade
+            console.warn(`⚠️  Failed to create placeholder Trade ${sellTradeId}:`, error.message);
+            try {
+              const existingTrade = await prisma.trade.findFirst({
+                where: {
+                  walletId: lot.walletId,
+                  tokenId: lot.tokenId,
+                },
+                orderBy: { timestamp: 'desc' },
+                select: { id: true },
+              });
+              if (existingTrade) {
+                sellTradeId = existingTrade.id;
+                console.warn(`⚠️  Using existing Trade instead: ${sellTradeId}`);
+              } else {
+                console.error(`❌ No existing Trade found and failed to create placeholder, will fail with foreign key constraint`);
+              }
+            } catch (findError) {
+              console.error(`❌ Failed to find alternative Trade:`, findError);
+            }
           }
-        } catch (error: any) {
-          // If creation fails (e.g., duplicate), try to use existing Trade
-          console.warn(`⚠️  Failed to create placeholder Trade ${sellTradeId}, trying to find existing:`, error.message);
+        } else {
+          // sellTradeId is not synthetic but doesn't exist - try to find existing Trade
           try {
             const existingTrade = await prisma.trade.findFirst({
               where: {
@@ -405,10 +434,35 @@ export class ClosedLotRepository {
             });
             if (existingTrade) {
               sellTradeId = existingTrade.id;
-              console.warn(`⚠️  Using existing Trade instead: ${sellTradeId}`);
+              console.warn(`⚠️  sellTradeId ${lot.sellTradeId} does not exist, using existing Trade: ${sellTradeId}`);
+            } else {
+              // No existing Trade found - create synthetic one
+              sellTradeId = `synthetic-${generateId()}`;
+              console.warn(`⚠️  No existing Trade found, creating synthetic: ${sellTradeId}`);
+              try {
+                const txSignature = `synthetic-${sellTradeId}-${Date.now()}`;
+                await prisma.trade.create({
+                  data: {
+                    id: sellTradeId,
+                    txSignature: txSignature,
+                    walletId: lot.walletId,
+                    tokenId: lot.tokenId,
+                    side: 'sell',
+                    amountToken: new Prisma.Decimal(0),
+                    amountBase: new Prisma.Decimal(0),
+                    priceBasePerToken: new Prisma.Decimal(0),
+                    timestamp: lot.exitTime || new Date(),
+                    dex: 'synthetic',
+                    meta: { synthetic: true, reason: 'placeholder_for_closed_lot' },
+                  },
+                });
+                console.log(`✅ Created placeholder Trade: ${sellTradeId}`);
+              } catch (createError: any) {
+                console.error(`❌ Failed to create placeholder Trade:`, createError.message);
+              }
             }
           } catch (findError) {
-            console.error(`❌ Failed to find alternative Trade, will fail with foreign key constraint:`, findError);
+            console.error(`❌ Failed to find alternative Trade:`, findError);
           }
         }
       }
