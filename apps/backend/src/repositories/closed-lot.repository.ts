@@ -232,9 +232,13 @@ export class ClosedLotRepository {
       // Required fields (always present)
       
       // CRITICAL: holdTimeMinutes is parameter 9 - must be a valid Float, not NaN/Infinity
-      // Prisma expects Float type, so we need to ensure it's a proper number
+      // Prisma expects Float type (not Decimal), so we need to ensure it's a proper JavaScript number
       let holdTimeMinutesValue: number;
-      if (lot.holdTimeMinutes === null || lot.holdTimeMinutes === undefined) {
+      
+      // Handle Decimal objects (from Prisma)
+      if (lot.holdTimeMinutes && typeof lot.holdTimeMinutes === 'object' && 'toNumber' in lot.holdTimeMinutes) {
+        holdTimeMinutesValue = (lot.holdTimeMinutes as any).toNumber();
+      } else if (lot.holdTimeMinutes === null || lot.holdTimeMinutes === undefined) {
         holdTimeMinutesValue = 0;
       } else if (typeof lot.holdTimeMinutes === 'string') {
         const parsed = parseFloat(lot.holdTimeMinutes);
@@ -244,11 +248,14 @@ export class ClosedLotRepository {
         holdTimeMinutesValue = isNaN(num) || !isFinite(num) ? 0 : num;
       }
       
-      // Ensure it's a valid Float (not Decimal)
+      // Final validation - ensure it's a valid JavaScript number (Float)
       if (typeof holdTimeMinutesValue !== 'number' || isNaN(holdTimeMinutesValue) || !isFinite(holdTimeMinutesValue)) {
         console.error(`⚠️  Invalid holdTimeMinutes for lot ${lot.id || 'unknown'}: ${lot.holdTimeMinutes} (type: ${typeof lot.holdTimeMinutes}) -> sanitized to 0`);
         holdTimeMinutesValue = 0;
       }
+      
+      // Explicitly convert to Float (not Decimal) - Prisma requires this
+      holdTimeMinutesValue = parseFloat(holdTimeMinutesValue.toString());
       
       const data: any = {
         id: lot.id || generateId(),
@@ -293,6 +300,11 @@ export class ClosedLotRepository {
         dcaTimeSpanMinutes: toNullableNumber(lot.dcaTimeSpanMinutes),
         reentryTimeMinutes: toNullableNumber(lot.reentryTimeMinutes),
       };
+      
+      // Log the value before creating (for debugging parameter 9 issue)
+      if (typeof holdTimeMinutesValue !== 'number' || isNaN(holdTimeMinutesValue) || !isFinite(holdTimeMinutesValue)) {
+        console.error(`❌ CRITICAL: holdTimeMinutes is invalid before create: ${holdTimeMinutesValue} (type: ${typeof holdTimeMinutesValue})`);
+      }
       
       try {
         await prisma.closedLot.create({
