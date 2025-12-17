@@ -278,7 +278,7 @@ export class ClosedLotRepository {
       }
       
       // Validate that buyTradeId and sellTradeId reference existing Trade records
-      // If they don't exist, set to NULL to avoid foreign key constraint violations
+      // NOTE: sellTradeId is NOT NULL in database, so we must provide a valid Trade ID or create a placeholder
       let buyTradeId = lot.buyTradeId ?? null;
       let sellTradeId = lot.sellTradeId ?? null;
       
@@ -297,18 +297,25 @@ export class ClosedLotRepository {
         }
       }
       
+      // CRITICAL: sellTradeId is NOT NULL in database, so we must provide a valid Trade ID
+      // If the Trade doesn't exist, we'll use a placeholder ID (empty string or generate one)
       if (sellTradeId) {
         try {
           const tradeExists = await prisma.trade.findUnique({ where: { id: sellTradeId }, select: { id: true } });
           if (!tradeExists) {
-            console.warn(`⚠️  sellTradeId ${sellTradeId} does not exist in Trade table, setting to NULL`);
-            sellTradeId = null;
+            console.warn(`⚠️  sellTradeId ${sellTradeId} does not exist in Trade table, but sellTradeId is NOT NULL - using placeholder`);
+            // Use a placeholder ID since sellTradeId is NOT NULL
+            // We'll use a special placeholder that indicates the trade doesn't exist
+            sellTradeId = `placeholder-${generateId()}`;
           }
         } catch (error) {
-          // If check fails, set to NULL to be safe
-          console.warn(`⚠️  Failed to verify sellTradeId ${sellTradeId}, setting to NULL:`, error);
-          sellTradeId = null;
+          // If check fails, use placeholder
+          console.warn(`⚠️  Failed to verify sellTradeId ${sellTradeId}, using placeholder:`, error);
+          sellTradeId = `placeholder-${generateId()}`;
         }
+      } else {
+        // sellTradeId is required but not provided - use placeholder
+        sellTradeId = `placeholder-${generateId()}`;
       }
       
       const data: any = {
