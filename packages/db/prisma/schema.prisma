@@ -44,6 +44,8 @@ model SmartWallet {
   tradeSequences        TradeSequence[]
   tradeOutcomes         TradeOutcome[]
   normalizedTrades      NormalizedTrade[]
+  closedLots            ClosedLot[]
+  signals               Signal[]
   @@index([address])
   @@index([score])
   @@index([updatedAt])
@@ -66,6 +68,8 @@ model Token {
   tradeOutcomes         TradeOutcome[]
   normalizedTrades      NormalizedTrade[]
   consensusSignals      ConsensusSignal[]
+  closedLots            ClosedLot[]
+  signals               Signal[]
   
   @@index([mintAddress])
   @@index([symbol])
