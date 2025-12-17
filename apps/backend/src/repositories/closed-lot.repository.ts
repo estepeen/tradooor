@@ -257,11 +257,19 @@ export class ClosedLotRepository {
       // CRITICAL: Prisma expects Float type, not Integer
       // PostgreSQL binary protocol is strict about Float vs Integer types
       // Even for 0 or whole numbers, we need to ensure it's sent as Float (0.0, 1.0) not Integer (0, 1)
-      // Use Number.parseFloat() with toFixed(1) to ensure decimal part, then parseFloat to get proper Float
-      // This ensures Prisma's binary protocol receives it as Float, not Integer
+      // Force it to be a Float by ensuring it has a decimal part
+      // Use parseFloat to ensure it's treated as Float in JavaScript, then add .0 if it's a whole number
       const originalValue = holdTimeMinutesValue;
-      const floatString = Number(holdTimeMinutesValue).toFixed(1);
-      holdTimeMinutesValue = Number.parseFloat(floatString);
+      
+      // Ensure it's always a Float by converting to string with decimal and back
+      // This forces JavaScript to treat it as Float, which Prisma will then send as Float
+      if (Number.isInteger(holdTimeMinutesValue)) {
+        // If it's a whole number, add .0 to force Float representation
+        holdTimeMinutesValue = parseFloat(holdTimeMinutesValue.toFixed(1));
+      } else {
+        // Already has decimal part, but ensure it's a proper Float
+        holdTimeMinutesValue = parseFloat(holdTimeMinutesValue.toString());
+      }
       
       // Double-check it's still valid after conversion
       if (isNaN(holdTimeMinutesValue) || !isFinite(holdTimeMinutesValue)) {
@@ -270,8 +278,8 @@ export class ClosedLotRepository {
       }
       
       // Log conversion details for debugging
-      if (originalValue !== holdTimeMinutesValue || originalValue === Math.floor(originalValue)) {
-        console.log(`🔍 holdTimeMinutes conversion: ${originalValue} (${typeof originalValue}) -> ${holdTimeMinutesValue} (${typeof holdTimeMinutesValue}) via toFixed(1)`);
+      if (originalValue !== holdTimeMinutesValue || Number.isInteger(originalValue)) {
+        console.log(`🔍 holdTimeMinutes conversion: ${originalValue} (${typeof originalValue}, isInteger: ${Number.isInteger(originalValue)}) -> ${holdTimeMinutesValue} (${typeof holdTimeMinutesValue}, isInteger: ${Number.isInteger(holdTimeMinutesValue)})`);
       }
       
       const data: any = {
@@ -328,51 +336,55 @@ export class ClosedLotRepository {
         console.error(`❌ CRITICAL: holdTimeMinutes is invalid before create: ${holdTimeMinutesValue} (type: ${typeof holdTimeMinutesValue})`);
       }
       
+      // CRITICAL FIX: Use raw SQL with explicit cast for holdTimeMinutes to avoid binary protocol issues
+      // Prisma's binary protocol can incorrectly send whole numbers as Integer instead of Float
+      // Using $executeRawUnsafe with explicit ::double precision cast ensures it's always sent as Float
+      // Helper functions to safely format values for SQL
+      const sqlValue = (value: any): string => {
+        if (value === null || value === undefined) return 'NULL';
+        if (typeof value === 'boolean') return value ? 'true' : 'false';
+        if (value instanceof Date) return `'${value.toISOString()}'`;
+        if (typeof value === 'string') {
+          // Escape single quotes
+          return `'${value.replace(/'/g, "''")}'`;
+        }
+        if (value instanceof Prisma.Decimal) return value.toString();
+        return String(value);
+      };
+      
       try {
-        await prisma.closedLot.create({ data });
+        // Build SQL with explicit cast for holdTimeMinutes
+        const sql = `
+          INSERT INTO "ClosedLot" (
+            "id","walletId","tokenId","size","entryPrice","exitPrice",
+            "entryTime","exitTime","holdTimeMinutes","costBasis","proceeds",
+            "realizedPnl","realizedPnlPercent","realizedPnlUsd",
+            "buyTradeId","sellTradeId","isPreHistory","costKnown",
+            "sequenceNumber","entryHourOfDay","entryDayOfWeek","exitHourOfDay","exitDayOfWeek",
+            "entryMarketCap","exitMarketCap","entryLiquidity","exitLiquidity",
+            "entryVolume24h","exitVolume24h","tokenAgeAtEntryMinutes",
+            "exitReason","maxProfitPercent","maxDrawdownPercent","timeToMaxProfitMinutes",
+            "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl"
+          ) VALUES (
+            ${sqlValue(data.id)}, ${sqlValue(data.walletId)}, ${sqlValue(data.tokenId)}, ${sqlValue(data.size)}, ${sqlValue(data.entryPrice)}, ${sqlValue(data.exitPrice)},
+            ${sqlValue(data.entryTime)}, ${sqlValue(data.exitTime)}, ${holdTimeMinutesValue}::double precision, ${sqlValue(data.costBasis)}, ${sqlValue(data.proceeds)},
+            ${sqlValue(data.realizedPnl)}, ${sqlValue(data.realizedPnlPercent)}, ${sqlValue(data.realizedPnlUsd)},
+            ${sqlValue(data.buyTradeId)}, ${sqlValue(data.sellTradeId)}, ${sqlValue(data.isPreHistory)}, ${sqlValue(data.costKnown)},
+            ${sqlValue(data.sequenceNumber)}, ${sqlValue(data.entryHourOfDay)}, ${sqlValue(data.entryDayOfWeek)}, ${sqlValue(data.exitHourOfDay)}, ${sqlValue(data.exitDayOfWeek)},
+            ${sqlValue(data.entryMarketCap)}, ${sqlValue(data.exitMarketCap)}, ${sqlValue(data.entryLiquidity)}, ${sqlValue(data.exitLiquidity)},
+            ${sqlValue(data.entryVolume24h)}, ${sqlValue(data.exitVolume24h)}, ${sqlValue(data.tokenAgeAtEntryMinutes)},
+            ${sqlValue(data.exitReason)}, ${sqlValue(data.maxProfitPercent)}, ${sqlValue(data.maxDrawdownPercent)}, ${sqlValue(data.timeToMaxProfitMinutes)},
+            ${sqlValue(data.dcaEntryCount)}, ${sqlValue(data.dcaTimeSpanMinutes)}, ${sqlValue(data.reentryTimeMinutes)}, ${sqlValue(data.reentryPriceChangePercent)}, ${sqlValue(data.previousCyclePnl)}
+          )
+        `;
+        await prisma.$executeRawUnsafe(sql);
       } catch (error: any) {
         // Log the problematic data for debugging
         console.error(`❌ Failed to create ClosedLot for wallet ${lot.walletId?.substring(0, 8)}... token ${lot.tokenId?.substring(0, 8)}...`);
         console.error(`   holdTimeMinutes (param 9): ${holdTimeMinutesValue} (type: ${typeof holdTimeMinutesValue}, original: ${lot.holdTimeMinutes})`);
         console.error(`   entryTime: ${data.entryTime}, exitTime: ${data.exitTime}`);
         console.error(`   Error: ${error.message}`);
-        if (error.message?.includes('bind parameter 9')) {
-          console.error(`   ⚠️  Parameter 9 (holdTimeMinutes) issue detected!`);
-          console.error(`   Raw value: ${JSON.stringify(lot.holdTimeMinutes)}`);
-          console.error(`   Converted value: ${holdTimeMinutesValue}`);
-          console.error(`   Is NaN: ${isNaN(holdTimeMinutesValue)}`);
-          console.error(`   Is Finite: ${isFinite(holdTimeMinutesValue)}`);
-        }
-
-        // Fallback: raw INSERT with explicit cast for holdTimeMinutes to bypass binary protocol issues
-        if (error?.code === '22P03') {
-          console.warn(`⚠️  Falling back to raw INSERT for ClosedLot ${data.id} due to 22P03 (holdTimeMinutes)`);
-          await prisma.$executeRaw`
-            INSERT INTO "ClosedLot" (
-              "id","walletId","tokenId","size","entryPrice","exitPrice",
-              "entryTime","exitTime","holdTimeMinutes","costBasis","proceeds",
-              "realizedPnl","realizedPnlPercent","realizedPnlUsd",
-              "buyTradeId","sellTradeId","isPreHistory","costKnown",
-              "sequenceNumber","entryHourOfDay","entryDayOfWeek","exitHourOfDay","exitDayOfWeek",
-              "entryMarketCap","exitMarketCap","entryLiquidity","exitLiquidity",
-              "entryVolume24h","exitVolume24h","tokenAgeAtEntryMinutes",
-              "exitReason","maxProfitPercent","maxDrawdownPercent","timeToMaxProfitMinutes",
-              "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl"
-            ) VALUES (
-              ${data.id}, ${data.walletId}, ${data.tokenId}, ${data.size}, ${data.entryPrice}, ${data.exitPrice},
-              ${data.entryTime}, ${data.exitTime}, ${holdTimeMinutesValue}::double precision, ${data.costBasis}, ${data.proceeds},
-              ${data.realizedPnl}, ${data.realizedPnlPercent}, ${data.realizedPnlUsd},
-              ${data.buyTradeId}, ${data.sellTradeId}, ${data.isPreHistory}, ${data.costKnown},
-              ${data.sequenceNumber}, ${data.entryHourOfDay}, ${data.entryDayOfWeek}, ${data.exitHourOfDay}, ${data.exitDayOfWeek},
-              ${data.entryMarketCap}, ${data.exitMarketCap}, ${data.entryLiquidity}, ${data.exitLiquidity},
-              ${data.entryVolume24h}, ${data.exitVolume24h}, ${data.tokenAgeAtEntryMinutes},
-              ${data.exitReason}, ${data.maxProfitPercent}, ${data.maxDrawdownPercent}, ${data.timeToMaxProfitMinutes},
-              ${data.dcaEntryCount}, ${data.dcaTimeSpanMinutes}, ${data.reentryTimeMinutes}, ${data.reentryPriceChangePercent}, ${data.previousCyclePnl}
-            )
-          `;
-        } else {
-          throw error; // Re-throw to maintain error propagation
-        }
+        throw error; // Re-throw to maintain error propagation
       }
     }
   }
