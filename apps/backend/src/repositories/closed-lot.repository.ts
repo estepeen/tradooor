@@ -297,25 +297,31 @@ export class ClosedLotRepository {
         }
       }
       
-      // CRITICAL: sellTradeId is NOT NULL in database
-      // If Trade doesn't exist or is not provided, we must provide a valid Trade ID
-      // We'll keep the original ID if provided, or generate a placeholder if not
-      if (!sellTradeId) {
+      // CRITICAL: sellTradeId is NOT NULL in database (position 15)
+      // We MUST provide a non-null value - if not provided or Trade doesn't exist, use placeholder
+      if (!sellTradeId || sellTradeId.trim() === '') {
         // sellTradeId is required but not provided - generate placeholder
-        console.warn(`⚠️  sellTradeId is required but not provided, generating placeholder`);
         sellTradeId = `synthetic-${generateId()}`;
+        console.warn(`⚠️  sellTradeId is required but not provided, generated placeholder: ${sellTradeId}`);
       } else {
         // Check if Trade exists
         try {
           const tradeExists = await prisma.trade.findUnique({ where: { id: sellTradeId }, select: { id: true } });
           if (!tradeExists) {
+            // Trade doesn't exist - keep original ID but log warning
+            // It might be a synthetic ID that doesn't need to exist in Trade table
             console.warn(`⚠️  sellTradeId ${sellTradeId} does not exist in Trade table, but keeping it (might be synthetic)`);
-            // Keep the original ID - it might be a synthetic ID that doesn't need to exist
           }
         } catch (error) {
           // If check fails, keep the original ID
           console.warn(`⚠️  Failed to verify sellTradeId ${sellTradeId}, keeping original:`, error);
         }
+      }
+      
+      // Final check - ensure sellTradeId is never null or empty
+      if (!sellTradeId || sellTradeId.trim() === '') {
+        sellTradeId = `synthetic-${generateId()}`;
+        console.error(`❌ CRITICAL: sellTradeId was still null/empty after processing, generated: ${sellTradeId}`);
       }
       
       const data: any = {
