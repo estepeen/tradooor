@@ -467,6 +467,62 @@ export class ClosedLotRepository {
         }
       }
       
+      // Final verification: ensure sellTradeId exists in Trade table before INSERT
+      try {
+        const finalTradeCheck = await prisma.trade.findUnique({ where: { id: sellTradeId }, select: { id: true } });
+        if (!finalTradeCheck) {
+          console.error(`❌ CRITICAL: sellTradeId ${sellTradeId} does not exist in Trade table before INSERT!`);
+          console.error(`   walletId: ${lot.walletId}, tokenId: ${lot.tokenId}`);
+          console.error(`   This will cause foreign key constraint violation.`);
+          // Try one more time to create or find Trade
+          try {
+            const lastResortTrade = await prisma.trade.findFirst({
+              where: { walletId: lot.walletId, tokenId: lot.tokenId },
+              orderBy: { timestamp: 'desc' },
+              select: { id: true },
+            });
+            if (lastResortTrade) {
+              sellTradeId = lastResortTrade.id;
+              console.warn(`⚠️  Using last resort Trade: ${sellTradeId}`);
+            } else {
+              // Create placeholder as absolute last resort
+              const lastResortId = `synthetic-${generateId()}`;
+              const txSignature = `synthetic-${lastResortId}-${Date.now()}-${Math.random()}`;
+              try {
+                await prisma.trade.create({
+                  data: {
+                    id: lastResortId,
+                    txSignature: txSignature,
+                    walletId: lot.walletId,
+                    tokenId: lot.tokenId,
+                    side: 'sell',
+                    amountToken: new Prisma.Decimal(0),
+                    amountBase: new Prisma.Decimal(0),
+                    priceBasePerToken: new Prisma.Decimal(0),
+                    timestamp: lot.exitTime || new Date(),
+                    dex: 'synthetic',
+                    meta: { synthetic: true, reason: 'last_resort_placeholder' },
+                  },
+                });
+                sellTradeId = lastResortId;
+                console.warn(`⚠️  Created last resort placeholder Trade: ${sellTradeId}`);
+              } catch (createError: any) {
+                console.error(`❌ Failed to create last resort Trade:`, createError.message);
+                throw new Error(`Cannot create ClosedLot: sellTradeId ${sellTradeId} does not exist and cannot be created`);
+              }
+            }
+          } catch (error) {
+            console.error(`❌ Failed last resort Trade lookup/creation:`, error);
+            throw new Error(`Cannot create ClosedLot: sellTradeId ${sellTradeId} does not exist`);
+          }
+        } else {
+          console.log(`✅ Verified sellTradeId ${sellTradeId} exists in Trade table`);
+        }
+      } catch (error) {
+        console.error(`❌ Failed to verify sellTradeId before INSERT:`, error);
+        throw error;
+      }
+      
       const data: any = {
         id: lot.id || generateId(),
         walletId: lot.walletId,
