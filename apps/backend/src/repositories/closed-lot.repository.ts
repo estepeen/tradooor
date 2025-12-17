@@ -282,6 +282,40 @@ export class ClosedLotRepository {
         console.log(`🔍 holdTimeMinutes conversion: ${originalValue} (${typeof originalValue}, isInteger: ${Number.isInteger(originalValue)}) -> ${holdTimeMinutesValue} (${typeof holdTimeMinutesValue}, isInteger: ${Number.isInteger(holdTimeMinutesValue)})`);
       }
       
+      // Validate that buyTradeId and sellTradeId reference existing Trade records
+      // If they don't exist, set to NULL to avoid foreign key constraint violations
+      let buyTradeId = lot.buyTradeId ?? null;
+      let sellTradeId = lot.sellTradeId ?? null;
+      
+      // Check if Trade records exist (only if IDs are provided)
+      if (buyTradeId) {
+        try {
+          const tradeExists = await prisma.trade.findUnique({ where: { id: buyTradeId }, select: { id: true } });
+          if (!tradeExists) {
+            console.warn(`⚠️  buyTradeId ${buyTradeId} does not exist in Trade table, setting to NULL`);
+            buyTradeId = null;
+          }
+        } catch (error) {
+          // If check fails, set to NULL to be safe
+          console.warn(`⚠️  Failed to verify buyTradeId ${buyTradeId}, setting to NULL:`, error);
+          buyTradeId = null;
+        }
+      }
+      
+      if (sellTradeId) {
+        try {
+          const tradeExists = await prisma.trade.findUnique({ where: { id: sellTradeId }, select: { id: true } });
+          if (!tradeExists) {
+            console.warn(`⚠️  sellTradeId ${sellTradeId} does not exist in Trade table, setting to NULL`);
+            sellTradeId = null;
+          }
+        } catch (error) {
+          // If check fails, set to NULL to be safe
+          console.warn(`⚠️  Failed to verify sellTradeId ${sellTradeId}, setting to NULL:`, error);
+          sellTradeId = null;
+        }
+      }
+      
       const data: any = {
         id: lot.id || generateId(),
         walletId: lot.walletId,
@@ -301,8 +335,8 @@ export class ClosedLotRepository {
         proceeds: toDecimal(lot.proceeds) || new Prisma.Decimal(0),
         realizedPnl: toDecimal(lot.realizedPnl) || new Prisma.Decimal(0),
         realizedPnlPercent: toDecimal(lot.realizedPnlPercent) || new Prisma.Decimal(0),
-        buyTradeId: lot.buyTradeId ?? null,
-        sellTradeId: lot.sellTradeId ?? null,
+        buyTradeId: buyTradeId,
+        sellTradeId: sellTradeId,
         isPreHistory: Boolean(lot.isPreHistory ?? false),
         costKnown: Boolean(lot.costKnown ?? true),
         sequenceNumber: lot.sequenceNumber ?? null,
