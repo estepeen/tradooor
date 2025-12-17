@@ -135,13 +135,35 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
             undefined, // Process all tokens
             trackingStartTime
           );
-          await lotMatchingService.saveClosedLots(closedLots);
+          
           if (closedLots.length > 0) {
-            console.log(`   ✅ [ClosedLots] Updated ${closedLots.length} closed lots for wallet ${record.walletId.substring(0, 8)}...`);
+            try {
+              await lotMatchingService.saveClosedLots(closedLots);
+              console.log(`   ✅ [ClosedLots] Updated ${closedLots.length} closed lots for wallet ${record.walletId.substring(0, 8)}...`);
+            } catch (saveError: any) {
+              // CRITICAL: If save fails, log error but don't fail silently
+              // This is important because closed lots are needed for metrics and portfolio
+              console.error(`❌ [ClosedLots] CRITICAL: Failed to save ${closedLots.length} closed lots for wallet ${record.walletId.substring(0, 8)}...`);
+              console.error(`   Error: ${saveError?.message || saveError}`);
+              console.error(`   Error code: ${saveError?.code || 'N/A'}`);
+              console.error(`   This wallet may need manual recalculation: pnpm --filter backend recalculate:wallet-closed-positions ${walletData.address}`);
+              
+              // Try to enqueue wallet for retry (if queue exists)
+              try {
+                await walletQueueRepo.enqueue(record.walletId, 'closed-lots-recalc-failed');
+                console.log(`   🔄 Enqueued wallet for retry`);
+              } catch (queueError) {
+                // Queue might not be available, ignore
+              }
+            }
+          } else {
+            // No closed lots - this is normal if there are only BUY trades or no matching pairs
+            console.log(`   ℹ️  [ClosedLots] No closed lots to save for wallet ${record.walletId.substring(0, 8)}... (may have only BUY trades or no matching pairs)`);
           }
         }
       } catch (closedLotsError: any) {
-        console.warn(`⚠️  Failed to recalculate closed lots for wallet ${record.walletId}: ${closedLotsError?.message || closedLotsError}`);
+        console.error(`❌ [ClosedLots] Failed to recalculate closed lots for wallet ${record.walletId}: ${closedLotsError?.message || closedLotsError}`);
+        console.error(`   Error stack: ${closedLotsError?.stack || 'N/A'}`);
       }
     }, 0);
     } else {
