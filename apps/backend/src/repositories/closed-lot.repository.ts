@@ -194,27 +194,56 @@ export class ClosedLotRepository {
     // - Individual creates are slower but far more robust and this path is only used
     //   during recalculations, not on every request.
     for (const lot of lots) {
-      // Convert string Decimal fields to Prisma.Decimal
+      // Helper to safely convert to Decimal (only if value exists)
+      const toDecimal = (value: any): Prisma.Decimal | null => {
+        if (value === null || value === undefined) return null;
+        return new Prisma.Decimal(value);
+      };
+
+      // Convert Decimal fields to Prisma.Decimal
+      // Required fields (always present)
       const data: any = {
-        ...lot,
-        size: new Prisma.Decimal(lot.size),
-        entryPrice: new Prisma.Decimal(lot.entryPrice),
-        exitPrice: new Prisma.Decimal(lot.exitPrice),
-        costBasis: new Prisma.Decimal(lot.costBasis),
-        proceeds: new Prisma.Decimal(lot.proceeds),
-        realizedPnl: new Prisma.Decimal(lot.realizedPnl),
-        realizedPnlPercent: new Prisma.Decimal(lot.realizedPnlPercent),
-        realizedPnlUsd: lot.realizedPnlUsd ? new Prisma.Decimal(lot.realizedPnlUsd) : null,
-        entryMarketCap: lot.entryMarketCap ? new Prisma.Decimal(lot.entryMarketCap) : null,
-        exitMarketCap: lot.exitMarketCap ? new Prisma.Decimal(lot.exitMarketCap) : null,
-        entryLiquidity: lot.entryLiquidity ? new Prisma.Decimal(lot.entryLiquidity) : null,
-        exitLiquidity: lot.exitLiquidity ? new Prisma.Decimal(lot.exitLiquidity) : null,
-        entryVolume24h: lot.entryVolume24h ? new Prisma.Decimal(lot.entryVolume24h) : null,
-        exitVolume24h: lot.exitVolume24h ? new Prisma.Decimal(lot.exitVolume24h) : null,
-        maxProfitPercent: lot.maxProfitPercent ? new Prisma.Decimal(lot.maxProfitPercent) : null,
-        maxDrawdownPercent: lot.maxDrawdownPercent ? new Prisma.Decimal(lot.maxDrawdownPercent) : null,
-        reentryPriceChangePercent: lot.reentryPriceChangePercent ? new Prisma.Decimal(lot.reentryPriceChangePercent) : null,
-        previousCyclePnl: lot.previousCyclePnl ? new Prisma.Decimal(lot.previousCyclePnl) : null,
+        id: lot.id,
+        walletId: lot.walletId,
+        tokenId: lot.tokenId,
+        size: new Prisma.Decimal(lot.size || 0),
+        entryPrice: new Prisma.Decimal(lot.entryPrice || 0),
+        exitPrice: new Prisma.Decimal(lot.exitPrice || 0),
+        entryTime: lot.entryTime ? new Date(lot.entryTime) : new Date(),
+        exitTime: lot.exitTime ? new Date(lot.exitTime) : new Date(),
+        holdTimeMinutes: lot.holdTimeMinutes ?? 0,
+        costBasis: new Prisma.Decimal(lot.costBasis || 0),
+        proceeds: new Prisma.Decimal(lot.proceeds || 0),
+        realizedPnl: new Prisma.Decimal(lot.realizedPnl || 0),
+        realizedPnlPercent: new Prisma.Decimal(lot.realizedPnlPercent || 0),
+        buyTradeId: lot.buyTradeId ?? null,
+        sellTradeId: lot.sellTradeId ?? null,
+        isPreHistory: Boolean(lot.isPreHistory ?? false),
+        costKnown: Boolean(lot.costKnown ?? true),
+        sequenceNumber: lot.sequenceNumber ?? null,
+        // Optional Decimal fields
+        realizedPnlUsd: toDecimal(lot.realizedPnlUsd),
+        entryMarketCap: toDecimal(lot.entryMarketCap),
+        exitMarketCap: toDecimal(lot.exitMarketCap),
+        entryLiquidity: toDecimal(lot.entryLiquidity),
+        exitLiquidity: toDecimal(lot.exitLiquidity),
+        entryVolume24h: toDecimal(lot.entryVolume24h),
+        exitVolume24h: toDecimal(lot.exitVolume24h),
+        maxProfitPercent: toDecimal(lot.maxProfitPercent),
+        maxDrawdownPercent: toDecimal(lot.maxDrawdownPercent),
+        reentryPriceChangePercent: toDecimal(lot.reentryPriceChangePercent),
+        previousCyclePnl: toDecimal(lot.previousCyclePnl),
+        // Optional Float/Int fields (not Decimal)
+        entryHourOfDay: lot.entryHourOfDay ?? null,
+        entryDayOfWeek: lot.entryDayOfWeek ?? null,
+        exitHourOfDay: lot.exitHourOfDay ?? null,
+        exitDayOfWeek: lot.exitDayOfWeek ?? null,
+        tokenAgeAtEntryMinutes: lot.tokenAgeAtEntryMinutes ?? null,
+        exitReason: lot.exitReason ?? null,
+        timeToMaxProfitMinutes: lot.timeToMaxProfitMinutes ?? null,
+        dcaEntryCount: lot.dcaEntryCount ?? null,
+        dcaTimeSpanMinutes: lot.dcaTimeSpanMinutes ?? null,
+        reentryTimeMinutes: lot.reentryTimeMinutes ?? null,
       };
       
       await prisma.closedLot.create({
