@@ -187,10 +187,15 @@ export class ClosedLotRepository {
   async createMany(lots: any[]): Promise<void> {
     if (lots.length === 0) return;
 
-    // Use createMany for better performance
-    await prisma.closedLot.createMany({
-      data: lots,
-      skipDuplicates: true,
-    });
+    // NOTE:
+    // - We intentionally avoid createMany here because of a Postgres binary protocol issue
+    //   ("incorrect binary data format in bind parameter") when mixing Decimals and nulls.
+    // - Individual creates are slower but far more robust and this path is only used
+    //   during recalculations, not on every request.
+    for (const lot of lots) {
+      await prisma.closedLot.create({
+        data: lot,
+      });
+    }
   }
 }
