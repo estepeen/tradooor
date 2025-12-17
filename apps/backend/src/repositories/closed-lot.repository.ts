@@ -329,9 +329,7 @@ export class ClosedLotRepository {
       }
       
       try {
-        await prisma.closedLot.create({
-          data,
-        });
+        await prisma.closedLot.create({ data });
       } catch (error: any) {
         // Log the problematic data for debugging
         console.error(`❌ Failed to create ClosedLot for wallet ${lot.walletId?.substring(0, 8)}... token ${lot.tokenId?.substring(0, 8)}...`);
@@ -345,7 +343,36 @@ export class ClosedLotRepository {
           console.error(`   Is NaN: ${isNaN(holdTimeMinutesValue)}`);
           console.error(`   Is Finite: ${isFinite(holdTimeMinutesValue)}`);
         }
-        throw error; // Re-throw to maintain error propagation
+
+        // Fallback: raw INSERT with explicit cast for holdTimeMinutes to bypass binary protocol issues
+        if (error?.code === '22P03') {
+          console.warn(`⚠️  Falling back to raw INSERT for ClosedLot ${data.id} due to 22P03 (holdTimeMinutes)`);
+          await prisma.$executeRaw`
+            INSERT INTO "ClosedLot" (
+              "id","walletId","tokenId","size","entryPrice","exitPrice",
+              "entryTime","exitTime","holdTimeMinutes","costBasis","proceeds",
+              "realizedPnl","realizedPnlPercent","realizedPnlUsd",
+              "buyTradeId","sellTradeId","isPreHistory","costKnown",
+              "sequenceNumber","entryHourOfDay","entryDayOfWeek","exitHourOfDay","exitDayOfWeek",
+              "entryMarketCap","exitMarketCap","entryLiquidity","exitLiquidity",
+              "entryVolume24h","exitVolume24h","tokenAgeAtEntryMinutes",
+              "exitReason","maxProfitPercent","maxDrawdownPercent","timeToMaxProfitMinutes",
+              "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl"
+            ) VALUES (
+              ${data.id}, ${data.walletId}, ${data.tokenId}, ${data.size}, ${data.entryPrice}, ${data.exitPrice},
+              ${data.entryTime}, ${data.exitTime}, ${holdTimeMinutesValue}::double precision, ${data.costBasis}, ${data.proceeds},
+              ${data.realizedPnl}, ${data.realizedPnlPercent}, ${data.realizedPnlUsd},
+              ${data.buyTradeId}, ${data.sellTradeId}, ${data.isPreHistory}, ${data.costKnown},
+              ${data.sequenceNumber}, ${data.entryHourOfDay}, ${data.entryDayOfWeek}, ${data.exitHourOfDay}, ${data.exitDayOfWeek},
+              ${data.entryMarketCap}, ${data.exitMarketCap}, ${data.entryLiquidity}, ${data.exitLiquidity},
+              ${data.entryVolume24h}, ${data.exitVolume24h}, ${data.tokenAgeAtEntryMinutes},
+              ${data.exitReason}, ${data.maxProfitPercent}, ${data.maxDrawdownPercent}, ${data.timeToMaxProfitMinutes},
+              ${data.dcaEntryCount}, ${data.dcaTimeSpanMinutes}, ${data.reentryTimeMinutes}, ${data.reentryPriceChangePercent}, ${data.previousCyclePnl}
+            )
+          `;
+        } else {
+          throw error; // Re-throw to maintain error propagation
+        }
       }
     }
   }

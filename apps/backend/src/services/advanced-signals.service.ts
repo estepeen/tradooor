@@ -956,7 +956,7 @@ export class AdvancedSignalsService {
         expiresAt,
         qualityScore: signal.confidence,
         riskLevel: signal.riskLevel,
-        model: signal.type as any,
+        model: signal.type === 'consensus' || signal.type === 'consensus-update' ? 'consensus' : 'smart-copy',
         reasoning: signal.reasoning,
         meta: {
           signalType: signal.type,
