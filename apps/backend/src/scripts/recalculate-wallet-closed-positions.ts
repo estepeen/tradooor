@@ -111,7 +111,7 @@ async function main() {
         });
         
         if (response.ok) {
-          const portfolioData = await response.json();
+          const portfolioData = await response.json() as { closedPositions?: any[] };
           const closedCount = portfolioData.closedPositions?.length || 0;
           console.log(`   ✅ Portfolio refreshed: ${closedCount} closed positions`);
         } else {
