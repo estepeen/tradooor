@@ -256,14 +256,22 @@ export class ClosedLotRepository {
       
       // CRITICAL: Prisma expects Float type, not Integer
       // PostgreSQL binary protocol is strict about Float vs Integer types
-      // Even for 0, we need to ensure it's sent as Float (0.0) not Integer (0)
-      // Use toFixed(1) to ensure decimal part, then parseFloat to get proper Float
-      holdTimeMinutesValue = parseFloat(Number(holdTimeMinutesValue).toFixed(1));
+      // Even for 0 or whole numbers, we need to ensure it's sent as Float (0.0, 1.0) not Integer (0, 1)
+      // Use Number.parseFloat() with toFixed(1) to ensure decimal part, then parseFloat to get proper Float
+      // This ensures Prisma's binary protocol receives it as Float, not Integer
+      const originalValue = holdTimeMinutesValue;
+      const floatString = Number(holdTimeMinutesValue).toFixed(1);
+      holdTimeMinutesValue = Number.parseFloat(floatString);
       
       // Double-check it's still valid after conversion
       if (isNaN(holdTimeMinutesValue) || !isFinite(holdTimeMinutesValue)) {
         console.error(`⚠️  holdTimeMinutes became invalid after conversion: ${holdTimeMinutesValue} -> using 0.0`);
         holdTimeMinutesValue = 0.0; // Explicit Float, not Integer
+      }
+      
+      // Log conversion details for debugging
+      if (originalValue !== holdTimeMinutesValue || originalValue === Math.floor(originalValue)) {
+        console.log(`🔍 holdTimeMinutes conversion: ${originalValue} (${typeof originalValue}) -> ${holdTimeMinutesValue} (${typeof holdTimeMinutesValue}) via toFixed(1)`);
       }
       
       const data: any = {
