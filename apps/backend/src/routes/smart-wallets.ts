@@ -501,7 +501,7 @@ router.get('/:id', async (req, res) => {
     console.log(`📥 GET /api/smart-wallets/:id - Request received for: ${identifier}`);
     
     // Try to find by ID first (if it's a short ID), then by address
-    let wallet = await smartWalletRepo.findById(identifier);
+    let wallet: any = await smartWalletRepo.findById(identifier);
     if (!wallet) {
       // If not found by ID, try by address
       wallet = await smartWalletRepo.findByAddress(identifier);
@@ -843,7 +843,7 @@ router.get('/:id/portfolio', async (req, res) => {
     const forceRefresh = req.query.forceRefresh === 'true'; // Ruční aktualizace
     
     // Try to find by ID first (if it's a short ID), then by address
-    let wallet = await smartWalletRepo.findById(identifier);
+    let wallet: any = await smartWalletRepo.findById(identifier);
     if (!wallet) {
       wallet = await smartWalletRepo.findByAddress(identifier);
     }
@@ -1276,9 +1276,9 @@ router.get('/:id/pnl', async (req, res) => {
   try {
     const identifier = req.params.id;
     // Try to find by ID first (if it's a short ID), then by address
-    let wallet = await smartWalletRepo.findById(identifier);
+    let wallet: any = await smartWalletRepo.findById(identifier);
     if (!wallet) {
-      wallet = await smartWalletRepo.findByAddress(identifier);
+      wallet = (await smartWalletRepo.findByAddress(identifier)) as any;
     }
     if (!wallet) {
       return res.status(404).json({ error: 'Wallet not found' });
@@ -1416,7 +1416,7 @@ router.delete('/:id/positions/:tokenId', async (req, res) => {
     console.log(`🗑️  DELETE /api/smart-wallets/:id/positions/:tokenId - identifier=${identifier}, tokenId=${tokenId}, sequenceNumber=${sequenceNumber}`);
 
     // Find wallet - support both ID and address (same as GET endpoint)
-    let wallet = await smartWalletRepo.findById(identifier);
+    let wallet: any = await smartWalletRepo.findById(identifier);
     if (!wallet) {
       // If not found by ID, try by address
       console.log(`   🔍 Wallet not found by ID, trying by address...`);
@@ -1542,7 +1542,7 @@ router.post('/:id/recalculate', async (req, res) => {
     const identifier = req.params.id;
     
     // Find wallet - support both ID and address
-    let wallet = await smartWalletRepo.findById(identifier);
+    let wallet: any = await smartWalletRepo.findById(identifier);
     if (!wallet) {
       wallet = await smartWalletRepo.findByAddress(identifier);
     }
