@@ -294,6 +294,20 @@ async function runWorker() {
 
 runWorker().catch(error => {
   console.error('❌ [NormalizedTradeWorker] Fatal error:', error);
+  console.error('Stack trace:', error.stack);
+  process.exit(1);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ [NormalizedTradeWorker] Unhandled Rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+  console.error('❌ [NormalizedTradeWorker] Uncaught Exception:', error);
+  console.error('Stack trace:', error.stack);
   process.exit(1);
 });
 

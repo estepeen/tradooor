@@ -2,7 +2,7 @@ import { PaperTradeRepository, PaperTradeRecord } from '../repositories/paper-tr
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
-import { supabase, TABLES } from '../lib/supabase.js';
+import { prisma } from '../lib/prisma.js';
 
 export interface PaperTradingConfig {
   enabled: boolean;
@@ -232,14 +232,21 @@ export class PaperTradeService {
       for (const position of openPositions) {
         try {
           // Získej aktuální cenu tokenu z posledního trade pro tento token
-          const { data: latestTrades, error } = await supabase
-            .from(TABLES.TRADE)
-            .select('priceBasePerToken, timestamp')
-            .eq('tokenId', position.tokenId)
-            .order('timestamp', { ascending: false })
-            .limit(1);
+          const latestTrades = await prisma.trade.findMany({
+            where: {
+              tokenId: position.tokenId,
+            },
+            select: {
+              priceBasePerToken: true,
+              timestamp: true,
+            },
+            orderBy: {
+              timestamp: 'desc',
+            },
+            take: 1,
+          });
 
-          if (error || !latestTrades || latestTrades.length === 0) {
+          if (!latestTrades || latestTrades.length === 0) {
             // Pokud není dostupná aktuální cena, přeskoč
             continue;
           }
