@@ -297,25 +297,21 @@ export class ClosedLotRepository {
         }
       }
       
-      // CRITICAL: sellTradeId is NOT NULL in database, so we must provide a valid Trade ID
-      // If the Trade doesn't exist, we'll use a placeholder ID (empty string or generate one)
+      // Check if Trade records exist (only if IDs are provided)
+      // NOTE: sellTradeId should be nullable in database, but if it's NOT NULL, we'll set to NULL anyway
+      // and let the database handle it (or you should run: ALTER TABLE "ClosedLot" ALTER COLUMN "sellTradeId" DROP NOT NULL;)
       if (sellTradeId) {
         try {
           const tradeExists = await prisma.trade.findUnique({ where: { id: sellTradeId }, select: { id: true } });
           if (!tradeExists) {
-            console.warn(`⚠️  sellTradeId ${sellTradeId} does not exist in Trade table, but sellTradeId is NOT NULL - using placeholder`);
-            // Use a placeholder ID since sellTradeId is NOT NULL
-            // We'll use a special placeholder that indicates the trade doesn't exist
-            sellTradeId = `placeholder-${generateId()}`;
+            console.warn(`⚠️  sellTradeId ${sellTradeId} does not exist in Trade table, setting to NULL`);
+            sellTradeId = null;
           }
         } catch (error) {
-          // If check fails, use placeholder
-          console.warn(`⚠️  Failed to verify sellTradeId ${sellTradeId}, using placeholder:`, error);
-          sellTradeId = `placeholder-${generateId()}`;
+          // If check fails, set to NULL to be safe
+          console.warn(`⚠️  Failed to verify sellTradeId ${sellTradeId}, setting to NULL:`, error);
+          sellTradeId = null;
         }
-      } else {
-        // sellTradeId is required but not provided - use placeholder
-        sellTradeId = `placeholder-${generateId()}`;
       }
       
       const data: any = {
