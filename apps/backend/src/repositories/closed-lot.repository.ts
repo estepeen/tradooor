@@ -258,18 +258,13 @@ export class ClosedLotRepository {
       // PostgreSQL binary protocol is strict about Float vs Integer types
       // Even for 0 or whole numbers, we need to ensure it's sent as Float (0.0, 1.0) not Integer (0, 1)
       // Force it to be a Float by ensuring it has a decimal part
-      // Use parseFloat to ensure it's treated as Float in JavaScript, then add .0 if it's a whole number
+      // Convert to string with .0 if it's a whole number, then parse back as float
       const originalValue = holdTimeMinutesValue;
       
-      // Ensure it's always a Float by converting to string with decimal and back
-      // This forces JavaScript to treat it as Float, which Prisma will then send as Float
-      if (Number.isInteger(holdTimeMinutesValue)) {
-        // If it's a whole number, add .0 to force Float representation
-        holdTimeMinutesValue = parseFloat(holdTimeMinutesValue.toFixed(1));
-      } else {
-        // Already has decimal part, but ensure it's a proper Float
-        holdTimeMinutesValue = parseFloat(holdTimeMinutesValue.toString());
-      }
+      // CRITICAL: Always ensure it has a decimal part to force Float type
+      // Use toFixed(1) to ensure at least one decimal place, then parseFloat to get back to number
+      // This ensures JavaScript treats it as Float, not Integer
+      holdTimeMinutesValue = Number.parseFloat(holdTimeMinutesValue.toFixed(1));
       
       // Double-check it's still valid after conversion
       if (isNaN(holdTimeMinutesValue) || !isFinite(holdTimeMinutesValue)) {
@@ -277,7 +272,7 @@ export class ClosedLotRepository {
         holdTimeMinutesValue = 0.0; // Explicit Float, not Integer
       }
       
-      // Log conversion details for debugging
+      // Log conversion details for debugging (only if changed or if it was an integer)
       if (originalValue !== holdTimeMinutesValue || Number.isInteger(originalValue)) {
         console.log(`🔍 holdTimeMinutes conversion: ${originalValue} (${typeof originalValue}, isInteger: ${Number.isInteger(originalValue)}) -> ${holdTimeMinutesValue} (${typeof holdTimeMinutesValue}, isInteger: ${Number.isInteger(holdTimeMinutesValue)})`);
       }
