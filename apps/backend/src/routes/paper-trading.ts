@@ -4,7 +4,7 @@ import { PaperTradeService } from '../services/paper-trade.service.js';
 import { PaperTradingModelsService } from '../services/paper-trading-models.service.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
-import { supabase } from '../lib/supabase.js';
+import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
 
@@ -81,44 +81,14 @@ router.get('/trades', async (req, res) => {
       if (status === 'open') {
         trades = await paperTradeRepo.findOpenPositions();
       } else if (status === 'closed') {
-        // Get all closed trades
-        const { data: closedData } = await supabase
-          .from('PaperTrade')
-          .select('*')
-          .eq('status', 'closed')
-          .order('closedAt', { ascending: false })
-          .limit(limit);
-        // Map rows using repository's internal method
-        trades = (closedData || []).map((row: any) => {
-          const toNumber = (value: any) => (value === null || value === undefined ? 0 : Number(value));
-          return {
-            id: row.id,
-            walletId: row.walletId,
-            tokenId: row.tokenId,
-            originalTradeId: row.originalTradeId,
-            side: row.side,
-            amountToken: toNumber(row.amountToken),
-            amountBase: toNumber(row.amountBase),
-            priceBasePerToken: toNumber(row.priceBasePerToken),
-            timestamp: new Date(row.timestamp),
-            status: row.status,
-            realizedPnl: row.realizedPnl ? toNumber(row.realizedPnl) : null,
-            realizedPnlPercent: row.realizedPnlPercent ? toNumber(row.realizedPnlPercent) : null,
-            closedAt: row.closedAt ? new Date(row.closedAt) : null,
-            meta: row.meta || {},
-          };
+        // Get all closed trades (Prisma)
+        const rows = await prisma.paperTrade.findMany({
+          where: { status: 'closed' },
+          orderBy: { closedAt: 'desc' },
+          take: limit,
         });
-      } else {
-        // Get all trades (open + closed)
-        const openTrades = await paperTradeRepo.findOpenPositions();
-        const { data: closedData } = await supabase
-          .from('PaperTrade')
-          .select('*')
-          .eq('status', 'closed')
-          .order('closedAt', { ascending: false })
-          .limit(limit);
         const toNumber = (value: any) => (value === null || value === undefined ? 0 : Number(value));
-        const closedTrades = (closedData || []).map((row: any) => ({
+        trades = rows.map((row: any) => ({
           id: row.id,
           walletId: row.walletId,
           tokenId: row.tokenId,
@@ -132,7 +102,32 @@ router.get('/trades', async (req, res) => {
           realizedPnl: row.realizedPnl ? toNumber(row.realizedPnl) : null,
           realizedPnlPercent: row.realizedPnlPercent ? toNumber(row.realizedPnlPercent) : null,
           closedAt: row.closedAt ? new Date(row.closedAt) : null,
-          meta: row.meta || {},
+          meta: (row.meta as any) || {},
+        }));
+      } else {
+        // Get all trades (open + closed)
+        const openTrades = await paperTradeRepo.findOpenPositions();
+        const rows = await prisma.paperTrade.findMany({
+          where: { status: 'closed' },
+          orderBy: { closedAt: 'desc' },
+          take: limit,
+        });
+        const toNumber = (value: any) => (value === null || value === undefined ? 0 : Number(value));
+        const closedTrades = rows.map((row: any) => ({
+          id: row.id,
+          walletId: row.walletId,
+          tokenId: row.tokenId,
+          originalTradeId: row.originalTradeId,
+          side: row.side,
+          amountToken: toNumber(row.amountToken),
+          amountBase: toNumber(row.amountBase),
+          priceBasePerToken: toNumber(row.priceBasePerToken),
+          timestamp: new Date(row.timestamp),
+          status: row.status,
+          realizedPnl: row.realizedPnl ? toNumber(row.realizedPnl) : null,
+          realizedPnlPercent: row.realizedPnlPercent ? toNumber(row.realizedPnlPercent) : null,
+          closedAt: row.closedAt ? new Date(row.closedAt) : null,
+          meta: (row.meta as any) || {},
         }));
         trades = [...openTrades, ...closedTrades].slice(0, limit);
       }

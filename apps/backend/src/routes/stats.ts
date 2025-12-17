@@ -1,10 +1,10 @@
 import { Router } from 'express';
-import { supabase, TABLES } from '../lib/supabase.js';
 import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
 import { ClosedLotRepository } from '../repositories/closed-lot.repository.js';
+import { prisma } from '../lib/prisma.js';
 
 const router = Router();
 const smartWalletRepo = new SmartWalletRepository();
@@ -20,29 +20,47 @@ const metricsCalculator = new MetricsCalculatorService(
 // GET /api/stats/overview - Overall statistics across all wallets
 router.get('/overview', async (req, res) => {
   try {
-    // Get actual trade count from trades table
-    const { count: actualTradeCount } = await supabase
-      .from(TABLES.TRADE)
-      .select('*', { count: 'exact', head: true });
+    // Get actual trade count from trades table (Prisma)
+    const actualTradeCount = await prisma.trade.count();
 
-    const { data: wallets, error } = await supabase
-      .from(TABLES.SMART_WALLET)
-      .select('id, address, label, score, totalTrades, winRate, pnlTotalBase, recentPnl30dPercent, recentPnl30dUsd, advancedStats, avgHoldingTimeMin, avgRr, avgPnlPercent');
+    const wallets = await prisma.smartWallet.findMany({
+      select: {
+        id: true,
+        address: true,
+        label: true,
+        score: true,
+        totalTrades: true,
+        winRate: true,
+        pnlTotalBase: true,
+        recentPnl30dPercent: true,
+        recentPnl30dUsd: true,
+        advancedStats: true,
+        avgHoldingTimeMin: true,
+        avgRr: true,
+        avgPnlPercent: true,
+      },
+    });
 
     // Calculate recent PnL in USD for each wallet
-    const walletIds = (wallets || []).map(w => w.id);
+    const walletIds = (wallets || []).map((w) => w.id);
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     
-    const { data: recentTrades, error: recentTradesError } = await supabase
-      .from(TABLES.TRADE)
-      .select('walletId, side, valueUsd')
-      .in('walletId', walletIds)
-      .gte('timestamp', thirtyDaysAgo.toISOString());
+    const recentTrades = await prisma.trade.findMany({
+      where: {
+        walletId: { in: walletIds },
+        timestamp: { gte: thirtyDaysAgo },
+      },
+      select: {
+        walletId: true,
+        side: true,
+        valueUsd: true,
+      },
+    });
 
     const walletPnLMap = new Map<string, { buyValue: number; sellValue: number }>();
-    if (!recentTradesError && recentTrades) {
-      for (const trade of recentTrades) {
+    if (recentTrades) {
+      for (const trade of recentTrades as any[]) {
         if (!walletPnLMap.has(trade.walletId)) {
           walletPnLMap.set(trade.walletId, { buyValue: 0, sellValue: 0 });
         }
@@ -58,7 +76,7 @@ router.get('/overview', async (req, res) => {
 
     // Add recentPnl30dBase to wallets (PnL v SOL)
     // DŮLEŽITÉ: Použij recentPnl30dBase z databáze (pokud existuje), jinak vypočítej z trades
-    const walletsWithBase = (wallets || []).map(w => {
+    const walletsWithBase = (wallets || []).map((w: any) => {
       const pnl = walletPnLMap.get(w.id);
       // Preferuj recentPnl30dBase z DB (je to precomputed a přesnější), jinak vypočítej z trades
       // Mapujeme recentPnl30dUsd (DB sloupec) na recentPnl30dBase (SOL hodnota)
@@ -70,10 +88,6 @@ router.get('/overview', async (req, res) => {
         recentPnl30dBase, // PnL v SOL
       };
     });
-
-    if (error) {
-      throw new Error(`Failed to fetch wallets: ${error.message}`);
-    }
 
     const walletList = walletsWithBase ?? [];
     const totalWallets = walletList.length;
@@ -112,24 +126,24 @@ router.get('/overview', async (req, res) => {
     // Activity stats - wallets with trades in last 7/30 days
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-    const { data: recentTrades7d } = await supabase
-      .from(TABLES.TRADE)
-      .select('walletId')
-      .gte('timestamp', sevenDaysAgo.toISOString());
-    const activeWallets7d = new Set((recentTrades7d || []).map(t => t.walletId)).size;
+    const recentTrades7d = await prisma.trade.findMany({
+      where: {
+        timestamp: { gte: sevenDaysAgo },
+      },
+      select: { walletId: true },
+    });
+    const activeWallets7d = new Set((recentTrades7d || []).map((t: any) => t.walletId)).size;
     const activeWallets30d = new Set((recentTrades || []).map(t => t.walletId)).size;
     
     // Trades count by period
     const oneDayAgo = new Date();
     oneDayAgo.setDate(oneDayAgo.getDate() - 1);
-    const { count: trades1d } = await supabase
-      .from(TABLES.TRADE)
-      .select('*', { count: 'exact', head: true })
-      .gte('timestamp', oneDayAgo.toISOString());
-    const { count: trades7d } = await supabase
-      .from(TABLES.TRADE)
-      .select('*', { count: 'exact', head: true })
-      .gte('timestamp', sevenDaysAgo.toISOString());
+    const trades1d = await prisma.trade.count({
+      where: { timestamp: { gte: oneDayAgo } },
+    });
+    const trades7d = await prisma.trade.count({
+      where: { timestamp: { gte: sevenDaysAgo } },
+    });
     
     // Performance distribution
     const profitableWallets = walletList.filter(w => (w.pnlTotalBase || 0) > 0).length;
@@ -151,11 +165,14 @@ router.get('/overview', async (req, res) => {
       .slice(0, 5);
     
     // Volume stats - calculate from trades valueUsd
-    const { data: allTrades } = await supabase
-      .from(TABLES.TRADE)
-      .select('valueUsd')
-      .gte('timestamp', thirtyDaysAgo.toISOString());
-    const totalVolume30d = (allTrades || []).reduce((sum, t) => sum + (Number(t.valueUsd) || 0), 0);
+    const allTrades = await prisma.trade.findMany({
+      where: { timestamp: { gte: thirtyDaysAgo } },
+      select: { valueUsd: true },
+    });
+    const totalVolume30d = (allTrades || []).reduce(
+      (sum, t: any) => sum + (t.valueUsd !== null && t.valueUsd !== undefined ? Number(t.valueUsd) : 0),
+      0
+    );
     const avgVolumePerWallet = activeWallets30d > 0 ? totalVolume30d / activeWallets30d : 0;
 
     // Top performers
@@ -307,39 +324,30 @@ router.get('/tokens', async (req, res) => {
         break;
     }
 
-    // Get trades for basic stats (filtered by period if specified)
-    let tradesQuery = supabase
-      .from(TABLES.TRADE)
-      .select(`
-        *,
-        token:${TABLES.TOKEN}(*),
-        wallet:${TABLES.SMART_WALLET}(id, address)
-      `);
-    
-    if (fromDate) {
-      tradesQuery = tradesQuery.gte('timestamp', fromDate.toISOString());
-    }
-    
-    const { data: trades, error } = await tradesQuery;
-
-    if (error) {
-      throw new Error(`Failed to fetch trades: ${error.message}`);
-    }
+    // Get trades for basic stats (filtered by period if specified) – Prisma
+    const trades = await prisma.trade.findMany({
+      where: fromDate ? { timestamp: { gte: fromDate } } : {},
+      include: {
+        token: true,
+        wallet: {
+          select: { id: true, address: true },
+        },
+      },
+    });
 
     // Get closed lots for PnL and win rate calculations (filtered by period if specified)
-    let closedLotsQuery = supabase
-      .from(TABLES.CLOSED_LOT)
-      .select('tokenId, realizedPnl, realizedPnlPercent, costBasis, proceeds, walletId, exitTime');
-    
-    if (fromDate) {
-      closedLotsQuery = closedLotsQuery.gte('exitTime', fromDate.toISOString());
-    }
-    
-    const { data: closedLots, error: closedLotsError } = await closedLotsQuery;
-
-    if (closedLotsError) {
-      console.warn('⚠️  Failed to fetch closed lots for token stats:', closedLotsError.message);
-    }
+    const closedLots = await prisma.closedLot.findMany({
+      where: fromDate ? { exitTime: { gte: fromDate } } : {},
+      select: {
+        tokenId: true,
+        realizedPnl: true,
+        realizedPnlPercent: true,
+        costBasis: true,
+        proceeds: true,
+        walletId: true,
+        exitTime: true,
+      },
+    });
 
     // Group by token
     const tokenMap = new Map<string, {
@@ -383,7 +391,7 @@ router.get('/tokens', async (req, res) => {
       else stats.sellCount++;
       
       // Add volume - try multiple sources
-      const valueUsd = Number(trade.valueUsd || (trade as any).meta?.valueUsd || 0);
+      const valueUsd = Number((trade as any).valueUsd || (trade as any).meta?.valueUsd || 0);
       const amountBase = Number(trade.amountBase || 0);
       // Use valueUsd if available, otherwise estimate from amountBase (assuming SOL price ~$150)
       const volume = valueUsd > 0 ? valueUsd : (amountBase * 150); // Fallback estimate
@@ -457,13 +465,9 @@ router.get('/tokens', async (req, res) => {
 // GET /api/stats/dex - DEX statistics
 router.get('/dex', async (req, res) => {
   try {
-    const { data: trades, error } = await supabase
-      .from(TABLES.TRADE)
-      .select('dex');
-
-    if (error) {
-      throw new Error(`Failed to fetch trades: ${error.message}`);
-    }
+    const trades = await prisma.trade.findMany({
+      select: { dex: true },
+    });
 
     // Group by DEX
     const dexMap = new Map<string, number>();

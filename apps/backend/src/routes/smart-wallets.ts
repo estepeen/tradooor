@@ -11,6 +11,8 @@ import { TokenPriceService } from '../services/token-price.service.js';
 import { PublicKey, Connection } from '@solana/web3.js';
 import { SolPriceService } from '../services/sol-price.service.js';
 import { supabase, TABLES } from '../lib/supabase.js';
+import { prisma } from '../lib/prisma.js';
+import { ClosedLotRepository } from '../repositories/closed-lot.repository.js';
 import { isValidSolanaAddress, parseTags } from '../lib/utils.js';
 import { TokenMetadataBatchService } from '../services/token-metadata-batch.service.js';
 import { LotMatchingService } from '../services/lot-matching.service.js';
@@ -43,6 +45,7 @@ const tokenPriceService = new TokenPriceService();
 const lotMatchingService = new LotMatchingService();
 const solPriceService = new SolPriceService();
 const tokenMetadataBatchService = new TokenMetadataBatchService(tokenRepo);
+const closedLotRepo = new ClosedLotRepository();
 
 const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
 
@@ -851,12 +854,12 @@ router.get('/:id/portfolio', async (req, res) => {
       return res.status(404).json({ error: 'Wallet not found' });
     }
     
-    // Zkontroluj cache v PortfolioBaseline
+    // Zkontroluj cache v PortfolioBaseline (Supabase-only) – v Prisma-only režimu cache ignorujeme
     const CACHE_DURATION_MS = 10 * 60 * 1000; // 10 minut
     let shouldRefresh = forceRefresh;
     let cachedData: any = null;
-    
-    if (!forceRefresh) {
+
+    if (!forceRefresh && process.env.SUPABASE_URL) {
       const { data: baseline } = await supabase
         .from('PortfolioBaseline')
         .select('*')
@@ -877,6 +880,9 @@ router.get('/:id/portfolio', async (req, res) => {
       } else {
         shouldRefresh = true;
       }
+    } else if (!forceRefresh) {
+      // Bez SUPABASE_URL cache prostě neřešíme
+      shouldRefresh = true;
     }
     
     // Pokud máme platný cache a není to force refresh, vrať cache
@@ -905,18 +911,8 @@ router.get('/:id/portfolio', async (req, res) => {
     // DŮLEŽITÉ: Pro výpočet PnL potřebujeme všechny ClosedLot (ne jen 1000 nejnovějších)
     // Limit 1000 může způsobit rozdíl mezi homepage a detail stránkou
     // Pro UI (closed positions) můžeme použít limit, ale pro PnL výpočet potřebujeme všechny
-    const { data: closedLots, error: closedLotsError } = await supabase
-      .from('ClosedLot')
-      .select('*')
-      .eq('walletId', wallet.id)
-      .order('exitTime', { ascending: false });
-      // Odstraněn limit 1000 - pro konzistenci s metrics calculator potřebujeme všechny ClosedLot
-    
-    if (closedLotsError) {
-      console.warn(`⚠️  Failed to fetch ClosedLots for wallet ${wallet.id}:`, closedLotsError.message);
-    } else {
-      console.log(`   📊 [Portfolio] Loaded ${closedLots?.length || 0} ClosedLots for wallet ${wallet.id}`);
-    }
+    const closedLots = await closedLotRepo.findByWallet(wallet.id);
+    console.log(`   📊 [Portfolio] Loaded ${closedLots.length} ClosedLots for wallet ${wallet.id}`);
     
     // Get all trades for USD ratio calculation (for closed positions USD conversion)
     const allTradesForRatios = await tradeRepo.findAllForMetrics(wallet.id);
@@ -955,20 +951,21 @@ router.get('/:id/portfolio', async (req, res) => {
     const uniqueTokenIds = closedLots && closedLots.length > 0
       ? Array.from(new Set(closedLots.map((lot: any) => lot.tokenId)))
       : [];
-    const { data: tokens, error: tokensError } = await supabase
-      .from(TABLES.TOKEN)
-      .select('*')
-      .in('id', uniqueTokenIds);
 
-    if (tokensError) {
-      console.warn('⚠️ Failed to fetch token data:', tokensError.message);
-    }
-
-    // Create a map of tokenId -> current token data
+    // Create a map of tokenId -> current token data (Prisma)
     const tokenDataMap = new Map<string, any>();
-    (tokens || []).forEach((token: any) => {
-      tokenDataMap.set(token.id, token);
-    });
+    if (uniqueTokenIds.length > 0) {
+      try {
+        const tokens = await prisma.token.findMany({
+          where: { id: { in: uniqueTokenIds } },
+        });
+        tokens.forEach((token) => {
+          tokenDataMap.set(token.id, { ...token });
+        });
+      } catch (e: any) {
+        console.warn('⚠️ Failed to fetch token data via Prisma:', e?.message || e);
+      }
+    }
     
     // DŮLEŽITÉ: Enrich token metadata pro tokeny bez symbol/name nebo s garbage symboly
     const tokensToEnrich: string[] = [];
@@ -984,7 +981,7 @@ router.get('/:id/portfolio', async (req, res) => {
     };
     
     // Najdi tokeny, které potřebují enrich
-    for (const token of (tokens || [])) {
+    for (const token of Array.from(tokenDataMap.values())) {
       const hasValidSymbol = token.symbol && !isGarbageSymbol(token.symbol, token.mintAddress);
       const hasValidName = !!token.name;
       if (!hasValidSymbol && !hasValidName && token.mintAddress) {
@@ -1244,22 +1241,8 @@ router.get('/:id/portfolio', async (req, res) => {
       lastUpdated: now,
       cached: false,
     };
-    
-    // Save to PortfolioBaseline cache
-    try {
-      await supabase
-        .from('PortfolioBaseline')
-        .upsert({
-          walletId: wallet.id,
-          updatedAt: now,
-          totalValueUsd: 0, // Open positions removed, no total value
-          holdings: responseData,
-        }, { onConflict: 'walletId' });
-      console.log(`✅ Portfolio cache saved for wallet ${wallet.id}`);
-    } catch (e) {
-      console.warn('⚠️ Failed to save portfolio cache:', (e as any)?.message || e);
-    }
-    
+
+    // PortfolioBaseline cache (Supabase) je v Prisma-only režimu vypnutá
     res.json(responseData);
   } catch (error: any) {
     console.error('❌ Error fetching portfolio:', error);
@@ -1570,16 +1553,7 @@ router.post('/:id/recalculate', async (req, res) => {
     const metricsResult = await metricsCalculator.calculateMetricsForWallet(wallet.id);
     console.log(`   ✅ Metrics updated: score=${metricsResult?.score ?? 'n/a'}, totalTrades=${metricsResult?.totalTrades ?? 0}`);
     
-    // 4. Invalidate portfolio cache
-    console.log(`   🗑️ Invalidating portfolio cache...`);
-    const { error: deleteError } = await supabase
-      .from('PortfolioBaseline')
-      .delete()
-      .eq('walletId', wallet.id);
-    
-    if (deleteError) {
-      console.warn(`   ⚠️ Failed to invalidate portfolio cache: ${deleteError.message}`);
-    }
+    // 4. Invalidate portfolio cache (Supabase) – v Prisma-only režimu není potřeba
     
     // 5. Fetch updated wallet data
     const updatedWallet = await smartWalletRepo.findById(wallet.id);

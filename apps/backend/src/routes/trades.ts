@@ -7,6 +7,7 @@ import { TokenRepository } from '../repositories/token.repository.js';
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
 import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
 import { supabase, TABLES } from '../lib/supabase.js';
+import { prisma } from '../lib/prisma.js';
 // TokenMetadataBatchService removed - metadata se načítá pouze při webhooku, ne při každém requestu
 import { SolscanClient } from '../services/solscan-client.service.js';
 import { BinancePriceService } from '../services/binance-price.service.js';
@@ -170,65 +171,43 @@ router.get('/', async (req, res) => {
 // POST /api/trades/dedupe - Remove duplicate trades by txSignature (keeping the earliest)
 router.post('/dedupe', async (req, res) => {
   try {
-    console.log('🧹 Starting trades de-duplication by txSignature...');
-    const PAGE_SIZE = 1000;
-    let offset = 0;
-    let total = 0;
-    let fetched = 0;
+    console.log('🧹 Starting trades de-duplication by txSignature (Prisma)...');
+
+    // Fetch all trades ordered by timestamp (oldest first)
+    const rows = await prisma.trade.findMany({
+      select: { id: true, txSignature: true, timestamp: true },
+      orderBy: { timestamp: 'asc' },
+    });
+
+    const total = rows.length;
     let duplicatesToDelete: string[] = [];
     const seenSignatures = new Set<string>();
 
-    while (true) {
-      const { data: rows, error, count } = await supabase
-        .from(TABLES.TRADE)
-        .select('id, txSignature, timestamp', { count: 'exact' })
-        .order('timestamp', { ascending: true }) // keep the earliest, delete later ones
-        .range(offset, offset + PAGE_SIZE - 1);
-
-      if (error) {
-        throw new Error(`Failed to fetch trades: ${error.message}`);
+    for (const row of rows) {
+      const sig = row.txSignature as string;
+      const id = row.id as string;
+      if (!sig) continue;
+      if (seenSignatures.has(sig)) {
+        duplicatesToDelete.push(id);
+      } else {
+        seenSignatures.add(sig);
       }
-
-      const batch = rows || [];
-      if (offset === 0) {
-        total = count || batch.length;
-      }
-      fetched += batch.length;
-
-      for (const row of batch) {
-        const sig = (row as any).txSignature as string;
-        const id = (row as any).id as string;
-        if (!sig) continue;
-        if (seenSignatures.has(sig)) {
-          duplicatesToDelete.push(id);
-        } else {
-          seenSignatures.add(sig);
-        }
-      }
-
-      console.log(`   Scanned ${fetched}/${total} trades, duplicates found so far: ${duplicatesToDelete.length}`);
-
-      if (batch.length < PAGE_SIZE) break;
-      offset += PAGE_SIZE;
     }
+
+    console.log(`   Scanned ${total} trades, duplicates found: ${duplicatesToDelete.length}`);
 
     // Delete duplicates in chunks
     let deleted = 0;
     const CHUNK = 500;
     for (let i = 0; i < duplicatesToDelete.length; i += CHUNK) {
       const chunk = duplicatesToDelete.slice(i, i + CHUNK);
-      const { error: delErr } = await supabase
-        .from(TABLES.TRADE)
-        .delete()
-        .in('id', chunk);
-      if (delErr) {
-        console.error('   ❌ Error deleting duplicate chunk:', delErr.message);
-        continue;
-      }
-      deleted += chunk.length;
+      const result = await prisma.trade.deleteMany({
+        where: { id: { in: chunk } },
+      });
+      deleted += result.count;
       console.log(`   ✅ Deleted ${deleted}/${duplicatesToDelete.length} duplicates`);
       // minor delay to be gentle
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 200));
     }
 
     console.log(`✅ De-duplication completed. Deleted ${deleted} duplicates. Unique trades: ${seenSignatures.size}`);
@@ -245,44 +224,26 @@ router.get('/recent', async (req, res) => {
     const limit = parseInt(req.query.limit as string) || 100;
     const since = req.query.since ? new Date(req.query.since as string) : undefined;
 
-    let query = supabase
-      .from(TABLES.TRADE)
-      .select(`
-        *,
-        token:${TABLES.TOKEN}(*),
-        wallet:${TABLES.SMART_WALLET}(id, address, label)
-      `)
-      // Recent trades feed zobrazuje BUY/SELL i VOID trades
-      // VOID trades jsou token-to-token swapy bez SOL/USDC/USDT změny
-      .in('side', ['buy', 'sell', 'void'])
-      .order('timestamp', { ascending: false })
-      .limit(limit);
-
-    if (since) {
-      query = query.gte('timestamp', since.toISOString());
-    }
-
-    const { data: trades, error } = await query;
-
-    if (error) {
-      throw new Error(`Failed to fetch recent trades: ${error.message}`);
-    }
-
-    const tradesWithTokens = await Promise.all(
-      (trades || []).map(async (trade: any) => {
-        let token = trade.token;
-        if (!token && trade.tokenId) {
-          token = await tokenRepo.findById(trade.tokenId);
-        }
-        return { ...trade, token };
-      })
-    );
+    const trades = await prisma.trade.findMany({
+      where: {
+        side: { in: ['buy', 'sell', 'void'] },
+        ...(since && { timestamp: { gte: since } }),
+      },
+      orderBy: { timestamp: 'desc' },
+      take: limit,
+      include: {
+        token: true,
+        wallet: {
+          select: { id: true, address: true, label: true },
+        },
+      },
+    });
 
     // Token metadata se načítá pouze při webhooku (nový trade)
     // Tady jen zobrazujeme data z DB - žádné enrichment, aby se neplýtvalo API kredity
 
     // Format trades for notifications
-    const formattedTrades = tradesWithTokens.map((trade: any) => {
+    const formattedTrades = trades.map((trade: any) => {
       // Získej priceUsd z meta nebo vypočítej z priceBasePerToken
       let priceUsd: number | null = null;
       if (trade.meta?.priceUsd) {
@@ -306,17 +267,21 @@ router.get('/recent', async (req, res) => {
       return {
         id: trade.id,
         txSignature: trade.txSignature,
-        wallet: {
-          id: trade.wallet?.id,
-          address: trade.wallet?.address,
-          label: trade.wallet?.label || trade.wallet?.address?.substring(0, 8) + '...',
-        },
-        token: {
-          id: trade.token?.id,
-          symbol: trade.token?.symbol || trade.token?.name || 'UNKNOWN',
-          name: trade.token?.name,
-          mintAddress: trade.token?.mintAddress,
-        },
+        wallet: trade.wallet
+          ? {
+              id: trade.wallet.id,
+              address: trade.wallet.address,
+              label: trade.wallet.label || trade.wallet.address.substring(0, 8) + '...',
+            }
+          : null,
+        token: trade.token
+          ? {
+              id: trade.token.id,
+              symbol: trade.token.symbol || trade.token.name || 'UNKNOWN',
+              name: trade.token.name,
+              mintAddress: trade.token.mintAddress,
+            }
+          : null,
         side: trade.side,
         amountToken: parseFloat(trade.amountToken || '0'),
         amountBase: parseFloat(trade.amountBase || '0'),
@@ -344,8 +309,6 @@ router.get('/consensus-notifications', async (req, res) => {
   try {
     const hours = parseInt(req.query.hours as string) || 1; // Default: last 1 hour
     const limit = parseInt(req.query.limit as string) || 50;
-
-    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
 
     // 1. Nejdřív zkontroluj, jestli už existují signals v databázi
     try {
@@ -417,6 +380,16 @@ router.get('/consensus-notifications', async (req, res) => {
     } catch (dbError: any) {
       console.warn(`⚠️  Error fetching existing signals from database: ${dbError.message}. Will compute new ones.`);
     }
+
+    // Pokud není k dispozici SUPABASE_URL (Prisma-only režim), neprováděj fallback výpočet z trades
+    if (!process.env.SUPABASE_URL) {
+      return res.json({
+        notifications: [],
+        total: 0,
+      });
+    }
+
+    const since = new Date(Date.now() - hours * 60 * 60 * 1000);
 
     // 1. Najdi všechny BUY trades za poslední hodinu
     const { data: recentBuys, error: buysError } = await supabase

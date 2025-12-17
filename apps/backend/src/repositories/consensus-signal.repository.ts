@@ -14,15 +14,15 @@ export class ConsensusSignalRepository {
   async create(data: ConsensusSignalData) {
     const result = await prisma.consensusSignal.create({
       data: {
-        tokenId: data.tokenId,
-        walletCount: data.walletCount,
-        firstTradeTime: typeof data.firstTradeTime === 'string' 
+      tokenId: data.tokenId,
+      walletCount: data.walletCount,
+      firstTradeTime: typeof data.firstTradeTime === 'string' 
           ? new Date(data.firstTradeTime)
           : data.firstTradeTime,
-        latestTradeTime: typeof data.latestTradeTime === 'string'
+      latestTradeTime: typeof data.latestTradeTime === 'string'
           ? new Date(data.latestTradeTime)
           : data.latestTradeTime,
-        trades: data.trades,
+      trades: data.trades,
         tokenSecurity: data.tokenSecurity,
       },
     });

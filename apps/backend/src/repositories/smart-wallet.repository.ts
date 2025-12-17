@@ -81,7 +81,7 @@ export class SmartWalletRepository {
           const lastTimestamp = lastTradeMap.get(wallet.id);
           wallet.lastTradeTimestamp = lastTimestamp ? lastTimestamp.toISOString() : null;
         });
-      } catch (error) {
+          } catch (error) {
         console.warn('⚠️ Error fetching last trade timestamps, continuing without:', error);
         wallets.forEach((wallet: any) => {
           wallet.lastTradeTimestamp = null;
@@ -137,7 +137,7 @@ export class SmartWalletRepository {
       });
 
       if (!result) {
-        console.log(`✅ SmartWalletRepository.findByAddress - Found: no`);
+          console.log(`✅ SmartWalletRepository.findByAddress - Found: no`);
         return null;
       }
 
@@ -340,15 +340,15 @@ export class SmartWalletRepository {
             createdWallets.push(singleCreated);
           } catch (err: any) {
             if (err.code === 'P2002') {
-              errorWallets.push({
-                address: wallet.address,
-                error: 'Wallet already exists',
-              });
-            } else {
-              errorWallets.push({
-                address: wallet.address,
+                errorWallets.push({
+                  address: wallet.address,
+                  error: 'Wallet already exists',
+    });
+              } else {
+                errorWallets.push({
+                  address: wallet.address,
                 error: err.message || 'Unknown error',
-              });
+                });
             }
           }
         }

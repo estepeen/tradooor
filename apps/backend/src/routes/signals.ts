@@ -7,7 +7,7 @@ import { ConsensusSignalRepository } from '../repositories/consensus-signal.repo
 import { TokenMarketDataService } from '../services/token-market-data.service.js';
 import { DiscordNotificationService } from '../services/discord-notification.service.js';
 import { RugCheckService } from '../services/rugcheck.service.js';
-import { supabase, TABLES } from '../lib/supabase.js';
+import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
 const signalService = new SignalService();
@@ -46,15 +46,22 @@ router.get('/unified', async (req, res) => {
               const walletData = t.wallet || {};
               const walletId = walletData.id || t.walletId;
               
-              // Zkus načíst aktuální wallet data z DB (pro score)
+              // Zkus načíst aktuální wallet data z DB (pro score) – Prisma
               let dbWallet: any = null;
               if (walletId) {
-                const { data } = await supabase
-                  .from(TABLES.SMART_WALLET)
-                  .select('address, label, score, winRate')
-                  .eq('id', walletId)
-                  .single();
-                dbWallet = data;
+                try {
+                  dbWallet = await prisma.smartWallet.findUnique({
+                    where: { id: walletId },
+                    select: {
+                      address: true,
+                      label: true,
+                      score: true,
+                      winRate: true,
+                    },
+                  });
+                } catch {
+                  dbWallet = null;
+                }
               }
               
               return {
@@ -94,15 +101,14 @@ router.get('/unified', async (req, res) => {
             }
           }
           
-          // Zkus načíst AI decision z Signal tabulky (pokud existuje)
-          const { data: relatedSignal } = await supabase
-            .from(TABLES.SIGNAL)
-            .select('*')
-            .eq('tokenId', cs.tokenId)
-            .eq('model', 'consensus')
-            .order('createdAt', { ascending: false })
-            .limit(1)
-            .single();
+          // Zkus načíst AI decision z Signal tabulky (pokud existuje) – Prisma
+          const relatedSignal = await prisma.signal.findFirst({
+            where: {
+              tokenId: cs.tokenId,
+              model: 'consensus',
+            },
+            orderBy: { createdAt: 'desc' },
+          });
           
           // Načti security data z RugCheck
           let securityData: any = null;
@@ -231,52 +237,53 @@ router.get('/unified', async (req, res) => {
 router.get('/', async (req, res) => {
   try {
     const { type, walletId, tokenId, model, limit, status } = req.query;
-    
-    // Pro rozšířené filtry použij přímý dotaz
-    let query = supabase
-      .from('Signal')
-      .select(`
-        *,
-        token:Token(symbol, mintAddress),
-        wallet:SmartWallet(address, label, score)
-      `)
-      .order('createdAt', { ascending: false });
 
-    // Filtry
+    const where: any = {};
     if (status) {
-      query = query.eq('status', status);
+      where.status = status;
     } else {
-      query = query.eq('status', 'active');
+      where.status = 'active';
     }
-    
     if (type) {
-      query = query.eq('type', type);
+      where.type = type;
     }
     if (walletId) {
-      query = query.eq('walletId', walletId);
+      where.walletId = walletId;
     }
     if (tokenId) {
-      query = query.eq('tokenId', tokenId);
+      where.tokenId = tokenId;
     }
     if (model) {
-      query = query.eq('model', model);
-    }
-    if (limit) {
-      query = query.limit(Number(limit));
-    } else {
-      query = query.limit(50);
+      where.model = model;
     }
 
-    const { data: signals, error } = await query;
+    const take = limit ? Number(limit) : 50;
 
-    if (error) {
-      throw new Error(error.message);
-    }
+    const signals = await prisma.signal.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take,
+      include: {
+        token: {
+          select: {
+            symbol: true,
+            mintAddress: true,
+          },
+        },
+        wallet: {
+          select: {
+            address: true,
+            label: true,
+            score: true,
+          },
+        },
+      },
+    });
 
     res.json({
       success: true,
-      signals: signals || [],
-      count: signals?.length || 0,
+      signals,
+      count: signals.length,
     });
   } catch (error: any) {
     console.error('❌ Error fetching signals:', error);
@@ -335,17 +342,15 @@ router.get('/types', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
-    const { data: signal, error } = await supabase
-      .from('Signal')
-      .select(`
-        *,
-        token:Token(*),
-        wallet:SmartWallet(*)
-      `)
-      .eq('id', req.params.id)
-      .single();
+    const signal = await prisma.signal.findUnique({
+      where: { id: req.params.id },
+      include: {
+        token: true,
+        wallet: true,
+      },
+    });
     
-    if (error || !signal) {
+    if (!signal) {
       return res.status(404).json({
         success: false,
         error: 'Signal not found',
@@ -538,13 +543,13 @@ router.post('/cleanup-all-duplicates', async (req, res) => {
     let deletedConsensus = 0;
 
     // 1. Cleanup Signal table duplicates
-    const { data: signals } = await supabase
-      .from(TABLES.SIGNAL)
-      .select('id, tokenId, createdAt')
-      .eq('model', 'consensus')
-      .order('createdAt', { ascending: false });
+    const signals = await prisma.signal.findMany({
+      where: { model: 'consensus' },
+      select: { id: true, tokenId: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    });
 
-    if (signals) {
+    if (signals && signals.length > 0) {
       const tokenMap = new Map<string, string[]>();
       signals.forEach((s: any) => {
         const ids = tokenMap.get(s.tokenId) || [];
@@ -556,22 +561,21 @@ router.post('/cleanup-all-duplicates', async (req, res) => {
         if (ids.length > 1) {
           // Keep only the first (newest), delete rest
           const idsToDelete = ids.slice(1);
-          const { error } = await supabase
-            .from(TABLES.SIGNAL)
-            .delete()
-            .in('id', idsToDelete);
-          if (!error) deletedSignals += idsToDelete.length;
+          const result = await prisma.signal.deleteMany({
+            where: { id: { in: idsToDelete } },
+          });
+          deletedSignals += result.count;
         }
       }
     }
 
     // 2. Cleanup ConsensusSignal table duplicates
-    const { data: consensusSignals } = await supabase
-      .from(TABLES.CONSENSUS_SIGNAL)
-      .select('id, tokenId, latestTradeTime')
-      .order('latestTradeTime', { ascending: false });
+    const consensusSignals = await prisma.consensusSignal.findMany({
+      select: { id: true, tokenId: true, latestTradeTime: true },
+      orderBy: { latestTradeTime: 'desc' },
+    });
 
-    if (consensusSignals) {
+    if (consensusSignals && consensusSignals.length > 0) {
       const tokenMap = new Map<string, string[]>();
       consensusSignals.forEach((s: any) => {
         const ids = tokenMap.get(s.tokenId) || [];
@@ -583,11 +587,10 @@ router.post('/cleanup-all-duplicates', async (req, res) => {
         if (ids.length > 1) {
           // Keep only the first (newest), delete rest
           const idsToDelete = ids.slice(1);
-          const { error } = await supabase
-            .from(TABLES.CONSENSUS_SIGNAL)
-            .delete()
-            .in('id', idsToDelete);
-          if (!error) deletedConsensus += idsToDelete.length;
+          const result = await prisma.consensusSignal.deleteMany({
+            where: { id: { in: idsToDelete } },
+          });
+          deletedConsensus += result.count;
         }
       }
     }
@@ -616,14 +619,10 @@ router.post('/cleanup-all-duplicates', async (req, res) => {
 router.post('/cleanup-duplicates', async (req, res) => {
   try {
     // 1. Najdi duplicitní tokeny
-    const { data: duplicates, error: findError } = await supabase
-      .from(TABLES.SIGNAL)
-      .select('tokenId')
-      .eq('model', 'consensus');
-
-    if (findError) {
-      throw new Error(`Failed to find signals: ${findError.message}`);
-    }
+    const duplicates = await prisma.signal.findMany({
+      where: { model: 'consensus' },
+      select: { tokenId: true },
+    });
 
     // Spočítej duplicity
     const tokenCounts: Record<string, number> = {};
@@ -647,25 +646,24 @@ router.post('/cleanup-duplicates', async (req, res) => {
     let deletedCount = 0;
     for (const { tokenId } of duplicateTokens) {
       // Najdi všechny signály pro token
-      const { data: tokenSignals } = await supabase
-        .from(TABLES.SIGNAL)
-        .select('id, createdAt')
-        .eq('tokenId', tokenId)
-        .eq('model', 'consensus')
-        .order('createdAt', { ascending: false });
+      const tokenSignals = await prisma.signal.findMany({
+        where: {
+          tokenId,
+          model: 'consensus',
+        },
+        select: { id: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+      });
 
       if (tokenSignals && tokenSignals.length > 1) {
         // Smaž všechny kromě nejnovějšího
         const idsToDelete = tokenSignals.slice(1).map((s: any) => s.id);
         
-        const { error: deleteError } = await supabase
-          .from(TABLES.SIGNAL)
-          .delete()
-          .in('id', idsToDelete);
+        const result = await prisma.signal.deleteMany({
+          where: { id: { in: idsToDelete } },
+        });
 
-        if (!deleteError) {
-          deletedCount += idsToDelete.length;
-        }
+        deletedCount += result.count;
       }
     }
 
@@ -712,15 +710,13 @@ router.post('/ai/evaluate', async (req, res) => {
       signalsToEvaluate = await advancedSignals.analyzeTradeForSignals(tradeId);
     } else if (signalId) {
       // Načti signál z DB
-      const { data: signalData } = await supabase
-        .from('Signal')
-        .select(`
-          *,
-          wallet:SmartWallet(*),
-          token:Token(*)
-        `)
-        .eq('id', signalId)
-        .single();
+      const signalData = await prisma.signal.findUnique({
+        where: { id: signalId },
+        include: {
+          wallet: true,
+          token: true,
+        },
+      });
 
       if (signalData) {
         signalsToEvaluate = [{
@@ -820,22 +816,19 @@ router.get('/ai/history', async (req, res) => {
  */
 router.post('/ai/reevaluate-all', async (req, res) => {
   try {
-    // Najdi všechny active signály bez AI decision
-    const { data: signalsToEvaluate, error } = await supabase
-      .from(TABLES.SIGNAL)
-      .select(`
-        *,
-        token:Token(*),
-        wallet:SmartWallet(*)
-      `)
-      .eq('status', 'active')
-      .is('aiDecision', null)
-      .order('createdAt', { ascending: false })
-      .limit(20);
-
-    if (error) {
-      throw new Error(`Failed to fetch signals: ${error.message}`);
-    }
+    // Najdi všechny active signály bez AI decision – Prisma
+    const signalsToEvaluate = await prisma.signal.findMany({
+      where: {
+        status: 'active',
+        aiDecision: null,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      include: {
+        token: true,
+        wallet: true,
+      },
+    });
 
     if (!signalsToEvaluate || signalsToEvaluate.length === 0) {
       return res.json({
@@ -906,9 +899,9 @@ router.post('/ai/reevaluate-all', async (req, res) => {
             ? entryPrice * (1 + decision.takeProfitPercent / 100)
             : null;
 
-          await supabase
-            .from(TABLES.SIGNAL)
-            .update({
+          await prisma.signal.update({
+            where: { id: signal.id },
+            data: {
               aiDecision: decision.decision,
               aiConfidence: decision.confidence,
               aiReasoning: decision.reasoning,
@@ -924,9 +917,9 @@ router.post('/ai/reevaluate-all', async (req, res) => {
               tokenLiquidityUsd: marketData?.liquidity,
               tokenVolume24hUsd: marketData?.volume24h,
               tokenAgeMinutes: marketData?.ageMinutes,
-              updatedAt: new Date().toISOString(),
-            })
-            .eq('id', signal.id);
+              updatedAt: new Date(),
+            },
+          });
 
           evaluatedCount++;
           results.push({
