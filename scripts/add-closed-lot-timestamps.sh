@@ -9,7 +9,8 @@ echo "🔧 Adding createdAt and updatedAt columns to ClosedLot table..."
 
 # Načti DATABASE_URL z .env souboru
 if [ -f "apps/backend/.env" ]; then
-  export $(grep -v '^#' apps/backend/.env | xargs)
+  # Načti jen DATABASE_URL, ignoruj komentáře a prázdné řádky
+  export DATABASE_URL=$(grep -E '^DATABASE_URL=' apps/backend/.env | cut -d '=' -f2- | tr -d '"' | tr -d "'")
 fi
 
 if [ -z "$DATABASE_URL" ]; then
