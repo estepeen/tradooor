@@ -1,4 +1,4 @@
-import { supabase, TABLES, generateId } from '../lib/supabase.js';
+import prisma, { generateId } from '../lib/prisma.js';
 
 export type WalletProcessingJob = {
   id: string;
@@ -7,120 +7,109 @@ export type WalletProcessingJob = {
   status: 'pending' | 'processing' | 'failed';
   priority: number;
   attempts: number;
-  lastAttemptAt: string | null;
-  nextRunAt: string;
+  lastAttemptAt: Date | null;
+  nextRunAt: Date;
   error?: string | null;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: Date;
+  updatedAt: Date;
 };
-
-const TABLE_NAME = TABLES.WALLET_PROCESSING_QUEUE || 'WalletProcessingQueue';
 
 export class WalletProcessingQueueRepository {
   async enqueue(walletId: string, jobType: string = 'metrics', priority = 0) {
-    const now = new Date().toISOString();
+    const now = new Date();
 
-    const payload = {
-      id: generateId(),
-      walletId,
-      jobType,
-      status: 'pending',
-      priority,
-      attempts: 0,
-      nextRunAt: now,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    const { error } = await supabase
-      .from(TABLE_NAME)
-      .upsert(payload, { onConflict: 'walletId,jobType' });
-
-    if (error) {
-      console.error('❌ Failed to enqueue wallet processing job:', error);
-      throw new Error(`Failed to enqueue wallet ${walletId}: ${error.message}`);
-    }
+    await prisma.walletProcessingQueue.upsert({
+      where: {
+        walletId_jobType: {
+          walletId,
+          jobType,
+        },
+      },
+      create: {
+        id: generateId(),
+        walletId,
+        jobType,
+        status: 'pending',
+        priority,
+        attempts: 0,
+        nextRunAt: now,
+        createdAt: now,
+        updatedAt: now,
+      },
+      update: {
+        status: 'pending',
+        priority,
+        nextRunAt: now,
+        updatedAt: now,
+      },
+    });
   }
 
   async claimNextJob(): Promise<WalletProcessingJob | null> {
-    const nowIso = new Date().toISOString();
+    const now = new Date();
 
-    const { data, error } = await supabase
-      .from(TABLE_NAME)
-      .select('*')
-      .eq('status', 'pending')
-      .lte('nextRunAt', nowIso)
-      .order('priority', { ascending: false })
-      .order('createdAt', { ascending: true })
-      .limit(1);
+    // Find next pending job
+    const job = await prisma.walletProcessingQueue.findFirst({
+      where: {
+        status: 'pending',
+        nextRunAt: { lte: now },
+      },
+      orderBy: [
+        { priority: 'desc' },
+        { createdAt: 'asc' },
+      ],
+    });
 
-    if (error) {
-      throw new Error(`Failed to fetch queue job: ${error.message}`);
-    }
-
-    if (!data || data.length === 0) {
+    if (!job) {
       return null;
     }
 
-    const job = data[0] as WalletProcessingJob;
+    // Atomically claim it
+    try {
+      const updated = await prisma.walletProcessingQueue.update({
+        where: {
+          id: job.id,
+          status: 'pending', // Only update if still pending
+        },
+        data: {
+          status: 'processing',
+          attempts: job.attempts + 1,
+          lastAttemptAt: now,
+          updatedAt: now,
+        },
+      });
 
-    const { data: updated, error: updateError } = await supabase
-      .from(TABLE_NAME)
-      .update({
-        status: 'processing',
-        attempts: (job.attempts ?? 0) + 1,
-        lastAttemptAt: nowIso,
-        updatedAt: nowIso,
-      })
-      .eq('id', job.id)
-      .eq('status', 'pending')
-      .select()
-      .single();
-
-    if (updateError) {
-      if (updateError.code === 'PGRST116') {
-        // Someone else claimed it, try next time
+      return updated as WalletProcessingJob;
+    } catch (error: any) {
+      // Someone else claimed it or it was deleted
+      if (error.code === 'P2025') {
         return null;
       }
-      throw new Error(`Failed to claim queue job: ${updateError.message}`);
+      throw error;
     }
-
-    return updated as WalletProcessingJob;
   }
 
   async markCompleted(jobId: string) {
-    const { error } = await supabase
-      .from(TABLE_NAME)
-      .delete()
-      .eq('id', jobId);
-
-    if (error) {
-      throw new Error(`Failed to delete completed job: ${error.message}`);
-    }
+    await prisma.walletProcessingQueue.delete({
+      where: { id: jobId },
+    });
   }
 
   async markFailed(jobId: string, errorMessage: string, delayMs = 60_000) {
-    const nextRun = new Date(Date.now() + delayMs).toISOString();
-    const now = new Date().toISOString();
+    const nextRun = new Date(Date.now() + delayMs);
+    const now = new Date();
 
     const truncatedError =
       errorMessage?.length > 500 ? `${errorMessage.slice(0, 497)}...` : errorMessage;
 
-    const { error } = await supabase
-      .from(TABLE_NAME)
-      .update({
+    await prisma.walletProcessingQueue.update({
+      where: { id: jobId },
+      data: {
         status: 'pending',
         nextRunAt: nextRun,
         error: truncatedError,
         updatedAt: now,
-      })
-      .eq('id', jobId);
-
-    if (error) {
-      throw new Error(`Failed to reschedule failed job: ${error.message}`);
-    }
+      },
+    });
   }
 }
-
-
-

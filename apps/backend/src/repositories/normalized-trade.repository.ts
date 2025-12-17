@@ -1,4 +1,4 @@
-import { supabase, TABLES, generateId } from '../lib/supabase.js';
+import prisma, { generateId } from '../lib/prisma.js';
 
 export type NormalizedTradeStatus = 'pending' | 'processed' | 'failed';
 
@@ -47,73 +47,38 @@ type CreateNormalizedTradeInput = Omit<
 >;
 
 export class NormalizedTradeRepository {
-  private mapRow(row: any): NormalizedTradeRecord {
-    return {
-      id: row.id,
-      txSignature: row.txSignature,
-      walletId: row.walletId,
-      tokenId: row.tokenId,
-      tokenMint: row.tokenMint,
-      side: row.side,
-      amountToken: Number(row.amountToken),
-      amountBaseRaw: Number(row.amountBaseRaw),
-      baseToken: row.baseToken,
-      priceBasePerTokenRaw: Number(row.priceBasePerTokenRaw),
-      timestamp: new Date(row.timestamp),
-      dex: row.dex,
-      balanceBefore: row.balanceBefore ?? null,
-      balanceAfter: row.balanceAfter ?? null,
-      status: row.status as NormalizedTradeStatus,
-      error: row.error ?? null,
-      meta: row.meta ?? null,
-      rawPayload: row.rawPayload ?? null,
-      amountBaseUsd: row.amountBaseUsd !== null && row.amountBaseUsd !== undefined ? Number(row.amountBaseUsd) : null,
-      priceUsdPerToken:
-        row.priceUsdPerToken !== null && row.priceUsdPerToken !== undefined ? Number(row.priceUsdPerToken) : null,
-      valuationSource: row.valuationSource ?? null,
-      valuationTimestamp: row.valuationTimestamp ? new Date(row.valuationTimestamp) : null,
-      processedAt: row.processedAt ? new Date(row.processedAt) : null,
-      createdAt: new Date(row.createdAt),
-      updatedAt: new Date(row.updatedAt),
-      tradeId: row.tradeId ?? null,
-    };
-  }
-
   async create(data: CreateNormalizedTradeInput): Promise<NormalizedTradeRecord> {
-    const payload = {
-      id: generateId(),
-      txSignature: data.txSignature,
-      walletId: data.walletId,
-      tokenId: data.tokenId,
-      tokenMint: data.tokenMint,
-      side: data.side,
-      amountToken: data.amountToken.toString(),
-      amountBaseRaw: data.amountBaseRaw.toString(),
-      baseToken: data.baseToken,
-      priceBasePerTokenRaw: data.priceBasePerTokenRaw.toString(),
-      timestamp: data.timestamp.toISOString(),
-      dex: data.dex,
-      balanceBefore: data.balanceBefore ?? null,
-      balanceAfter: data.balanceAfter ?? null,
-      meta: data.meta ?? null,
-      rawPayload: data.rawPayload ?? null,
-    };
+    try {
+      const result = await prisma.normalizedTrade.create({
+        data: {
+          id: generateId(),
+          txSignature: data.txSignature,
+          walletId: data.walletId,
+          tokenId: data.tokenId,
+          tokenMint: data.tokenMint,
+          side: data.side,
+          amountToken: data.amountToken,
+          amountBaseRaw: data.amountBaseRaw,
+          baseToken: data.baseToken,
+          priceBasePerTokenRaw: data.priceBasePerTokenRaw,
+          timestamp: data.timestamp,
+          dex: data.dex,
+          balanceBefore: data.balanceBefore ?? null,
+          balanceAfter: data.balanceAfter ?? null,
+          meta: data.meta ?? null,
+          rawPayload: data.rawPayload ?? null,
+        },
+      });
 
-    const { data: row, error } = await supabase
-      .from(TABLES.NORMALIZED_TRADE)
-      .insert(payload)
-      .select()
-      .single();
-
-    if (error) {
-      if ((error as any).code === '23505' || /duplicate key value/i.test(error.message)) {
+      return result as NormalizedTradeRecord;
+    } catch (error: any) {
+      // Handle unique constraint violation (Prisma P2002)
+      if (error.code === 'P2002') {
         const existing = await this.findBySignatureAndWallet(data.txSignature, data.walletId, data.side);
         if (existing) return existing;
       }
       throw new Error(`Failed to create normalized trade: ${error.message}`);
     }
-
-    return this.mapRow(row);
   }
 
   async findBySignatureAndWallet(
@@ -121,68 +86,46 @@ export class NormalizedTradeRepository {
     walletId: string,
     side: string
   ): Promise<NormalizedTradeRecord | null> {
-    const { data, error } = await supabase
-      .from(TABLES.NORMALIZED_TRADE)
-      .select('*')
-      .eq('txSignature', txSignature)
-      .eq('walletId', walletId)
-      .eq('side', side)
-      .single();
+    const result = await prisma.normalizedTrade.findFirst({
+      where: {
+        txSignature,
+        walletId,
+        side,
+      },
+    });
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return null;
-      }
-      throw new Error(`Failed to fetch normalized trade: ${error.message}`);
-    }
-
-    return this.mapRow(data);
+    return result as NormalizedTradeRecord | null;
   }
 
   async findById(id: string): Promise<NormalizedTradeRecord | null> {
-    const { data, error } = await supabase
-      .from(TABLES.NORMALIZED_TRADE)
-      .select('*')
-      .eq('id', id)
-      .single();
+    const result = await prisma.normalizedTrade.findUnique({
+      where: { id },
+    });
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        return null;
-      }
-      throw new Error(`Failed to fetch normalized trade: ${error.message}`);
-    }
-
-    return this.mapRow(data);
+    return result as NormalizedTradeRecord | null;
   }
 
   async findPendingByWallet(walletId: string): Promise<NormalizedTradeRecord[]> {
-    const { data, error } = await supabase
-      .from(TABLES.NORMALIZED_TRADE)
-      .select('*')
-      .eq('walletId', walletId)
-      .eq('status', 'pending');
+    const results = await prisma.normalizedTrade.findMany({
+      where: {
+        walletId,
+        status: 'pending',
+      },
+    });
 
-    if (error) {
-      throw new Error(`Failed to fetch pending normalized trades: ${error.message}`);
-    }
-
-    return (data ?? []).map(row => this.mapRow(row));
+    return results as NormalizedTradeRecord[];
   }
 
   async findPending(limit = 25): Promise<NormalizedTradeRecord[]> {
-    const { data, error } = await supabase
-      .from(TABLES.NORMALIZED_TRADE)
-      .select('*')
-      .eq('status', 'pending')
-      .order('timestamp', { ascending: true })
-      .limit(limit);
+    const results = await prisma.normalizedTrade.findMany({
+      where: {
+        status: 'pending',
+      },
+      orderBy: { timestamp: 'asc' },
+      take: limit,
+    });
 
-    if (error) {
-      throw new Error(`Failed to fetch pending normalized trades: ${error.message}`);
-    }
-
-    return (data ?? []).map(row => this.mapRow(row));
+    return results as NormalizedTradeRecord[];
   }
 
   async markProcessed(
@@ -195,37 +138,28 @@ export class NormalizedTradeRepository {
       valuationTimestamp: Date;
     }
   ) {
-    const { error } = await supabase
-      .from(TABLES.NORMALIZED_TRADE)
-      .update({
+    await prisma.normalizedTrade.update({
+      where: { id },
+      data: {
         status: 'processed',
         tradeId: updates.tradeId,
-        amountBaseUsd: updates.amountBaseUsd.toString(),
-        priceUsdPerToken: updates.priceUsdPerToken.toString(),
+        amountBaseUsd: updates.amountBaseUsd,
+        priceUsdPerToken: updates.priceUsdPerToken,
         valuationSource: updates.valuationSource,
-        valuationTimestamp: updates.valuationTimestamp.toISOString(),
-        processedAt: new Date().toISOString(),
-      })
-      .eq('id', id);
-
-    if (error) {
-      throw new Error(`Failed to mark normalized trade as processed: ${error.message}`);
-    }
+        valuationTimestamp: updates.valuationTimestamp,
+        processedAt: new Date(),
+      },
+    });
   }
 
   async markFailed(id: string, errorMessage: string) {
-    const { error } = await supabase
-      .from(TABLES.NORMALIZED_TRADE)
-      .update({
+    await prisma.normalizedTrade.update({
+      where: { id },
+      data: {
         status: 'failed',
         error: errorMessage,
-        updatedAt: new Date().toISOString(),
-      })
-      .eq('id', id);
-
-    if (error) {
-      throw new Error(`Failed to mark normalized trade as failed: ${error.message}`);
-    }
+        updatedAt: new Date(),
+      },
+    });
   }
 }
-

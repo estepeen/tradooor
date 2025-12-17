@@ -1,5 +1,5 @@
-import { supabase, TABLES, generateId } from '../lib/supabase.js';
-import { BinancePriceService } from '../services/binance-price.service.js';
+import prisma, { generateId } from '../lib/prisma.js';
+import { Prisma } from '@prisma/client';
 
 export class SmartWalletRepository {
   async findAll(params?: {
@@ -13,144 +13,74 @@ export class SmartWalletRepository {
   }) {
     const page = params?.page ?? 1;
     const pageSize = params?.pageSize ?? 50;
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
+    const skip = (page - 1) * pageSize;
 
-    // NOTE: Using explicit column selection to help debug Supabase errors
-    let query = supabase
-      .from(TABLES.SMART_WALLET)
-      .select(`
-        id,
-        address,
-        label,
-        tags,
-        twitterUrl,
-        score,
-        totalTrades,
-        winRate,
-        avgRr,
-        avgPnlPercent,
-        pnlTotalBase,
-        avgHoldingTimeMin,
-        maxDrawdownPercent,
-        recentPnl30dPercent,
-        recentPnl30dUsd,
-        advancedStats,
-        createdAt,
-        updatedAt
-      `, { count: 'exact' });
+    // Build where clause
+    const where: Prisma.SmartWalletWhereInput = {};
 
-    // Apply filters
     if (params?.minScore !== undefined) {
-      query = query.gte('score', params.minScore);
+      where.score = { gte: params.minScore };
     }
 
     if (params?.tags && params.tags.length > 0) {
-      // Supabase array overlap: tags && array['tag1', 'tag2']
-      query = query.contains('tags', params.tags);
+      where.tags = { hasEvery: params.tags };
     }
 
     if (params?.search) {
-      // Search in address or label (case-insensitive)
-      query = query.or(`address.ilike.%${params.search}%,label.ilike.%${params.search}%`);
+      where.OR = [
+        { address: { contains: params.search, mode: 'insensitive' } },
+        { label: { contains: params.search, mode: 'insensitive' } },
+      ];
     }
 
-    // Apply sorting
-    // Note: lastTradeTimestamp, recentPnl30dUsd, and recentPnl30dPercent are calculated after DB query,
-    // so they need client-side sorting (handled in frontend)
+    // Build orderBy
     const sortBy = params?.sortBy ?? 'score';
     const sortOrder = params?.sortOrder ?? 'desc';
     
+    let orderBy: Prisma.SmartWalletOrderByWithRelationInput = {};
+    
     // Only apply DB sorting for fields that exist in the database
-    // Note: lastTradeTimestamp, recentPnl30dUsd, and recentPnl30dPercent are calculated after DB query
     if (sortBy !== 'lastTradeTimestamp' && sortBy !== 'recentPnl30dUsd' && sortBy !== 'recentPnl30dPercent') {
-    query = query.order(sortBy, { ascending: sortOrder === 'asc' });
+      orderBy = { [sortBy]: sortOrder };
     }
 
-    // Apply pagination
-    query = query.range(from, to);
+    // Fetch wallets with pagination
+    const [wallets, total] = await Promise.all([
+      prisma.smartWallet.findMany({
+        where,
+        orderBy,
+        skip,
+        take: pageSize,
+      }),
+      prisma.smartWallet.count({ where }),
+    ]);
 
-    const { data: wallets, error, count } = await query;
-
-    if (error) {
-      console.error('❌ [SmartWalletRepository] Supabase error while fetching wallets:', {
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        code: (error as any)?.code,
-        status: (error as any)?.status,
-        stack: error.stack,
-      });
-      try {
-        console.error('❌ [SmartWalletRepository] Supabase raw error JSON:', JSON.stringify(error, Object.getOwnPropertyNames(error)));
-      } catch (jsonError) {
-        console.error('❌ [SmartWalletRepository] Failed to stringify Supabase error:', jsonError);
-        console.error('❌ [SmartWalletRepository] Supabase raw error object:', error);
-      }
-      throw new Error(`Failed to fetch wallets: ${error.message}`);
-    }
-
-    // Get last trade timestamp for each wallet using a SINGLE aggregated query
-    // This replaces N+1 queries (200+ individual queries) with just ONE query
-    if (wallets && wallets.length > 0) {
+    // Get last trade timestamp for each wallet using aggregation
+    if (wallets.length > 0) {
       const walletIds = wallets.map(w => w.id);
       
       try {
-        // Use raw SQL via Supabase RPC or a single query with grouping
-        // Fetch max timestamp per walletId in one query
-        const { data: lastTrades, error: lastTradesError } = await supabase
-          .rpc('get_last_trade_timestamps', { wallet_ids: walletIds });
-        
-        if (lastTradesError) {
-          // Fallback: If RPC doesn't exist, use a simpler approach with a single query
-          // This is still better than N+1 queries - fetch recent trades and group client-side
-          console.log('📊 Using fallback query for last trade timestamps (RPC not available)');
-          
-          // Fetch trades from last 7 days for these wallets (much smaller dataset)
-          const sevenDaysAgo = new Date();
-          sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-          
-          const { data: recentTrades, error: recentError } = await supabase
-        .from(TABLES.TRADE)
-            .select('walletId, timestamp')
-            .in('walletId', walletIds)
-            .gte('timestamp', sevenDaysAgo.toISOString())
-            .order('timestamp', { ascending: false });
+        // Aggregate max timestamp per wallet
+        const lastTrades = await prisma.trade.groupBy({
+          by: ['walletId'],
+          where: {
+            walletId: { in: walletIds },
+          },
+          _max: {
+            timestamp: true,
+          },
+        });
 
-          if (!recentError && recentTrades) {
-            // Group by walletId and get max timestamp (first one since ordered desc)
-            const lastTradeMap = new Map<string, string>();
-            for (const trade of recentTrades) {
-              if (!lastTradeMap.has(trade.walletId)) {
-                const timestamp = trade.timestamp instanceof Date 
-                  ? trade.timestamp.toISOString()
-                  : new Date(trade.timestamp).toISOString();
-                lastTradeMap.set(trade.walletId, timestamp);
-              }
-            }
-            
-            wallets.forEach((wallet: any) => {
-              wallet.lastTradeTimestamp = lastTradeMap.get(wallet.id) || null;
-            });
-            } else {
-            // If fallback also fails, set all to null (non-blocking)
-            wallets.forEach((wallet: any) => {
-              wallet.lastTradeTimestamp = null;
-            });
-          }
-        } else if (lastTrades) {
-          // RPC success - use the aggregated results
-      const lastTradeMap = new Map<string, string>();
-          for (const row of lastTrades) {
-            if (row.wallet_id && row.last_timestamp) {
-              lastTradeMap.set(row.wallet_id, new Date(row.last_timestamp).toISOString());
-        }
+        const lastTradeMap = new Map<string, Date | null>();
+        for (const row of lastTrades) {
+          lastTradeMap.set(row.walletId, row._max.timestamp);
         }
 
-          wallets.forEach((wallet: any) => {
-            wallet.lastTradeTimestamp = lastTradeMap.get(wallet.id) || null;
-          });
-        }
+        // Attach lastTradeTimestamp to each wallet
+        wallets.forEach((wallet: any) => {
+          const lastTimestamp = lastTradeMap.get(wallet.id);
+          wallet.lastTradeTimestamp = lastTimestamp ? lastTimestamp.toISOString() : null;
+        });
       } catch (error) {
         console.warn('⚠️ Error fetching last trade timestamps, continuing without:', error);
         wallets.forEach((wallet: any) => {
@@ -160,81 +90,61 @@ export class SmartWalletRepository {
     }
 
     // Map recentPnl30dUsd (DB) to recentPnl30dBase (SOL) for all wallets
-    const mappedWallets = (wallets ?? []).map((wallet: any) => ({
+    const mappedWallets = wallets.map((wallet: any) => ({
       ...wallet,
-      recentPnl30dBase: wallet.recentPnl30dUsd ?? 0, // Map DB column to code name (SOL value)
+      recentPnl30dBase: wallet.recentPnl30dUsd ?? 0,
     }));
 
     return {
       wallets: mappedWallets,
-      total: count ?? 0,
+      total,
       page,
       pageSize,
     };
   }
 
   async findById(id: string) {
-    // Fetch wallet
-    const { data: wallet, error: walletError } = await supabase
-      .from(TABLES.SMART_WALLET)
-      .select('*')
-      .eq('id', id)
-      .single();
-
-    if (walletError) {
-      if (walletError.code === 'PGRST116') {
-        return null; // Not found
-      }
-      throw new Error(`Failed to fetch wallet: ${walletError.message}`);
-    }
+    // Fetch wallet with recent trades and token info
+    const wallet = await prisma.smartWallet.findUnique({
+      where: { id },
+      include: {
+        trades: {
+          take: 10,
+          orderBy: { timestamp: 'desc' },
+          include: {
+            token: true,
+          },
+        },
+      },
+    });
 
     if (!wallet) {
       return null;
     }
 
-    // Fetch recent trades with token info
-    const { data: trades, error: tradesError } = await supabase
-      .from(TABLES.TRADE)
-      .select(`
-        *,
-        token:${TABLES.TOKEN}(*)
-      `)
-      .eq('walletId', id)
-      .order('timestamp', { ascending: false })
-      .limit(10);
-
-    if (tradesError) {
-      console.warn('Failed to fetch trades for wallet:', tradesError.message);
-    }
-
     return {
       ...wallet,
-      recentPnl30dBase: wallet.recentPnl30dUsd ?? 0, // Map DB column to code name (SOL value)
-      trades: trades ?? [],
+      recentPnl30dBase: wallet.recentPnl30dUsd ?? 0,
     };
   }
 
   async findByAddress(address: string) {
     try {
       console.log(`🔍 SmartWalletRepository.findByAddress - Searching: ${address}`);
-      const { data: result, error } = await supabase
-        .from(TABLES.SMART_WALLET)
-        .select('*')
-        .eq('address', address)
-        .single();
+      
+      const result = await prisma.smartWallet.findUnique({
+        where: { address },
+      });
 
-      if (error) {
-        if (error.code === 'PGRST116') {
-          console.log(`✅ SmartWalletRepository.findByAddress - Found: no`);
-          return null; // Not found
-        }
-        throw error;
+      if (!result) {
+        console.log(`✅ SmartWalletRepository.findByAddress - Found: no`);
+        return null;
       }
 
       console.log(`✅ SmartWalletRepository.findByAddress - Found: yes`);
       return {
         ...result,
-        recentPnl30dBase: result.recentPnl30dUsd ?? 0, // Map DB column to code name (SOL value)
+        recentPnl30dBase: result.recentPnl30dUsd ?? 0,
       };
     } catch (error: any) {
       console.error('❌ SmartWalletRepository.findByAddress - Error:', error?.message);
@@ -250,21 +160,16 @@ export class SmartWalletRepository {
   }) {
     try {
       console.log('📝 SmartWalletRepository.create - Creating wallet:', data.address);
-      const { data: result, error } = await supabase
-        .from(TABLES.SMART_WALLET)
-        .insert({
+      
+      const result = await prisma.smartWallet.create({
+        data: {
           id: generateId(),
           address: data.address,
           label: data.label ?? null,
           tags: data.tags ?? [],
           twitterUrl: data.twitterUrl ?? null,
-        })
-        .select()
-        .single();
-
-      if (error) {
-        throw error;
-      }
+        },
+      });
 
       console.log('✅ SmartWalletRepository.create - Wallet created:', result.id);
       return result;
@@ -272,7 +177,6 @@ export class SmartWalletRepository {
       console.error('❌ SmartWalletRepository.create - Error:');
       console.error('Error message:', error?.message);
       console.error('Error code:', error?.code);
-      console.error('Error details:', error?.details);
       throw error;
     }
   }
@@ -293,62 +197,45 @@ export class SmartWalletRepository {
     recentPnl30dUsd: number;
     advancedStats: Record<string, any> | null;
   }>) {
-    // DŮLEŽITÉ: Pokud je advancedStats objekt, zkus ho serializovat a parsovat,
-    // aby se zajistilo, že je to validní JSON
+    // Validate advancedStats JSON
     const updateData = { ...data };
     if (updateData.advancedStats !== undefined && updateData.advancedStats !== null) {
       try {
-        // Zkus serializovat a parsovat, aby se ověřilo, že je to validní JSON
         const jsonString = JSON.stringify(updateData.advancedStats);
         updateData.advancedStats = JSON.parse(jsonString) as any;
       } catch (error: any) {
         console.error('Error serializing advancedStats:', error);
         console.error('advancedStats value:', JSON.stringify(updateData.advancedStats, null, 2));
-        // Pokud serializace selže, nastav na null
         updateData.advancedStats = null;
       }
     }
 
-    const { data: result, error } = await supabase
-      .from(TABLES.SMART_WALLET)
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(`Failed to update wallet: ${error.message}`);
-    }
+    const result = await prisma.smartWallet.update({
+      where: { id },
+      data: updateData as any,
+    });
 
     return result;
   }
 
   async getAll(): Promise<Array<{ id: string; address: string; lastPumpfunTradeTimestamp: Date | null }>> {
-    const { data: wallets, error } = await supabase
-      .from(TABLES.SMART_WALLET)
-      .select('id, address, lastPumpfunTradeTimestamp');
+    const wallets = await prisma.smartWallet.findMany({
+      select: {
+        id: true,
+        address: true,
+        lastPumpfunTradeTimestamp: true,
+      },
+    });
 
-    if (error) {
-      throw new Error(`Failed to fetch wallets: ${error.message}`);
-    }
-
-    return (wallets ?? []).map(w => ({
-      id: w.id,
-      address: w.address,
-      lastPumpfunTradeTimestamp: w.lastPumpfunTradeTimestamp ? new Date(w.lastPumpfunTradeTimestamp) : null,
-    }));
+    return wallets;
   }
 
   async getAllAddresses() {
-    const { data: wallets, error } = await supabase
-      .from(TABLES.SMART_WALLET)
-      .select('address');
+    const wallets = await prisma.smartWallet.findMany({
+      select: { address: true },
+    });
 
-    if (error) {
-      throw new Error(`Failed to fetch wallet addresses: ${error.message}`);
-    }
-
-    return wallets?.map(w => w.address) ?? [];
+    return wallets.map(w => w.address);
   }
 
   /**
@@ -376,26 +263,15 @@ export class SmartWalletRepository {
     });
 
     // Check which wallets already exist
-    // Supabase .in() has a limit, so we'll check in batches of 100
     const addresses = uniqueWallets.map(w => w.address);
-    const existingAddresses = new Set<string>();
-    const BATCH_SIZE = 100;
+    const existing = await prisma.smartWallet.findMany({
+      where: {
+        address: { in: addresses },
+      },
+      select: { address: true },
+    });
 
-    for (let i = 0; i < addresses.length; i += BATCH_SIZE) {
-      const batch = addresses.slice(i, i + BATCH_SIZE);
-      const { data: existing, error: fetchError } = await supabase
-        .from(TABLES.SMART_WALLET)
-        .select('address')
-        .in('address', batch);
-
-      if (fetchError) {
-        console.warn(`⚠️  Error checking batch ${i}-${i + batch.length}: ${fetchError.message}`);
-        // Continue with other batches
-        continue;
-      }
-
-      existing?.forEach(w => existingAddresses.add(w.address));
-    }
+    const existingAddresses = new Set(existing.map(w => w.address));
     const walletsToCreate = uniqueWallets.filter(w => !existingAddresses.has(w.address));
 
     if (walletsToCreate.length === 0) {
@@ -417,53 +293,63 @@ export class SmartWalletRepository {
       twitterUrl: w.twitterUrl ?? null,
     }));
 
-    // Batch insert - handle potential duplicates gracefully
-    const { data: created, error: insertError } = await supabase
-      .from(TABLES.SMART_WALLET)
-      .insert(dataToInsert)
-      .select();
+    try {
+      // Batch insert
+      const result = await prisma.smartWallet.createMany({
+        data: dataToInsert,
+        skipDuplicates: true,
+      });
 
-    if (insertError) {
-      // If it's a duplicate key error, try inserting one by one to find which ones failed
-      if (insertError.code === '23505' || insertError.message.includes('duplicate key')) {
+      // Fetch created wallets to return full records
+      const created = await prisma.smartWallet.findMany({
+        where: {
+          address: { in: walletsToCreate.map(w => w.address) },
+        },
+      });
+
+      // Prepare errors for existing wallets
+      const errors = uniqueWallets
+        .filter(w => existingAddresses.has(w.address))
+        .map(w => ({
+          address: w.address,
+          error: 'Wallet already exists',
+        }));
+
+      return {
+        created,
+        errors,
+      };
+    } catch (error: any) {
+      // If batch insert fails, try individual inserts
+      if (error.code === 'P2002') {
         console.warn('⚠️  Duplicate key error during batch insert, trying individual inserts...');
         const createdWallets: any[] = [];
         const errorWallets: Array<{ address: string; error: string }> = [];
 
         for (const wallet of walletsToCreate) {
           try {
-            const { data: singleCreated, error: singleError } = await supabase
-              .from(TABLES.SMART_WALLET)
-              .insert({
+            const singleCreated = await prisma.smartWallet.create({
+              data: {
                 id: generateId(),
                 address: wallet.address,
                 label: wallet.label ?? null,
                 tags: wallet.tags ?? [],
                 twitterUrl: wallet.twitterUrl ?? null,
-              })
-              .select()
-              .single();
-
-            if (singleError) {
-              if (singleError.code === '23505' || singleError.message.includes('duplicate key')) {
-                errorWallets.push({
-                  address: wallet.address,
-                  error: 'Wallet already exists',
-    });
-              } else {
-                errorWallets.push({
-                  address: wallet.address,
-                  error: singleError.message,
-                });
-              }
-            } else if (singleCreated) {
-              createdWallets.push(singleCreated);
-            }
-          } catch (err: any) {
-            errorWallets.push({
-              address: wallet.address,
-              error: err.message || 'Unknown error',
+              },
             });
+            createdWallets.push(singleCreated);
+          } catch (err: any) {
+            if (err.code === 'P2002') {
+              errorWallets.push({
+                address: wallet.address,
+                error: 'Wallet already exists',
+              });
+            } else {
+              errorWallets.push({
+                address: wallet.address,
+                error: err.message || 'Unknown error',
+              });
+            }
           }
         }
 
@@ -480,42 +366,20 @@ export class SmartWalletRepository {
           errors: [...existingErrors, ...errorWallets],
         };
       }
-      throw new Error(`Failed to create wallets: ${insertError.message}`);
+      throw new Error(`Failed to create wallets: ${error.message}`);
     }
-
-    // Prepare errors for existing wallets
-    const errors = uniqueWallets
-      .filter(w => existingAddresses.has(w.address))
-      .map(w => ({
-        address: w.address,
-        error: 'Wallet already exists',
-      }));
-
-    return {
-      created: created ?? [],
-      errors,
-    };
   }
 
   async updateLastPumpfunTimestamp(walletId: string, timestamp: Date): Promise<void> {
-    const { error } = await supabase
-      .from(TABLES.SMART_WALLET)
-      .update({ lastPumpfunTradeTimestamp: timestamp.toISOString() })
-      .eq('id', walletId);
-
-    if (error) {
-      throw new Error(`Failed to update lastPumpfunTradeTimestamp: ${error.message}`);
-    }
+    await prisma.smartWallet.update({
+      where: { id: walletId },
+      data: { lastPumpfunTradeTimestamp: timestamp },
+    });
   }
 
   async delete(walletId: string): Promise<void> {
-    const { error } = await supabase
-      .from(TABLES.SMART_WALLET)
-      .delete()
-      .eq('id', walletId);
-
-    if (error) {
-      throw new Error(`Failed to delete wallet: ${error.message}`);
-    }
+    await prisma.smartWallet.delete({
+      where: { id: walletId },
+    });
   }
 }

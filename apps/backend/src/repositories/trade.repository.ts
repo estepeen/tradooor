@@ -1,4 +1,5 @@
-import { supabase, TABLES, generateId } from '../lib/supabase.js';
+import prisma, { generateId } from '../lib/prisma.js';
+import { Prisma } from '@prisma/client';
 
 export class TradeRepository {
   async findByWalletId(
@@ -13,43 +14,47 @@ export class TradeRepository {
   ) {
     const page = params?.page ?? 1;
     const pageSize = params?.pageSize ?? 50;
-    const from = (page - 1) * pageSize;
-    const to = from + pageSize - 1;
+    const skip = (page - 1) * pageSize;
 
-    let query = supabase
-      .from(TABLES.TRADE)
-      .select(`
-        *,
-        token:${TABLES.TOKEN}(*),
-        wallet:${TABLES.SMART_WALLET}(id, address, label)
-      `, { count: 'exact' })
-      .eq('walletId', walletId);
+    const where: Prisma.TradeWhereInput = {
+      walletId,
+    };
 
     if (params?.tokenId) {
-      query = query.eq('tokenId', params.tokenId);
+      where.tokenId = params.tokenId;
     }
 
     if (params?.fromDate) {
-      query = query.gte('timestamp', params.fromDate.toISOString());
+      where.timestamp = { gte: params.fromDate };
     }
 
     if (params?.toDate) {
-      query = query.lte('timestamp', params.toDate.toISOString());
+      where.timestamp = { ...where.timestamp, lte: params.toDate };
     }
 
-    query = query
-      .order('timestamp', { ascending: false })
-      .range(from, to);
-
-    const { data: trades, error, count } = await query;
-
-    if (error) {
-      throw new Error(`Failed to fetch trades: ${error.message}`);
-    }
+    const [trades, total] = await Promise.all([
+      prisma.trade.findMany({
+        where,
+        include: {
+          token: true,
+          wallet: {
+            select: {
+              id: true,
+              address: true,
+              label: true,
+            },
+          },
+        },
+        orderBy: { timestamp: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+      prisma.trade.count({ where }),
+    ]);
 
     return {
-      trades: trades ?? [],
-      total: count ?? 0,
+      trades,
+      total,
       page,
       pageSize,
     };
@@ -72,146 +77,119 @@ export class TradeRepository {
     meta?: Record<string, any>;
   }) {
     // Prevent duplicates by txSignature (primary guard); DB has UNIQUE constraint too
-    // Quick client-side check
     const existing = await this.findBySignature(data.txSignature);
     if (existing) {
       return existing;
     }
 
-    const payload = {
-      id: generateId(),
-      txSignature: data.txSignature,
-      walletId: data.walletId,
-      tokenId: data.tokenId,
-      side: data.side,
-      amountToken: data.amountToken.toString(),
-      amountBase: data.amountBase.toString(),
-      priceBasePerToken: data.priceBasePerToken.toString(),
-      timestamp: data.timestamp.toISOString(),
-      dex: data.dex,
-      positionId: data.positionId ?? null,
-      valueUsd: data.valueUsd?.toString() ?? null,
-      pnlUsd: data.pnlUsd?.toString() ?? null,
-      pnlPercent: data.pnlPercent?.toString() ?? null,
-      meta: data.meta ?? null,
-    };
+    try {
+      const result = await prisma.trade.create({
+        data: {
+          id: generateId(),
+          txSignature: data.txSignature,
+          walletId: data.walletId,
+          tokenId: data.tokenId,
+          side: data.side,
+          amountToken: data.amountToken,
+          amountBase: data.amountBase,
+          priceBasePerToken: data.priceBasePerToken,
+          timestamp: data.timestamp,
+          dex: data.dex,
+          positionId: data.positionId ?? null,
+          valueUsd: data.valueUsd ?? null,
+          pnlUsd: data.pnlUsd ?? null,
+          pnlPercent: data.pnlPercent ?? null,
+          meta: data.meta ?? null,
+        },
+      });
 
-    // Insert with duplicate protection: if unique constraint hits, return existing row
-    const { data: result, error } = await supabase
-      .from(TABLES.TRADE)
-      .insert(payload)
-      .select()
-      .single();
-
-    if (error) {
-      // Handle unique-violation gracefully (Postgres code 23505)
-      if ((error as any).code === '23505' || /duplicate key value/i.test(error.message)) {
+      return result;
+    } catch (error: any) {
+      // Handle unique constraint violation (Prisma P2002)
+      if (error.code === 'P2002') {
         const already = await this.findBySignature(data.txSignature);
         if (already) return already;
       }
       throw new Error(`Failed to create trade: ${error.message}`);
     }
-
-    return result;
   }
 
   async findAllForMetrics(walletId: string, excludeVoid: boolean = true) {
-    let query = supabase
-      .from(TABLES.TRADE)
-      .select(`
-        *,
-        token:${TABLES.TOKEN}(*)
-      `)
-      .eq('walletId', walletId);
-    
-    // Vyloučit void trades z PnL výpočtů
-    // Použij .in() místo .neq() pro lepší kompatibilitu s Supabase
+    const where: Prisma.TradeWhereInput = {
+      walletId,
+    };
+
     if (excludeVoid) {
-      query = query.in('side', ['buy', 'sell']);
-    }
-    
-    const { data: trades, error } = await query.order('timestamp', { ascending: true });
-
-    if (error) {
-      throw new Error(`Failed to fetch trades for metrics: ${error.message}`);
+      where.side = { in: ['buy', 'sell'] };
     }
 
-    // Convert Decimal strings back to numbers for metrics calculation
-    return (trades ?? []).map(trade => ({
-      ...trade,
-      amountToken: Number(trade.amountToken),
-      amountBase: Number(trade.amountBase),
-      priceBasePerToken: Number(trade.priceBasePerToken),
-      timestamp: new Date(trade.timestamp),
-    }));
+    const trades = await prisma.trade.findMany({
+      where,
+      include: {
+        token: true,
+      },
+      orderBy: { timestamp: 'asc' },
+    });
+
+    return trades;
   }
 
   async findById(id: string) {
-    const { data, error } = await supabase
-      .from(TABLES.TRADE)
-      .select(`
-        *,
-        token:${TABLES.TOKEN}(*),
-        wallet:${TABLES.SMART_WALLET}(id, address, label)
-      `)
-      .eq('id', id)
-      .single();
+    const trade = await prisma.trade.findUnique({
+      where: { id },
+      include: {
+        token: true,
+        wallet: {
+          select: {
+            id: true,
+            address: true,
+            label: true,
+          },
+        },
+      },
+    });
 
-    if (error) {
-      if (error.code === 'PGRST116') return null;
-      throw new Error(`Failed to find trade: ${error.message}`);
-    }
-
-    return data || null;
+    return trade;
   }
 
   async findBySignature(txSignature: string) {
-    const { data, error } = await supabase
-      .from(TABLES.TRADE)
-      .select('*')
-      .eq('txSignature', txSignature)
-      .single();
+    const trade = await prisma.trade.findUnique({
+      where: { txSignature },
+    });
 
-    if (error) {
-      if (error.code === 'PGRST116') {
-        // No rows returned
-        return null;
-      }
-      throw new Error(`Failed to find trade by signature: ${error.message}`);
-    }
-
-    return data;
+    return trade;
   }
 
   /**
    * Získá všechny trady (pro re-processing)
    */
   async findAll(limit?: number, offset?: number) {
-    let query = supabase
-      .from(TABLES.TRADE)
-      .select(`
-        *,
-        wallet:${TABLES.SMART_WALLET}(id, address),
-        token:${TABLES.TOKEN}(id, mintAddress)
-      `, { count: 'exact' })
-      .order('timestamp', { ascending: true });
-
-    if (limit !== undefined) {
-      query = query.limit(limit);
-    }
-    if (offset !== undefined) {
-      query = query.range(offset, offset + (limit || 1000) - 1);
-    }
-
-    const { data: trades, error, count } = await query;
-
-    if (error) {
-      throw new Error(`Failed to fetch all trades: ${error.message}`);
-    }
+    const [trades, total] = await Promise.all([
+      prisma.trade.findMany({
+        include: {
+          wallet: {
+            select: {
+              id: true,
+              address: true,
+            },
+          },
+          token: {
+            select: {
+              id: true,
+              mintAddress: true,
+            },
+          },
+        },
+        orderBy: { timestamp: 'asc' },
+        ...(limit !== undefined && { take: limit }),
+        ...(offset !== undefined && { skip: offset }),
+      }),
+      prisma.trade.count(),
+    ]);
 
     return {
-      trades: trades ?? [],
-      total: count ?? 0,
+      trades,
+      total,
     };
   }
 
@@ -226,65 +204,50 @@ export class TradeRepository {
     pnlUsd?: number;
     pnlPercent?: number;
   }) {
-    const updateData: any = {};
-    
+    const updateData: Prisma.TradeUpdateInput = {};
+
     if (data.side !== undefined) {
       updateData.side = data.side;
     }
     if (data.amountBase !== undefined) {
-      updateData.amountBase = data.amountBase.toString();
+      updateData.amountBase = data.amountBase;
     }
     if (data.priceBasePerToken !== undefined) {
-      updateData.priceBasePerToken = data.priceBasePerToken.toString();
+      updateData.priceBasePerToken = data.priceBasePerToken;
     }
     if (data.valueUsd !== undefined) {
-      updateData.valueUsd = data.valueUsd !== null ? data.valueUsd.toString() : null;
+      updateData.valueUsd = data.valueUsd;
     }
     if (data.pnlUsd !== undefined) {
-      updateData.pnlUsd = data.pnlUsd !== null ? data.pnlUsd.toString() : null;
+      updateData.pnlUsd = data.pnlUsd;
     }
     if (data.pnlPercent !== undefined) {
-      updateData.pnlPercent = data.pnlPercent !== null ? data.pnlPercent.toString() : null;
+      updateData.pnlPercent = data.pnlPercent;
     }
 
-    const { data: result, error } = await supabase
-      .from(TABLES.TRADE)
-      .update(updateData)
-      .eq('id', tradeId)
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(`Failed to update trade: ${error.message}`);
-    }
+    const result = await prisma.trade.update({
+      where: { id: tradeId },
+      data: updateData,
+    });
 
     return result;
   }
 
   async deleteById(tradeId: string): Promise<void> {
-    const { error } = await supabase
-      .from(TABLES.TRADE)
-      .delete()
-      .eq('id', tradeId);
-
-    if (error) {
-      throw new Error(`Failed to delete trade: ${error.message}`);
-    }
+    await prisma.trade.delete({
+      where: { id: tradeId },
+    });
   }
 
   async deleteByWalletAndToken(walletId: string, tokenId: string): Promise<number> {
-    const { data, error } = await supabase
-      .from(TABLES.TRADE)
-      .delete()
-      .eq('walletId', walletId)
-      .eq('tokenId', tokenId)
-      .select('id');
+    const result = await prisma.trade.deleteMany({
+      where: {
+        walletId,
+        tokenId,
+      },
+    });
 
-    if (error) {
-      throw new Error(`Failed to delete trades: ${error.message}`);
-    }
-
-    return data?.length || 0;
+    return result.count;
   }
 
   async deleteByIds(tradeIds: string[]): Promise<number> {
@@ -292,16 +255,12 @@ export class TradeRepository {
       return 0;
     }
 
-    const { data, error } = await supabase
-      .from(TABLES.TRADE)
-      .delete()
-      .in('id', tradeIds)
-      .select('id');
+    const result = await prisma.trade.deleteMany({
+      where: {
+        id: { in: tradeIds },
+      },
+    });
 
-    if (error) {
-      throw new Error(`Failed to delete trades: ${error.message}`);
-    }
-
-    return data?.length || 0;
+    return result.count;
   }
 }

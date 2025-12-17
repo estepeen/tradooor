@@ -1,4 +1,4 @@
-import { supabase, TABLES, generateId } from '../lib/supabase.js';
+import prisma, { generateId } from '../lib/prisma.js';
 
 export interface SignalRecord {
   id: string;
@@ -21,8 +21,6 @@ export interface SignalRecord {
   updatedAt: Date;
 }
 
-const toNumber = (value: any) => (value === null || value === undefined ? 0 : Number(value));
-
 export class SignalRepository {
   async create(data: {
     type: 'buy' | 'sell';
@@ -41,63 +39,36 @@ export class SignalRepository {
     reasoning?: string | null;
     meta?: Record<string, any> | null;
   }): Promise<SignalRecord> {
-    const id = generateId();
-    const now = new Date();
-
-    const { data: result, error } = await supabase
-      .from('Signal')
-      .insert({
-        id,
+    const result = await prisma.signal.create({
+      data: {
+        id: generateId(),
         type: data.type,
         walletId: data.walletId,
         tokenId: data.tokenId,
         originalTradeId: data.originalTradeId || null,
-        priceBasePerToken: data.priceBasePerToken.toString(),
-        amountBase: data.amountBase ? data.amountBase.toString() : null,
-        amountToken: data.amountToken ? data.amountToken.toString() : null,
-        timestamp: (data.timestamp || now).toISOString(),
+        priceBasePerToken: data.priceBasePerToken,
+        amountBase: data.amountBase || null,
+        amountToken: data.amountToken || null,
+        timestamp: data.timestamp || new Date(),
         status: data.status || 'active',
-        expiresAt: data.expiresAt ? data.expiresAt.toISOString() : null,
-        qualityScore: data.qualityScore ? data.qualityScore.toString() : null,
+        expiresAt: data.expiresAt || null,
+        qualityScore: data.qualityScore || null,
         riskLevel: data.riskLevel || null,
         model: data.model || null,
         reasoning: data.reasoning || null,
         meta: data.meta || {},
-        createdAt: now.toISOString(),
-        updatedAt: now.toISOString(),
-      })
-      .select()
-      .single();
+      },
+    });
 
-    if (error) {
-      // Table might not exist yet
-      if (error.code === '42P01' || /does not exist/i.test(error.message)) {
-        throw new Error('Signal table does not exist. Please run ADD_SIGNALS.sql migration in Supabase.');
-      }
-      throw new Error(`Failed to create signal: ${error.message}`);
-    }
-
-    return this.mapRow(result);
+    return result as SignalRecord;
   }
 
   async findById(id: string): Promise<SignalRecord | null> {
-    const { data, error } = await supabase
-      .from('Signal')
-      .select('*')
-      .eq('id', id)
-      .single();
+    const result = await prisma.signal.findUnique({
+      where: { id },
+    });
 
-    if (error) {
-      if (error.code === 'PGRST116') return null;
-      // Table might not exist yet
-      if (error.code === '42P01' || /does not exist/i.test(error.message)) {
-        console.warn('⚠️  Signal table does not exist yet. Run ADD_SIGNALS.sql migration.');
-        return null;
-      }
-      throw new Error(`Failed to find signal: ${error.message}`);
-    }
-
-    return data ? this.mapRow(data) : null;
+    return result as SignalRecord | null;
   }
 
   async findActive(options?: {
@@ -108,43 +79,30 @@ export class SignalRepository {
     orderBy?: 'timestamp' | 'qualityScore';
     orderDirection?: 'asc' | 'desc';
   }): Promise<SignalRecord[]> {
-    let query = supabase
-      .from('Signal')
-      .select('*')
-      .eq('status', 'active');
+    const where: any = { status: 'active' };
 
     if (options?.type) {
-      query = query.eq('type', options.type);
+      where.type = options.type;
     }
 
     if (options?.walletId) {
-      query = query.eq('walletId', options.walletId);
+      where.walletId = options.walletId;
     }
 
     if (options?.tokenId) {
-      query = query.eq('tokenId', options.tokenId);
+      where.tokenId = options.tokenId;
     }
 
     const orderBy = options?.orderBy || 'timestamp';
     const orderDirection = options?.orderDirection || 'desc';
-    query = query.order(orderBy, { ascending: orderDirection === 'asc' });
 
-    if (options?.limit) {
-      query = query.limit(options.limit);
-    }
+    const results = await prisma.signal.findMany({
+      where,
+      orderBy: { [orderBy]: orderDirection },
+      ...(options?.limit && { take: options.limit }),
+    });
 
-    const { data, error } = await query;
-
-    if (error) {
-      // Table might not exist yet
-      if (error.code === '42P01' || /does not exist/i.test(error.message)) {
-        console.warn('⚠️  Signal table does not exist yet. Run ADD_SIGNALS.sql migration.');
-        return [];
-      }
-      throw new Error(`Failed to find active signals: ${error.message}`);
-    }
-
-    return (data || []).map(row => this.mapRow(row));
+    return results as SignalRecord[];
   }
 
   async update(id: string, updates: {
@@ -153,7 +111,7 @@ export class SignalRepository {
     meta?: Record<string, any> | null;
   }): Promise<SignalRecord> {
     const updateData: any = {
-      updatedAt: new Date().toISOString(),
+      updatedAt: new Date(),
     };
 
     if (updates.status !== undefined) {
@@ -161,25 +119,19 @@ export class SignalRepository {
     }
 
     if (updates.expiresAt !== undefined) {
-      updateData.expiresAt = updates.expiresAt ? updates.expiresAt.toISOString() : null;
+      updateData.expiresAt = updates.expiresAt;
     }
 
     if (updates.meta !== undefined) {
       updateData.meta = updates.meta;
     }
 
-    const { data, error } = await supabase
-      .from('Signal')
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
+    const result = await prisma.signal.update({
+      where: { id },
+      data: updateData,
+    });
 
-    if (error) {
-      throw new Error(`Failed to update signal: ${error.message}`);
-    }
-
-    return this.mapRow(data);
+    return result as SignalRecord;
   }
 
   async markAsExecuted(id: string): Promise<SignalRecord> {
@@ -193,43 +145,17 @@ export class SignalRepository {
   async expireOldSignals(maxAgeHours: number = 24): Promise<number> {
     const cutoffTime = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000);
     
-    const { data, error } = await supabase
-      .from('Signal')
-      .update({
+    const result = await prisma.signal.updateMany({
+      where: {
+        status: 'active',
+        timestamp: { lt: cutoffTime },
+      },
+      data: {
         status: 'expired',
-        updatedAt: new Date().toISOString(),
-      })
-      .eq('status', 'active')
-      .lt('timestamp', cutoffTime.toISOString())
-      .select();
+        updatedAt: new Date(),
+      },
+    });
 
-    if (error) {
-      throw new Error(`Failed to expire old signals: ${error.message}`);
-    }
-
-    return data?.length || 0;
-  }
-
-  private mapRow(row: any): SignalRecord {
-    return {
-      id: row.id,
-      type: row.type,
-      walletId: row.walletId,
-      tokenId: row.tokenId,
-      originalTradeId: row.originalTradeId,
-      priceBasePerToken: toNumber(row.priceBasePerToken),
-      amountBase: row.amountBase ? toNumber(row.amountBase) : null,
-      amountToken: row.amountToken ? toNumber(row.amountToken) : null,
-      timestamp: new Date(row.timestamp),
-      status: row.status,
-      expiresAt: row.expiresAt ? new Date(row.expiresAt) : null,
-      qualityScore: row.qualityScore ? toNumber(row.qualityScore) : null,
-      riskLevel: row.riskLevel,
-      model: row.model,
-      reasoning: row.reasoning,
-      meta: row.meta || {},
-      createdAt: new Date(row.createdAt),
-      updatedAt: new Date(row.updatedAt),
-    };
+    return result.count;
   }
 }

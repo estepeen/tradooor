@@ -1,4 +1,4 @@
-import { supabase, TABLES } from '../lib/supabase.js';
+import prisma from '../lib/prisma.js';
 
 const toNumber = (value: any) => (value === null || value === undefined ? 0 : Number(value));
 
@@ -16,12 +16,12 @@ export interface ClosedLotRecord {
   proceeds: number;
   realizedPnl: number;
   realizedPnlPercent: number;
-  realizedPnlUsd: number | null; // USD value at time of closure (fixed, doesn't change with SOL price)
+  realizedPnlUsd: number | null;
   buyTradeId: string | null;
   sellTradeId: string | null;
   isPreHistory: boolean;
   costKnown: boolean;
-  sequenceNumber: number | null; // Kolikátý BUY-SELL cyklus pro tento token (1., 2., 3. atd.)
+  sequenceNumber: number | null;
   
   // Entry/Exit Timing Metrics
   entryHourOfDay: number | null;
@@ -60,40 +60,30 @@ export class ClosedLotRepository {
     const FETCH_TIMEOUT_MS = 60000; // 60 sekund
     
     const fetchPromise = (async () => {
-      let query = supabase
-        .from(TABLES.CLOSED_LOT)
-        .select('*')
-        .eq('walletId', walletId)
-        .order('exitTime', { ascending: false });
+      const where: any = { walletId };
 
       if (options?.fromDate) {
-        query = query.gte('exitTime', options.fromDate.toISOString());
+        where.exitTime = { gte: options.fromDate };
       }
 
       if (options?.toDate) {
-        query = query.lte('exitTime', options.toDate.toISOString());
+        where.exitTime = { ...where.exitTime, lte: options.toDate };
       }
 
-      const { data, error } = await query;
+      const lots = await prisma.closedLot.findMany({
+        where,
+        orderBy: { exitTime: 'desc' },
+      });
 
-      if (error) {
-        // Table might not exist yet
-        if (error.code === '42P01' || /does not exist/i.test(error.message)) {
-          console.warn('⚠️  ClosedLot table does not exist. Run ADD_CLOSED_LOTS.sql migration.');
-          return [];
-        }
-        throw new Error(`Failed to fetch closed lots: ${error.message}`);
-      }
-
-      return (data ?? []).map(this.mapRow);
+      return lots.map(this.mapRow);
     })();
     
-    const timeoutPromise = new Promise((_, reject) => 
+    const timeoutPromise = new Promise<never>((_, reject) => 
       setTimeout(() => reject(new Error('Closed lots fetch timeout')), FETCH_TIMEOUT_MS)
     );
     
     try {
-      return await Promise.race([fetchPromise, timeoutPromise]) as ClosedLotRecord[];
+      return await Promise.race([fetchPromise, timeoutPromise]);
     } catch (error: any) {
       if (error.message === 'Closed lots fetch timeout') {
         console.error(`⚠️  Timeout fetching closed lots for wallet ${walletId.substring(0, 8)}... after ${FETCH_TIMEOUT_MS}ms`);
@@ -158,40 +148,25 @@ export class ClosedLotRepository {
   }
 
   async deleteByWalletAndToken(walletId: string, tokenId: string, sequenceNumber?: number): Promise<number> {
-    let query = supabase
-      .from(TABLES.CLOSED_LOT)
-      .delete()
-      .eq('walletId', walletId)
-      .eq('tokenId', tokenId)
-      .select('id');
+    const where: any = {
+      walletId,
+      tokenId,
+    };
 
     if (sequenceNumber !== undefined && sequenceNumber !== null) {
-      query = query.eq('sequenceNumber', sequenceNumber);
+      where.sequenceNumber = sequenceNumber;
     }
 
-    const { data, error } = await query;
+    const result = await prisma.closedLot.deleteMany({ where });
 
-    if (error) {
-      throw new Error(`Failed to delete closed lots: ${error.message}`);
-    }
-
-    return data?.length || 0;
+    return result.count;
   }
 
   async deleteBySellTradeId(sellTradeId: string): Promise<number> {
-    const { data, error } = await supabase
-      .from(TABLES.CLOSED_LOT)
-      .delete()
-      .eq('sellTradeId', sellTradeId)
-      .select('id');
+    const result = await prisma.closedLot.deleteMany({
+      where: { sellTradeId },
+    });
 
-    if (error) {
-      throw new Error(`Failed to delete closed lots: ${error.message}`);
-    }
-
-    return data?.length || 0;
+    return result.count;
   }
 }
-
-
-

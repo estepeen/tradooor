@@ -1,4 +1,4 @@
-import { supabase, TABLES } from '../lib/supabase.js';
+import prisma from '../lib/prisma.js';
 
 export interface ConsensusSignalData {
   id?: string;
@@ -12,31 +12,20 @@ export interface ConsensusSignalData {
 
 export class ConsensusSignalRepository {
   async create(data: ConsensusSignalData) {
-    const payload: any = {
-      tokenId: data.tokenId,
-      walletCount: data.walletCount,
-      firstTradeTime: typeof data.firstTradeTime === 'string' 
-        ? data.firstTradeTime 
-        : data.firstTradeTime.toISOString(),
-      latestTradeTime: typeof data.latestTradeTime === 'string'
-        ? data.latestTradeTime
-        : data.latestTradeTime.toISOString(),
-      trades: data.trades,
-    };
-    
-    if (data.tokenSecurity !== undefined) {
-      payload.tokenSecurity = data.tokenSecurity;
-    }
-
-    const { data: result, error } = await supabase
-      .from(TABLES.CONSENSUS_SIGNAL)
-      .insert(payload)
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(`Failed to create consensus signal: ${error.message}`);
-    }
+    const result = await prisma.consensusSignal.create({
+      data: {
+        tokenId: data.tokenId,
+        walletCount: data.walletCount,
+        firstTradeTime: typeof data.firstTradeTime === 'string' 
+          ? new Date(data.firstTradeTime)
+          : data.firstTradeTime,
+        latestTradeTime: typeof data.latestTradeTime === 'string'
+          ? new Date(data.latestTradeTime)
+          : data.latestTradeTime,
+        trades: data.trades,
+        tokenSecurity: data.tokenSecurity,
+      },
+    });
 
     return result;
   }
@@ -47,27 +36,21 @@ export class ConsensusSignalRepository {
     if (data.walletCount !== undefined) updateData.walletCount = data.walletCount;
     if (data.firstTradeTime !== undefined) {
       updateData.firstTradeTime = typeof data.firstTradeTime === 'string'
-        ? data.firstTradeTime
-        : data.firstTradeTime.toISOString();
+        ? new Date(data.firstTradeTime)
+        : data.firstTradeTime;
     }
     if (data.latestTradeTime !== undefined) {
       updateData.latestTradeTime = typeof data.latestTradeTime === 'string'
-        ? data.latestTradeTime
-        : data.latestTradeTime.toISOString();
+        ? new Date(data.latestTradeTime)
+        : data.latestTradeTime;
     }
     if (data.trades !== undefined) updateData.trades = data.trades;
     if (data.tokenSecurity !== undefined) updateData.tokenSecurity = data.tokenSecurity;
 
-    const { data: result, error } = await supabase
-      .from(TABLES.CONSENSUS_SIGNAL)
-      .update(updateData)
-      .eq('id', id)
-      .select()
-      .single();
-
-    if (error) {
-      throw new Error(`Failed to update consensus signal: ${error.message}`);
-    }
+    const result = await prisma.consensusSignal.update({
+      where: { id },
+      data: updateData,
+    });
 
     return result;
   }
@@ -80,66 +63,61 @@ export class ConsensusSignalRepository {
     const windowStart = new Date(firstTradeTime.getTime() - windowMs);
     const windowEnd = new Date(firstTradeTime.getTime() + windowMs);
 
-    const { data, error } = await supabase
-      .from(TABLES.CONSENSUS_SIGNAL)
-      .select('*')
-      .eq('tokenId', tokenId)
-      .gte('firstTradeTime', windowStart.toISOString())
-      .lte('firstTradeTime', windowEnd.toISOString())
-      .order('firstTradeTime', { ascending: false })
-      .limit(1);
+    const results = await prisma.consensusSignal.findMany({
+      where: {
+        tokenId,
+        firstTradeTime: {
+          gte: windowStart,
+          lte: windowEnd,
+        },
+      },
+      orderBy: { firstTradeTime: 'desc' },
+      take: 1,
+    });
 
-    if (error) {
-      throw new Error(`Failed to find consensus signal: ${error.message}`);
-    }
-
-    return data && data.length > 0 ? data[0] : null;
+    return results.length > 0 ? results[0] : null;
   }
 
   async findRecent(limit: number = 100, hours: number = 1) {
     const since = new Date(Date.now() - hours * 60 * 60 * 1000);
 
-    const { data, error } = await supabase
-      .from(TABLES.CONSENSUS_SIGNAL)
-      .select(`
-        *,
-        token:Token (
-          id,
-          symbol,
-          name,
-          mintAddress
-        )
-      `)
-      .gte('latestTradeTime', since.toISOString())
-      .order('latestTradeTime', { ascending: false })
-      .limit(limit);
+    const results = await prisma.consensusSignal.findMany({
+      where: {
+        latestTradeTime: { gte: since },
+      },
+      include: {
+        token: {
+          select: {
+            id: true,
+            symbol: true,
+            name: true,
+            mintAddress: true,
+          },
+        },
+      },
+      orderBy: { latestTradeTime: 'desc' },
+      take: limit,
+    });
 
-    if (error) {
-      throw new Error(`Failed to find recent consensus signals: ${error.message}`);
-    }
-
-    return data || [];
+    return results;
   }
 
   async findAll(limit: number = 100) {
-    const { data, error } = await supabase
-      .from(TABLES.CONSENSUS_SIGNAL)
-      .select(`
-        *,
-        token:Token (
-          id,
-          symbol,
-          name,
-          mintAddress
-        )
-      `)
-      .order('latestTradeTime', { ascending: false })
-      .limit(limit);
+    const results = await prisma.consensusSignal.findMany({
+      include: {
+        token: {
+          select: {
+            id: true,
+            symbol: true,
+            name: true,
+            mintAddress: true,
+          },
+        },
+      },
+      orderBy: { latestTradeTime: 'desc' },
+      take: limit,
+    });
 
-    if (error) {
-      throw new Error(`Failed to find consensus signals: ${error.message}`);
-    }
-
-    return data || [];
+    return results;
   }
 }
