@@ -337,15 +337,26 @@ export class PaperTradingModelsService {
       positionSizePercent = 15; // 3+ wallets = 15%
     }
 
-    // Najdi všechny BUY trades pro tento token v časovém okně
-    const { data: trades } = await supabase
-      .from(TABLES.TRADE)
-      .select('id, walletId, tokenId, timestamp, amountBase')
-      .eq('tokenId', consensusTrade.tokenId)
-      .eq('side', 'buy')
-      .in('walletId', consensusTrade.walletIds)
-      .gte('timestamp', consensusTrade.firstBuyTime.toISOString())
-      .lte('timestamp', consensusTrade.lastBuyTime.toISOString());
+    // Najdi všechny BUY trades pro tento token v časovém okně – Prisma
+    const trades = await prisma.trade.findMany({
+      where: {
+        tokenId: consensusTrade.tokenId,
+        side: 'buy',
+        walletId: { in: consensusTrade.walletIds },
+        timestamp: {
+          gte: consensusTrade.firstBuyTime,
+          lte: consensusTrade.lastBuyTime,
+        },
+      },
+      select: {
+        id: true,
+        walletId: true,
+        tokenId: true,
+        timestamp: true,
+        amountBase: true,
+      },
+      orderBy: { timestamp: 'asc' },
+    });
 
     if (!trades || trades.length === 0) {
       return { success: false, paperTrades: [] };
