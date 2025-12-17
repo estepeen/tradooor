@@ -353,7 +353,10 @@ export class ClosedLotRepository {
       };
       
       try {
-        // Build SQL with explicit cast for holdTimeMinutes
+        // Build SQL with explicit cast for holdTimeMinutes - ensure it's always a float
+        // Cast holdTimeMinutesValue to string first, then add ::double precision cast
+        const holdTimeMinutesSql = `${holdTimeMinutesValue}::double precision`;
+        
         const sql = `
           INSERT INTO "ClosedLot" (
             "id","walletId","tokenId","size","entryPrice","exitPrice",
@@ -367,7 +370,7 @@ export class ClosedLotRepository {
             "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl"
           ) VALUES (
             ${sqlValue(data.id)}, ${sqlValue(data.walletId)}, ${sqlValue(data.tokenId)}, ${sqlValue(data.size)}, ${sqlValue(data.entryPrice)}, ${sqlValue(data.exitPrice)},
-            ${sqlValue(data.entryTime)}, ${sqlValue(data.exitTime)}, ${holdTimeMinutesValue}::double precision, ${sqlValue(data.costBasis)}, ${sqlValue(data.proceeds)},
+            ${sqlValue(data.entryTime)}, ${sqlValue(data.exitTime)}, ${holdTimeMinutesSql}, ${sqlValue(data.costBasis)}, ${sqlValue(data.proceeds)},
             ${sqlValue(data.realizedPnl)}, ${sqlValue(data.realizedPnlPercent)}, ${sqlValue(data.realizedPnlUsd)},
             ${sqlValue(data.buyTradeId)}, ${sqlValue(data.sellTradeId)}, ${sqlValue(data.isPreHistory)}, ${sqlValue(data.costKnown)},
             ${sqlValue(data.sequenceNumber)}, ${sqlValue(data.entryHourOfDay)}, ${sqlValue(data.entryDayOfWeek)}, ${sqlValue(data.exitHourOfDay)}, ${sqlValue(data.exitDayOfWeek)},
