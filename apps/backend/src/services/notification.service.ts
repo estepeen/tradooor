@@ -8,7 +8,8 @@
  * - Notification queue
  */
 
-import { supabase, TABLES, generateId } from '../lib/supabase.js';
+import { generateId } from '../lib/prisma.js';
+import { supabase, TABLES } from '../lib/supabase.js';
 
 export type NotificationType = 'signal' | 'price_alert' | 'outcome' | 'daily_summary' | 'error';
 export type NotificationChannel = 'discord' | 'telegram' | 'webhook';

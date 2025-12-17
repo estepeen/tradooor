@@ -3,7 +3,7 @@ import { TradeFeatureRepository } from '../repositories/trade-feature.repository
 import { TradeOutcomeRepository } from '../repositories/trade-outcome.repository.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { supabase, TABLES } from '../lib/supabase.js';
-import { generateId } from '../lib/supabase.js';
+import { generateId } from '../lib/prisma.js';
 
 /**
  * Service pro automatické charakterizování traderů a correlation tracking

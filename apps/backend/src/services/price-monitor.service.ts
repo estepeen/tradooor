@@ -8,7 +8,8 @@
  * - Cachuje ceny
  */
 
-import { supabase, TABLES, generateId } from '../lib/supabase.js';
+import { generateId } from '../lib/prisma.js';
+import { supabase, TABLES } from '../lib/supabase.js';
 import { TokenMarketDataService } from './token-market-data.service.js';
 
 export interface PriceAlert {

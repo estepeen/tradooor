@@ -1,4 +1,5 @@
-import { supabase, TABLES, generateId } from '../lib/supabase.js';
+import { generateId } from '../lib/prisma.js';
+import { supabase, TABLES } from '../lib/supabase.js';
 
 export interface TradeSequenceData {
   tradeId: string;
