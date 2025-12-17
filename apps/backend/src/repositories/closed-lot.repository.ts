@@ -370,7 +370,7 @@ export class ClosedLotRepository {
         console.error(`❌ CRITICAL: holdTimeMinutes is invalid before create: ${holdTimeMinutesValue} (type: ${typeof holdTimeMinutesValue})`);
       }
       
-      // CRITICAL FIX: Use raw SQL directly because Prisma create() always fails with binary protocol error
+      // CRITICAL FIX: Use raw SQL with explicit cast for holdTimeMinutes
       // Prisma's binary protocol incorrectly sends whole numbers as Integer instead of Float
       // Using $executeRawUnsafe with explicit ::double precision cast ensures it's always sent as Float
       // Helper functions to safely format values for SQL
@@ -387,9 +387,11 @@ export class ClosedLotRepository {
       };
       
       try {
-        // Use Prisma.sql with parameterized query and CAST function for holdTimeMinutes
-        // CAST ensures it's always sent as double precision (Float), not Integer
-        await prisma.$executeRaw`
+        // Build SQL with explicit cast for holdTimeMinutes - ensure it's always a float
+        // Use explicit cast to double precision to force PostgreSQL to treat it as Float
+        const holdTimeMinutesSql = `${holdTimeMinutesValue}::double precision`;
+        
+        const sql = `
           INSERT INTO "ClosedLot" (
             "id","walletId","tokenId","size","entryPrice","exitPrice",
             "entryTime","exitTime","holdTimeMinutes","costBasis","proceeds",
@@ -401,17 +403,18 @@ export class ClosedLotRepository {
             "exitReason","maxProfitPercent","maxDrawdownPercent","timeToMaxProfitMinutes",
             "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl"
           ) VALUES (
-            ${data.id}, ${data.walletId}, ${data.tokenId}, ${data.size}, ${data.entryPrice}, ${data.exitPrice},
-            ${data.entryTime}, ${data.exitTime}, CAST(${holdTimeMinutesValue} AS double precision), ${data.costBasis}, ${data.proceeds},
-            ${data.realizedPnl}, ${data.realizedPnlPercent}, ${data.realizedPnlUsd},
-            ${buyTradeId}, ${sellTradeId}, ${data.isPreHistory}, ${data.costKnown},
-            ${data.sequenceNumber}, ${data.entryHourOfDay}, ${data.entryDayOfWeek}, ${data.exitHourOfDay}, ${data.exitDayOfWeek},
-            ${data.entryMarketCap}, ${data.exitMarketCap}, ${data.entryLiquidity}, ${data.exitLiquidity},
-            ${data.entryVolume24h}, ${data.exitVolume24h}, ${data.tokenAgeAtEntryMinutes},
-            ${data.exitReason}, ${data.maxProfitPercent}, ${data.maxDrawdownPercent}, ${data.timeToMaxProfitMinutes},
-            ${data.dcaEntryCount}, ${data.dcaTimeSpanMinutes}, ${data.reentryTimeMinutes}, ${data.reentryPriceChangePercent}, ${data.previousCyclePnl}
+            ${sqlValue(data.id)}, ${sqlValue(data.walletId)}, ${sqlValue(data.tokenId)}, ${sqlValue(data.size)}, ${sqlValue(data.entryPrice)}, ${sqlValue(data.exitPrice)},
+            ${sqlValue(data.entryTime)}, ${sqlValue(data.exitTime)}, ${holdTimeMinutesSql}, ${sqlValue(data.costBasis)}, ${sqlValue(data.proceeds)},
+            ${sqlValue(data.realizedPnl)}, ${sqlValue(data.realizedPnlPercent)}, ${sqlValue(data.realizedPnlUsd)},
+            ${sqlValue(buyTradeId)}, ${sqlValue(sellTradeId)}, ${sqlValue(data.isPreHistory)}, ${sqlValue(data.costKnown)},
+            ${sqlValue(data.sequenceNumber)}, ${sqlValue(data.entryHourOfDay)}, ${sqlValue(data.entryDayOfWeek)}, ${sqlValue(data.exitHourOfDay)}, ${sqlValue(data.exitDayOfWeek)},
+            ${sqlValue(data.entryMarketCap)}, ${sqlValue(data.exitMarketCap)}, ${sqlValue(data.entryLiquidity)}, ${sqlValue(data.exitLiquidity)},
+            ${sqlValue(data.entryVolume24h)}, ${sqlValue(data.exitVolume24h)}, ${sqlValue(data.tokenAgeAtEntryMinutes)},
+            ${sqlValue(data.exitReason)}, ${sqlValue(data.maxProfitPercent)}, ${sqlValue(data.maxDrawdownPercent)}, ${sqlValue(data.timeToMaxProfitMinutes)},
+            ${sqlValue(data.dcaEntryCount)}, ${sqlValue(data.dcaTimeSpanMinutes)}, ${sqlValue(data.reentryTimeMinutes)}, ${sqlValue(data.reentryPriceChangePercent)}, ${sqlValue(data.previousCyclePnl)}
           )
         `;
+        await prisma.$executeRawUnsafe(sql);
       } catch (error: any) {
         // Log the problematic data for debugging
         console.error(`❌ Failed to create ClosedLot for wallet ${lot.walletId?.substring(0, 8)}... token ${lot.tokenId?.substring(0, 8)}...`);
