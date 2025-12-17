@@ -345,8 +345,9 @@ export class ClosedLotRepository {
               });
               
               if (existingTrade) {
+                const originalSellTradeId = sellTradeId;
                 sellTradeId = existingTrade.id;
-                console.warn(`⚠️  sellTradeId ${sellTradeId} does not exist, using existing Trade: ${sellTradeId}`);
+                console.warn(`⚠️  sellTradeId ${originalSellTradeId} does not exist, using existing Trade: ${sellTradeId}`);
               } else {
                 // Keep original ID - we'll create placeholder Trade below
                 console.warn(`⚠️  sellTradeId ${sellTradeId} does not exist, will create placeholder Trade`);
@@ -673,7 +674,7 @@ export class ClosedLotRepository {
           }
         }
         
-        throw error; // Re-throw to maintain error propagation
+          throw error; // Re-throw to maintain error propagation
       }
     }
   }
