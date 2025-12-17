@@ -274,10 +274,11 @@ export class ClosedLotRepository {
         exitPrice: toDecimal(lot.exitPrice) || new Prisma.Decimal(0),
         entryTime: lot.entryTime ? new Date(lot.entryTime) : new Date(),
         exitTime: lot.exitTime ? new Date(lot.exitTime) : new Date(),
-        // CRITICAL: Parameter 9 - Prisma expects Float type
-        // Ensure it's explicitly a Float (not Integer) by using parseFloat
-        // Even if value is already a number, parseFloat ensures it's treated as Float in Prisma's binary protocol
-        holdTimeMinutes: parseFloat(String(holdTimeMinutesValue)),
+        // CRITICAL: Parameter 9 - Prisma expects Float type (not Integer)
+        // PostgreSQL binary protocol is strict about Float vs Integer types
+        // Ensure it's explicitly a Float by using parseFloat (even for integers)
+        // This ensures Prisma sends it as Float in binary protocol, not Integer
+        holdTimeMinutes: parseFloat(Number(holdTimeMinutesValue).toFixed(1)),
         costBasis: toDecimal(lot.costBasis) || new Prisma.Decimal(0),
         proceeds: toDecimal(lot.proceeds) || new Prisma.Decimal(0),
         realizedPnl: toDecimal(lot.realizedPnl) || new Prisma.Decimal(0),

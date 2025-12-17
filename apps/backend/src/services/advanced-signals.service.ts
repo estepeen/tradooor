@@ -698,7 +698,9 @@ export class AdvancedSignalsService {
         expiresAt,
         qualityScore: signal.confidence,
         riskLevel: signal.riskLevel,
-        model: signal.type as any, // Extended model type
+        // Map advanced signal types to allowed model values (database constraint)
+        model: signal.type === 'consensus' || signal.type === 'consensus-update' ? 'consensus' : 
+               'smart-copy', // Fallback for all advanced signal types (whale-entry, accumulation, etc.)
         reasoning: signal.reasoning,
         meta: {
           signalType: signal.type,
@@ -902,7 +904,11 @@ export class AdvancedSignalsService {
         expiresAt,
         qualityScore: signal.confidence,
         riskLevel: signal.riskLevel,
-        model: signal.type,
+        // Map advanced signal types to allowed model values (database constraint)
+        // Allowed: 'smart-copy' | 'consensus' | 'ai' | ...
+        // Advanced types (accumulation, exit-warning, etc.) are stored in meta.signalType
+        model: signal.type === 'consensus' || signal.type === 'consensus-update' ? 'consensus' : 
+               'smart-copy', // Fallback for all advanced signal types (whale-entry, accumulation, etc.)
         reasoning: signal.reasoning,
         strength: signal.strength,
         // Entry/Exit prices
