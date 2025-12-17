@@ -169,4 +169,28 @@ export class ClosedLotRepository {
 
     return result.count;
   }
+
+  async findByWalletId(walletId: string, tokenId?: string): Promise<ClosedLotRecord[]> {
+    const where: any = { walletId };
+    if (tokenId) {
+      where.tokenId = tokenId;
+    }
+
+    const lots = await prisma.closedLot.findMany({
+      where,
+      orderBy: { exitTime: 'desc' },
+    });
+
+    return lots.map(this.mapRow);
+  }
+
+  async createMany(lots: any[]): Promise<void> {
+    if (lots.length === 0) return;
+
+    // Use createMany for better performance
+    await prisma.closedLot.createMany({
+      data: lots,
+      skipDuplicates: true,
+    });
+  }
 }

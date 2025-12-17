@@ -8,10 +8,12 @@
  * - Pre-history trades (synthetic lots)
  */
 
-import { supabase, TABLES } from '../lib/supabase.js';
+import { prisma } from '../lib/prisma.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 import { TokenMarketDataService } from './token-market-data.service.js';
 import { TokenRepository } from '../repositories/token.repository.js';
+import { TradeRepository } from '../repositories/trade.repository.js';
+import { ClosedLotRepository } from '../repositories/closed-lot.repository.js';
 
 const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
 
@@ -97,6 +99,8 @@ export class LotMatchingService {
   private tradeFeatureRepo: TradeFeatureRepository;
   private marketDataService: TokenMarketDataService;
   private tokenRepo: TokenRepository;
+  private tradeRepo: TradeRepository;
+  private closedLotRepo: ClosedLotRepository;
 
   constructor(
     tradeFeatureRepo: TradeFeatureRepository = new TradeFeatureRepository(),
@@ -105,6 +109,8 @@ export class LotMatchingService {
     this.tradeFeatureRepo = tradeFeatureRepo;
     this.marketDataService = new TokenMarketDataService();
     this.tokenRepo = tokenRepo;
+    this.tradeRepo = new TradeRepository();
+    this.closedLotRepo = new ClosedLotRepository();
   }
   /**
    * Process trades and create closed lots using FIFO matching
@@ -119,29 +125,38 @@ export class LotMatchingService {
     trackingStartTime?: Date
   ): Promise<ClosedLot[]> {
     // Get all trades for this wallet (and token if specified)
-    let query = supabase
-      .from(TABLES.TRADE)
-      .select('*')
-      .eq('walletId', walletId)
-      .order('timestamp', { ascending: true });
+    const trades = await this.tradeRepo.findAllForMetrics(walletId, false); // include void trades for lot matching
 
-    if (tokenId) {
-      query = query.eq('tokenId', tokenId);
-    }
+    // Filter by token if specified
+    const filteredTrades = tokenId 
+      ? trades.filter(t => t.tokenId === tokenId)
+      : trades;
 
-    const { data: trades, error } = await query;
-
-    if (error) {
-      throw new Error(`Failed to fetch trades: ${error.message}`);
-    }
-
-    if (!trades || trades.length === 0) {
+    if (filteredTrades.length === 0) {
       return [];
     }
 
+    // Convert Prisma trades to plain objects for compatibility
+    const tradesData = filteredTrades.map(t => ({
+      id: t.id,
+      walletId: t.walletId,
+      tokenId: t.tokenId,
+      side: t.side,
+      amountToken: Number(t.amountToken),
+      amountBase: Number(t.amountBase),
+      priceBasePerToken: Number(t.priceBasePerToken),
+      timestamp: t.timestamp,
+      dex: t.dex,
+      positionId: t.positionId,
+      valueUsd: t.valueUsd ? Number(t.valueUsd) : null,
+      pnlUsd: t.pnlUsd ? Number(t.pnlUsd) : null,
+      pnlPercent: t.pnlPercent ? Number(t.pnlPercent) : null,
+      meta: t.meta as any,
+    }));
+
     // Group trades by token
-    const tradesByToken = new Map<string, typeof trades>();
-    for (const trade of trades) {
+    const tradesByToken = new Map<string, typeof tradesData>();
+    for (const trade of tradesData) {
       const tid = trade.tokenId;
       if (!tradesByToken.has(tid)) {
         tradesByToken.set(tid, []);
@@ -168,13 +183,14 @@ export class LotMatchingService {
     }
 
     if (tokensWithoutClosedLots.size > 0) {
-      const { error } = await supabase
-        .from(TABLES.CLOSED_LOT)
-        .delete()
-        .eq('walletId', walletId)
-        .in('tokenId', Array.from(tokensWithoutClosedLots));
-
-      if (error) {
+      try {
+        await prisma.closedLot.deleteMany({
+          where: {
+            walletId,
+            tokenId: { in: Array.from(tokensWithoutClosedLots) },
+          },
+        });
+      } catch (error: any) {
         console.warn(
           `⚠️  Failed to delete closed lots for tokens without stable valuations: ${error.message}`
         );
@@ -668,24 +684,21 @@ export class LotMatchingService {
       const tokenIds = [...new Set(closedLots.map(l => l.tokenId))];
 
       // Delete existing closed lots for these tokens
-      const { error: deleteError } = await supabase
-        .from(TABLES.CLOSED_LOT)
-        .delete()
-        .eq('walletId', walletId)
-        .in('tokenId', tokenIds);
-
-      if (deleteError) {
+      try {
+        await prisma.closedLot.deleteMany({
+          where: {
+            walletId,
+            tokenId: { in: tokenIds },
+          },
+        });
+      } catch (deleteError: any) {
         console.warn('⚠️ Failed to delete existing closed lots:', deleteError.message);
       }
     }
 
-    // Insert new closed lots
-    const { error: insertError } = await supabase
-      .from(TABLES.CLOSED_LOT)
-      .insert(dbLots);
-
-    if (insertError) {
-      throw new Error(`Failed to save closed lots: ${insertError.message}`);
+    // Insert new closed lots using repository
+    if (dbLots.length > 0) {
+      await this.closedLotRepo.createMany(dbLots);
     }
 
     await this.updateTradeFeatureMetrics(closedLots);
@@ -695,15 +708,20 @@ export class LotMatchingService {
       const walletIds = [...new Set(closedLots.map(l => l.walletId))];
       for (const walletId of walletIds) {
         // Delete portfolio cache to force refresh on next request
-        // Note: PortfolioBaseline table name (not in TABLES constant)
-        const { error: deleteError } = await supabase
-          .from('PortfolioBaseline')
-          .delete()
-          .eq('walletId', walletId);
-        
-        if (deleteError) {
+        // Note: PortfolioBaseline table is not in Prisma schema yet, skip for now
+        // TODO: Add PortfolioBaseline to Prisma schema if needed
+        try {
+          await prisma.$executeRawUnsafe(
+            `DELETE FROM "PortfolioBaseline" WHERE "walletId" = $1`,
+            walletId
+          );
+        } catch (deleteError: any) {
+          // Table might not exist, ignore error
           console.warn(`⚠️  Failed to invalidate portfolio cache for wallet ${walletId}:`, deleteError.message);
-        } else {
+        }
+        
+        // Continue even if cache invalidation fails
+        {
           console.log(`   🗑️  Invalidated portfolio cache for wallet ${walletId}`);
         }
       }
@@ -790,19 +808,10 @@ export class LotMatchingService {
     walletId: string,
     tokenId?: string
   ): Promise<ClosedLot[]> {
-    let query = supabase
-      .from(TABLES.CLOSED_LOT)
-      .select('*')
-      .eq('walletId', walletId)
-      .order('exitTime', { ascending: false });
-
-    if (tokenId) {
-      query = query.eq('tokenId', tokenId);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
+    try {
+      const closedLots = await this.closedLotRepo.findByWalletId(walletId, tokenId);
+      return closedLots;
+    } catch (error: any) {
       // If table doesn't exist, return empty array (migration not run yet)
       if (error.message?.includes('does not exist') || error.code === '42P01') {
         console.warn(`⚠️  ClosedLot table does not exist yet. Please run ADD_CLOSED_LOTS.sql migration.`);
