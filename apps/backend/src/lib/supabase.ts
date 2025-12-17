@@ -6,20 +6,35 @@ dotenv.config();
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseKey) {
+// MIGRATION NOTE: We're transitioning from Supabase to Prisma
+// If SUPABASE_URL is not set, use Prisma instead
+// This is a temporary bridge during migration
+let supabase: any;
+
+if (supabaseUrl && supabaseKey) {
+  // Use Supabase if credentials are available
+  supabase = createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+  console.log('✅ Using Supabase SDK for database operations');
+} else if (process.env.DATABASE_URL) {
+  // Use Prisma if DATABASE_URL is available
+  console.log('⚠️  SUPABASE_URL not found, will use Prisma instead');
+  console.log('⚠️  Note: Some services still need to be migrated to Prisma');
+  // Import Prisma client
+  import('./prisma.js').then((module) => {
+    supabase = module.prisma;
+  });
+} else {
   throw new Error(
-    'Missing Supabase environment variables. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_ANON_KEY) in your .env file.'
+    'Missing database configuration. Please set either SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY or DATABASE_URL in your .env file.'
   );
 }
 
-// Use service role key for backend operations (bypasses RLS)
-// For frontend, use anon key with proper RLS policies
-export const supabase = createClient(supabaseUrl, supabaseKey, {
-  auth: {
-    autoRefreshToken: false,
-    persistSession: false,
-  },
-});
+export { supabase };
 
 // Database table names (matching Prisma schema)
 export const TABLES = {
