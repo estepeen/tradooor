@@ -457,6 +457,37 @@ export class ClosedLotRepository {
         console.error(`   entryTime: ${data.entryTime}, exitTime: ${data.exitTime}`);
         console.error(`   Error: ${error.message}`);
         console.error(`   Error code: ${error.code}`);
+        
+        // If it's a not null violation, try to identify which column is NULL
+        if (error?.code === '23502' || error?.message?.includes('23502')) {
+          // Check all required fields
+          const requiredFields = {
+            id: data.id,
+            walletId: data.walletId,
+            tokenId: data.tokenId,
+            size: data.size,
+            entryPrice: data.entryPrice,
+            exitPrice: data.exitPrice,
+            entryTime: data.entryTime,
+            exitTime: data.exitTime,
+            holdTimeMinutes: holdTimeMinutesValue,
+            costBasis: data.costBasis,
+            proceeds: data.proceeds,
+            realizedPnl: data.realizedPnl,
+            realizedPnlPercent: data.realizedPnlPercent,
+            isPreHistory: data.isPreHistory,
+            costKnown: data.costKnown,
+          };
+          
+          const nullFields = Object.entries(requiredFields)
+            .filter(([key, value]) => value === null || value === undefined)
+            .map(([key]) => key);
+          
+          if (nullFields.length > 0) {
+            console.error(`   ⚠️  NULL required fields detected: ${nullFields.join(', ')}`);
+          }
+        }
+        
         throw error; // Re-throw to maintain error propagation
       }
     }
