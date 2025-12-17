@@ -206,7 +206,16 @@ export class ClosedLotRepository {
       // Helper to safely convert to number (sanitize NaN/Infinity)
       const toNumber = (value: any, defaultValue: number = 0): number => {
         if (value === null || value === undefined) return defaultValue;
-        const num = typeof value === 'string' ? parseFloat(value) : Number(value);
+        // Handle string values
+        if (typeof value === 'string') {
+          const trimmed = value.trim();
+          if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') return defaultValue;
+          const num = parseFloat(trimmed);
+          if (isNaN(num) || !isFinite(num)) return defaultValue;
+          return num;
+        }
+        // Handle number values
+        const num = Number(value);
         if (isNaN(num) || !isFinite(num)) return defaultValue;
         return num;
       };
@@ -221,6 +230,26 @@ export class ClosedLotRepository {
 
       // Convert Decimal fields to Prisma.Decimal
       // Required fields (always present)
+      
+      // CRITICAL: holdTimeMinutes is parameter 9 - must be a valid Float, not NaN/Infinity
+      // Prisma expects Float type, so we need to ensure it's a proper number
+      let holdTimeMinutesValue: number;
+      if (lot.holdTimeMinutes === null || lot.holdTimeMinutes === undefined) {
+        holdTimeMinutesValue = 0;
+      } else if (typeof lot.holdTimeMinutes === 'string') {
+        const parsed = parseFloat(lot.holdTimeMinutes);
+        holdTimeMinutesValue = isNaN(parsed) || !isFinite(parsed) ? 0 : parsed;
+      } else {
+        const num = Number(lot.holdTimeMinutes);
+        holdTimeMinutesValue = isNaN(num) || !isFinite(num) ? 0 : num;
+      }
+      
+      // Ensure it's a valid Float (not Decimal)
+      if (typeof holdTimeMinutesValue !== 'number' || isNaN(holdTimeMinutesValue) || !isFinite(holdTimeMinutesValue)) {
+        console.error(`⚠️  Invalid holdTimeMinutes for lot ${lot.id || 'unknown'}: ${lot.holdTimeMinutes} (type: ${typeof lot.holdTimeMinutes}) -> sanitized to 0`);
+        holdTimeMinutesValue = 0;
+      }
+      
       const data: any = {
         id: lot.id || generateId(),
         walletId: lot.walletId,
@@ -230,7 +259,7 @@ export class ClosedLotRepository {
         exitPrice: toDecimal(lot.exitPrice) || new Prisma.Decimal(0),
         entryTime: lot.entryTime ? new Date(lot.entryTime) : new Date(),
         exitTime: lot.exitTime ? new Date(lot.exitTime) : new Date(),
-        holdTimeMinutes: toNumber(lot.holdTimeMinutes, 0), // CRITICAL: Parameter 9 - must be valid number
+        holdTimeMinutes: holdTimeMinutesValue, // CRITICAL: Parameter 9 - must be valid number
         costBasis: toDecimal(lot.costBasis) || new Prisma.Decimal(0),
         proceeds: toDecimal(lot.proceeds) || new Prisma.Decimal(0),
         realizedPnl: toDecimal(lot.realizedPnl) || new Prisma.Decimal(0),
@@ -265,9 +294,25 @@ export class ClosedLotRepository {
         reentryTimeMinutes: toNullableNumber(lot.reentryTimeMinutes),
       };
       
-      await prisma.closedLot.create({
-        data,
-      });
+      try {
+        await prisma.closedLot.create({
+          data,
+        });
+      } catch (error: any) {
+        // Log the problematic data for debugging
+        console.error(`❌ Failed to create ClosedLot for wallet ${lot.walletId?.substring(0, 8)}... token ${lot.tokenId?.substring(0, 8)}...`);
+        console.error(`   holdTimeMinutes (param 9): ${holdTimeMinutesValue} (type: ${typeof holdTimeMinutesValue}, original: ${lot.holdTimeMinutes})`);
+        console.error(`   entryTime: ${data.entryTime}, exitTime: ${data.exitTime}`);
+        console.error(`   Error: ${error.message}`);
+        if (error.message?.includes('bind parameter 9')) {
+          console.error(`   ⚠️  Parameter 9 (holdTimeMinutes) issue detected!`);
+          console.error(`   Raw value: ${JSON.stringify(lot.holdTimeMinutes)}`);
+          console.error(`   Converted value: ${holdTimeMinutesValue}`);
+          console.error(`   Is NaN: ${isNaN(holdTimeMinutesValue)}`);
+          console.error(`   Is Finite: ${isFinite(holdTimeMinutesValue)}`);
+        }
+        throw error; // Re-throw to maintain error propagation
+      }
     }
   }
 }
