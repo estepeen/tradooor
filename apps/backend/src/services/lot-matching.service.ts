@@ -630,7 +630,7 @@ export class LotMatchingService {
         exitPrice: lot.exitPrice.toString(),
         entryTime: lot.entryTime.toISOString(),
         exitTime: lot.exitTime.toISOString(),
-        holdTimeMinutes: lot.holdTimeMinutes,
+        holdTimeMinutes: typeof lot.holdTimeMinutes === 'number' ? lot.holdTimeMinutes : Number(lot.holdTimeMinutes) || 0,
         costBasis: lot.costBasis.toString(),
         proceeds: lot.proceeds.toString(),
         realizedPnl: lot.realizedPnl.toString(), // PnL v SOL/base měně (primární hodnota)
