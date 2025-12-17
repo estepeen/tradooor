@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { Prisma } from '@prisma/client';
 
 const toNumber = (value: any) => (value === null || value === undefined ? 0 : Number(value));
 
@@ -193,8 +194,31 @@ export class ClosedLotRepository {
     // - Individual creates are slower but far more robust and this path is only used
     //   during recalculations, not on every request.
     for (const lot of lots) {
+      // Convert string Decimal fields to Prisma.Decimal
+      const data: any = {
+        ...lot,
+        size: new Prisma.Decimal(lot.size),
+        entryPrice: new Prisma.Decimal(lot.entryPrice),
+        exitPrice: new Prisma.Decimal(lot.exitPrice),
+        costBasis: new Prisma.Decimal(lot.costBasis),
+        proceeds: new Prisma.Decimal(lot.proceeds),
+        realizedPnl: new Prisma.Decimal(lot.realizedPnl),
+        realizedPnlPercent: new Prisma.Decimal(lot.realizedPnlPercent),
+        realizedPnlUsd: lot.realizedPnlUsd ? new Prisma.Decimal(lot.realizedPnlUsd) : null,
+        entryMarketCap: lot.entryMarketCap ? new Prisma.Decimal(lot.entryMarketCap) : null,
+        exitMarketCap: lot.exitMarketCap ? new Prisma.Decimal(lot.exitMarketCap) : null,
+        entryLiquidity: lot.entryLiquidity ? new Prisma.Decimal(lot.entryLiquidity) : null,
+        exitLiquidity: lot.exitLiquidity ? new Prisma.Decimal(lot.exitLiquidity) : null,
+        entryVolume24h: lot.entryVolume24h ? new Prisma.Decimal(lot.entryVolume24h) : null,
+        exitVolume24h: lot.exitVolume24h ? new Prisma.Decimal(lot.exitVolume24h) : null,
+        maxProfitPercent: lot.maxProfitPercent ? new Prisma.Decimal(lot.maxProfitPercent) : null,
+        maxDrawdownPercent: lot.maxDrawdownPercent ? new Prisma.Decimal(lot.maxDrawdownPercent) : null,
+        reentryPriceChangePercent: lot.reentryPriceChangePercent ? new Prisma.Decimal(lot.reentryPriceChangePercent) : null,
+        previousCyclePnl: lot.previousCyclePnl ? new Prisma.Decimal(lot.previousCyclePnl) : null,
+      };
+      
       await prisma.closedLot.create({
-        data: lot,
+        data,
       });
     }
   }

@@ -206,39 +206,34 @@ export class SignalRepository {
     if (updates.reasoning !== undefined) {
       updateData.reasoning = updates.reasoning;
     }
-    // AI fields - these may not exist in schema yet, but we'll try
-    if (updates.aiDecision !== undefined) {
-      (updateData as any).aiDecision = updates.aiDecision;
-    }
-    if (updates.aiConfidence !== undefined) {
-      (updateData as any).aiConfidence = updates.aiConfidence;
-    }
-    if (updates.aiReasoning !== undefined) {
-      (updateData as any).aiReasoning = updates.aiReasoning;
-    }
-    if (updates.aiSuggestedPositionPercent !== undefined) {
-      (updateData as any).aiSuggestedPositionPercent = updates.aiSuggestedPositionPercent;
-    }
-    if (updates.aiStopLossPercent !== undefined) {
-      (updateData as any).aiStopLossPercent = updates.aiStopLossPercent;
-    }
-    if (updates.aiTakeProfitPercent !== undefined) {
-      (updateData as any).aiTakeProfitPercent = updates.aiTakeProfitPercent;
-    }
-    if (updates.aiRiskScore !== undefined) {
-      (updateData as any).aiRiskScore = updates.aiRiskScore;
-    }
-    if (updates.entryPriceUsd !== undefined) {
-      (updateData as any).entryPriceUsd = updates.entryPriceUsd;
-    }
-    if (updates.stopLossPriceUsd !== undefined) {
-      (updateData as any).stopLossPriceUsd = updates.stopLossPriceUsd;
-    }
-    if (updates.takeProfitPriceUsd !== undefined) {
-      (updateData as any).takeProfitPriceUsd = updates.takeProfitPriceUsd;
-    }
-    if (updates.suggestedHoldTimeMinutes !== undefined) {
-      (updateData as any).suggestedHoldTimeMinutes = updates.suggestedHoldTimeMinutes;
+    // AI fields - store in meta JSON field since they're not in Prisma schema yet
+    if (updates.aiDecision !== undefined || updates.aiConfidence !== undefined || 
+        updates.aiReasoning !== undefined || updates.aiSuggestedPositionPercent !== undefined ||
+        updates.aiStopLossPercent !== undefined || updates.aiTakeProfitPercent !== undefined ||
+        updates.aiRiskScore !== undefined || updates.entryPriceUsd !== undefined ||
+        updates.stopLossPriceUsd !== undefined || updates.takeProfitPriceUsd !== undefined ||
+        updates.suggestedHoldTimeMinutes !== undefined) {
+      
+      // Get existing meta or create new
+      const existingMeta = updateData.meta || {};
+      if (!updateData.meta && updates.meta) {
+        Object.assign(existingMeta, updates.meta);
+      }
+      
+      // Store AI fields in meta
+      if (updates.aiDecision !== undefined) existingMeta.aiDecision = updates.aiDecision;
+      if (updates.aiConfidence !== undefined) existingMeta.aiConfidence = updates.aiConfidence;
+      if (updates.aiReasoning !== undefined) existingMeta.aiReasoning = updates.aiReasoning;
+      if (updates.aiSuggestedPositionPercent !== undefined) existingMeta.aiSuggestedPositionPercent = updates.aiSuggestedPositionPercent;
+      if (updates.aiStopLossPercent !== undefined) existingMeta.aiStopLossPercent = updates.aiStopLossPercent;
+      if (updates.aiTakeProfitPercent !== undefined) existingMeta.aiTakeProfitPercent = updates.aiTakeProfitPercent;
+      if (updates.aiRiskScore !== undefined) existingMeta.aiRiskScore = updates.aiRiskScore;
+      if (updates.entryPriceUsd !== undefined) existingMeta.entryPriceUsd = updates.entryPriceUsd;
+      if (updates.stopLossPriceUsd !== undefined) existingMeta.stopLossPriceUsd = updates.stopLossPriceUsd;
+      if (updates.takeProfitPriceUsd !== undefined) existingMeta.takeProfitPriceUsd = updates.takeProfitPriceUsd;
+      if (updates.suggestedHoldTimeMinutes !== undefined) existingMeta.suggestedHoldTimeMinutes = updates.suggestedHoldTimeMinutes;
+      
+      updateData.meta = existingMeta;
     }
 
     const result = await prisma.signal.update({
