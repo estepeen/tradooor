@@ -1,12 +1,13 @@
-import { supabase, TABLES } from '../lib/supabase.js';
+import { prisma } from '../lib/prisma.js';
+import { Prisma } from '@prisma/client';
 
 type NullableNumber = number | null | undefined;
 
-const toNumeric = (value: NullableNumber) => {
+const toDecimal = (value: NullableNumber): Prisma.Decimal | null => {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return null;
   }
-  return value.toString();
+  return new Prisma.Decimal(value);
 };
 
 const toNumber = (value: any) => (value === null || value === undefined ? null : Number(value));
@@ -87,98 +88,112 @@ export type TradeFeatureRealizedInput = {
 
 export class TradeFeatureRepository {
   async upsertBaseFeature(data: TradeFeatureBaseInput) {
-    const payload: Record<string, any> = {
-      id: data.tradeId,
-      tradeId: data.tradeId,
-      walletId: data.walletId,
-      tokenId: data.tokenId,
-      sizeToken: toNumeric(data.sizeToken),
-      sizeUsd: toNumeric(data.sizeUsd),
-      priceUsd: toNumeric(data.priceUsd),
-      slippageBps: data.slippageBps ?? null,
-      dex: data.dex ?? null,
-      txTimestamp: data.txTimestamp ? data.txTimestamp.toISOString() : null,
-      positionSizeBeforeToken: toNumeric(data.positionSizeBeforeToken),
-      positionSizeBeforeUsd: toNumeric(data.positionSizeBeforeUsd),
-      positionSizeAfterToken: toNumeric(data.positionSizeAfterToken),
-      positionSizeAfterUsd: toNumeric(data.positionSizeAfterUsd),
-      positionSizeChangeMultiplier: toNumeric(data.positionSizeChangeMultiplier),
-      avgEntryPriceBeforeUsd: toNumeric(data.avgEntryPriceBeforeUsd),
-      avgEntryPriceAfterUsd: toNumeric(data.avgEntryPriceAfterUsd),
-      tokenAgeSeconds: data.tokenAgeSeconds ?? null,
-      liquidityUsd: toNumeric(data.liquidityUsd),
-      volume1hUsd: toNumeric(data.volume1hUsd),
-      volume24hUsd: toNumeric(data.volume24hUsd),
-      fdvUsd: toNumeric(data.fdvUsd),
-      trend5mPercent: toNumeric(data.trend5mPercent),
-      trend30mPercent: toNumeric(data.trend30mPercent),
-      solPriceUsd: toNumeric(data.solPriceUsd),
-      hourOfDay: data.hourOfDay ?? null,
-      dayOfWeek: data.dayOfWeek ?? null,
-      baseTokenSymbol: data.baseTokenSymbol ?? null,
-      meta: data.meta ?? null,
-      updatedAt: new Date().toISOString(),
-    };
-
-    const { error } = await supabase
-      .from(TABLES.TRADE_FEATURE)
-      .upsert(payload, { onConflict: 'tradeId' });
-
-    if (error) {
-      throw new Error(`Failed to upsert trade feature: ${error.message}`);
-    }
+    await prisma.tradeFeature.upsert({
+      where: { tradeId: data.tradeId },
+      create: {
+        id: data.tradeId,
+        tradeId: data.tradeId,
+        walletId: data.walletId,
+        tokenId: data.tokenId,
+        sizeToken: toDecimal(data.sizeToken),
+        sizeUsd: toDecimal(data.sizeUsd),
+        priceUsd: toDecimal(data.priceUsd),
+        slippageBps: data.slippageBps ?? null,
+        dex: data.dex ?? null,
+        txTimestamp: data.txTimestamp ?? null,
+        positionSizeBeforeToken: toDecimal(data.positionSizeBeforeToken),
+        positionSizeBeforeUsd: toDecimal(data.positionSizeBeforeUsd),
+        positionSizeAfterToken: toDecimal(data.positionSizeAfterToken),
+        positionSizeAfterUsd: toDecimal(data.positionSizeAfterUsd),
+        positionSizeChangeMultiplier: toDecimal(data.positionSizeChangeMultiplier),
+        avgEntryPriceBeforeUsd: toDecimal(data.avgEntryPriceBeforeUsd),
+        avgEntryPriceAfterUsd: toDecimal(data.avgEntryPriceAfterUsd),
+        tokenAgeSeconds: data.tokenAgeSeconds ?? null,
+        liquidityUsd: toDecimal(data.liquidityUsd),
+        volume1hUsd: toDecimal(data.volume1hUsd),
+        volume24hUsd: toDecimal(data.volume24hUsd),
+        fdvUsd: toDecimal(data.fdvUsd),
+        trend5mPercent: toDecimal(data.trend5mPercent),
+        trend30mPercent: toDecimal(data.trend30mPercent),
+        solPriceUsd: toDecimal(data.solPriceUsd),
+        hourOfDay: data.hourOfDay ?? null,
+        dayOfWeek: data.dayOfWeek ?? null,
+        baseTokenSymbol: data.baseTokenSymbol ?? null,
+        meta: data.meta as any,
+      },
+      update: {
+        sizeToken: toDecimal(data.sizeToken),
+        sizeUsd: toDecimal(data.sizeUsd),
+        priceUsd: toDecimal(data.priceUsd),
+        slippageBps: data.slippageBps ?? null,
+        dex: data.dex ?? null,
+        txTimestamp: data.txTimestamp ?? null,
+        positionSizeBeforeToken: toDecimal(data.positionSizeBeforeToken),
+        positionSizeBeforeUsd: toDecimal(data.positionSizeBeforeUsd),
+        positionSizeAfterToken: toDecimal(data.positionSizeAfterToken),
+        positionSizeAfterUsd: toDecimal(data.positionSizeAfterUsd),
+        positionSizeChangeMultiplier: toDecimal(data.positionSizeChangeMultiplier),
+        avgEntryPriceBeforeUsd: toDecimal(data.avgEntryPriceBeforeUsd),
+        avgEntryPriceAfterUsd: toDecimal(data.avgEntryPriceAfterUsd),
+        tokenAgeSeconds: data.tokenAgeSeconds ?? null,
+        liquidityUsd: toDecimal(data.liquidityUsd),
+        volume1hUsd: toDecimal(data.volume1hUsd),
+        volume24hUsd: toDecimal(data.volume24hUsd),
+        fdvUsd: toDecimal(data.fdvUsd),
+        trend5mPercent: toDecimal(data.trend5mPercent),
+        trend30mPercent: toDecimal(data.trend30mPercent),
+        solPriceUsd: toDecimal(data.solPriceUsd),
+        hourOfDay: data.hourOfDay ?? null,
+        dayOfWeek: data.dayOfWeek ?? null,
+        baseTokenSymbol: data.baseTokenSymbol ?? null,
+        meta: data.meta as any,
+        updatedAt: new Date(),
+      },
+    });
   }
 
   async updateRealizedMetrics(data: TradeFeatureRealizedInput) {
-    const payload: Record<string, any> = {
-      updatedAt: new Date().toISOString(),
-    };
+    const updateData: any = {};
 
     if (data.realizedPnlUsd !== undefined) {
-      payload.realizedPnlUsd = toNumeric(data.realizedPnlUsd);
+      updateData.realizedPnlUsd = toDecimal(data.realizedPnlUsd);
     }
     if (data.realizedPnlPercent !== undefined) {
-      payload.realizedPnlPercent = toNumeric(data.realizedPnlPercent);
+      updateData.realizedPnlPercent = toDecimal(data.realizedPnlPercent);
     }
     if (data.holdTimeSeconds !== undefined) {
-      payload.holdTimeSeconds = data.holdTimeSeconds ?? null;
+      updateData.holdTimeSeconds = data.holdTimeSeconds ?? null;
     }
 
-    if (Object.keys(payload).length === 1) {
-      return; // Only updatedAt present -> nothing to update
+    if (Object.keys(updateData).length === 0) {
+      return; // Nothing to update
     }
 
-    const { error } = await supabase
-      .from(TABLES.TRADE_FEATURE)
-      .update(payload)
-      .eq('tradeId', data.tradeId);
+    updateData.updatedAt = new Date();
 
-    if (error) {
-      throw new Error(`Failed to update trade feature metrics: ${error.message}`);
-    }
+    await prisma.tradeFeature.update({
+      where: { tradeId: data.tradeId },
+      data: updateData,
+    });
   }
 
   async findByTradeId(tradeId: string): Promise<TradeFeatureRecord | null> {
-    const { data, error } = await supabase
-      .from(TABLES.TRADE_FEATURE)
-      .select(
-        `
-          *,
-          trade:${TABLES.TRADE}(side)
-        `
-      )
-      .eq('tradeId', tradeId)
-      .single();
+    const feature = await prisma.tradeFeature.findUnique({
+      where: { tradeId },
+      include: {
+        trade: {
+          select: {
+            side: true,
+          },
+        },
+      },
+    });
 
-    if (error && error.code !== 'PGRST116') {
-      throw new Error(`Failed to fetch trade feature: ${error.message}`);
-    }
-
-    if (!data) {
+    if (!feature) {
       return null;
     }
 
-    return this.mapRow(data);
+    return this.mapRow(feature);
   }
 
   async update(tradeId: string, data: {
@@ -196,62 +211,58 @@ export class TradeFeatureRepository {
     avgTimeSinceOtherTradersTradeSeconds?: number | null;
     copyTraderScore?: string | null;
   }) {
-    const payload: Record<string, any> = {
-      updatedAt: new Date().toISOString(),
-    };
+    const updateData: any = {};
 
     if (data.priceMomentum1mPercent !== undefined) {
-      payload.priceMomentum1mPercent = toNumeric(data.priceMomentum1mPercent);
+      updateData.priceMomentum1mPercent = toDecimal(data.priceMomentum1mPercent);
     }
     if (data.priceMomentum5mPercent !== undefined) {
-      payload.priceMomentum5mPercent = toNumeric(data.priceMomentum5mPercent);
+      updateData.priceMomentum5mPercent = toDecimal(data.priceMomentum5mPercent);
     }
     if (data.priceMomentum15mPercent !== undefined) {
-      payload.priceMomentum15mPercent = toNumeric(data.priceMomentum15mPercent);
+      updateData.priceMomentum15mPercent = toDecimal(data.priceMomentum15mPercent);
     }
     if (data.priceMomentum1hPercent !== undefined) {
-      payload.priceMomentum1hPercent = toNumeric(data.priceMomentum1hPercent);
+      updateData.priceMomentum1hPercent = toDecimal(data.priceMomentum1hPercent);
     }
     if (data.volumeSpike1hMultiplier !== undefined) {
-      payload.volumeSpike1hMultiplier = toNumeric(data.volumeSpike1hMultiplier);
+      updateData.volumeSpike1hMultiplier = toDecimal(data.volumeSpike1hMultiplier);
     }
     if (data.volumeSpike24hMultiplier !== undefined) {
-      payload.volumeSpike24hMultiplier = toNumeric(data.volumeSpike24hMultiplier);
+      updateData.volumeSpike24hMultiplier = toDecimal(data.volumeSpike24hMultiplier);
     }
     if (data.marketRegime !== undefined) {
-      payload.marketRegime = data.marketRegime;
+      updateData.marketRegime = data.marketRegime;
     }
     if (data.otherSmartWalletsTradingCount !== undefined) {
-      payload.otherSmartWalletsTradingCount = data.otherSmartWalletsTradingCount;
+      updateData.otherSmartWalletsTradingCount = data.otherSmartWalletsTradingCount;
     }
     if (data.otherSmartWalletsTradingSameTokenCount !== undefined) {
-      payload.otherSmartWalletsTradingSameTokenCount = data.otherSmartWalletsTradingSameTokenCount;
+      updateData.otherSmartWalletsTradingSameTokenCount = data.otherSmartWalletsTradingSameTokenCount;
     }
     if (data.otherSmartWalletsTradingSameTokenWithin1h !== undefined) {
-      payload.otherSmartWalletsTradingSameTokenWithin1h = data.otherSmartWalletsTradingSameTokenWithin1h;
+      updateData.otherSmartWalletsTradingSameTokenWithin1h = data.otherSmartWalletsTradingSameTokenWithin1h;
     }
     if (data.otherSmartWalletsTradingSameTokenWithin24h !== undefined) {
-      payload.otherSmartWalletsTradingSameTokenWithin24h = data.otherSmartWalletsTradingSameTokenWithin24h;
+      updateData.otherSmartWalletsTradingSameTokenWithin24h = data.otherSmartWalletsTradingSameTokenWithin24h;
     }
     if (data.avgTimeSinceOtherTradersTradeSeconds !== undefined) {
-      payload.avgTimeSinceOtherTradersTradeSeconds = data.avgTimeSinceOtherTradersTradeSeconds;
+      updateData.avgTimeSinceOtherTradersTradeSeconds = data.avgTimeSinceOtherTradersTradeSeconds;
     }
     if (data.copyTraderScore !== undefined) {
-      payload.copyTraderScore = data.copyTraderScore ? toNumeric(Number(data.copyTraderScore)) : null;
+      updateData.copyTraderScore = data.copyTraderScore ? toDecimal(Number(data.copyTraderScore)) : null;
     }
 
-    if (Object.keys(payload).length === 1) {
-      return; // Only updatedAt present -> nothing to update
+    if (Object.keys(updateData).length === 0) {
+      return; // Nothing to update
     }
 
-    const { error } = await supabase
-      .from(TABLES.TRADE_FEATURE)
-      .update(payload)
-      .eq('tradeId', tradeId);
+    updateData.updatedAt = new Date();
 
-    if (error) {
-      throw new Error(`Failed to update trade feature: ${error.message}`);
-    }
+    await prisma.tradeFeature.update({
+      where: { tradeId },
+      data: updateData,
+    });
   }
 
   async findForWallet(
@@ -261,32 +272,31 @@ export class TradeFeatureRepository {
       toDate?: Date;
     }
   ): Promise<TradeFeatureRecord[]> {
-    let query = supabase
-      .from(TABLES.TRADE_FEATURE)
-      .select(
-        `
-          *,
-          trade:${TABLES.TRADE}(side)
-        `
-      )
-      .eq('walletId', walletId)
-      .order('txTimestamp', { ascending: false });
+    const where: any = { walletId };
 
-    if (options?.fromDate) {
-      query = query.gte('txTimestamp', options.fromDate.toISOString());
+    if (options?.fromDate || options?.toDate) {
+      where.txTimestamp = {};
+      if (options.fromDate) {
+        where.txTimestamp.gte = options.fromDate;
+      }
+      if (options.toDate) {
+        where.txTimestamp.lte = options.toDate;
+      }
     }
 
-    if (options?.toDate) {
-      query = query.lte('txTimestamp', options.toDate.toISOString());
-    }
+    const features = await prisma.tradeFeature.findMany({
+      where,
+      include: {
+        trade: {
+          select: {
+            side: true,
+          },
+        },
+      },
+      orderBy: { txTimestamp: 'desc' },
+    });
 
-    const { data, error } = await query;
-
-    if (error) {
-      throw new Error(`Failed to fetch trade features: ${error.message}`);
-    }
-
-    return (data ?? []).map(row => this.mapRow(row));
+    return features.map(row => this.mapRow(row));
   }
 
   private mapRow(row: any): TradeFeatureRecord {
@@ -295,34 +305,34 @@ export class TradeFeatureRepository {
       tradeId: row.tradeId,
       walletId: row.walletId,
       tokenId: row.tokenId,
-      sizeToken: toNumber(row.sizeToken),
-      sizeUsd: toNumber(row.sizeUsd),
-      priceUsd: toNumber(row.priceUsd),
+      sizeToken: row.sizeToken ? Number(row.sizeToken) : null,
+      sizeUsd: row.sizeUsd ? Number(row.sizeUsd) : null,
+      priceUsd: row.priceUsd ? Number(row.priceUsd) : null,
       slippageBps: row.slippageBps ?? null,
       dex: row.dex ?? null,
       txTimestamp: row.txTimestamp ? new Date(row.txTimestamp) : null,
-      positionSizeBeforeToken: toNumber(row.positionSizeBeforeToken),
-      positionSizeBeforeUsd: toNumber(row.positionSizeBeforeUsd),
-      positionSizeAfterToken: toNumber(row.positionSizeAfterToken),
-      positionSizeAfterUsd: toNumber(row.positionSizeAfterUsd),
-      positionSizeChangeMultiplier: toNumber(row.positionSizeChangeMultiplier),
-      avgEntryPriceBeforeUsd: toNumber(row.avgEntryPriceBeforeUsd),
-      avgEntryPriceAfterUsd: toNumber(row.avgEntryPriceAfterUsd),
-      realizedPnlUsd: toNumber(row.realizedPnlUsd),
-      realizedPnlPercent: toNumber(row.realizedPnlPercent),
+      positionSizeBeforeToken: row.positionSizeBeforeToken ? Number(row.positionSizeBeforeToken) : null,
+      positionSizeBeforeUsd: row.positionSizeBeforeUsd ? Number(row.positionSizeBeforeUsd) : null,
+      positionSizeAfterToken: row.positionSizeAfterToken ? Number(row.positionSizeAfterToken) : null,
+      positionSizeAfterUsd: row.positionSizeAfterUsd ? Number(row.positionSizeAfterUsd) : null,
+      positionSizeChangeMultiplier: row.positionSizeChangeMultiplier ? Number(row.positionSizeChangeMultiplier) : null,
+      avgEntryPriceBeforeUsd: row.avgEntryPriceBeforeUsd ? Number(row.avgEntryPriceBeforeUsd) : null,
+      avgEntryPriceAfterUsd: row.avgEntryPriceAfterUsd ? Number(row.avgEntryPriceAfterUsd) : null,
+      realizedPnlUsd: row.realizedPnlUsd ? Number(row.realizedPnlUsd) : null,
+      realizedPnlPercent: row.realizedPnlPercent ? Number(row.realizedPnlPercent) : null,
       holdTimeSeconds: row.holdTimeSeconds ?? null,
       tokenAgeSeconds: row.tokenAgeSeconds ?? null,
-      liquidityUsd: toNumber(row.liquidityUsd),
-      volume1hUsd: toNumber(row.volume1hUsd),
-      volume24hUsd: toNumber(row.volume24hUsd),
-      fdvUsd: toNumber(row.fdvUsd),
-      trend5mPercent: toNumber(row.trend5mPercent),
-      trend30mPercent: toNumber(row.trend30mPercent),
-      solPriceUsd: toNumber(row.solPriceUsd),
+      liquidityUsd: row.liquidityUsd ? Number(row.liquidityUsd) : null,
+      volume1hUsd: row.volume1hUsd ? Number(row.volume1hUsd) : null,
+      volume24hUsd: row.volume24hUsd ? Number(row.volume24hUsd) : null,
+      fdvUsd: row.fdvUsd ? Number(row.fdvUsd) : null,
+      trend5mPercent: row.trend5mPercent ? Number(row.trend5mPercent) : null,
+      trend30mPercent: row.trend30mPercent ? Number(row.trend30mPercent) : null,
+      solPriceUsd: row.solPriceUsd ? Number(row.solPriceUsd) : null,
       hourOfDay: row.hourOfDay ?? null,
       dayOfWeek: row.dayOfWeek ?? null,
       baseTokenSymbol: row.baseTokenSymbol ?? null,
-      meta: row.meta ?? null,
+      meta: row.meta as any,
       side: row.trade?.side ?? null,
     };
   }

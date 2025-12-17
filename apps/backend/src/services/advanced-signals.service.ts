@@ -11,14 +11,16 @@
  * - Accumulation: Wallet postupně akumuluje pozici
  */
 
-import { supabase, TABLES } from '../lib/supabase.js';
 import { SignalRepository, SignalRecord } from '../repositories/signal.repository.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
+import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
+import { ClosedLotRepository } from '../repositories/closed-lot.repository.js';
 import { TokenMarketDataService } from './token-market-data.service.js';
 import { AIDecisionService, AIContext, AIDecision } from './ai-decision.service.js';
 import { DiscordNotificationService, SignalNotificationData } from './discord-notification.service.js';
+import { prisma } from '../lib/prisma.js';
 
 // Signal type definitions
 export type AdvancedSignalType = 
@@ -101,6 +103,8 @@ export class AdvancedSignalsService {
   private smartWalletRepo: SmartWalletRepository;
   private tradeRepo: TradeRepository;
   private tokenRepo: TokenRepository;
+  private tradeFeatureRepo: TradeFeatureRepository;
+  private closedLotRepo: ClosedLotRepository;
   private tokenMarketData: TokenMarketDataService;
   private aiDecision: AIDecisionService;
   private discordNotification: DiscordNotificationService;
@@ -109,9 +113,11 @@ export class AdvancedSignalsService {
     this.signalRepo = new SignalRepository();
     this.smartWalletRepo = new SmartWalletRepository();
     this.tradeRepo = new TradeRepository();
+    this.tokenRepo = new TokenRepository();
+    this.tradeFeatureRepo = new TradeFeatureRepository();
+    this.closedLotRepo = new ClosedLotRepository();
     this.tokenMarketData = new TokenMarketDataService();
     this.aiDecision = new AIDecisionService();
-    this.tokenRepo = new TokenRepository();
     this.discordNotification = new DiscordNotificationService();
   }
 
@@ -123,23 +129,21 @@ export class AdvancedSignalsService {
 
     try {
       // Načti trade s wallet a token daty
-      const { data: trade, error } = await supabase
-        .from(TABLES.TRADE)
-        .select(`
-          *,
-          wallet:SmartWallet(*),
-          token:Token(*)
-        `)
-        .eq('id', tradeId)
-        .single();
+      const trade = await prisma.trade.findUnique({
+        where: { id: tradeId },
+        include: {
+          wallet: true,
+          token: true,
+        },
+      });
 
-      if (error || !trade) {
+      if (!trade) {
         console.warn(`Trade not found for signal analysis: ${tradeId}`);
         return signals;
       }
 
-      const wallet = trade.wallet as any;
-      const token = trade.token as any;
+      const wallet = trade.wallet;
+      const token = trade.token;
 
       if (!wallet || !token) {
         return signals;
@@ -210,20 +214,22 @@ export class AdvancedSignalsService {
     }
 
     // Získej průměrnou velikost pozice wallety
-    const { data: recentTrades } = await supabase
-      .from(TABLES.TRADE)
-      .select('amountBase')
-      .eq('walletId', wallet.id)
-      .eq('side', 'buy')
-      .order('timestamp', { ascending: false })
-      .limit(20);
+    const recentTrades = await prisma.trade.findMany({
+      where: {
+        walletId: wallet.id,
+        side: 'buy',
+      },
+      select: { amountBase: true },
+      orderBy: { timestamp: 'desc' },
+      take: 20,
+    });
 
     if (!recentTrades || recentTrades.length < 5) {
       return null;
     }
 
-    const avgPosition = recentTrades.reduce((sum, t) => sum + Number(t.amountBase || 0), 0) / recentTrades.length;
-    const currentPosition = Number(trade.amountBase || 0);
+    const avgPosition = recentTrades.reduce((sum, t) => sum + Number(t.amountBase), 0) / recentTrades.length;
+    const currentPosition = Number(trade.amountBase);
     const positionMultiplier = currentPosition / avgPosition;
 
     if (positionMultiplier < THRESHOLDS.WHALE_MIN_POSITION_MULTIPLIER) {
@@ -266,15 +272,18 @@ export class AdvancedSignalsService {
     }
 
     // Je tento trade první BUY od smart wallets?
-    const { data: earlierBuys } = await supabase
-      .from(TABLES.TRADE)
-      .select('id')
-      .eq('tokenId', token.id)
-      .eq('side', 'buy')
-      .lt('timestamp', trade.timestamp)
-      .limit(1);
+    const earlierBuys = await prisma.trade.findFirst({
+      where: {
+        tokenId: token.id,
+        side: 'buy',
+        timestamp: {
+          lt: trade.timestamp,
+        },
+      },
+      select: { id: true },
+    });
 
-    const isFirstSmartWalletBuy = !earlierBuys || earlierBuys.length === 0;
+    const isFirstSmartWalletBuy = !earlierBuys;
 
     if (!isFirstSmartWalletBuy) {
       return null;
@@ -306,11 +315,7 @@ export class AdvancedSignalsService {
     context: SignalContext
   ): Promise<AdvancedSignal | null> {
     // Potřebujeme market data - zkus načíst z TradeFeature
-    const { data: tradeFeature } = await supabase
-      .from(TABLES.TRADE_FEATURE)
-      .select('trend5mPercent, volume1hUsd, volume24hUsd')
-      .eq('tradeId', trade.id)
-      .single();
+    const tradeFeature = await this.tradeFeatureRepo.findByTradeId(trade.id);
 
     if (!tradeFeature) {
       return null;
@@ -359,21 +364,26 @@ export class AdvancedSignalsService {
     context: SignalContext
   ): Promise<AdvancedSignal | null> {
     // Najdi předchozí uzavřené pozice na tomto tokenu
-    const { data: closedLots } = await supabase
-      .from(TABLES.CLOSED_LOT)
-      .select('realizedRoiPercent, closedAt')
-      .eq('walletId', wallet.id)
-      .eq('tokenMint', token.mintAddress)
-      .order('closedAt', { ascending: false })
-      .limit(5);
+    const closedLots = await prisma.closedLot.findMany({
+      where: {
+        walletId: wallet.id,
+        tokenId: token.id,
+      },
+      select: {
+        realizedPnlPercent: true,
+        exitTime: true,
+      },
+      orderBy: { exitTime: 'desc' },
+      take: 5,
+    });
 
     if (!closedLots || closedLots.length === 0) {
       return null;
     }
 
     // Spočítej průměrný PnL na předchozích trades
-    const avgPnl = closedLots.reduce((sum, lot) => sum + Number(lot.realizedRoiPercent || 0), 0) / closedLots.length;
-    const profitableTrades = closedLots.filter(lot => Number(lot.realizedRoiPercent || 0) > 0).length;
+    const avgPnl = closedLots.reduce((sum, lot) => sum + (lot.realizedPnlPercent ? Number(lot.realizedPnlPercent) : 0), 0) / closedLots.length;
+    const profitableTrades = closedLots.filter(lot => lot.realizedPnlPercent && Number(lot.realizedPnlPercent) > 0).length;
     const winRateOnToken = profitableTrades / closedLots.length;
 
     context.previousPnlOnToken = avgPnl;
@@ -409,12 +419,14 @@ export class AdvancedSignalsService {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
 
     // Najdi všechny SELL trades na tento token v posledních 2h
-    const { data: recentSells } = await supabase
-      .from(TABLES.TRADE)
-      .select('walletId')
-      .eq('tokenId', token.id)
-      .eq('side', 'sell')
-      .gte('timestamp', twoHoursAgo.toISOString());
+    const recentSells = await prisma.trade.findMany({
+      where: {
+        tokenId: token.id,
+        side: 'sell',
+        timestamp: { gte: twoHoursAgo },
+      },
+      select: { walletId: true },
+    });
 
     if (!recentSells) {
       return null;
@@ -453,15 +465,19 @@ export class AdvancedSignalsService {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
 
     // Najdi všechny BUY trades na tento token v posledních 2h
-    const { data: recentBuys } = await supabase
-      .from(TABLES.TRADE)
-      .select(`
-        walletId,
-        wallet:SmartWallet(score)
-      `)
-      .eq('tokenId', token.id)
-      .eq('side', 'buy')
-      .gte('timestamp', twoHoursAgo.toISOString());
+    const recentBuys = await prisma.trade.findMany({
+      where: {
+        tokenId: token.id,
+        side: 'buy',
+        timestamp: { gte: twoHoursAgo },
+      },
+      select: {
+        walletId: true,
+        wallet: {
+          select: { score: true },
+        },
+      },
+    });
 
     if (!recentBuys) {
       return null;
@@ -470,7 +486,7 @@ export class AdvancedSignalsService {
     // Unique wallets se score
     const walletScores = new Map<string, number>();
     for (const buy of recentBuys) {
-      const wallet = buy.wallet as any;
+      const wallet = buy.wallet;
       if (wallet?.score && !walletScores.has(buy.walletId)) {
         walletScores.set(buy.walletId, wallet.score);
       }
@@ -516,20 +532,26 @@ export class AdvancedSignalsService {
     const sixHoursAgo = new Date(Date.now() - THRESHOLDS.ACCUMULATION_TIME_WINDOW_HOURS * 60 * 60 * 1000);
 
     // Najdi všechny BUY trades této wallet na tento token v posledních 6h
-    const { data: recentBuys } = await supabase
-      .from(TABLES.TRADE)
-      .select('id, amountBase, timestamp')
-      .eq('walletId', wallet.id)
-      .eq('tokenId', token.id)
-      .eq('side', 'buy')
-      .gte('timestamp', sixHoursAgo.toISOString())
-      .order('timestamp', { ascending: true });
+    const recentBuys = await prisma.trade.findMany({
+      where: {
+        walletId: wallet.id,
+        tokenId: token.id,
+        side: 'buy',
+        timestamp: { gte: sixHoursAgo },
+      },
+      select: {
+        id: true,
+        amountBase: true,
+        timestamp: true,
+      },
+      orderBy: { timestamp: 'asc' },
+    });
 
     if (!recentBuys || recentBuys.length < THRESHOLDS.ACCUMULATION_MIN_BUYS) {
       return null;
     }
 
-    const totalAmount = recentBuys.reduce((sum, t) => sum + Number(t.amountBase || 0), 0);
+    const totalAmount = recentBuys.reduce((sum, t) => sum + Number(t.amountBase), 0);
     const buyCount = recentBuys.length;
 
     const strength = buyCount >= 5 ? 'strong' : buyCount >= 4 ? 'medium' : 'weak';
@@ -562,20 +584,22 @@ export class AdvancedSignalsService {
     }
 
     // Získej průměrnou velikost trade této wallet
-    const { data: recentTrades } = await supabase
-      .from(TABLES.TRADE)
-      .select('amountBase')
-      .eq('walletId', wallet.id)
-      .eq('side', 'buy')
-      .order('timestamp', { ascending: false })
-      .limit(30);
+    const recentTrades = await prisma.trade.findMany({
+      where: {
+        walletId: wallet.id,
+        side: 'buy',
+      },
+      select: { amountBase: true },
+      orderBy: { timestamp: 'desc' },
+      take: 30,
+    });
 
     if (!recentTrades || recentTrades.length < 5) {
       return null;
     }
 
-    const avgTradeSize = recentTrades.reduce((sum, t) => sum + Number(t.amountBase || 0), 0) / recentTrades.length;
-    const currentTradeSize = Number(trade.amountBase || 0);
+    const avgTradeSize = recentTrades.reduce((sum, t) => sum + Number(t.amountBase), 0) / recentTrades.length;
+    const currentTradeSize = Number(trade.amountBase);
     const multiplier = avgTradeSize > 0 ? currentTradeSize / avgTradeSize : 0;
 
     if (multiplier < THRESHOLDS.CONVICTION_BUY_MULTIPLIER) {
@@ -612,11 +636,7 @@ export class AdvancedSignalsService {
     context: SignalContext
   ): Promise<AdvancedSignal | null> {
     // Zkus načíst volume data
-    const { data: tradeFeature } = await supabase
-      .from(TABLES.TRADE_FEATURE)
-      .select('volume1hUsd, volume24hUsd')
-      .eq('tradeId', trade.id)
-      .single();
+    const tradeFeature = await this.tradeFeatureRepo.findByTradeId(trade.id);
 
     if (!tradeFeature) {
       return null;
@@ -709,22 +729,20 @@ export class AdvancedSignalsService {
     }
 
     // Načti trade s token daty
-    const { data: trade } = await supabase
-      .from(TABLES.TRADE)
-      .select(`
-        *,
-        token:Token(*),
-        wallet:SmartWallet(*)
-      `)
-      .eq('id', tradeId)
-      .single();
+    const trade = await prisma.trade.findUnique({
+      where: { id: tradeId },
+      include: {
+        token: true,
+        wallet: true,
+      },
+    });
 
     if (!trade) {
       return { signals, savedCount: 0, aiEvaluated: 0 };
     }
 
-    const token = trade.token as any;
-    const wallet = trade.wallet as any;
+    const token = trade.token;
+    const wallet = trade.wallet;
 
     // Fetch token market data
     let marketData = {
@@ -844,7 +862,7 @@ export class AdvancedSignalsService {
                 score: wallet?.score || 0,
                 tradeAmountUsd: Number(trade.amountBase || 0),
                 tradePrice: Number(trade.priceBasePerToken || 0),
-                tradeTime: trade.timestamp,
+                tradeTime: trade.timestamp.toISOString(),
               }],
             };
             
@@ -918,23 +936,50 @@ export class AdvancedSignalsService {
         insertData.aiRiskScore = signal.aiDecision.riskScore;
       }
 
-      // Use direct Supabase insert for new columns
-      const { data, error } = await supabase
-        .from('Signal')
-        .insert(insertData)
-        .select()
-        .single();
-
-      if (error) {
-        // Fallback to basic save if new columns don't exist yet
-        if (error.message?.includes('column') || error.code === '42703') {
-          console.warn('⚠️  Enhanced Signal columns not found, using basic save');
-          return this.saveSignal(trade, signal);
-        }
-        throw error;
-      }
-
-      return data as any;
+      // Use SignalRepository with AI fields in meta
+      return await this.signalRepo.create({
+        type: signal.suggestedAction === 'sell' ? 'sell' : 'buy',
+        walletId: trade.walletId,
+        tokenId: trade.tokenId,
+        originalTradeId: trade.id,
+        priceBasePerToken: Number(trade.priceBasePerToken),
+        amountBase: Number(trade.amountBase),
+        amountToken: Number(trade.amountToken),
+        timestamp: new Date(trade.timestamp),
+        status: 'active',
+        expiresAt,
+        qualityScore: signal.confidence,
+        riskLevel: signal.riskLevel,
+        model: signal.type as any,
+        reasoning: signal.reasoning,
+        meta: {
+          signalType: signal.type,
+          strength: signal.strength,
+          context: signal.context,
+          suggestedPositionPercent: signal.suggestedPositionPercent,
+          // Enhanced fields for trading bot
+          entryPriceUsd: signal.entryPriceUsd,
+          suggestedExitPriceUsd: signal.takeProfitPriceUsd,
+          stopLossPriceUsd: signal.stopLossPriceUsd,
+          takeProfitPriceUsd: signal.takeProfitPriceUsd,
+          suggestedHoldTimeMinutes: signal.suggestedHoldTimeMinutes,
+          // Token market data
+          tokenMarketCapUsd: marketData.marketCap,
+          tokenLiquidityUsd: marketData.liquidity,
+          tokenVolume24hUsd: marketData.volume24h,
+          tokenAgeMinutes: marketData.tokenAgeMinutes || Math.round(signal.context.tokenAge),
+          // AI decision data if available
+          ...(signal.aiDecision ? {
+            aiDecision: signal.aiDecision.decision,
+            aiConfidence: signal.aiDecision.confidence,
+            aiReasoning: signal.aiDecision.reasoning,
+            aiSuggestedPositionPercent: signal.aiDecision.suggestedPositionPercent,
+            aiStopLossPercent: signal.aiDecision.stopLossPercent,
+            aiTakeProfitPercent: signal.aiDecision.takeProfitPercent,
+            aiRiskScore: signal.aiDecision.riskScore,
+          } : {}),
+        },
+      });
     } catch (error) {
       console.error(`Failed to save enhanced signal: ${error}`);
       return null;
@@ -945,13 +990,11 @@ export class AdvancedSignalsService {
    * Helper: Získá stáří tokenu v minutách
    */
   private async getTokenAgeMinutes(tokenId: string): Promise<number> {
-    const { data: firstTrade } = await supabase
-      .from(TABLES.TRADE)
-      .select('timestamp')
-      .eq('tokenId', tokenId)
-      .order('timestamp', { ascending: true })
-      .limit(1)
-      .single();
+    const firstTrade = await prisma.trade.findFirst({
+      where: { tokenId },
+      select: { timestamp: true },
+      orderBy: { timestamp: 'asc' },
+    });
 
     if (!firstTrade) {
       return 0;

@@ -817,30 +817,6 @@ export class LotMatchingService {
       }
       throw new Error(`Failed to fetch closed lots: ${error.message}`);
     }
-
-    if (!data) {
-      return [];
-    }
-
-    // Convert from database format
-    return data.map((row: any) => ({
-      walletId: row.walletId,
-      tokenId: row.tokenId,
-      size: Number(row.size),
-      entryPrice: Number(row.entryPrice),
-      exitPrice: Number(row.exitPrice),
-      entryTime: new Date(row.entryTime),
-      exitTime: new Date(row.exitTime),
-      holdTimeMinutes: row.holdTimeMinutes,
-      costBasis: Number(row.costBasis),
-      proceeds: Number(row.proceeds),
-      realizedPnl: Number(row.realizedPnl),
-      realizedPnlPercent: Number(row.realizedPnlPercent),
-      buyTradeId: row.buyTradeId,
-      sellTradeId: row.sellTradeId,
-      isPreHistory: row.isPreHistory,
-      costKnown: row.costKnown,
-    }));
   }
 }
 
