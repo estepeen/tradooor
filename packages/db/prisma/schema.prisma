@@ -414,6 +414,9 @@ model ClosedLot {
   reentryTimeMinutes    Float?
   reentryPriceChangePercent Decimal? @db.Decimal(36, 18)
   previousCyclePnl      Decimal? @db.Decimal(36, 18)
+  // Timestamps
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
 
   wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
   token  Token       @relation(fields: [tokenId], references: [id], onDelete: Cascade)
