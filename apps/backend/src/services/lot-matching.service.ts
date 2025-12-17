@@ -15,6 +15,8 @@ import { TokenRepository } from '../repositories/token.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { ClosedLotRepository } from '../repositories/closed-lot.repository.js';
 
+// Remove Supabase import - we're using Prisma now
+
 const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
 
 /**
@@ -228,12 +230,8 @@ export class LotMatchingService {
     
     // If not found in trade, try to fetch from database
     if (!mintAddress) {
-      const { data: tokenData } = await supabase
-        .from(TABLES.TOKEN)
-        .select('mintAddress')
-        .eq('id', tokenId)
-        .single();
-      mintAddress = tokenData?.mintAddress;
+      const tokenData = await this.tokenRepo.findById(tokenId);
+      mintAddress = tokenData?.mintAddress || undefined;
     }
 
     // Minimální hodnota v base měně pro považování za reálný trade
