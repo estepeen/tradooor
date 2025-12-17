@@ -1612,9 +1612,9 @@ router.get('/:id/copytrading-analytics', async (req, res) => {
     const identifier = req.params.id;
     
     // Find wallet - support both ID and address
-    let wallet = await smartWalletRepo.findById(identifier);
+    let wallet: any = await smartWalletRepo.findById(identifier);
     if (!wallet) {
-      wallet = await smartWalletRepo.findByAddress(identifier);
+      wallet = (await smartWalletRepo.findByAddress(identifier)) as any;
     }
     if (!wallet) {
       return res.status(404).json({ error: 'Wallet not found' });
