@@ -1,4 +1,4 @@
-import { prisma } from '../lib/prisma.js';
+import { prisma, generateId } from '../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 
 const toNumber = (value: any) => (value === null || value === undefined ? 0 : Number(value));
@@ -194,28 +194,47 @@ export class ClosedLotRepository {
     // - Individual creates are slower but far more robust and this path is only used
     //   during recalculations, not on every request.
     for (const lot of lots) {
-      // Helper to safely convert to Decimal (only if value exists)
+      // Helper to safely convert to Decimal (only if value exists and is valid)
       const toDecimal = (value: any): Prisma.Decimal | null => {
         if (value === null || value === undefined) return null;
-        return new Prisma.Decimal(value);
+        if (typeof value === 'string' && value.trim() === '') return null;
+        const num = typeof value === 'string' ? parseFloat(value) : Number(value);
+        if (isNaN(num) || !isFinite(num)) return null;
+        return new Prisma.Decimal(num);
+      };
+
+      // Helper to safely convert to number (sanitize NaN/Infinity)
+      const toNumber = (value: any, defaultValue: number = 0): number => {
+        if (value === null || value === undefined) return defaultValue;
+        const num = typeof value === 'string' ? parseFloat(value) : Number(value);
+        if (isNaN(num) || !isFinite(num)) return defaultValue;
+        return num;
+      };
+
+      // Helper to safely convert to nullable number
+      const toNullableNumber = (value: any): number | null => {
+        if (value === null || value === undefined) return null;
+        const num = typeof value === 'string' ? parseFloat(value) : Number(value);
+        if (isNaN(num) || !isFinite(num)) return null;
+        return num;
       };
 
       // Convert Decimal fields to Prisma.Decimal
       // Required fields (always present)
       const data: any = {
-        id: lot.id,
+        id: lot.id || generateId(),
         walletId: lot.walletId,
         tokenId: lot.tokenId,
-        size: new Prisma.Decimal(lot.size || 0),
-        entryPrice: new Prisma.Decimal(lot.entryPrice || 0),
-        exitPrice: new Prisma.Decimal(lot.exitPrice || 0),
+        size: toDecimal(lot.size) || new Prisma.Decimal(0),
+        entryPrice: toDecimal(lot.entryPrice) || new Prisma.Decimal(0),
+        exitPrice: toDecimal(lot.exitPrice) || new Prisma.Decimal(0),
         entryTime: lot.entryTime ? new Date(lot.entryTime) : new Date(),
         exitTime: lot.exitTime ? new Date(lot.exitTime) : new Date(),
-        holdTimeMinutes: lot.holdTimeMinutes ?? 0,
-        costBasis: new Prisma.Decimal(lot.costBasis || 0),
-        proceeds: new Prisma.Decimal(lot.proceeds || 0),
-        realizedPnl: new Prisma.Decimal(lot.realizedPnl || 0),
-        realizedPnlPercent: new Prisma.Decimal(lot.realizedPnlPercent || 0),
+        holdTimeMinutes: toNumber(lot.holdTimeMinutes, 0), // CRITICAL: Parameter 9 - must be valid number
+        costBasis: toDecimal(lot.costBasis) || new Prisma.Decimal(0),
+        proceeds: toDecimal(lot.proceeds) || new Prisma.Decimal(0),
+        realizedPnl: toDecimal(lot.realizedPnl) || new Prisma.Decimal(0),
+        realizedPnlPercent: toDecimal(lot.realizedPnlPercent) || new Prisma.Decimal(0),
         buyTradeId: lot.buyTradeId ?? null,
         sellTradeId: lot.sellTradeId ?? null,
         isPreHistory: Boolean(lot.isPreHistory ?? false),
@@ -233,17 +252,17 @@ export class ClosedLotRepository {
         maxDrawdownPercent: toDecimal(lot.maxDrawdownPercent),
         reentryPriceChangePercent: toDecimal(lot.reentryPriceChangePercent),
         previousCyclePnl: toDecimal(lot.previousCyclePnl),
-        // Optional Float/Int fields (not Decimal)
-        entryHourOfDay: lot.entryHourOfDay ?? null,
-        entryDayOfWeek: lot.entryDayOfWeek ?? null,
-        exitHourOfDay: lot.exitHourOfDay ?? null,
-        exitDayOfWeek: lot.exitDayOfWeek ?? null,
-        tokenAgeAtEntryMinutes: lot.tokenAgeAtEntryMinutes ?? null,
+        // Optional Float/Int fields (not Decimal) - sanitize NaN/Infinity
+        entryHourOfDay: toNullableNumber(lot.entryHourOfDay),
+        entryDayOfWeek: toNullableNumber(lot.entryDayOfWeek),
+        exitHourOfDay: toNullableNumber(lot.exitHourOfDay),
+        exitDayOfWeek: toNullableNumber(lot.exitDayOfWeek),
+        tokenAgeAtEntryMinutes: toNullableNumber(lot.tokenAgeAtEntryMinutes),
         exitReason: lot.exitReason ?? null,
-        timeToMaxProfitMinutes: lot.timeToMaxProfitMinutes ?? null,
-        dcaEntryCount: lot.dcaEntryCount ?? null,
-        dcaTimeSpanMinutes: lot.dcaTimeSpanMinutes ?? null,
-        reentryTimeMinutes: lot.reentryTimeMinutes ?? null,
+        timeToMaxProfitMinutes: toNullableNumber(lot.timeToMaxProfitMinutes),
+        dcaEntryCount: toNullableNumber(lot.dcaEntryCount),
+        dcaTimeSpanMinutes: toNullableNumber(lot.dcaTimeSpanMinutes),
+        reentryTimeMinutes: toNullableNumber(lot.reentryTimeMinutes),
       };
       
       await prisma.closedLot.create({
