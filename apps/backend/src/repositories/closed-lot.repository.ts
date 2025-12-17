@@ -398,29 +398,35 @@ export class ClosedLotRepository {
         const createdAt = now.toISOString();
         const updatedAt = now.toISOString();
         
+        // CRITICAL: Column order must match database order exactly!
+        // Database order: id, walletId, tokenId, size, entryPrice, exitPrice, entryTime, exitTime,
+        // holdTimeMinutes, costBasis, proceeds, realizedPnl, realizedPnlPercent, buyTradeId, sellTradeId,
+        // isPreHistory, costKnown, createdAt, updatedAt, realizedPnlUsd, sequenceNumber, ...
         const sql = `
           INSERT INTO "ClosedLot" (
             "id","walletId","tokenId","size","entryPrice","exitPrice",
             "entryTime","exitTime","holdTimeMinutes","costBasis","proceeds",
-            "realizedPnl","realizedPnlPercent","realizedPnlUsd",
+            "realizedPnl","realizedPnlPercent",
             "buyTradeId","sellTradeId","isPreHistory","costKnown",
+            "createdAt","updatedAt",
+            "realizedPnlUsd",
             "sequenceNumber","entryHourOfDay","entryDayOfWeek","exitHourOfDay","exitDayOfWeek",
             "entryMarketCap","exitMarketCap","entryLiquidity","exitLiquidity",
             "entryVolume24h","exitVolume24h","tokenAgeAtEntryMinutes",
             "exitReason","maxProfitPercent","maxDrawdownPercent","timeToMaxProfitMinutes",
-            "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl",
-            "createdAt","updatedAt"
+            "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl"
           ) VALUES (
             ${sqlValue(data.id)}, ${sqlValue(data.walletId)}, ${sqlValue(data.tokenId)}, ${sqlValue(data.size)}, ${sqlValue(data.entryPrice)}, ${sqlValue(data.exitPrice)},
             ${sqlValue(data.entryTime)}, ${sqlValue(data.exitTime)}, ${holdTimeMinutesSql}, ${sqlValue(data.costBasis)}, ${sqlValue(data.proceeds)},
-            ${sqlValue(data.realizedPnl)}, ${sqlValue(data.realizedPnlPercent)}, ${sqlValue(data.realizedPnlUsd)},
+            ${sqlValue(data.realizedPnl)}, ${sqlValue(data.realizedPnlPercent)},
             ${sqlValue(buyTradeId)}, ${sqlValue(sellTradeId)}, ${sqlValue(data.isPreHistory)}, ${sqlValue(data.costKnown)},
+            '${createdAt}', '${updatedAt}',
+            ${sqlValue(data.realizedPnlUsd)},
             ${sqlValue(data.sequenceNumber)}, ${sqlValue(data.entryHourOfDay)}, ${sqlValue(data.entryDayOfWeek)}, ${sqlValue(data.exitHourOfDay)}, ${sqlValue(data.exitDayOfWeek)},
             ${sqlValue(data.entryMarketCap)}, ${sqlValue(data.exitMarketCap)}, ${sqlValue(data.entryLiquidity)}, ${sqlValue(data.exitLiquidity)},
             ${sqlValue(data.entryVolume24h)}, ${sqlValue(data.exitVolume24h)}, ${sqlValue(data.tokenAgeAtEntryMinutes)},
             ${sqlValue(data.exitReason)}, ${sqlValue(data.maxProfitPercent)}, ${sqlValue(data.maxDrawdownPercent)}, ${sqlValue(data.timeToMaxProfitMinutes)},
-            ${sqlValue(data.dcaEntryCount)}, ${sqlValue(data.dcaTimeSpanMinutes)}, ${sqlValue(data.reentryTimeMinutes)}, ${sqlValue(data.reentryPriceChangePercent)}, ${sqlValue(data.previousCyclePnl)},
-            '${createdAt}', '${updatedAt}'
+            ${sqlValue(data.dcaEntryCount)}, ${sqlValue(data.dcaTimeSpanMinutes)}, ${sqlValue(data.reentryTimeMinutes)}, ${sqlValue(data.reentryPriceChangePercent)}, ${sqlValue(data.previousCyclePnl)}
           )
         `;
         await prisma.$executeRawUnsafe(sql);
