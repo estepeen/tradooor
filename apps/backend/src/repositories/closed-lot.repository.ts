@@ -385,9 +385,13 @@ export class ClosedLotRepository {
         // Build SQL with explicit cast for holdTimeMinutes - ensure it's always a float
         const holdTimeMinutesSql = `${holdTimeMinutesValue}::double precision`;
         
-        // Try without createdAt/updatedAt first - they might not exist or have defaults
-        // If that fails, we'll try with them
-        let sql = `
+        // Use raw SQL with all columns including createdAt and updatedAt
+        // Prisma will handle createdAt and updatedAt automatically, but we need to include them in raw SQL
+        const now = new Date();
+        const createdAt = now.toISOString();
+        const updatedAt = now.toISOString();
+        
+        const sql = `
           INSERT INTO "ClosedLot" (
             "id","walletId","tokenId","size","entryPrice","exitPrice",
             "entryTime","exitTime","holdTimeMinutes","costBasis","proceeds",
@@ -397,7 +401,8 @@ export class ClosedLotRepository {
             "entryMarketCap","exitMarketCap","entryLiquidity","exitLiquidity",
             "entryVolume24h","exitVolume24h","tokenAgeAtEntryMinutes",
             "exitReason","maxProfitPercent","maxDrawdownPercent","timeToMaxProfitMinutes",
-            "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl"
+            "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl",
+            "createdAt","updatedAt"
           ) VALUES (
             ${sqlValue(data.id)}, ${sqlValue(data.walletId)}, ${sqlValue(data.tokenId)}, ${sqlValue(data.size)}, ${sqlValue(data.entryPrice)}, ${sqlValue(data.exitPrice)},
             ${sqlValue(data.entryTime)}, ${sqlValue(data.exitTime)}, ${holdTimeMinutesSql}, ${sqlValue(data.costBasis)}, ${sqlValue(data.proceeds)},
@@ -407,49 +412,11 @@ export class ClosedLotRepository {
             ${sqlValue(data.entryMarketCap)}, ${sqlValue(data.exitMarketCap)}, ${sqlValue(data.entryLiquidity)}, ${sqlValue(data.exitLiquidity)},
             ${sqlValue(data.entryVolume24h)}, ${sqlValue(data.exitVolume24h)}, ${sqlValue(data.tokenAgeAtEntryMinutes)},
             ${sqlValue(data.exitReason)}, ${sqlValue(data.maxProfitPercent)}, ${sqlValue(data.maxDrawdownPercent)}, ${sqlValue(data.timeToMaxProfitMinutes)},
-            ${sqlValue(data.dcaEntryCount)}, ${sqlValue(data.dcaTimeSpanMinutes)}, ${sqlValue(data.reentryTimeMinutes)}, ${sqlValue(data.reentryPriceChangePercent)}, ${sqlValue(data.previousCyclePnl)}
+            ${sqlValue(data.dcaEntryCount)}, ${sqlValue(data.dcaTimeSpanMinutes)}, ${sqlValue(data.reentryTimeMinutes)}, ${sqlValue(data.reentryPriceChangePercent)}, ${sqlValue(data.previousCyclePnl)},
+            '${createdAt}', '${updatedAt}'
           )
         `;
-        
-        try {
-          await prisma.$executeRawUnsafe(sql);
-        } catch (error: any) {
-          // If it fails with not null violation and error mentions createdAt/updatedAt, try with them
-          if (error?.code === '23502' || error?.message?.includes('23502')) {
-            const now = new Date();
-            const createdAt = now.toISOString();
-            const updatedAt = now.toISOString();
-            
-            sql = `
-              INSERT INTO "ClosedLot" (
-                "id","walletId","tokenId","size","entryPrice","exitPrice",
-                "entryTime","exitTime","holdTimeMinutes","costBasis","proceeds",
-                "realizedPnl","realizedPnlPercent","realizedPnlUsd",
-                "buyTradeId","sellTradeId","isPreHistory","costKnown",
-                "sequenceNumber","entryHourOfDay","entryDayOfWeek","exitHourOfDay","exitDayOfWeek",
-                "entryMarketCap","exitMarketCap","entryLiquidity","exitLiquidity",
-                "entryVolume24h","exitVolume24h","tokenAgeAtEntryMinutes",
-                "exitReason","maxProfitPercent","maxDrawdownPercent","timeToMaxProfitMinutes",
-                "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl",
-                "createdAt","updatedAt"
-              ) VALUES (
-                ${sqlValue(data.id)}, ${sqlValue(data.walletId)}, ${sqlValue(data.tokenId)}, ${sqlValue(data.size)}, ${sqlValue(data.entryPrice)}, ${sqlValue(data.exitPrice)},
-                ${sqlValue(data.entryTime)}, ${sqlValue(data.exitTime)}, ${holdTimeMinutesSql}, ${sqlValue(data.costBasis)}, ${sqlValue(data.proceeds)},
-                ${sqlValue(data.realizedPnl)}, ${sqlValue(data.realizedPnlPercent)}, ${sqlValue(data.realizedPnlUsd)},
-                ${sqlValue(buyTradeId)}, ${sqlValue(sellTradeId)}, ${sqlValue(data.isPreHistory)}, ${sqlValue(data.costKnown)},
-                ${sqlValue(data.sequenceNumber)}, ${sqlValue(data.entryHourOfDay)}, ${sqlValue(data.entryDayOfWeek)}, ${sqlValue(data.exitHourOfDay)}, ${sqlValue(data.exitDayOfWeek)},
-                ${sqlValue(data.entryMarketCap)}, ${sqlValue(data.exitMarketCap)}, ${sqlValue(data.entryLiquidity)}, ${sqlValue(data.exitLiquidity)},
-                ${sqlValue(data.entryVolume24h)}, ${sqlValue(data.exitVolume24h)}, ${sqlValue(data.tokenAgeAtEntryMinutes)},
-                ${sqlValue(data.exitReason)}, ${sqlValue(data.maxProfitPercent)}, ${sqlValue(data.maxDrawdownPercent)}, ${sqlValue(data.timeToMaxProfitMinutes)},
-                ${sqlValue(data.dcaEntryCount)}, ${sqlValue(data.dcaTimeSpanMinutes)}, ${sqlValue(data.reentryTimeMinutes)}, ${sqlValue(data.reentryPriceChangePercent)}, ${sqlValue(data.previousCyclePnl)},
-                '${createdAt}', '${updatedAt}'
-              )
-            `;
-            await prisma.$executeRawUnsafe(sql);
-          } else {
-            throw error;
-          }
-        }
+        await prisma.$executeRawUnsafe(sql);
       } catch (error: any) {
         // Log the problematic data for debugging
         console.error(`❌ Failed to create ClosedLot for wallet ${lot.walletId?.substring(0, 8)}... token ${lot.tokenId?.substring(0, 8)}...`);
