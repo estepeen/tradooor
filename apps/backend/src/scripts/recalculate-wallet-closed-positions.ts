@@ -17,6 +17,7 @@ import { MetricsCalculatorService } from '../services/metrics-calculator.service
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
 import { LotMatchingService } from '../services/lot-matching.service.js';
+import { supabase, TABLES } from '../lib/supabase.js';
 
 dotenv.config();
 
@@ -74,7 +75,55 @@ async function main() {
     const metricsResult = await metricsCalculator.calculateMetricsForWallet(wallet.id);
     console.log(`   ✅ Metrics updated: score=${metricsResult?.score ?? 'n/a'}, totalTrades=${metricsResult?.totalTrades ?? 0}`);
     
-    // 4. Fetch updated wallet data
+    // 4. Invalidate portfolio cache (if using Supabase)
+    if (process.env.SUPABASE_URL) {
+      try {
+        console.log(`   🗑️  Invalidating portfolio cache...`);
+        const { error: deleteError } = await supabase
+          .from('PortfolioBaseline')
+          .delete()
+          .eq('walletId', wallet.id);
+        
+        if (deleteError) {
+          console.warn(`   ⚠️  Failed to invalidate portfolio cache: ${deleteError.message}`);
+        } else {
+          console.log(`   ✅ Portfolio cache invalidated`);
+        }
+      } catch (cacheError: any) {
+        console.warn(`   ⚠️  Failed to invalidate portfolio cache: ${cacheError.message}`);
+      }
+    } else {
+      console.log(`   ⏭️  Skipping portfolio cache invalidation (Prisma-only mode)`);
+    }
+    
+    // 5. Optionally refresh portfolio via API (if backend is running)
+    const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3000';
+    const USE_API_FOR_PORTFOLIO = process.env.USE_API_FOR_PORTFOLIO !== 'false';
+    
+    if (USE_API_FOR_PORTFOLIO) {
+      try {
+        console.log(`   🔄 Refreshing portfolio via API...`);
+        const response = await fetch(`${API_BASE_URL}/api/smart-wallets/${wallet.id}/portfolio/refresh`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        if (response.ok) {
+          const portfolioData = await response.json();
+          const closedCount = portfolioData.closedPositions?.length || 0;
+          console.log(`   ✅ Portfolio refreshed: ${closedCount} closed positions`);
+        } else {
+          console.warn(`   ⚠️  Portfolio refresh failed: HTTP ${response.status}`);
+        }
+      } catch (fetchError: any) {
+        console.warn(`   ⚠️  Portfolio refresh failed: ${fetchError.message}`);
+        console.warn(`   💡 Tip: Make sure backend server is running at ${API_BASE_URL}`);
+      }
+    }
+    
+    // 6. Fetch updated wallet data
     const updatedWallet = await smartWalletRepo.findById(wallet.id);
     
     console.log(`\n✅ Recalculation completed successfully!`);
@@ -83,6 +132,7 @@ async function main() {
     console.log(`   Total trades: ${updatedWallet?.totalTrades ?? 0}`);
     console.log(`   Win rate: ${((updatedWallet?.winRate ?? 0) * 100).toFixed(2)}%`);
     console.log(`   Recent PnL (30d): ${updatedWallet?.recentPnl30dUsd ?? 0} USD (${updatedWallet?.recentPnl30dPercent ?? 0}%)`);
+    console.log(`\n💡 Tip: Refresh the wallet page in the browser to see updated closed positions.`);
     
   } catch (error: any) {
     console.error('❌ Error recalculating closed positions:', error);
