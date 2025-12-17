@@ -100,10 +100,10 @@ export class TradeRepository {
           timestamp: data.timestamp,
           dex: data.dex,
           positionId: data.positionId ?? null,
-          valueUsd: data.valueUsd ?? null,
-          pnlUsd: data.pnlUsd ?? null,
-          pnlPercent: data.pnlPercent ?? null,
-          meta: data.meta ?? null,
+          valueUsd: data.valueUsd ?? undefined,
+          pnlUsd: data.pnlUsd ?? undefined,
+          pnlPercent: data.pnlPercent ?? undefined,
+          meta: data.meta as any,
         },
       });
 
@@ -157,7 +157,8 @@ export class TradeRepository {
   }
 
   async findBySignature(txSignature: string) {
-    const trade = await prisma.trade.findUnique({
+    // Use findFirst to avoid depending on unique constraint typing
+    const trade = await prisma.trade.findFirst({
       where: { txSignature },
     });
 

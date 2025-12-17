@@ -65,12 +65,41 @@ export class NormalizedTradeRepository {
           dex: data.dex,
           balanceBefore: data.balanceBefore ?? null,
           balanceAfter: data.balanceAfter ?? null,
-          meta: data.meta ?? null,
-          rawPayload: data.rawPayload ?? null,
+          // JSON fields – let Prisma handle null/undefined, cast to any to satisfy TS
+          meta: (data.meta ?? undefined) as any,
+          rawPayload: (data.rawPayload ?? undefined) as any,
         },
       });
 
-      return result as NormalizedTradeRecord;
+      // Quick mapping from Prisma Decimal/Json to plain JS types
+      return {
+        id: result.id,
+        txSignature: result.txSignature,
+        walletId: result.walletId,
+        tokenId: result.tokenId,
+        tokenMint: result.tokenMint,
+        side: result.side as any,
+        amountToken: Number(result.amountToken),
+        amountBaseRaw: Number(result.amountBaseRaw),
+        baseToken: result.baseToken,
+        priceBasePerTokenRaw: Number(result.priceBasePerTokenRaw),
+        timestamp: result.timestamp,
+        dex: result.dex,
+        balanceBefore: result.balanceBefore ?? null,
+        balanceAfter: result.balanceAfter ?? null,
+        status: result.status as NormalizedTradeStatus,
+        error: result.error ?? null,
+        meta: (result.meta as any) ?? null,
+        rawPayload: (result.rawPayload as any) ?? null,
+        amountBaseUsd: result.amountBaseUsd ? Number(result.amountBaseUsd) : null,
+        priceUsdPerToken: result.priceUsdPerToken ? Number(result.priceUsdPerToken) : null,
+        valuationSource: result.valuationSource ?? null,
+        valuationTimestamp: result.valuationTimestamp ?? null,
+        processedAt: result.processedAt ?? null,
+        createdAt: result.createdAt,
+        updatedAt: result.updatedAt,
+        tradeId: result.tradeId ?? null,
+      };
     } catch (error: any) {
       // Handle unique constraint violation (Prisma P2002)
       if (error.code === 'P2002') {
@@ -94,7 +123,35 @@ export class NormalizedTradeRepository {
       },
     });
 
-    return result as NormalizedTradeRecord | null;
+    if (!result) return null;
+    return {
+      id: result.id,
+      txSignature: result.txSignature,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      tokenMint: result.tokenMint,
+      side: result.side as any,
+      amountToken: Number(result.amountToken),
+      amountBaseRaw: Number(result.amountBaseRaw),
+      baseToken: result.baseToken,
+      priceBasePerTokenRaw: Number(result.priceBasePerTokenRaw),
+      timestamp: result.timestamp,
+      dex: result.dex,
+      balanceBefore: result.balanceBefore ?? null,
+      balanceAfter: result.balanceAfter ?? null,
+      status: result.status as NormalizedTradeStatus,
+      error: result.error ?? null,
+      meta: (result.meta as any) ?? null,
+      rawPayload: (result.rawPayload as any) ?? null,
+      amountBaseUsd: result.amountBaseUsd ? Number(result.amountBaseUsd) : null,
+      priceUsdPerToken: result.priceUsdPerToken ? Number(result.priceUsdPerToken) : null,
+      valuationSource: result.valuationSource ?? null,
+      valuationTimestamp: result.valuationTimestamp ?? null,
+      processedAt: result.processedAt ?? null,
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+      tradeId: result.tradeId ?? null,
+    };
   }
 
   async findById(id: string): Promise<NormalizedTradeRecord | null> {
@@ -102,7 +159,35 @@ export class NormalizedTradeRepository {
       where: { id },
     });
 
-    return result as NormalizedTradeRecord | null;
+    if (!result) return null;
+    return {
+      id: result.id,
+      txSignature: result.txSignature,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      tokenMint: result.tokenMint,
+      side: result.side as any,
+      amountToken: Number(result.amountToken),
+      amountBaseRaw: Number(result.amountBaseRaw),
+      baseToken: result.baseToken,
+      priceBasePerTokenRaw: Number(result.priceBasePerTokenRaw),
+      timestamp: result.timestamp,
+      dex: result.dex,
+      balanceBefore: result.balanceBefore ?? null,
+      balanceAfter: result.balanceAfter ?? null,
+      status: result.status as NormalizedTradeStatus,
+      error: result.error ?? null,
+      meta: (result.meta as any) ?? null,
+      rawPayload: (result.rawPayload as any) ?? null,
+      amountBaseUsd: result.amountBaseUsd ? Number(result.amountBaseUsd) : null,
+      priceUsdPerToken: result.priceUsdPerToken ? Number(result.priceUsdPerToken) : null,
+      valuationSource: result.valuationSource ?? null,
+      valuationTimestamp: result.valuationTimestamp ?? null,
+      processedAt: result.processedAt ?? null,
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+      tradeId: result.tradeId ?? null,
+    };
   }
 
   async findPendingByWallet(walletId: string): Promise<NormalizedTradeRecord[]> {
@@ -113,7 +198,34 @@ export class NormalizedTradeRepository {
       },
     });
 
-    return results as NormalizedTradeRecord[];
+    return results.map((result) => ({
+      id: result.id,
+      txSignature: result.txSignature,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      tokenMint: result.tokenMint,
+      side: result.side as any,
+      amountToken: Number(result.amountToken),
+      amountBaseRaw: Number(result.amountBaseRaw),
+      baseToken: result.baseToken,
+      priceBasePerTokenRaw: Number(result.priceBasePerTokenRaw),
+      timestamp: result.timestamp,
+      dex: result.dex,
+      balanceBefore: result.balanceBefore ?? null,
+      balanceAfter: result.balanceAfter ?? null,
+      status: result.status as NormalizedTradeStatus,
+      error: result.error ?? null,
+      meta: (result.meta as any) ?? null,
+      rawPayload: (result.rawPayload as any) ?? null,
+      amountBaseUsd: result.amountBaseUsd ? Number(result.amountBaseUsd) : null,
+      priceUsdPerToken: result.priceUsdPerToken ? Number(result.priceUsdPerToken) : null,
+      valuationSource: result.valuationSource ?? null,
+      valuationTimestamp: result.valuationTimestamp ?? null,
+      processedAt: result.processedAt ?? null,
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+      tradeId: result.tradeId ?? null,
+    }));
   }
 
   async findPending(limit = 25): Promise<NormalizedTradeRecord[]> {
@@ -125,7 +237,34 @@ export class NormalizedTradeRepository {
       take: limit,
     });
 
-    return results as NormalizedTradeRecord[];
+    return results.map((result) => ({
+      id: result.id,
+      txSignature: result.txSignature,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      tokenMint: result.tokenMint,
+      side: result.side as any,
+      amountToken: Number(result.amountToken),
+      amountBaseRaw: Number(result.amountBaseRaw),
+      baseToken: result.baseToken,
+      priceBasePerTokenRaw: Number(result.priceBasePerTokenRaw),
+      timestamp: result.timestamp,
+      dex: result.dex,
+      balanceBefore: result.balanceBefore ?? null,
+      balanceAfter: result.balanceAfter ?? null,
+      status: result.status as NormalizedTradeStatus,
+      error: result.error ?? null,
+      meta: (result.meta as any) ?? null,
+      rawPayload: (result.rawPayload as any) ?? null,
+      amountBaseUsd: result.amountBaseUsd ? Number(result.amountBaseUsd) : null,
+      priceUsdPerToken: result.priceUsdPerToken ? Number(result.priceUsdPerToken) : null,
+      valuationSource: result.valuationSource ?? null,
+      valuationTimestamp: result.valuationTimestamp ?? null,
+      processedAt: result.processedAt ?? null,
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+      tradeId: result.tradeId ?? null,
+    }));
   }
 
   async markProcessed(
