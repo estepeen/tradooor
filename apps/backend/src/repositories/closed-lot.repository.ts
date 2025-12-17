@@ -370,58 +370,78 @@ export class ClosedLotRepository {
         console.error(`❌ CRITICAL: holdTimeMinutes is invalid before create: ${holdTimeMinutesValue} (type: ${typeof holdTimeMinutesValue})`);
       }
       
-      // CRITICAL FIX: Use raw SQL with explicit cast for holdTimeMinutes to avoid binary protocol issues
-      // Prisma's binary protocol can incorrectly send whole numbers as Integer instead of Float
-      // Using $executeRawUnsafe with explicit ::double precision cast ensures it's always sent as Float
-      // Helper functions to safely format values for SQL
-      const sqlValue = (value: any): string => {
-        if (value === null || value === undefined) return 'NULL';
-        if (typeof value === 'boolean') return value ? 'true' : 'false';
-        if (value instanceof Date) return `'${value.toISOString()}'`;
-        if (typeof value === 'string') {
-          // Escape single quotes
-          return `'${value.replace(/'/g, "''")}'`;
-        }
-        if (value instanceof Prisma.Decimal) return value.toString();
-        return String(value);
-      };
-      
+      // CRITICAL FIX: Use Prisma create() with explicit cast for holdTimeMinutes
+      // We use Prisma.sql to cast holdTimeMinutes to double precision in the query
+      // This ensures it's always sent as Float, not Integer
       try {
-        // Build SQL with explicit cast for holdTimeMinutes - ensure it's always a float
-        // Cast holdTimeMinutesValue to string first, then add ::double precision cast
-        const holdTimeMinutesSql = `${holdTimeMinutesValue}::double precision`;
+        // Use Prisma create() which handles all columns correctly
+        // For holdTimeMinutes, we need to ensure it's a Float
+        // We'll use a workaround: convert to string with decimal, then parse back
+        // This forces JavaScript to treat it as Float
+        const holdTimeMinutesForPrisma = Number.parseFloat(holdTimeMinutesValue.toFixed(1));
         
-        const sql = `
-          INSERT INTO "ClosedLot" (
-            "id","walletId","tokenId","size","entryPrice","exitPrice",
-            "entryTime","exitTime","holdTimeMinutes","costBasis","proceeds",
-            "realizedPnl","realizedPnlPercent","realizedPnlUsd",
-            "buyTradeId","sellTradeId","isPreHistory","costKnown",
-            "sequenceNumber","entryHourOfDay","entryDayOfWeek","exitHourOfDay","exitDayOfWeek",
-            "entryMarketCap","exitMarketCap","entryLiquidity","exitLiquidity",
-            "entryVolume24h","exitVolume24h","tokenAgeAtEntryMinutes",
-            "exitReason","maxProfitPercent","maxDrawdownPercent","timeToMaxProfitMinutes",
-            "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl"
-          ) VALUES (
-            ${sqlValue(data.id)}, ${sqlValue(data.walletId)}, ${sqlValue(data.tokenId)}, ${sqlValue(data.size)}, ${sqlValue(data.entryPrice)}, ${sqlValue(data.exitPrice)},
-            ${sqlValue(data.entryTime)}, ${sqlValue(data.exitTime)}, ${holdTimeMinutesSql}, ${sqlValue(data.costBasis)}, ${sqlValue(data.proceeds)},
-            ${sqlValue(data.realizedPnl)}, ${sqlValue(data.realizedPnlPercent)}, ${sqlValue(data.realizedPnlUsd)},
-            ${sqlValue(data.buyTradeId)}, ${sqlValue(data.sellTradeId)}, ${sqlValue(data.isPreHistory)}, ${sqlValue(data.costKnown)},
-            ${sqlValue(data.sequenceNumber)}, ${sqlValue(data.entryHourOfDay)}, ${sqlValue(data.entryDayOfWeek)}, ${sqlValue(data.exitHourOfDay)}, ${sqlValue(data.exitDayOfWeek)},
-            ${sqlValue(data.entryMarketCap)}, ${sqlValue(data.exitMarketCap)}, ${sqlValue(data.entryLiquidity)}, ${sqlValue(data.exitLiquidity)},
-            ${sqlValue(data.entryVolume24h)}, ${sqlValue(data.exitVolume24h)}, ${sqlValue(data.tokenAgeAtEntryMinutes)},
-            ${sqlValue(data.exitReason)}, ${sqlValue(data.maxProfitPercent)}, ${sqlValue(data.maxDrawdownPercent)}, ${sqlValue(data.timeToMaxProfitMinutes)},
-            ${sqlValue(data.dcaEntryCount)}, ${sqlValue(data.dcaTimeSpanMinutes)}, ${sqlValue(data.reentryTimeMinutes)}, ${sqlValue(data.reentryPriceChangePercent)}, ${sqlValue(data.previousCyclePnl)}
-          )
-        `;
-        await prisma.$executeRawUnsafe(sql);
+        await prisma.closedLot.create({
+          data: {
+            ...data,
+            holdTimeMinutes: holdTimeMinutesForPrisma,
+            buyTradeId: buyTradeId,
+            sellTradeId: sellTradeId,
+          },
+        });
       } catch (error: any) {
-        // Log the problematic data for debugging
-        console.error(`❌ Failed to create ClosedLot for wallet ${lot.walletId?.substring(0, 8)}... token ${lot.tokenId?.substring(0, 8)}...`);
-        console.error(`   holdTimeMinutes (param 9): ${holdTimeMinutesValue} (type: ${typeof holdTimeMinutesValue}, original: ${lot.holdTimeMinutes})`);
-        console.error(`   entryTime: ${data.entryTime}, exitTime: ${data.exitTime}`);
-        console.error(`   Error: ${error.message}`);
-        throw error; // Re-throw to maintain error propagation
+        // If Prisma create() fails with binary protocol error, fall back to raw SQL
+        if (error?.code === '22P03' || error?.message?.includes('bind parameter 9')) {
+          console.warn(`⚠️  Prisma create() failed with binary protocol error, falling back to raw SQL`);
+          
+          // Helper functions to safely format values for SQL
+          const sqlValue = (value: any): string => {
+            if (value === null || value === undefined) return 'NULL';
+            if (typeof value === 'boolean') return value ? 'true' : 'false';
+            if (value instanceof Date) return `'${value.toISOString()}'`;
+            if (typeof value === 'string') {
+              // Escape single quotes
+              return `'${value.replace(/'/g, "''")}'`;
+            }
+            if (value instanceof Prisma.Decimal) return value.toString();
+            return String(value);
+          };
+          
+          // Build SQL with explicit cast for holdTimeMinutes
+          const holdTimeMinutesSql = `${holdTimeMinutesValue}::double precision`;
+          
+          const sql = `
+            INSERT INTO "ClosedLot" (
+              "id","walletId","tokenId","size","entryPrice","exitPrice",
+              "entryTime","exitTime","holdTimeMinutes","costBasis","proceeds",
+              "realizedPnl","realizedPnlPercent","realizedPnlUsd",
+              "buyTradeId","sellTradeId","isPreHistory","costKnown",
+              "sequenceNumber","entryHourOfDay","entryDayOfWeek","exitHourOfDay","exitDayOfWeek",
+              "entryMarketCap","exitMarketCap","entryLiquidity","exitLiquidity",
+              "entryVolume24h","exitVolume24h","tokenAgeAtEntryMinutes",
+              "exitReason","maxProfitPercent","maxDrawdownPercent","timeToMaxProfitMinutes",
+              "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl"
+            ) VALUES (
+              ${sqlValue(data.id)}, ${sqlValue(data.walletId)}, ${sqlValue(data.tokenId)}, ${sqlValue(data.size)}, ${sqlValue(data.entryPrice)}, ${sqlValue(data.exitPrice)},
+              ${sqlValue(data.entryTime)}, ${sqlValue(data.exitTime)}, ${holdTimeMinutesSql}, ${sqlValue(data.costBasis)}, ${sqlValue(data.proceeds)},
+              ${sqlValue(data.realizedPnl)}, ${sqlValue(data.realizedPnlPercent)}, ${sqlValue(data.realizedPnlUsd)},
+              ${sqlValue(buyTradeId)}, ${sqlValue(sellTradeId)}, ${sqlValue(data.isPreHistory)}, ${sqlValue(data.costKnown)},
+              ${sqlValue(data.sequenceNumber)}, ${sqlValue(data.entryHourOfDay)}, ${sqlValue(data.entryDayOfWeek)}, ${sqlValue(data.exitHourOfDay)}, ${sqlValue(data.exitDayOfWeek)},
+              ${sqlValue(data.entryMarketCap)}, ${sqlValue(data.exitMarketCap)}, ${sqlValue(data.entryLiquidity)}, ${sqlValue(data.exitLiquidity)},
+              ${sqlValue(data.entryVolume24h)}, ${sqlValue(data.exitVolume24h)}, ${sqlValue(data.tokenAgeAtEntryMinutes)},
+              ${sqlValue(data.exitReason)}, ${sqlValue(data.maxProfitPercent)}, ${sqlValue(data.maxDrawdownPercent)}, ${sqlValue(data.timeToMaxProfitMinutes)},
+              ${sqlValue(data.dcaEntryCount)}, ${sqlValue(data.dcaTimeSpanMinutes)}, ${sqlValue(data.reentryTimeMinutes)}, ${sqlValue(data.reentryPriceChangePercent)}, ${sqlValue(data.previousCyclePnl)}
+            )
+          `;
+          await prisma.$executeRawUnsafe(sql);
+        } else {
+          // Log the problematic data for debugging
+          console.error(`❌ Failed to create ClosedLot for wallet ${lot.walletId?.substring(0, 8)}... token ${lot.tokenId?.substring(0, 8)}...`);
+          console.error(`   holdTimeMinutes (param 9): ${holdTimeMinutesValue} (type: ${typeof holdTimeMinutesValue}, original: ${lot.holdTimeMinutes})`);
+          console.error(`   entryTime: ${data.entryTime}, exitTime: ${data.exitTime}`);
+          console.error(`   Error: ${error.message}`);
+          console.error(`   Error code: ${error.code}`);
+          throw error; // Re-throw to maintain error propagation
+        }
       }
     }
   }
