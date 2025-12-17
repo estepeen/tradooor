@@ -2,7 +2,7 @@ import { PaperTradeService, PaperTradingConfig } from './paper-trade.service.js'
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
-import { supabase, TABLES } from '../lib/supabase.js';
+import { prisma } from '../lib/prisma.js';
 
 export interface RiskLevel {
   level: 'low' | 'medium' | 'high';
@@ -163,22 +163,22 @@ export class PaperTradingModelsService {
     const now = new Date();
     const windowStart = new Date(now.getTime() - timeWindowMs);
 
-    // Najdi všechny BUY trades v časovém okně (posledních 2h)
-    // Pokud je minTimestamp, zahrneme i starší trades (pro consensus), ale filtrujeme jen ty, které mají alespoň jeden nový trade
-    let query = supabase
-      .from(TABLES.TRADE)
-      .select('id, walletId, tokenId, timestamp, amountBase, side')
-      .eq('side', 'buy')
-      .neq('side', 'void')
-      .gte('timestamp', windowStart.toISOString())
-      .order('timestamp', { ascending: true });
-    
-    const { data: recentBuys, error } = await query;
-
-    if (error || !recentBuys) {
-      console.error('Error fetching recent buys:', error);
-      return [];
-    }
+    // Najdi všechny BUY trades v časovém okně (posledních 2h) – Prisma
+    const recentBuys = await prisma.trade.findMany({
+      where: {
+        side: 'buy',
+        timestamp: { gte: windowStart },
+      },
+      select: {
+        id: true,
+        walletId: true,
+        tokenId: true,
+        timestamp: true,
+        amountBase: true,
+        side: true,
+      },
+      orderBy: { timestamp: 'asc' },
+    });
 
     if (!recentBuys || recentBuys.length === 0) {
       return [];

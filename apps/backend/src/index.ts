@@ -6,7 +6,6 @@ import { tradesRouter } from './routes/trades.js';
 import { statsRouter } from './routes/stats.js';
 import { tokensRouter } from './routes/tokens.js';
 import webhookRouter from './routes/webhooks.js';
-import paperTradingRouter from './routes/paper-trading.js';
 import signalsRouter from './routes/signals.js';
 import analyticsRouter from './routes/analytics.js';
 import positionsRouter from './routes/positions.js';
@@ -123,7 +122,6 @@ app.get('/', (req, res) => {
         stats: '/api/stats',
         tokensEnrich: '/api/tokens/enrich-symbols (POST, enrich token symbols from Helius)',
         webhooks: '/api/webhooks/quicknode (POST, receive QuickNode webhook notifications)',
-        paperTrading: '/api/paper-trading (GET portfolio, GET trades, POST copy-trade)',
         signals: '/api/signals (GET /, GET /:id, POST /generate, POST /:id/execute)',
       },
   });
@@ -173,7 +171,6 @@ app.options('*', (req, res) => {
 app.use('/api/smart-wallets', smartWalletRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/stats', statsRouter);
-app.use('/api/paper-trading', paperTradingRouter);
 app.use('/api/signals', signalsRouter);
 app.use('/api/tokens', tokensRouter);
 app.use('/api/analytics', analyticsRouter);

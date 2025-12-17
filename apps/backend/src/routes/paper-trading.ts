@@ -269,32 +269,13 @@ router.post('/copy-trade', async (req, res) => {
 
 /**
  * GET /api/paper-trading/portfolio/history
- * Získá historii portfolio snapshots
+ * (Disabled – paper trading analytics removed)
  */
-router.get('/portfolio/history', async (req, res) => {
-  try {
-    const limit = req.query.limit ? Number(req.query.limit) : 100;
-    const { data, error } = await (await import('../lib/supabase.js')).supabase
-      .from('PaperPortfolio')
-      .select('*')
-      .order('timestamp', { ascending: false })
-      .limit(limit);
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    res.json({
-      success: true,
-      snapshots: data || [],
-    });
-  } catch (error: any) {
-    console.error('❌ Error fetching portfolio history:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Failed to fetch portfolio history',
-    });
-  }
+router.get('/portfolio/history', async (_req, res) => {
+  return res.status(501).json({
+    success: false,
+    error: 'Paper trading portfolio history is disabled.',
+  });
 });
 
 export default router;
