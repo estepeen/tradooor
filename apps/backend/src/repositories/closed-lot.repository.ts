@@ -370,7 +370,7 @@ export class ClosedLotRepository {
         console.error(`❌ CRITICAL: holdTimeMinutes is invalid before create: ${holdTimeMinutesValue} (type: ${typeof holdTimeMinutesValue})`);
       }
       
-      // CRITICAL FIX: Use raw SQL with explicit cast for holdTimeMinutes
+      // CRITICAL FIX: Use raw SQL directly because Prisma create() always fails with binary protocol error
       // Prisma's binary protocol incorrectly sends whole numbers as Integer instead of Float
       // Using $executeRawUnsafe with explicit ::double precision cast ensures it's always sent as Float
       // Helper functions to safely format values for SQL
@@ -388,8 +388,12 @@ export class ClosedLotRepository {
       
       try {
         // Build SQL with explicit cast for holdTimeMinutes - ensure it's always a float
-        // Use explicit cast to double precision to force PostgreSQL to treat it as Float
         const holdTimeMinutesSql = `${holdTimeMinutesValue}::double precision`;
+        
+        // Get current timestamp for createdAt and updatedAt (if they exist in DB)
+        const now = new Date();
+        const createdAt = now.toISOString();
+        const updatedAt = now.toISOString();
         
         const sql = `
           INSERT INTO "ClosedLot" (
@@ -401,7 +405,8 @@ export class ClosedLotRepository {
             "entryMarketCap","exitMarketCap","entryLiquidity","exitLiquidity",
             "entryVolume24h","exitVolume24h","tokenAgeAtEntryMinutes",
             "exitReason","maxProfitPercent","maxDrawdownPercent","timeToMaxProfitMinutes",
-            "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl"
+            "dcaEntryCount","dcaTimeSpanMinutes","reentryTimeMinutes","reentryPriceChangePercent","previousCyclePnl",
+            "createdAt","updatedAt"
           ) VALUES (
             ${sqlValue(data.id)}, ${sqlValue(data.walletId)}, ${sqlValue(data.tokenId)}, ${sqlValue(data.size)}, ${sqlValue(data.entryPrice)}, ${sqlValue(data.exitPrice)},
             ${sqlValue(data.entryTime)}, ${sqlValue(data.exitTime)}, ${holdTimeMinutesSql}, ${sqlValue(data.costBasis)}, ${sqlValue(data.proceeds)},
@@ -411,7 +416,8 @@ export class ClosedLotRepository {
             ${sqlValue(data.entryMarketCap)}, ${sqlValue(data.exitMarketCap)}, ${sqlValue(data.entryLiquidity)}, ${sqlValue(data.exitLiquidity)},
             ${sqlValue(data.entryVolume24h)}, ${sqlValue(data.exitVolume24h)}, ${sqlValue(data.tokenAgeAtEntryMinutes)},
             ${sqlValue(data.exitReason)}, ${sqlValue(data.maxProfitPercent)}, ${sqlValue(data.maxDrawdownPercent)}, ${sqlValue(data.timeToMaxProfitMinutes)},
-            ${sqlValue(data.dcaEntryCount)}, ${sqlValue(data.dcaTimeSpanMinutes)}, ${sqlValue(data.reentryTimeMinutes)}, ${sqlValue(data.reentryPriceChangePercent)}, ${sqlValue(data.previousCyclePnl)}
+            ${sqlValue(data.dcaEntryCount)}, ${sqlValue(data.dcaTimeSpanMinutes)}, ${sqlValue(data.reentryTimeMinutes)}, ${sqlValue(data.reentryPriceChangePercent)}, ${sqlValue(data.previousCyclePnl)},
+            '${createdAt}', '${updatedAt}'
           )
         `;
         await prisma.$executeRawUnsafe(sql);
