@@ -266,9 +266,10 @@ Important guidelines:
     }
 
     // Select model based on config
+    // Note: llama-3.1-70b-versatile was decommissioned, using llama-3.3-70b-versatile as replacement
     const groqModel = model === 'groq-fast' 
       ? 'llama-3.1-8b-instant'      // Faster, less accurate
-      : 'llama-3.1-70b-versatile';  // Default, best quality
+      : 'llama-3.3-70b-versatile';  // Default, best quality (replacement for decommissioned llama-3.1-70b-versatile)
 
     const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
       method: 'POST',
