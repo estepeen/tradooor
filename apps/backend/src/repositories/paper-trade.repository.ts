@@ -63,14 +63,29 @@ export class PaperTradeRepository {
         priceBasePerToken: data.priceBasePerToken,
         timestamp: data.timestamp || new Date(),
         status: data.status || 'open',
-        realizedPnl: data.realizedPnl ?? null,
-        realizedPnlPercent: data.realizedPnlPercent ?? null,
-        closedAt: data.closedAt ?? null,
-        meta: data.meta ?? null,
+        realizedPnl: data.realizedPnl ?? undefined,
+        realizedPnlPercent: data.realizedPnlPercent ?? undefined,
+        closedAt: data.closedAt ?? undefined,
+        meta: data.meta as any,
       },
     });
 
-    return result as PaperTradeRecord;
+    return {
+      id: result.id,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      originalTradeId: result.originalTradeId ?? null,
+      side: result.side as 'buy' | 'sell',
+      amountToken: toNumber(result.amountToken),
+      amountBase: toNumber(result.amountBase),
+      priceBasePerToken: toNumber(result.priceBasePerToken),
+      timestamp: result.timestamp,
+      status: result.status as any,
+      realizedPnl: result.realizedPnl ? toNumber(result.realizedPnl) : null,
+      realizedPnlPercent: result.realizedPnlPercent ? toNumber(result.realizedPnlPercent) : null,
+      closedAt: result.closedAt ?? null,
+      meta: (result.meta as any) ?? null,
+    };
   }
 
   async findById(id: string): Promise<PaperTradeRecord | null> {
@@ -78,7 +93,23 @@ export class PaperTradeRepository {
       where: { id },
     });
 
-    return result as PaperTradeRecord | null;
+    if (!result) return null;
+    return {
+      id: result.id,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      originalTradeId: result.originalTradeId ?? null,
+      side: result.side as 'buy' | 'sell',
+      amountToken: toNumber(result.amountToken),
+      amountBase: toNumber(result.amountBase),
+      priceBasePerToken: toNumber(result.priceBasePerToken),
+      timestamp: result.timestamp,
+      status: result.status as any,
+      realizedPnl: result.realizedPnl ? toNumber(result.realizedPnl) : null,
+      realizedPnlPercent: result.realizedPnlPercent ? toNumber(result.realizedPnlPercent) : null,
+      closedAt: result.closedAt ?? null,
+      meta: (result.meta as any) ?? null,
+    };
   }
 
   async findByWallet(walletId: string, options?: {
@@ -102,7 +133,22 @@ export class PaperTradeRepository {
       ...(options?.limit && { take: options.limit }),
     });
 
-    return results as PaperTradeRecord[];
+    return results.map((result) => ({
+      id: result.id,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      originalTradeId: result.originalTradeId ?? null,
+      side: result.side as 'buy' | 'sell',
+      amountToken: toNumber(result.amountToken),
+      amountBase: toNumber(result.amountBase),
+      priceBasePerToken: toNumber(result.priceBasePerToken),
+      timestamp: result.timestamp,
+      status: result.status as any,
+      realizedPnl: result.realizedPnl ? toNumber(result.realizedPnl) : null,
+      realizedPnlPercent: result.realizedPnlPercent ? toNumber(result.realizedPnlPercent) : null,
+      closedAt: result.closedAt ?? null,
+      meta: (result.meta as any) ?? null,
+    }));
   }
 
   async findOpenPositions(walletId?: string): Promise<PaperTradeRecord[]> {
@@ -114,7 +160,22 @@ export class PaperTradeRepository {
 
     const results = await prisma.paperTrade.findMany({ where });
 
-    return results as PaperTradeRecord[];
+    return results.map((result) => ({
+      id: result.id,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      originalTradeId: result.originalTradeId ?? null,
+      side: result.side as 'buy' | 'sell',
+      amountToken: toNumber(result.amountToken),
+      amountBase: toNumber(result.amountBase),
+      priceBasePerToken: toNumber(result.priceBasePerToken),
+      timestamp: result.timestamp,
+      status: result.status as any,
+      realizedPnl: result.realizedPnl ? toNumber(result.realizedPnl) : null,
+      realizedPnlPercent: result.realizedPnlPercent ? toNumber(result.realizedPnlPercent) : null,
+      closedAt: result.closedAt ?? null,
+      meta: (result.meta as any) ?? null,
+    }));
   }
 
   async update(id: string, data: Partial<{
@@ -126,10 +187,28 @@ export class PaperTradeRepository {
   }>): Promise<PaperTradeRecord> {
     const result = await prisma.paperTrade.update({
       where: { id },
-      data,
+      data: {
+        ...data,
+        meta: data.meta as any,
+      },
     });
 
-    return result as PaperTradeRecord;
+    return {
+      id: result.id,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      originalTradeId: result.originalTradeId ?? null,
+      side: result.side as 'buy' | 'sell',
+      amountToken: toNumber(result.amountToken),
+      amountBase: toNumber(result.amountBase),
+      priceBasePerToken: toNumber(result.priceBasePerToken),
+      timestamp: result.timestamp,
+      status: result.status as any,
+      realizedPnl: result.realizedPnl ? toNumber(result.realizedPnl) : null,
+      realizedPnlPercent: result.realizedPnlPercent ? toNumber(result.realizedPnlPercent) : null,
+      closedAt: result.closedAt ?? null,
+      meta: (result.meta as any) ?? null,
+    };
   }
 
   async getPortfolioStats(): Promise<{
@@ -295,12 +374,24 @@ export class PaperTradeRepository {
         totalPnlPercent: stats.totalPnlPercent,
         openPositions: stats.openPositions,
         closedPositions: stats.closedPositions,
-        winRate: stats.winRate,
+        winRate: stats.winRate ?? undefined,
         totalTrades: stats.totalTrades,
         meta: null,
       },
     });
 
-    return result as PaperPortfolioRecord;
+    return {
+      id: result.id,
+      timestamp: result.timestamp,
+      totalValueUsd: toNumber(result.totalValueUsd),
+      totalCostUsd: toNumber(result.totalCostUsd),
+      totalPnlUsd: toNumber(result.totalPnlUsd),
+      totalPnlPercent: toNumber(result.totalPnlPercent),
+      openPositions: result.openPositions,
+      closedPositions: result.closedPositions,
+      winRate: result.winRate ? toNumber(result.winRate) : null,
+      totalTrades: result.totalTrades,
+      meta: (result.meta as any) ?? null,
+    };
   }
 }

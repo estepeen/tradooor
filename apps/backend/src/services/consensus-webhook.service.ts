@@ -333,7 +333,7 @@ export class ConsensusWebhookService {
               signal.id,
               tokenId,
               entryPrice,
-              walletIdsList,
+              walletIdsList as string[],
               { marketCap: marketDataResult?.marketCap, liquidity: marketDataResult?.liquidity }
             );
           } catch (posError: any) {

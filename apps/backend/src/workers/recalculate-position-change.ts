@@ -96,10 +96,11 @@ async function main() {
           }
 
           // Aktualizuj currentPosition pro další trade
+          const amountToken = Number(trade.amountToken || 0);
           if (trade.side === 'buy') {
-            currentPosition += trade.amountToken;
+            currentPosition += amountToken;
           } else if (trade.side === 'sell') {
-            currentPosition -= trade.amountToken;
+            currentPosition -= amountToken;
             currentPosition = Math.max(0, currentPosition); // Pozice nemůže být negativní
           }
         }

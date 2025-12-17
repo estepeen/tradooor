@@ -201,9 +201,9 @@ export class PaperTradingModelsService {
       
       if (uniqueWallets.size >= 2) {
         // Načti wallet scores pro průměr
-        const walletIds = Array.from(uniqueWallets);
+        const walletIds = Array.from(uniqueWallets) as string[];
         const wallets = await Promise.all(
-          walletIds.map(id => this.smartWalletRepo.findById(id).catch(() => null))
+          walletIds.map((id: string) => this.smartWalletRepo.findById(id).catch(() => null))
         );
         const validWallets = wallets.filter(w => w !== null);
         const avgWalletScore = validWallets.length > 0
@@ -211,27 +211,27 @@ export class PaperTradingModelsService {
           : 0;
 
         // Najdi časové rozmezí
-        const timestamps = trades.map(t => new Date(t.timestamp));
-        const firstBuyTime = new Date(Math.min(...timestamps.map(t => t.getTime())));
-        const lastBuyTime = new Date(Math.max(...timestamps.map(t => t.getTime())));
+        const timestamps = trades.map((t: any) => new Date(t.timestamp));
+        const firstBuyTime = new Date(Math.min(...timestamps.map((t: Date) => t.getTime())));
+        const lastBuyTime = new Date(Math.max(...timestamps.map((t: Date) => t.getTime())));
         const timeSpanMinutes = (lastBuyTime.getTime() - firstBuyTime.getTime()) / (1000 * 60);
 
         // Zkontroluj, jestli je v rozestupu 2h
         if (timeSpanMinutes <= timeWindowHours * 60) {
           // Pokud je minTimestamp, zkontroluj, jestli consensus obsahuje alespoň jeden NOVÝ trade
           if (minTimestamp) {
-            const hasNewTrade = trades.some(t => new Date(t.timestamp) > minTimestamp);
+            const hasNewTrade = trades.some((t: any) => new Date(t.timestamp) > minTimestamp);
             if (!hasNewTrade) {
               // Tento consensus trade neobsahuje žádný nový trade, přeskoč ho
               continue;
             }
           }
 
-          const totalBuyAmount = trades.reduce((sum, t) => sum + Number(t.amountBase || 0), 0);
+          const totalBuyAmount = trades.reduce((sum: number, t: any) => sum + Number(t.amountBase || 0), 0);
 
           consensusTrades.push({
             tokenId,
-            walletIds: walletIds,
+            walletIds: walletIds as string[],
             firstBuyTime,
             lastBuyTime,
             timeSpanMinutes,

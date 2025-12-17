@@ -112,9 +112,9 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
   try {
     const identifier = req.params.id;
     // Try to find by ID first (if it's a short ID), then by address
-    let wallet = await smartWalletRepo.findById(identifier);
+    let wallet: any = await smartWalletRepo.findById(identifier);
     if (!wallet) {
-      wallet = await smartWalletRepo.findByAddress(identifier);
+      wallet = (await smartWalletRepo.findByAddress(identifier)) as any;
     }
     if (!wallet) {
       return res.status(404).json({ error: 'Wallet not found' });

@@ -195,14 +195,14 @@ export class PriceMonitorService {
       }
 
       // Seskup podle mintAddress pro batch fetching
-      const mintAddresses = [...new Set(alerts.map(a => a.mintAddress))];
+      const mintAddresses = [...new Set(alerts.map(a => a.mintAddress as string))];
       
       // Fetch ceny pro všechny tokeny
       const prices = new Map<string, number>();
       for (const mint of mintAddresses) {
-        const price = await this.getPrice(mint);
+        const price = await this.getPrice(mint as string);
         if (price !== null) {
-          prices.set(mint, price);
+          prices.set(mint as string, price);
         }
         await new Promise(r => setTimeout(r, 100)); // Rate limit
       }

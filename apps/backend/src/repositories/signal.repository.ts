@@ -47,20 +47,39 @@ export class SignalRepository {
         tokenId: data.tokenId,
         originalTradeId: data.originalTradeId || null,
         priceBasePerToken: data.priceBasePerToken,
-        amountBase: data.amountBase || null,
-        amountToken: data.amountToken || null,
+        amountBase: data.amountBase ?? undefined,
+        amountToken: data.amountToken ?? undefined,
         timestamp: data.timestamp || new Date(),
         status: data.status || 'active',
         expiresAt: data.expiresAt || null,
-        qualityScore: data.qualityScore || null,
+        qualityScore: data.qualityScore ?? undefined,
         riskLevel: data.riskLevel || null,
         model: data.model || null,
         reasoning: data.reasoning || null,
-        meta: data.meta || {},
+        meta: (data.meta || {}) as any,
       },
     });
 
-    return result as SignalRecord;
+    return {
+      id: result.id,
+      type: result.type as any,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      originalTradeId: result.originalTradeId ?? null,
+      priceBasePerToken: Number(result.priceBasePerToken),
+      amountBase: result.amountBase ? Number(result.amountBase) : null,
+      amountToken: result.amountToken ? Number(result.amountToken) : null,
+      timestamp: result.timestamp,
+      status: result.status as any,
+      expiresAt: result.expiresAt ?? null,
+      qualityScore: result.qualityScore ? Number(result.qualityScore) : null,
+      riskLevel: (result.riskLevel as any) ?? null,
+      model: (result.model as any) ?? null,
+      reasoning: result.reasoning ?? null,
+      meta: (result.meta as any) ?? null,
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+    };
   }
 
   async findById(id: string): Promise<SignalRecord | null> {
@@ -68,7 +87,27 @@ export class SignalRepository {
       where: { id },
     });
 
-    return result as SignalRecord | null;
+    if (!result) return null;
+    return {
+      id: result.id,
+      type: result.type as any,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      originalTradeId: result.originalTradeId ?? null,
+      priceBasePerToken: Number(result.priceBasePerToken),
+      amountBase: result.amountBase ? Number(result.amountBase) : null,
+      amountToken: result.amountToken ? Number(result.amountToken) : null,
+      timestamp: result.timestamp,
+      status: result.status as any,
+      expiresAt: result.expiresAt ?? null,
+      qualityScore: result.qualityScore ? Number(result.qualityScore) : null,
+      riskLevel: (result.riskLevel as any) ?? null,
+      model: (result.model as any) ?? null,
+      reasoning: result.reasoning ?? null,
+      meta: (result.meta as any) ?? null,
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+    };
   }
 
   async findActive(options?: {
@@ -102,7 +141,26 @@ export class SignalRepository {
       ...(options?.limit && { take: options.limit }),
     });
 
-    return results as SignalRecord[];
+    return results.map((result) => ({
+      id: result.id,
+      type: result.type as any,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      originalTradeId: result.originalTradeId ?? null,
+      priceBasePerToken: Number(result.priceBasePerToken),
+      amountBase: result.amountBase ? Number(result.amountBase) : null,
+      amountToken: result.amountToken ? Number(result.amountToken) : null,
+      timestamp: result.timestamp,
+      status: result.status as any,
+      expiresAt: result.expiresAt ?? null,
+      qualityScore: result.qualityScore ? Number(result.qualityScore) : null,
+      riskLevel: (result.riskLevel as any) ?? null,
+      model: (result.model as any) ?? null,
+      reasoning: result.reasoning ?? null,
+      meta: (result.meta as any) ?? null,
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+    }));
   }
 
   async update(id: string, updates: {
@@ -128,10 +186,32 @@ export class SignalRepository {
 
     const result = await prisma.signal.update({
       where: { id },
-      data: updateData,
+      data: {
+        ...updateData,
+        meta: updates.meta as any,
+      },
     });
 
-    return result as SignalRecord;
+    return {
+      id: result.id,
+      type: result.type as any,
+      walletId: result.walletId,
+      tokenId: result.tokenId,
+      originalTradeId: result.originalTradeId ?? null,
+      priceBasePerToken: Number(result.priceBasePerToken),
+      amountBase: result.amountBase ? Number(result.amountBase) : null,
+      amountToken: result.amountToken ? Number(result.amountToken) : null,
+      timestamp: result.timestamp,
+      status: result.status as any,
+      expiresAt: result.expiresAt ?? null,
+      qualityScore: result.qualityScore ? Number(result.qualityScore) : null,
+      riskLevel: (result.riskLevel as any) ?? null,
+      model: (result.model as any) ?? null,
+      reasoning: result.reasoning ?? null,
+      meta: (result.meta as any) ?? null,
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+    };
   }
 
   async markAsExecuted(id: string): Promise<SignalRecord> {
