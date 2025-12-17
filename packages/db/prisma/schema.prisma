@@ -385,7 +385,7 @@ model ClosedLot {
   realizedPnlPercent    Decimal  @db.Decimal(36, 18)
   realizedPnlUsd        Decimal? @db.Decimal(36, 18)
   buyTradeId            String?
-  sellTradeId           String?
+  sellTradeId           String?  // Should be nullable - if Trade doesn't exist, use NULL
   isPreHistory          Boolean  @default(false)
   costKnown             Boolean  @default(true)
   sequenceNumber        Int?
