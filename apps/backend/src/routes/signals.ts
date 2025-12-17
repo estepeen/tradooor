@@ -101,15 +101,6 @@ router.get('/unified', async (req, res) => {
             }
           }
           
-          // Zkus načíst AI decision z Signal tabulky (pokud existuje) – Prisma
-          const relatedSignal = await prisma.signal.findFirst({
-            where: {
-              tokenId: cs.tokenId,
-              model: 'consensus',
-            },
-            orderBy: { createdAt: 'desc' },
-          });
-          
           // Načti security data z RugCheck
           let securityData: any = null;
           if (token.mintAddress) {
@@ -171,23 +162,11 @@ router.get('/unified', async (req, res) => {
             entryPriceUsd,
             currentPriceUsd: currentPrice || undefined,
             priceChangePercent,
-            stopLossPrice: relatedSignal?.stopLossPriceUsd ? Number(relatedSignal.stopLossPriceUsd) : undefined,
-            takeProfitPrice: relatedSignal?.takeProfitPriceUsd ? Number(relatedSignal.takeProfitPriceUsd) : undefined,
-            
             // Market data
             marketCapUsd: marketData?.marketCap,
             liquidityUsd: marketData?.liquidity,
             volume24hUsd: marketData?.volume24h,
             tokenAgeMinutes: marketData?.ageMinutes,
-            
-            // AI Decision (z relatedSignal pokud existuje)
-            aiDecision: relatedSignal?.aiDecision as any,
-            aiConfidence: relatedSignal?.aiConfidence ? Number(relatedSignal.aiConfidence) : undefined,
-            aiReasoning: relatedSignal?.aiReasoning,
-            aiPositionPercent: relatedSignal?.aiSuggestedPositionPercent ? Number(relatedSignal.aiSuggestedPositionPercent) : undefined,
-            aiStopLossPercent: relatedSignal?.aiStopLossPercent ? Number(relatedSignal.aiStopLossPercent) : undefined,
-            aiTakeProfitPercent: relatedSignal?.aiTakeProfitPercent ? Number(relatedSignal.aiTakeProfitPercent) : undefined,
-            aiRiskScore: relatedSignal?.aiRiskScore ? Number(relatedSignal.aiRiskScore) : undefined,
             
             // Status
             status: 'active' as const,
@@ -812,146 +791,13 @@ router.get('/ai/history', async (req, res) => {
 
 /**
  * POST /api/signals/ai/reevaluate-all
- * Re-evaluuje všechny active signály bez AI decision
+ * (Disabled in Prisma-only mode – AI fields are managed externally)
  */
-router.post('/ai/reevaluate-all', async (req, res) => {
-  try {
-    // Najdi všechny active signály bez AI decision – Prisma
-    const signalsToEvaluate = await prisma.signal.findMany({
-      where: {
-        status: 'active',
-        aiDecision: null,
-      },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-      include: {
-        token: true,
-        wallet: true,
-      },
-    });
-
-    if (!signalsToEvaluate || signalsToEvaluate.length === 0) {
-      return res.json({
-        success: true,
-        message: 'No signals to evaluate',
-        evaluated: 0,
-      });
-    }
-
-    console.log(`🤖 Re-evaluating ${signalsToEvaluate.length} signals with AI...`);
-
-    let evaluatedCount = 0;
-    const results = [];
-
-    for (const signal of signalsToEvaluate) {
-      try {
-        // Načti market data
-        let marketData: any = null;
-        if (signal.token?.mintAddress) {
-          try {
-            marketData = await tokenMarketData.getMarketData(signal.token.mintAddress);
-          } catch (e) {
-            // ignoruj
-          }
-        }
-
-        // Vytvoř context (must match SignalContext interface)
-        const context = {
-          // Required fields
-          walletScore: signal.wallet?.score || 50,
-          walletWinRate: signal.wallet?.winRate || 0.5,
-          walletRecentPnl30d: 0, // Not available in this context
-          // Optional fields  
-          walletTotalTrades: 100,
-          walletAvgHoldTimeMin: 60,
-          tokenAge: marketData?.ageMinutes || 0,
-          tokenSymbol: signal.token?.symbol || 'Unknown',
-          tokenMint: signal.token?.mintAddress,
-          tokenLiquidity: marketData?.liquidity || 0,
-          tokenVolume24h: marketData?.volume24h || 0,
-          tokenMarketCap: marketData?.marketCap || 0,
-          consensusWalletCount: (signal.meta as any)?.walletCount || 1,
-          entryPriceUsd: Number(signal.priceBasePerToken || 0),
-        };
-
-        // Vytvoř signál pro AI
-        const walletCount = (signal.meta as any)?.walletCount || 1;
-        const signalForAI = {
-          type: (signal.model || 'consensus') as 'consensus' | 'whale-entry' | 'early-sniper' | 'momentum' | 're-entry' | 'exit-warning' | 'hot-token' | 'accumulation',
-          strength: (walletCount >= 3 ? 'strong' : 'medium') as 'weak' | 'medium' | 'strong',
-          confidence: signal.qualityScore || 50,
-          reasoning: signal.reasoning || '',
-          suggestedAction: signal.type as 'buy' | 'sell',
-          riskLevel: (signal.riskLevel || 'medium') as 'low' | 'medium' | 'high',
-          context,
-        };
-
-        // Zavolej AI
-        const decision = await aiDecision.evaluateSignal(signalForAI, context);
-        
-        if (decision) {
-          // Aktualizuj signal
-          const entryPrice = Number(signal.priceBasePerToken || 0);
-          const stopLossPrice = entryPrice > 0 && decision.stopLossPercent
-            ? entryPrice * (1 - decision.stopLossPercent / 100)
-            : null;
-          const takeProfitPrice = entryPrice > 0 && decision.takeProfitPercent
-            ? entryPrice * (1 + decision.takeProfitPercent / 100)
-            : null;
-
-          await prisma.signal.update({
-            where: { id: signal.id },
-            data: {
-              aiDecision: decision.decision,
-              aiConfidence: decision.confidence,
-              aiReasoning: decision.reasoning,
-              aiSuggestedPositionPercent: decision.suggestedPositionPercent,
-              aiStopLossPercent: decision.stopLossPercent,
-              aiTakeProfitPercent: decision.takeProfitPercent,
-              aiRiskScore: decision.riskScore,
-              entryPriceUsd: entryPrice,
-              stopLossPriceUsd: stopLossPrice,
-              takeProfitPriceUsd: takeProfitPrice,
-              suggestedHoldTimeMinutes: decision.expectedHoldTimeMinutes,
-              tokenMarketCapUsd: marketData?.marketCap,
-              tokenLiquidityUsd: marketData?.liquidity,
-              tokenVolume24hUsd: marketData?.volume24h,
-              tokenAgeMinutes: marketData?.ageMinutes,
-              updatedAt: new Date(),
-            },
-          });
-
-          evaluatedCount++;
-          results.push({
-            signalId: signal.id,
-            token: signal.token?.symbol,
-            decision: decision.decision,
-            confidence: decision.confidence,
-          });
-
-          console.log(`   ✅ ${signal.token?.symbol}: ${decision.decision} (${decision.confidence}%)`);
-        }
-
-        // Rate limiting - čekej 500ms mezi voláními
-        await new Promise(resolve => setTimeout(resolve, 500));
-      } catch (signalError: any) {
-        console.warn(`   ⚠️  Failed to evaluate signal ${signal.id}: ${signalError.message}`);
-      }
-    }
-
-    res.json({
-      success: true,
-      message: `Re-evaluated ${evaluatedCount}/${signalsToEvaluate.length} signals`,
-      evaluated: evaluatedCount,
-      results,
-    });
-  } catch (error: any) {
-    console.error('❌ Error re-evaluating signals:', error);
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Failed to re-evaluate signals',
-    });
-  }
+router.post('/ai/reevaluate-all', async (_req, res) => {
+  return res.status(501).json({
+    success: false,
+    message: 'AI re-evaluate-all is not implemented in Prisma-only mode.',
+  });
 });
 
 /**
