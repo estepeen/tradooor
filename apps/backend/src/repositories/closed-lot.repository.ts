@@ -297,29 +297,25 @@ export class ClosedLotRepository {
         }
       }
       
-      // Check if Trade records exist (only if IDs are provided)
-      // NOTE: sellTradeId is NOT NULL in database, so if Trade doesn't exist, we need to create a placeholder
-      // or use a workaround. Since we can't modify DB structure, we'll skip the foreign key check
-      // and let the database error tell us if there's a real problem.
-      if (sellTradeId) {
+      // CRITICAL: sellTradeId is NOT NULL in database
+      // If Trade doesn't exist or is not provided, we must provide a valid Trade ID
+      // We'll keep the original ID if provided, or generate a placeholder if not
+      if (!sellTradeId) {
+        // sellTradeId is required but not provided - generate placeholder
+        console.warn(`⚠️  sellTradeId is required but not provided, generating placeholder`);
+        sellTradeId = `synthetic-${generateId()}`;
+      } else {
+        // Check if Trade exists
         try {
           const tradeExists = await prisma.trade.findUnique({ where: { id: sellTradeId }, select: { id: true } });
           if (!tradeExists) {
-            console.warn(`⚠️  sellTradeId ${sellTradeId} does not exist in Trade table, but sellTradeId is NOT NULL`);
-            // Since sellTradeId is NOT NULL and we can't change it, we'll keep the original ID
-            // The database will throw a foreign key constraint error if it's really a problem
-            // In practice, this might be a synthetic ID that doesn't need to exist in Trade table
+            console.warn(`⚠️  sellTradeId ${sellTradeId} does not exist in Trade table, but keeping it (might be synthetic)`);
+            // Keep the original ID - it might be a synthetic ID that doesn't need to exist
           }
         } catch (error) {
           // If check fails, keep the original ID
           console.warn(`⚠️  Failed to verify sellTradeId ${sellTradeId}, keeping original:`, error);
         }
-      } else {
-        // sellTradeId is required but not provided - this will cause NOT NULL violation
-        // We need to provide some value. Since we can't use NULL, we'll generate a placeholder ID
-        // that won't cause foreign key issues (we'll skip the FK check by using a special prefix)
-        console.warn(`⚠️  sellTradeId is required but not provided, generating placeholder`);
-        sellTradeId = `synthetic-${generateId()}`;
       }
       
       const data: any = {
