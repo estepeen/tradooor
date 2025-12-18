@@ -79,31 +79,56 @@ async function calculateWalletPnL(walletAddress: string, daysBack: number = 7) {
 
   console.log(`🔄 Calculating PnL in USD using historical SOL prices...\n`);
 
+  // Get current SOL price as fallback
+  let currentSolPrice: number;
+  try {
+    currentSolPrice = await solPriceService.getSolPriceUsd();
+    console.log(`   Current SOL price: $${currentSolPrice.toFixed(2)}\n`);
+  } catch (error: any) {
+    console.warn(`⚠️  Failed to fetch current SOL price, using fallback: $150`);
+    currentSolPrice = 150;
+  }
+
   // Batch fetch SOL prices for unique exit times (to reduce API calls)
-  const uniqueExitTimes = [...new Set(closedLots.map(lot => lot.exitTime.getTime()))];
+  // Limit to max 100 unique times to avoid too many API calls
+  const uniqueExitTimes = [...new Set(closedLots.map(lot => lot.exitTime.getTime()))].slice(0, 100);
   const solPriceCache = new Map<number, number>();
   
-  // Fetch SOL prices for unique exit times
-  for (const exitTimeMs of uniqueExitTimes) {
+  console.log(`   Fetching SOL prices for ${uniqueExitTimes.length} unique exit times...`);
+  
+  // Fetch SOL prices for unique exit times with rate limiting
+  for (let i = 0; i < uniqueExitTimes.length; i++) {
+    const exitTimeMs = uniqueExitTimes[i];
     const exitDate = new Date(exitTimeMs);
     try {
       const solPrice = await solPriceService.getSolPriceUsdAtDate(exitDate);
       solPriceCache.set(exitTimeMs, solPrice);
+      
+      // Progress update every 10 prices
+      if ((i + 1) % 10 === 0) {
+        console.log(`   Fetched ${i + 1}/${uniqueExitTimes.length} prices...`);
+      }
+      
+      // Rate limiting - small delay to avoid overwhelming Binance API
+      if (i < uniqueExitTimes.length - 1) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
     } catch (error: any) {
       console.warn(`⚠️  Failed to fetch SOL price for ${exitDate.toISOString()}, using current price`);
-      const currentPrice = await solPriceService.getSolPriceUsd();
-      solPriceCache.set(exitTimeMs, currentPrice);
+      solPriceCache.set(exitTimeMs, currentSolPrice);
     }
   }
+  
+  console.log(`   ✅ Price fetching complete\n`);
 
   for (const lot of closedLots) {
     const costBasis = Number(lot.costBasis || 0); // V SOL/base měně
     const proceeds = Number(lot.proceeds || 0); // V SOL/base měně
     const realizedPnl = Number(lot.realizedPnl || 0); // V SOL/base měně (proceeds - costBasis)
     
-    // Get SOL price at exit time
+    // Get SOL price at exit time (use cached price or fallback to current price)
     const exitTimeMs = lot.exitTime.getTime();
-    const solPriceUsd = solPriceCache.get(exitTimeMs) || await solPriceService.getSolPriceUsd();
+    const solPriceUsd = solPriceCache.get(exitTimeMs) || currentSolPrice;
     
     // Convert to USD
     const costBasisUsd = costBasis * solPriceUsd;
