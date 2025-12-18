@@ -137,6 +137,10 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       walletClosedLotDebounce.set(record.walletId, now);
       console.log(`   🔄 [ClosedLots] Starting recalculation for wallet ${walletAddress}... (ID: ${record.walletId.substring(0, 8)}...)`);
       
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'normalized-trade-processor.ts:138',message:'RECALC TRIGGERED',data:{walletId:record.walletId,source:'normalized-trade-processor',now:new Date().toISOString()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+      // #endregion
+      
     setTimeout(async () => {
       try {
         const walletData = await smartWalletRepo.findById(record.walletId);

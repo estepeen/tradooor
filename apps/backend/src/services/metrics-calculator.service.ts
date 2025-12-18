@@ -557,6 +557,10 @@ export class MetricsCalculatorService {
       };
     }
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'metrics-calculator.service.ts:541',message:'buildRollingWindowStats ENTRY',data:{numLots:lots.length,firstExitTime:lots[0]?.exitTime?.toISOString(),lastExitTime:lots[lots.length-1]?.exitTime?.toISOString()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+    // #endregion
+
     // Get current SOL price for conversion (approximation - ideally we'd use historical prices)
     let solPriceUsd = 150; // Default fallback
     try {
@@ -564,6 +568,10 @@ export class MetricsCalculatorService {
     } catch (error) {
       console.warn(`⚠️  Failed to fetch SOL price, using fallback: ${solPriceUsd}`);
     }
+
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'metrics-calculator.service.ts:567',message:'currentSolPrice for aggregation',data:{solPriceUsd},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
 
     // DŮLEŽITÉ: PnL se počítá POUZE z ClosedLot.realizedPnl (v SOL/base měně)
     // PnL je v SOL, ne v USD - nemění se s cenou SOL
@@ -576,6 +584,11 @@ export class MetricsCalculatorService {
       // Pokud realizedPnl neexistuje, PnL = 0 (žádný fallback!)
       return sum;
     }, 0);
+
+    // #region agent log
+    const sample3Lots=lots.slice(0,3).map(l=>({realizedPnl:l.realizedPnl,realizedPnlUsd:l.realizedPnlUsd,exitTime:l.exitTime?.toISOString()}));
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'metrics-calculator.service.ts:585',message:'realizedPnl sum from ClosedLots',data:{realizedPnl,numLots:lots.length,sample3Lots},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+    // #endregion
     
     // Pro volume a invested capital použijeme přepočet (tyto hodnoty se mohou měnit)
     const totalVolumeUsd = lots.reduce((sum, lot) => sum + lot.proceeds * solPriceUsd, 0);

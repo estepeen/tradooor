@@ -77,6 +77,11 @@ async function calculateAllMetrics() {
         const walletData = await smartWalletRepo.findById(wallet.id);
         if (walletData) {
           const trackingStartTime = walletData.createdAt ? new Date(walletData.createdAt) : undefined;
+
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'metrics-cron.ts:80',message:'RECALC TRIGGERED',data:{walletId:wallet.id,source:'metrics-cron',now:new Date().toISOString()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+          // #endregion
+
           const closedLots = await lotMatchingService.processTradesForWallet(
             wallet.id,
             undefined, // Process all tokens

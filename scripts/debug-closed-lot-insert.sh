@@ -32,3 +32,5 @@ ORDER BY ordinal_position;
 echo ""
 echo "✅ Check complete!"
 
+
+

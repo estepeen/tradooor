@@ -620,6 +620,10 @@ export class LotMatchingService {
       return;
     }
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:618',message:'saveClosedLots ENTRY',data:{numLots:closedLots.length,walletId:closedLots[0]?.walletId,tokenIds:[...new Set(closedLots.map(l=>l.tokenId))]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+    // #endregion
+
     // Get current SOL price for USD conversion
     const solPriceService = new SolPriceService();
     let currentSolPrice = 150; // Fallback
@@ -629,12 +633,22 @@ export class LotMatchingService {
       console.warn('⚠️  Failed to fetch SOL price for realizedPnlUsd calculation, using fallback');
     }
 
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:632',message:'currentSolPrice fetched',data:{currentSolPrice,timestamp:new Date().toISOString()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+
     // Convert to database format
     // DŮLEŽITÉ: PnL je v SOL/base měně, ale ukládáme i USD ekvivalent pro rychlejší zobrazení
-    const dbLots = closedLots.map(lot => {
+    const dbLots = closedLots.map((lot,idx) => {
       // Calculate realizedPnlUsd from realizedPnl * SOL price at exit time
       // Using current SOL price as approximation (historical prices would require many API calls)
       const realizedPnlUsd = lot.realizedPnl * currentSolPrice;
+
+      // #region agent log
+      if(idx===0 || idx===closedLots.length-1){
+        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:652',message:'realizedPnlUsd calculation',data:{idx,realizedPnl:lot.realizedPnl,currentSolPrice,realizedPnlUsd,exitTime:lot.exitTime.toISOString()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+      }
+      // #endregion
       
       return {
         walletId: lot.walletId,
@@ -695,16 +709,28 @@ export class LotMatchingService {
       const walletId = closedLots[0].walletId;
       const tokenIds = [...new Set(closedLots.map(l => l.tokenId))];
 
+      // #region agent log
+      const existingLotsCount = await prisma.closedLot.count({where:{walletId,tokenId:{in:tokenIds}}});
+      fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:705',message:'BEFORE delete existing lots',data:{walletId,tokenIds,existingLotsCount},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+      // #endregion
+
       // Delete existing closed lots for these tokens
       try {
-        await prisma.closedLot.deleteMany({
+        const deleteResult = await prisma.closedLot.deleteMany({
           where: {
             walletId,
             tokenId: { in: tokenIds },
           },
         });
+
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:711',message:'AFTER delete existing lots',data:{deletedCount:deleteResult.count,walletId,tokenIds},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
       } catch (deleteError: any) {
         console.warn('⚠️ Failed to delete existing closed lots:', deleteError.message);
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:717',message:'DELETE FAILED',data:{error:deleteError.message,walletId,tokenIds},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
       }
     }
 
