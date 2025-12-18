@@ -4,9 +4,44 @@ import dotenv from 'dotenv';
 // Load environment variables from .env
 dotenv.config();
 
-// Create Prisma client instance
+/**
+ * Enhance DATABASE_URL with connection pool parameters if not present
+ * Prisma reads connection_limit and connection_timeout from DATABASE_URL query params
+ * Default: connection_limit=5, timeout=10s (too low for production with multiple workers)
+ */
+function enhanceDatabaseUrl(url: string | undefined): string {
+  if (!url) {
+    throw new Error('DATABASE_URL is not set');
+  }
+
+  // If URL already has query params, check if connection_limit is set
+  const urlObj = new URL(url);
+  const hasConnectionLimit = urlObj.searchParams.has('connection_limit');
+  const hasPoolTimeout = urlObj.searchParams.has('pool_timeout');
+
+  // Add connection pool parameters if not present
+  if (!hasConnectionLimit) {
+    urlObj.searchParams.set('connection_limit', '20'); // Increased from default 5
+  }
+  if (!hasPoolTimeout) {
+    urlObj.searchParams.set('pool_timeout', '30'); // Increased from default 10 seconds
+  }
+
+  return urlObj.toString();
+}
+
+// Get enhanced DATABASE_URL with connection pool parameters
+const databaseUrl = enhanceDatabaseUrl(process.env.DATABASE_URL);
+
+// Create Prisma client instance with increased connection pool
+// Connection pool is configured via DATABASE_URL query parameters
 const prismaClient = new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+  datasources: {
+    db: {
+      url: databaseUrl,
+    },
+  },
 });
 
 // Export as both default and named for flexibility
