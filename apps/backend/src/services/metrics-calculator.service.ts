@@ -570,31 +570,43 @@ export class MetricsCalculatorService {
     }
 
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'metrics-calculator.service.ts:567',message:'currentSolPrice for aggregation',data:{solPriceUsd},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'metrics-calculator.service.ts:567',message:'currentSolPrice for volume calc only',data:{solPriceUsd},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
     // #endregion
 
-    // DŮLEŽITÉ: PnL se počítá POUZE z ClosedLot.realizedPnl (v SOL/base měně)
-    // PnL je v SOL, ne v USD - nemění se s cenou SOL
-    // Pokud realizedPnl neexistuje, PnL = 0 (žádný fallback!)
+    // CRITICAL FIX: PnL se počítá JENOM jako součet realizedPnlUsd z ClosedLots (žádné přepočty!)
+    // realizedPnlUsd už obsahuje historickou SOL cenu z doby exitTime, takže se NIKDY nepřepočítává
+    // To je jak to dělají profesionální analytics weby - uloží USD hodnotu JEDNOU, pak už jen sečtou
     const realizedPnl = lots.reduce((sum, lot) => {
-      // Použij realizedPnl z ClosedLot (v SOL/base měně)
+      // CRITICAL: Použij realizedPnl v SOL (pro fallback, pokud realizedPnlUsd chybí)
       if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
         return sum + lot.realizedPnl;
       }
-      // Pokud realizedPnl neexistuje, PnL = 0 (žádný fallback!)
+      return sum;
+    }, 0);
+
+    // CRITICAL: Použij realizedPnlUsd přímo z databáze (žádné přepočty!)
+    // realizedPnlUsd už obsahuje správnou historickou SOL cenu
+    const realizedPnlUsd = lots.reduce((sum, lot) => {
+      if (lot.realizedPnlUsd !== null && lot.realizedPnlUsd !== undefined) {
+        return sum + lot.realizedPnlUsd;
+      }
+      // Fallback: pokud realizedPnlUsd chybí, použij realizedPnl * current SOL (backward compatibility)
+      if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
+        return sum + (lot.realizedPnl * solPriceUsd);
+      }
       return sum;
     }, 0);
 
     // #region agent log
     const sample3Lots=lots.slice(0,3).map(l=>({realizedPnl:l.realizedPnl,realizedPnlUsd:l.realizedPnlUsd,exitTime:l.exitTime?.toISOString()}));
-    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'metrics-calculator.service.ts:585',message:'realizedPnl sum from ClosedLots',data:{realizedPnl,numLots:lots.length,sample3Lots},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'metrics-calculator.service.ts:600',message:'PnL aggregation FIXED - using realizedPnlUsd',data:{realizedPnl,realizedPnlUsd,numLots:lots.length,sample3Lots},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
     // #endregion
     
-    // Pro volume a invested capital použijeme přepočet (tyto hodnoty se mohou měnit)
+    // Pro volume a invested capital použijeme přepočet (tyto hodnoty mohou používat aktuální SOL cenu)
     const totalVolumeUsd = lots.reduce((sum, lot) => sum + lot.proceeds * solPriceUsd, 0);
     const investedCapital = lots.reduce((sum, lot) => sum + Math.max(lot.costBasis, 0) * solPriceUsd, 0);
     const realizedRoiPercent =
-      investedCapital > 0 ? (realizedPnl * solPriceUsd / investedCapital) * 100 : 0;
+      investedCapital > 0 ? (realizedPnlUsd / investedCapital) * 100 : 0;
     const wins = lots.filter(lot => lot.realizedPnl > 0).length;
     const roiValues = lots.map(lot =>
       lot.costBasis > 0 ? (lot.realizedPnl / lot.costBasis) * 100 : lot.realizedPnlPercent
@@ -608,7 +620,7 @@ export class MetricsCalculatorService {
       .map(lot => lot.holdTimeMinutes);
 
     return {
-      realizedPnl, // PnL v SOL (změněno z realizedPnlUsd)
+      realizedPnl: realizedPnlUsd, // CRITICAL FIX: Return USD value (was SOL before, causing changing PnL)
       realizedRoiPercent,
       winRate: lots.length ? wins / lots.length : 0,
       medianTradeRoiPercent: median(roiValues),

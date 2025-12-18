@@ -624,29 +624,53 @@ export class LotMatchingService {
     fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:618',message:'saveClosedLots ENTRY',data:{numLots:closedLots.length,walletId:closedLots[0]?.walletId,tokenIds:[...new Set(closedLots.map(l=>l.tokenId))]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
     // #endregion
 
-    // Get current SOL price for USD conversion
+    // CRITICAL FIX: Use HISTORICAL SOL price for each lot individually (at exitTime)
+    // NOT current SOL price! This is why PnL was changing over time.
+    // Professional analytics sites store USD value ONCE at trade time, never recalculate.
     const solPriceService = new SolPriceService();
-    let currentSolPrice = 150; // Fallback
-    try {
-      currentSolPrice = await solPriceService.getSolPriceUsd();
-    } catch (error) {
-      console.warn('⚠️  Failed to fetch SOL price for realizedPnlUsd calculation, using fallback');
+    
+    // Build a cache of unique exitTimes to minimize API calls
+    const uniqueExitTimes = [...new Set(closedLots.map(lot => lot.exitTime.toISOString()))];
+    const solPriceCache = new Map<string, number>();
+    
+    console.log(`   💰 Fetching historical SOL prices for ${uniqueExitTimes.length} unique exit times...`);
+    
+    // Fetch historical SOL prices for all unique exitTimes
+    // Add rate limiting to avoid hitting Binance API limits (max 1200 requests/minute = 20/second)
+    const RATE_LIMIT_DELAY_MS = 100; // 100ms between requests = max 10 requests/second (safe margin)
+    for (const exitTimeStr of uniqueExitTimes) {
+      const exitTime = new Date(exitTimeStr);
+      try {
+        const historicalPrice = await solPriceService.getSolPriceUsdAtDate(exitTime);
+        solPriceCache.set(exitTimeStr, historicalPrice);
+        
+        // Rate limiting delay (except for last request)
+        if (uniqueExitTimes.indexOf(exitTimeStr) < uniqueExitTimes.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, RATE_LIMIT_DELAY_MS));
+        }
+      } catch (error: any) {
+        console.warn(`⚠️  Failed to fetch historical SOL price for ${exitTimeStr}, using fallback 150`);
+        solPriceCache.set(exitTimeStr, 150); // Fallback
+      }
     }
 
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:632',message:'currentSolPrice fetched',data:{currentSolPrice,timestamp:new Date().toISOString()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+    const samplePrices = Array.from(solPriceCache.entries()).slice(0,3);
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:650',message:'Historical SOL prices fetched',data:{uniqueCount:uniqueExitTimes.length,samplePrices},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
     // #endregion
 
     // Convert to database format
-    // DŮLEŽITÉ: PnL je v SOL/base měně, ale ukládáme i USD ekvivalent pro rychlejší zobrazení
+    // CRITICAL: PnL v SOL se převede na USD pomocí HISTORICKÉ ceny v době exitTime (JEDNOU)
+    // Pak se už NIKDY nepřepočítává - prostě se sečte realizedPnlUsd z databáze
     const dbLots = closedLots.map((lot,idx) => {
-      // Calculate realizedPnlUsd from realizedPnl * SOL price at exit time
-      // Using current SOL price as approximation (historical prices would require many API calls)
-      const realizedPnlUsd = lot.realizedPnl * currentSolPrice;
+      // Use HISTORICAL SOL price at exitTime for this specific lot
+      const exitTimeStr = lot.exitTime.toISOString();
+      const historicalSolPrice = solPriceCache.get(exitTimeStr) || 150;
+      const realizedPnlUsd = lot.realizedPnl * historicalSolPrice;
 
       // #region agent log
       if(idx===0 || idx===closedLots.length-1){
-        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:652',message:'realizedPnlUsd calculation',data:{idx,realizedPnl:lot.realizedPnl,currentSolPrice,realizedPnlUsd,exitTime:lot.exitTime.toISOString()},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:665',message:'realizedPnlUsd calculation FIXED',data:{idx,realizedPnl:lot.realizedPnl,historicalSolPrice,realizedPnlUsd,exitTime:exitTimeStr},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
       }
       // #endregion
       
