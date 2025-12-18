@@ -257,9 +257,23 @@ export class MetricsCalculatorService {
         continue; // Přeskoč void trades - nepočítají se do positions
       }
       
-      const amount = Number(trade.amountToken);
-      const price = Number(trade.priceBasePerToken);
-      const amountBase = Number(trade.amountBase || 0);
+      // CRITICAL FIX: Properly convert Prisma Decimal to JavaScript number
+      const safeToNumber = (value: any): number => {
+        if (value === null || value === undefined) return 0;
+        if (typeof value === 'object' && typeof value.toNumber === 'function') {
+          return value.toNumber();
+        }
+        if (typeof value === 'string') {
+          const parsed = parseFloat(value);
+          return isNaN(parsed) ? 0 : parsed;
+        }
+        const num = Number(value);
+        return isNaN(num) ? 0 : num;
+      };
+      
+      const amount = safeToNumber(trade.amountToken);
+      const price = safeToNumber(trade.priceBasePerToken);
+      const amountBase = safeToNumber(trade.amountBase || 0);
       const timestamp = trade.timestamp;
 
       // Filtruj airdropy/transfery - pokud buy trade má nulovou nebo velmi malou hodnotu v base měně,

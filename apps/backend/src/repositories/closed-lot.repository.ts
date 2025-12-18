@@ -1,7 +1,24 @@
 import { prisma, generateId } from '../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 
-const toNumber = (value: any) => (value === null || value === undefined ? 0 : Number(value));
+// CRITICAL FIX: Properly handle Prisma Decimal objects
+// Prisma Decimal has .toNumber() method that MUST be used instead of Number()
+// Number(prismaDecimal) can return NaN or incorrect values!
+const toNumber = (value: any): number => {
+  if (value === null || value === undefined) return 0;
+  // Check if it's a Prisma Decimal object (has toNumber method)
+  if (typeof value === 'object' && typeof value.toNumber === 'function') {
+    return value.toNumber();
+  }
+  // Check if it's a string (from raw SQL or JSON)
+  if (typeof value === 'string') {
+    const parsed = parseFloat(value);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  // Fallback to Number() for plain numbers
+  const num = Number(value);
+  return isNaN(num) ? 0 : num;
+};
 
 export interface ClosedLotRecord {
   id: string;

@@ -91,3 +91,39 @@ export function generateId(): string {
   return `c${timestamp}${random}`;
 }
 
+/**
+ * CRITICAL: Safely convert Prisma Decimal to JavaScript number
+ * 
+ * Prisma returns Decimal objects for columns with @db.Decimal(36, 18).
+ * Using Number(prismaDecimal) DOES NOT WORK correctly!
+ * You MUST use value.toNumber() for Prisma Decimal objects.
+ * 
+ * @param value - Value to convert (can be Prisma Decimal, string, number, or null)
+ * @param defaultValue - Default value to return if conversion fails (default: 0)
+ * @returns JavaScript number
+ */
+export function safeDecimalToNumber(value: any, defaultValue: number = 0): number {
+  if (value === null || value === undefined) return defaultValue;
+  
+  // Check if it's a Prisma Decimal object (has toNumber method)
+  if (typeof value === 'object' && typeof value.toNumber === 'function') {
+    try {
+      return value.toNumber();
+    } catch {
+      return defaultValue;
+    }
+  }
+  
+  // Check if it's a string (from raw SQL or JSON)
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') return defaultValue;
+    const parsed = parseFloat(trimmed);
+    return isNaN(parsed) || !isFinite(parsed) ? defaultValue : parsed;
+  }
+  
+  // Fallback to Number() for plain numbers
+  const num = Number(value);
+  return isNaN(num) || !isFinite(num) ? defaultValue : num;
+}
+

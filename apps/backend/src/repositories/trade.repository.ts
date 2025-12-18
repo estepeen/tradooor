@@ -298,13 +298,27 @@ export class TradeRepository {
       orderBy: { timestamp: 'asc' },
     });
 
+    // CRITICAL FIX: Properly convert Prisma Decimal to JavaScript number
+    const safeToNumber = (value: any): number => {
+      if (value === null || value === undefined) return 0;
+      if (typeof value === 'object' && typeof value.toNumber === 'function') {
+        return value.toNumber();
+      }
+      if (typeof value === 'string') {
+        const parsed = parseFloat(value);
+        return isNaN(parsed) ? 0 : parsed;
+      }
+      const num = Number(value);
+      return isNaN(num) ? 0 : num;
+    };
+
     return trades.map(t => ({
       id: t.id,
       walletId: t.walletId,
       tokenId: t.tokenId,
       timestamp: t.timestamp,
-      amountBase: Number(t.amountBase),
-      priceBasePerToken: Number(t.priceBasePerToken),
+      amountBase: safeToNumber(t.amountBase),
+      priceBasePerToken: safeToNumber(t.priceBasePerToken),
       side: t.side,
     }));
   }

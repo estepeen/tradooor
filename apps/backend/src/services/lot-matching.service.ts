@@ -139,21 +139,39 @@ export class LotMatchingService {
       return [];
     }
 
+    // CRITICAL FIX: Properly convert Prisma Decimal to JavaScript number
+    // Prisma Decimal has .toNumber() method that MUST be used instead of Number()
+    // Number(prismaDecimal) can return NaN or incorrect values!
+    const safeToNumber = (value: any): number => {
+      if (value === null || value === undefined) return 0;
+      // Check if it's a Prisma Decimal object (has toNumber method)
+      if (typeof value === 'object' && typeof value.toNumber === 'function') {
+        return value.toNumber();
+      }
+      // Check if it's a string
+      if (typeof value === 'string') {
+        const parsed = parseFloat(value);
+        return isNaN(parsed) ? 0 : parsed;
+      }
+      const num = Number(value);
+      return isNaN(num) ? 0 : num;
+    };
+    
     // Convert Prisma trades to plain objects for compatibility
     const tradesData = filteredTrades.map(t => ({
       id: t.id,
       walletId: t.walletId,
       tokenId: t.tokenId,
       side: t.side,
-      amountToken: Number(t.amountToken),
-      amountBase: Number(t.amountBase),
-      priceBasePerToken: Number(t.priceBasePerToken),
+      amountToken: safeToNumber(t.amountToken),
+      amountBase: safeToNumber(t.amountBase),
+      priceBasePerToken: safeToNumber(t.priceBasePerToken),
       timestamp: t.timestamp,
       dex: t.dex,
       positionId: t.positionId,
-      valueUsd: t.valueUsd ? Number(t.valueUsd) : null,
-      pnlUsd: t.pnlUsd ? Number(t.pnlUsd) : null,
-      pnlPercent: t.pnlPercent ? Number(t.pnlPercent) : null,
+      valueUsd: t.valueUsd ? safeToNumber(t.valueUsd) : null,
+      pnlUsd: t.pnlUsd ? safeToNumber(t.pnlUsd) : null,
+      pnlPercent: t.pnlPercent ? safeToNumber(t.pnlPercent) : null,
       meta: t.meta as any,
     }));
 
