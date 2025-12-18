@@ -6,6 +6,7 @@
 
 import express from 'express';
 import { supabase, TABLES } from '../lib/supabase.js';
+import { prisma } from '../lib/prisma.js';
 import { PositionMonitorService } from '../services/position-monitor.service.js';
 import { TokenMarketDataService } from '../services/token-market-data.service.js';
 
@@ -20,6 +21,16 @@ const tokenMarketData = new TokenMarketDataService();
 router.get('/', async (req, res) => {
   try {
     const { status = 'open', limit = 50 } = req.query;
+    
+    // Check if Supabase is available
+    if (!supabase || typeof supabase.from !== 'function') {
+      // Return empty result if Supabase is not available
+      return res.json({
+        success: true,
+        positions: [],
+        count: 0,
+      });
+    }
     
     let query = supabase
       .from('VirtualPosition')
@@ -74,6 +85,23 @@ router.get('/', async (req, res) => {
  */
 router.get('/stats', async (req, res) => {
   try {
+    // Check if Supabase is available
+    if (!supabase || typeof supabase.from !== 'function') {
+      // Return empty stats if Supabase is not available
+      return res.json({
+        success: true,
+        stats: {
+          openPositions: 0,
+          closedPositions: 0,
+          avgOpenPnlPercent: 0,
+          avgClosedPnlPercent: 0,
+          winRate: 0,
+          exitSignals24h: 0,
+          signalsByType: {},
+        },
+      });
+    }
+    
     const { data: openPositions } = await supabase
       .from('VirtualPosition')
       .select('unrealizedPnlPercent, unrealizedPnlUsd, activeWalletCount, exitedWalletCount')
@@ -166,6 +194,14 @@ router.post('/:id/close', async (req, res) => {
     const { id } = req.params;
     const { exitReason = 'manual', exitPriceUsd } = req.body;
 
+    // Check if Supabase is available
+    if (!supabase || typeof supabase.from !== 'function') {
+      return res.status(503).json({
+        success: false,
+        error: 'Position management is not available (Supabase not configured)',
+      });
+    }
+
     // Get position
     const { data: position } = await supabase
       .from('VirtualPosition')
@@ -241,6 +277,16 @@ router.post('/update-all', async (req, res) => {
 router.get('/exit-signals/recent', async (req, res) => {
   try {
     const { hours = 24, limit = 50 } = req.query;
+    
+    // Check if Supabase is available
+    if (!supabase || typeof supabase.from !== 'function') {
+      // Return empty result if Supabase is not available
+      return res.json({
+        success: true,
+        signals: [],
+        count: 0,
+      });
+    }
     
     const { data: signals, error } = await supabase
       .from('ExitSignal')

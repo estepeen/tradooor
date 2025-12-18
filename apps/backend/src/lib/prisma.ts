@@ -21,10 +21,10 @@ function enhanceDatabaseUrl(url: string | undefined): string {
 
   // Add connection pool parameters if not present
   if (!hasConnectionLimit) {
-    urlObj.searchParams.set('connection_limit', '20'); // Increased from default 5
+    urlObj.searchParams.set('connection_limit', '50'); // Increased from default 5 (multiple workers need more connections)
   }
   if (!hasPoolTimeout) {
-    urlObj.searchParams.set('pool_timeout', '30'); // Increased from default 10 seconds
+    urlObj.searchParams.set('pool_timeout', '60'); // Increased from default 10 seconds (allow more time for connection acquisition)
   }
 
   return urlObj.toString();
