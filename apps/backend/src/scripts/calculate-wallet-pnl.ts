@@ -2,8 +2,10 @@ import 'dotenv/config';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { prisma } from '../lib/prisma.js';
 import { Prisma } from '@prisma/client';
+import { SolPriceService } from '../services/sol-price.service.js';
 
 const smartWalletRepo = new SmartWalletRepository();
+const solPriceService = new SolPriceService();
 
 async function calculateWalletPnL(walletAddress: string, daysBack: number = 7) {
   console.log(`\n💰 Calculating PnL for wallet: ${walletAddress}`);
@@ -64,23 +66,53 @@ async function calculateWalletPnL(walletAddress: string, daysBack: number = 7) {
   console.log(`📊 Found ${closedLots.length} closed lots in the last ${daysBack} days\n`);
 
   // 4. Calculate totals
+  // DŮLEŽITÉ: realizedPnlUsd je NULL v ClosedLot, takže počítáme z proceeds - costBasis
+  // a převádíme na USD pomocí historické ceny SOL v době exitTime
   let totalPnlUsd = 0;
-  let totalCostBasis = 0;
-  let totalProceeds = 0;
+  let totalCostBasisUsd = 0;
+  let totalProceedsUsd = 0;
   let winCount = 0;
   let lossCount = 0;
   let breakevenCount = 0;
 
   const lotsByToken = new Map<string, any[]>();
 
+  console.log(`🔄 Calculating PnL in USD using historical SOL prices...\n`);
+
+  // Batch fetch SOL prices for unique exit times (to reduce API calls)
+  const uniqueExitTimes = [...new Set(closedLots.map(lot => lot.exitTime.getTime()))];
+  const solPriceCache = new Map<number, number>();
+  
+  // Fetch SOL prices for unique exit times
+  for (const exitTimeMs of uniqueExitTimes) {
+    const exitDate = new Date(exitTimeMs);
+    try {
+      const solPrice = await solPriceService.getSolPriceUsdAtDate(exitDate);
+      solPriceCache.set(exitTimeMs, solPrice);
+    } catch (error: any) {
+      console.warn(`⚠️  Failed to fetch SOL price for ${exitDate.toISOString()}, using current price`);
+      const currentPrice = await solPriceService.getSolPriceUsd();
+      solPriceCache.set(exitTimeMs, currentPrice);
+    }
+  }
+
   for (const lot of closedLots) {
-    const pnlUsd = lot.realizedPnlUsd ? Number(lot.realizedPnlUsd) : 0;
-    const costBasis = Number(lot.costBasis || 0);
-    const proceeds = Number(lot.proceeds || 0);
+    const costBasis = Number(lot.costBasis || 0); // V SOL/base měně
+    const proceeds = Number(lot.proceeds || 0); // V SOL/base měně
+    const realizedPnl = Number(lot.realizedPnl || 0); // V SOL/base měně (proceeds - costBasis)
+    
+    // Get SOL price at exit time
+    const exitTimeMs = lot.exitTime.getTime();
+    const solPriceUsd = solPriceCache.get(exitTimeMs) || await solPriceService.getSolPriceUsd();
+    
+    // Convert to USD
+    const costBasisUsd = costBasis * solPriceUsd;
+    const proceedsUsd = proceeds * solPriceUsd;
+    const pnlUsd = realizedPnl * solPriceUsd; // Použij realizedPnl (což je proceeds - costBasis)
 
     totalPnlUsd += pnlUsd;
-    totalCostBasis += costBasis;
-    totalProceeds += proceeds;
+    totalCostBasisUsd += costBasisUsd;
+    totalProceedsUsd += proceedsUsd;
 
     if (pnlUsd > 0.01) {
       winCount++;
@@ -94,10 +126,15 @@ async function calculateWalletPnL(walletAddress: string, daysBack: number = 7) {
     if (!lotsByToken.has(lot.tokenId)) {
       lotsByToken.set(lot.tokenId, []);
     }
-    lotsByToken.get(lot.tokenId)!.push(lot);
+    lotsByToken.get(lot.tokenId)!.push({
+      ...lot,
+      pnlUsd, // Add calculated PnL USD
+      costBasisUsd,
+      proceedsUsd,
+    });
   }
 
-  const totalPnlPercent = totalCostBasis > 0 ? (totalPnlUsd / totalCostBasis) * 100 : 0;
+  const totalPnlPercent = totalCostBasisUsd > 0 ? (totalPnlUsd / totalCostBasisUsd) * 100 : 0;
   const winRate = closedLots.length > 0 ? (winCount / closedLots.length) * 100 : 0;
 
   // 5. Display results
@@ -112,8 +149,8 @@ async function calculateWalletPnL(walletAddress: string, daysBack: number = 7) {
   console.log(`Win Rate: ${winRate.toFixed(2)}%`);
   console.log(``);
   console.log(`💰 Total PnL (USD): $${totalPnlUsd.toFixed(2)}`);
-  console.log(`   Cost Basis: $${totalCostBasis.toFixed(2)}`);
-  console.log(`   Proceeds: $${totalProceeds.toFixed(2)}`);
+  console.log(`   Cost Basis (USD): $${totalCostBasisUsd.toFixed(2)}`);
+  console.log(`   Proceeds (USD): $${totalProceedsUsd.toFixed(2)}`);
   console.log(`   PnL %: ${totalPnlPercent.toFixed(2)}%`);
   console.log(`═══════════════════════════════════════════════════════════\n`);
 
@@ -121,9 +158,9 @@ async function calculateWalletPnL(walletAddress: string, daysBack: number = 7) {
   if (lotsByToken.size > 0) {
     console.log(`📊 Breakdown by Token (Top 10):\n`);
     const tokenStats = Array.from(lotsByToken.entries()).map(([tokenId, lots]) => {
-      const tokenPnlUsd = lots.reduce((sum, lot) => sum + (lot.realizedPnlUsd ? Number(lot.realizedPnlUsd) : 0), 0);
-      const tokenCostBasis = lots.reduce((sum, lot) => sum + Number(lot.costBasis || 0), 0);
-      const tokenPnlPercent = tokenCostBasis > 0 ? (tokenPnlUsd / tokenCostBasis) * 100 : 0;
+      const tokenPnlUsd = lots.reduce((sum, lot) => sum + (lot.pnlUsd || 0), 0);
+      const tokenCostBasisUsd = lots.reduce((sum, lot) => sum + (lot.costBasisUsd || 0), 0);
+      const tokenPnlPercent = tokenCostBasisUsd > 0 ? (tokenPnlUsd / tokenCostBasisUsd) * 100 : 0;
       return {
         tokenId,
         token: lots[0].token,
@@ -148,9 +185,16 @@ async function calculateWalletPnL(walletAddress: string, daysBack: number = 7) {
   // 7. Show recent closed lots (last 10)
   if (closedLots.length > 0) {
     console.log(`📋 Recent Closed Lots (Last 10):\n`);
-    closedLots.slice(0, 10).forEach((lot, index) => {
+    // Recalculate PnL for display (we need to get it from the lotsByToken map)
+    const recentLotsWithPnl = closedLots.slice(0, 10).map(lot => {
+      const tokenLots = lotsByToken.get(lot.tokenId) || [];
+      const lotWithPnl = tokenLots.find(l => l.id === lot.id);
+      return lotWithPnl || lot;
+    });
+    
+    recentLotsWithPnl.forEach((lot, index) => {
       const symbol = lot.token?.symbol || lot.tokenId.substring(0, 8);
-      const pnlUsd = lot.realizedPnlUsd ? Number(lot.realizedPnlUsd) : 0;
+      const pnlUsd = lot.pnlUsd || 0;
       const pnlPercent = lot.realizedPnlPercent ? Number(lot.realizedPnlPercent) : 0;
       const sign = pnlUsd >= 0 ? '+' : '';
       const exitTime = new Date(lot.exitTime).toLocaleString();
