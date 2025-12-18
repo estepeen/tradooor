@@ -20,11 +20,14 @@ function enhanceDatabaseUrl(url: string | undefined): string {
   const hasPoolTimeout = urlObj.searchParams.has('pool_timeout');
 
   // Add connection pool parameters if not present
+  // IMPORTANT: Keep connection_limit LOW because we have multiple PM2 processes
+  // Each process gets its own pool, so: 5 processes × 10 connections = 50 total
+  // PostgreSQL default max_connections is usually 100
   if (!hasConnectionLimit) {
-    urlObj.searchParams.set('connection_limit', '50'); // Increased from default 5 (multiple workers need more connections)
+    urlObj.searchParams.set('connection_limit', '10'); // Low per-process limit (multiple workers share DB)
   }
   if (!hasPoolTimeout) {
-    urlObj.searchParams.set('pool_timeout', '60'); // Increased from default 10 seconds (allow more time for connection acquisition)
+    urlObj.searchParams.set('pool_timeout', '30'); // Reasonable timeout
   }
 
   return urlObj.toString();
