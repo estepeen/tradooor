@@ -381,39 +381,32 @@ router.get('/consensus-notifications', async (req, res) => {
       console.warn(`⚠️  Error fetching existing signals from database: ${dbError.message}. Will compute new ones.`);
     }
 
-    // Pokud není k dispozici SUPABASE_URL (Prisma-only režim), neprováděj fallback výpočet z trades
-    if (!process.env.SUPABASE_URL) {
-      return res.json({
-        notifications: [],
-        total: 0,
-      });
-    }
-
     const since = new Date(Date.now() - hours * 60 * 60 * 1000);
 
-    // 1. Najdi všechny BUY trades za poslední hodinu
-    const { data: recentBuys, error: buysError } = await supabase
-      .from(TABLES.TRADE)
-      .select(`
-        id,
-        walletId,
-        tokenId,
-        timestamp,
-        amountBase,
-        amountToken,
-        priceBasePerToken,
-        txSignature,
-        token:${TABLES.TOKEN}(id, symbol, name, mintAddress),
-        wallet:${TABLES.SMART_WALLET}(id, address, label)
-      `)
-      .eq('side', 'buy')
-      .neq('side', 'void')
-      .gte('timestamp', since.toISOString())
-      .order('timestamp', { ascending: false });
-
-    if (buysError) {
-      throw new Error(`Failed to fetch recent buys: ${buysError.message}`);
-    }
+    // 1. Najdi všechny BUY trades za poslední hodinu pomocí Prisma
+    const recentBuys = await prisma.trade.findMany({
+      where: {
+        side: 'buy',
+        timestamp: { gte: since },
+      },
+      orderBy: { timestamp: 'desc' },
+      select: {
+        id: true,
+        walletId: true,
+        tokenId: true,
+        timestamp: true,
+        amountBase: true,
+        amountToken: true,
+        priceBasePerToken: true,
+        txSignature: true,
+        token: {
+          select: { id: true, symbol: true, name: true, mintAddress: true },
+        },
+        wallet: {
+          select: { id: true, address: true, label: true },
+        },
+      },
+    });
 
     if (!recentBuys || recentBuys.length === 0) {
       return res.json({

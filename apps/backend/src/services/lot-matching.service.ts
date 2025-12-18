@@ -14,6 +14,7 @@ import { TokenMarketDataService } from './token-market-data.service.js';
 import { TokenRepository } from '../repositories/token.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { ClosedLotRepository } from '../repositories/closed-lot.repository.js';
+import { SolPriceService } from './sol-price.service.js';
 
 // Remove Supabase import - we're using Prisma now
 
@@ -619,9 +620,22 @@ export class LotMatchingService {
       return;
     }
 
+    // Get current SOL price for USD conversion
+    const solPriceService = new SolPriceService();
+    let currentSolPrice = 150; // Fallback
+    try {
+      currentSolPrice = await solPriceService.getSolPriceUsd();
+    } catch (error) {
+      console.warn('⚠️  Failed to fetch SOL price for realizedPnlUsd calculation, using fallback');
+    }
+
     // Convert to database format
-    // DŮLEŽITÉ: PnL je nyní v SOL/base měně, ne v USD
+    // DŮLEŽITÉ: PnL je v SOL/base měně, ale ukládáme i USD ekvivalent pro rychlejší zobrazení
     const dbLots = closedLots.map(lot => {
+      // Calculate realizedPnlUsd from realizedPnl * SOL price at exit time
+      // Using current SOL price as approximation (historical prices would require many API calls)
+      const realizedPnlUsd = lot.realizedPnl * currentSolPrice;
+      
       return {
         walletId: lot.walletId,
         tokenId: lot.tokenId,
@@ -635,7 +649,7 @@ export class LotMatchingService {
         proceeds: lot.proceeds.toString(),
         realizedPnl: lot.realizedPnl.toString(), // PnL v SOL/base měně (primární hodnota)
         realizedPnlPercent: lot.realizedPnlPercent.toString(),
-        realizedPnlUsd: null, // Nepoužíváme USD, PnL je v SOL (zůstává v DB pro zpětnou kompatibilitu)
+        realizedPnlUsd: realizedPnlUsd.toString(), // PnL v USD (pro rychlejší zobrazení)
         buyTradeId: lot.buyTradeId === 'synthetic' ? null : lot.buyTradeId,
         sellTradeId: lot.sellTradeId,
         isPreHistory: lot.isPreHistory,

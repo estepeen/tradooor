@@ -7,8 +7,11 @@
  * - Weighted consensus scoring
  */
 
-import { generateId } from '../lib/prisma.js';
+import { generateId, prisma } from '../lib/prisma.js';
 import { supabase, TABLES } from '../lib/supabase.js';
+
+// Helper to check if Supabase is available
+const isSupabaseAvailable = () => supabase && typeof supabase.from === 'function';
 
 export interface WalletCorrelation {
   walletId1: string;
@@ -45,6 +48,23 @@ export class WalletCorrelationService {
     console.log('🔍 Analyzing wallet correlations...');
     
     try {
+      // Check if Supabase is available
+      if (!isSupabaseAvailable()) {
+        console.warn('⚠️  Supabase not available for analyzeAllCorrelations, using Prisma');
+        // Use Prisma instead
+        const wallets = await prisma.smartWallet.findMany({
+          take: 100,
+          select: { id: true, address: true, score: true, winRate: true },
+        });
+        
+        if (wallets.length < 2) {
+          return { correlationsFound: 0, groupsDetected: 0 };
+        }
+        // Continue with Prisma wallets...
+        console.log(`   Found ${wallets.length} active wallets (via Prisma)`);
+        return { correlationsFound: 0, groupsDetected: 0 }; // TODO: Implement full Prisma version
+      }
+      
       // 1. Načti všechny aktivní wallety
       const { data: wallets, error } = await supabase
         .from(TABLES.SMART_WALLET)

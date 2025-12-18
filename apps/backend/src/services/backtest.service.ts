@@ -7,8 +7,11 @@
  * - Optimalizuje parametry
  */
 
-import { generateId } from '../lib/prisma.js';
+import { generateId, prisma } from '../lib/prisma.js';
 import { supabase, TABLES } from '../lib/supabase.js';
+
+// Helper to check if Supabase is available
+const isSupabaseAvailable = () => supabase && typeof supabase.from === 'function';
 
 export interface BacktestConfig {
   name: string;
@@ -133,6 +136,12 @@ export class BacktestService {
    * Načte historické signály
    */
   private async loadHistoricalSignals(config: BacktestConfig): Promise<any[]> {
+    // Check if Supabase is available
+    if (!isSupabaseAvailable()) {
+      console.warn('⚠️  Supabase not available for loadHistoricalSignals');
+      return [];
+    }
+    
     let query = supabase
       .from(TABLES.SIGNAL)
       .select(`
@@ -457,11 +466,15 @@ export class BacktestService {
       exitReason: t.exitReason,
     }));
 
-    // Insert in batches
-    const batchSize = 100;
-    for (let i = 0; i < records.length; i += batchSize) {
-      const batch = records.slice(i, i + batchSize);
-      await supabase.from('BacktestTrade').insert(batch);
+    // Insert in batches (only if Supabase is available)
+    if (isSupabaseAvailable()) {
+      const batchSize = 100;
+      for (let i = 0; i < records.length; i += batchSize) {
+        const batch = records.slice(i, i + batchSize);
+        await supabase.from('BacktestTrade').insert(batch);
+      }
+    } else {
+      console.warn('⚠️  Supabase not available for saveBacktestTrades');
     }
   }
 
@@ -469,6 +482,12 @@ export class BacktestService {
    * Get all backtest runs
    */
   async getBacktestRuns(limit: number = 20): Promise<any[]> {
+    // Check if Supabase is available
+    if (!isSupabaseAvailable()) {
+      console.warn('⚠️  Supabase not available for getBacktestRuns');
+      return [];
+    }
+    
     const { data, error } = await supabase
       .from('BacktestRun')
       .select('*')
