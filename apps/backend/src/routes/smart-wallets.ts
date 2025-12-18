@@ -1255,6 +1255,7 @@ router.get('/:id/portfolio', async (req, res) => {
 
 // GET /api/smart-wallets/:id/pnl - Get PnL data for different time periods
 // Supports both ID (database ID) and address (wallet address)
+// DŮLEŽITÉ: PnL se počítá POUZE z ClosedLot (jednotný princip s metrics calculator)
 router.get('/:id/pnl', async (req, res) => {
   try {
     const identifier = req.params.id;
@@ -1268,11 +1269,20 @@ router.get('/:id/pnl', async (req, res) => {
     }
     const walletId = wallet.id;
 
-    // Get all trades for this wallet
+    // DŮLEŽITÉ: Použij ClosedLot místo trades pro konzistentní výpočet PnL
+    // ClosedLot jsou fixní a nezávislé na aktuálních cenách
+    const { ClosedLotRepository } = await import('../repositories/closed-lot.repository.js');
+    const closedLotRepo = new ClosedLotRepository();
+    
+    // Get all closed lots for this wallet
+    const allClosedLots = await closedLotRepo.findByWallet(walletId);
+    
+    // Get all trades for volume calculation (volume = sum of all trades, not just closed lots)
     const allTrades = await tradeRepo.findByWalletId(walletId, {
       page: 1,
       pageSize: 10000, // Get all trades
     });
+    const trades = allTrades.trades;
 
     // Calculate PnL for different periods
     const now = new Date();
@@ -1282,37 +1292,56 @@ router.get('/:id/pnl', async (req, res) => {
       '14d': new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000),
       '30d': new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
     };
-
-    // Build positions from trades
-    const positions = await metricsCalculator.buildPositionsFromTrades(walletId);
-    
-    // Get ALL trades for USD calculation (don't pre-filter by 1d)
-    const trades = allTrades.trades;
     
     const pnlData: Record<string, { pnl: number; pnlUsd: number; pnlPercent: number; trades: number; volumeBase: number; volumeTrades: number }> = {};
     
     for (const [period, fromDate] of Object.entries(periods)) {
-      const periodPositions = positions.filter(
-        p => p.sellTimestamp && p.sellTimestamp >= fromDate
-      );
+      // Filter closed lots by exitTime (when the lot was closed)
+      const periodClosedLots = allClosedLots.filter(lot => {
+        if (!lot.exitTime) return false;
+        const exitTime = new Date(lot.exitTime);
+        return exitTime >= fromDate && exitTime <= now;
+      });
 
-      // Vypočti celkový PnL (suma hodnot, ne procent)
-      const totalBuyValue = periodPositions.reduce((sum, p) => {
-        return sum + Number(p.buyPrice) * Number(p.buyAmount);
+      // Calculate PnL from ClosedLot (in base currency - SOL/USDC/USDT)
+      // DŮLEŽITÉ: realizedPnl je v base měně (SOL), ne v USD
+      const totalPnl = periodClosedLots.reduce((sum, lot) => {
+        return sum + (lot.realizedPnl || 0);
       }, 0);
 
-      const totalSellValue = periodPositions.reduce((sum, p) => {
-        return sum + Number(p.sellPrice!) * Number(p.sellAmount!);
-      }, 0);
+      // Calculate PnL in USD from ClosedLot.realizedPnlUsd
+      // Pokud realizedPnlUsd není k dispozici, použij realizedPnl * current SOL price
+      let totalPnlUsd = 0;
+      let totalCostBasis = 0;
+      
+      // Get current SOL price for conversion (if needed)
+      const { BinancePriceService } = await import('../services/binance-price.service.js');
+      const binancePriceService = new BinancePriceService();
+      let solPriceUsd = 150; // Default fallback
+      try {
+        solPriceUsd = await binancePriceService.getCurrentSolPrice();
+      } catch (error) {
+        console.warn(`⚠️  Failed to fetch SOL price, using fallback: ${solPriceUsd}`);
+      }
 
-      const pnl = totalSellValue - totalBuyValue;
+      for (const lot of periodClosedLots) {
+        // Prefer realizedPnlUsd if available, otherwise convert from realizedPnl
+        if (lot.realizedPnlUsd !== null && lot.realizedPnlUsd !== undefined) {
+          totalPnlUsd += lot.realizedPnlUsd;
+        } else {
+          // Convert from base currency to USD using current SOL price
+          totalPnlUsd += (lot.realizedPnl || 0) * solPriceUsd;
+        }
+        totalCostBasis += (lot.costBasis || 0) * solPriceUsd; // Convert cost basis to USD for ROI calculation
+      }
 
-      // Vypočti PnL v procentech správně (celkový ROI, ne průměr jednotlivých pozic)
-      const pnlPercent = totalBuyValue > 0
-        ? ((pnl / totalBuyValue) * 100)
+      // Calculate PnL percentage (ROI)
+      const pnlPercent = totalCostBasis > 0
+        ? (totalPnlUsd / totalCostBasis) * 100
         : 0;
 
-      // Calculate PnL in USD from trades - filter by date and exclude void trades
+      // Volume = sum of all trade values (valueUsd) in this period
+      // Volume is calculated from trades, not closed lots (includes all trades, not just closed positions)
       const periodTrades = trades.filter(t => {
         const tradeDate = new Date(t.timestamp);
         const side = (t.side || '').toLowerCase();
@@ -1322,21 +1351,6 @@ router.get('/:id/pnl', async (req, res) => {
         return isInPeriod && isNotVoid;
       });
 
-      let buyValueUsd = 0;
-      let sellValueUsd = 0;
-      for (const trade of periodTrades) {
-        // Use valueUsd if available (preferred), otherwise amountBase (which is now in USD)
-        const valueUsd = Number(trade.valueUsd || trade.amountBase || 0);
-        if (trade.side === 'buy') {
-          buyValueUsd += valueUsd;
-        } else if (trade.side === 'sell') {
-          sellValueUsd += valueUsd;
-        }
-      }
-      const pnlUsd = sellValueUsd - buyValueUsd;
-
-      // Volume = jednoduše součet všech VALUE (valueUsd) trades v daném období
-      // Volume = sum of all trade values (valueUsd column)
       const volumeBase = periodTrades.reduce((sum, trade) => {
         // Použij valueUsd (sloupec VALUE) - pokud není, použij amountBase jako fallback
         const valueUsd = trade.valueUsd != null ? Number(trade.valueUsd) : null;
@@ -1346,29 +1360,42 @@ router.get('/:id/pnl', async (req, res) => {
       }, 0);
 
       pnlData[period] = {
-        pnl,
-        pnlUsd,
-        pnlPercent,
-        trades: periodPositions.length,
-        volumeBase, // Volume v SOL/base měně
+        pnl: totalPnl, // PnL v base měně (SOL)
+        pnlUsd: totalPnlUsd, // PnL v USD
+        pnlPercent, // ROI v %
+        trades: periodClosedLots.length, // Počet closed lots (uzavřených pozic)
+        volumeBase, // Volume v USD (součet všech trades)
         volumeTrades: periodTrades.length, // Počet všech trades (BUY + SELL) v tomto období
       };
     }
 
-    // Get daily PnL data for charts
+    // Get daily PnL data for charts from ClosedLot
     const dailyPnl: Array<{ date: string; pnl: number; cumulativePnl: number }> = [];
-    const positionsByDate = new Map<string, number>();
+    const lotsByDate = new Map<string, number>();
     
-    positions
-      .filter(p => p.sellTimestamp)
-      .forEach(p => {
-        const date = new Date(p.sellTimestamp!).toISOString().split('T')[0];
-        const positionPnl = (Number(p.sellPrice!) - Number(p.buyPrice)) * Number(p.buyAmount);
-        positionsByDate.set(date, (positionsByDate.get(date) || 0) + positionPnl);
+    // Get current SOL price for conversion
+    const { BinancePriceService } = await import('../services/binance-price.service.js');
+    const binancePriceService = new BinancePriceService();
+    let solPriceUsd = 150; // Default fallback
+    try {
+      solPriceUsd = await binancePriceService.getCurrentSolPrice();
+    } catch (error) {
+      console.warn(`⚠️  Failed to fetch SOL price, using fallback: ${solPriceUsd}`);
+    }
+    
+    allClosedLots
+      .filter(lot => lot.exitTime)
+      .forEach(lot => {
+        const date = new Date(lot.exitTime!).toISOString().split('T')[0];
+        // Use realizedPnlUsd if available, otherwise convert from realizedPnl
+        const lotPnlUsd = lot.realizedPnlUsd !== null && lot.realizedPnlUsd !== undefined
+          ? lot.realizedPnlUsd
+          : (lot.realizedPnl || 0) * solPriceUsd;
+        lotsByDate.set(date, (lotsByDate.get(date) || 0) + lotPnlUsd);
       });
 
     let cumulativePnl = 0;
-    Array.from(positionsByDate.entries())
+    Array.from(lotsByDate.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
       .forEach(([date, pnl]) => {
         cumulativePnl += pnl;

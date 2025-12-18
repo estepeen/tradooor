@@ -69,6 +69,7 @@
     "analyze-missing-trades": "tsx src/scripts/analyze-missing-trades.ts",
     "check-transaction": "tsx src/scripts/check-transaction.ts",
     "backfill-wallet-trades": "tsx src/scripts/backfill-wallet-trades.ts",
+    "calculate-wallet-pnl": "tsx src/scripts/calculate-wallet-pnl.ts",
     "delete-trade": "tsx src/scripts/delete-trade.ts",
     "reprocess-void-trades": "tsx src/scripts/reprocess-void-trades.ts",
     "recalculate-positions": "tsx src/scripts/recalculate-positions.ts",
