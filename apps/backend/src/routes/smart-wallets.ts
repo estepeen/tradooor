@@ -1277,6 +1277,11 @@ router.get('/:id/pnl', async (req, res) => {
     // Get all closed lots for this wallet
     const allClosedLots = await closedLotRepo.findByWallet(walletId);
     
+    // #region agent log
+    const sample5Lots = allClosedLots.slice(0,5).map(l=>({realizedPnl:l.realizedPnl,realizedPnlUsd:l.realizedPnlUsd,exitTime:l.exitTime?.toISOString?.()}));
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1278',message:'DETAIL PAGE - all ClosedLots loaded',data:{walletId,totalLots:allClosedLots.length,sample5Lots},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
+    // #endregion
+    
     // Get all trades for volume calculation (volume = sum of all trades, not just closed lots)
     const allTrades = await tradeRepo.findByWalletId(walletId, {
       page: 1,
@@ -1334,6 +1339,12 @@ router.get('/:id/pnl', async (req, res) => {
         }
         totalCostBasis += (lot.costBasis || 0) * solPriceUsd; // Convert cost basis to USD for ROI calculation
       }
+
+      // #region agent log
+      if(period==='30d'){
+        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1337',message:'DETAIL PAGE - 30d PnL calculated',data:{period,periodLotsCount:periodClosedLots.length,totalPnlUsd,totalCostBasis,solPriceUsd},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
+      }
+      // #endregion
 
       // Calculate PnL percentage (ROI)
       const pnlPercent = totalCostBasis > 0
