@@ -326,7 +326,7 @@ export default function WalletDetailPage() {
                       ? (
                         <>
                           <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            ${formatNumber(Math.abs(data.pnlUsd), 2)}
+                            {formatNumber(Math.abs(data.pnlUsd), 6)} SOL
                           </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
