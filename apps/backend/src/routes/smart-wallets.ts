@@ -1049,15 +1049,7 @@ router.get('/:id/portfolio', async (req, res) => {
     
     // DŮLEŽITÉ: Vytvoříme samostatnou closed position pro každý BUY-SELL cyklus (skupina ClosedLots se stejným sellTradeId)
     // Tím zajistíme, že každý cyklus pro stejný token bude samostatná pozice s řadovým označením (1., 2., 3. atd.)
-    const convertBaseToUsd = (
-      amountBase: number | null | undefined,
-      tradeId: string | null | undefined
-    ) => {
-      if (!amountBase || !tradeId) return null;
-      const ratio = tradeUsdRatioMap.get(tradeId);
-      if (!ratio || !Number.isFinite(ratio)) return null;
-      return amountBase * ratio;
-    };
+    // DŮLEŽITÉ: Všechny hodnoty jsou nyní v SOL (ne v USD!) - odstranili jsme convertBaseToUsd funkci
 
     const closedPositionsFromLots: any[] = [];
     if (closedLots && closedLots.length > 0) {
@@ -1100,27 +1092,11 @@ router.get('/:id/portfolio', async (req, res) => {
         const effectiveCostBase = totalCostBase > 0 ? totalCostBase : (totalProceedsBase - totalRealizedPnl);
         const realizedPnlPercent = effectiveCostBase > 0 ? (totalRealizedPnl / effectiveCostBase) * 100 : 0;
 
-        let totalCostUsd = 0;
-        let totalProceedsUsd = 0;
-        let costUsdCount = 0;
-        let proceedsUsdCount = 0;
-        for (const lot of lotsForSell) {
-          const costUsd = convertBaseToUsd(Number(lot.costBasis || 0), lot.buyTradeId);
-          if (costUsd !== null) {
-            totalCostUsd += costUsd;
-            costUsdCount++;
-          }
-          const proceedsUsd = convertBaseToUsd(Number(lot.proceeds || 0), lot.sellTradeId || sellTradeId);
-          if (proceedsUsd !== null) {
-            totalProceedsUsd += proceedsUsd;
-            proceedsUsdCount++;
-          }
-        }
-        const totalCostUsdValue = costUsdCount > 0 ? totalCostUsd : null;
-        const totalProceedsUsdValue = proceedsUsdCount > 0 ? totalProceedsUsd : null;
-        const realizedPnlUsd = totalCostUsdValue !== null && totalProceedsUsdValue !== null
-          ? totalProceedsUsdValue - totalCostUsdValue
-          : null;
+        // DŮLEŽITÉ: Všechny hodnoty jsou nyní v SOL (ne v USD!)
+        // Odstranili jsme přepočet na USD - vše je v SOL
+        const realizedPnlUsd = totalRealizedPnl; // Kompatibilita - frontend očekává pnlUsd, ale obsahuje SOL
+        const totalCostUsdValue = totalCostBase; // Kompatibilita - obsahuje SOL
+        const totalProceedsUsdValue = totalProceedsBase; // Kompatibilita - obsahuje SOL
         
         const entryTime = new Date(firstLot.entryTime);
         const exitTime = new Date(lastLot.exitTime);
@@ -1136,10 +1112,10 @@ router.get('/:id/portfolio', async (req, res) => {
           totalSold: 0,
           totalInvested: 0,
           totalSoldValue: 0,
-          totalCostBase,
-          totalProceedsBase,
-          totalCostUsd: totalCostUsdValue,
-          totalProceedsUsd: totalProceedsUsdValue,
+          totalCostBase, // V SOL
+          totalProceedsBase, // V SOL
+          totalCostUsd: totalCostUsdValue, // V SOL (kompatibilita - obsahuje SOL hodnoty)
+          totalProceedsUsd: totalProceedsUsdValue, // V SOL (kompatibilita - obsahuje SOL hodnoty)
           averageBuyPrice: 0,
           buyCount: lotsForSell.length, // Počet lots = počet BUY/ADD trades
           sellCount: 1, // Jeden SELL trade

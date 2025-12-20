@@ -467,7 +467,7 @@ export default function WalletDetailPage() {
                                   }`}>
                                     {closedPnl !== null && closedPnl !== undefined ? (
                                       <>
-                                        ${formatNumber(Math.abs(closedPnl), 2)} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent(closedPnlPercent / 100)})
+                                        {formatNumber(Math.abs(closedPnl), 6)} SOL ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent(closedPnlPercent / 100)})
                                       </>
                                     ) : '-'}
                                   </td>
@@ -728,7 +728,7 @@ export default function WalletDetailPage() {
                             <td className="py-2 font-medium uppercase">{label}</td>
                             <td className={`text-right py-2 ${stats.realizedPnlUsd >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                               {stats.realizedPnlUsd >= 0 ? '+' : ''}
-                              ${formatNumber(stats.realizedPnlUsd, 2)}
+                              {formatNumber(stats.realizedPnlUsd, 6)} SOL
                             </td>
                             <td className="text-right py-2">
                               {formatPercent((stats.realizedRoiPercent ?? 0) / 100)}
