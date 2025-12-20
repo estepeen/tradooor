@@ -634,6 +634,8 @@ export default function WalletDetailPage() {
                             >
                               {isVoid 
                                 ? 'void' 
+                                : trade.amountBaseSol !== undefined && trade.amountBaseSol !== null
+                                ? `${formatNumber(Number(trade.amountBaseSol), 6)} SOL`
                                 : trade.amountBase
                                 ? `${formatNumber(Number(trade.amountBase), 6)} SOL`
                                 : '-'}
@@ -647,7 +649,9 @@ export default function WalletDetailPage() {
                                   : 'text-red-400'
                               }`}
                             >
-                            {isVoid ? '-' : `$${formatNumber(Number(trade.priceBasePerToken), 6)}`}
+                            {isVoid ? '-' : trade.priceUsd !== null && trade.priceUsd !== undefined
+                              ? `$${formatNumber(Number(trade.priceUsd), 6)}`
+                              : `$${formatNumber(Number(trade.priceBasePerToken), 6)}`}
                           </td>
                             <td
                               className={`px-4 py-3 text-right text-sm font-mono ${
@@ -658,7 +662,9 @@ export default function WalletDetailPage() {
                                   : 'text-red-400'
                               }`}
                             >
-                              {isVoid ? '-' : `$${formatNumber(Number(trade.amountBase), 6)}`}
+                              {isVoid ? '-' : trade.amountToken
+                                ? `${formatNumber(Number(trade.amountToken), 2)} ${trade.token?.symbol || ''}`
+                                : '-'}
                           </td>
                         </tr>
                       );

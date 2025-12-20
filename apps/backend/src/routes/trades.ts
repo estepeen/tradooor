@@ -123,26 +123,43 @@ router.get('/', async (req, res) => {
           computedValueUsd = amountBase;
         }
 
-        // DŮLEŽITÉ: amountBase je nyní VŽDY v SOL (USDC/USDT se převádějí při ukládání)
-        // Explicitně přepiš amountBase, amountToken, priceBasePerToken jako čísla
+        // DŮLEŽITÉ: Převod amountBase na SOL pro zobrazení
+        // Pokud je trade v USDC/USDT, převedeme na SOL pomocí historické SOL ceny
+        let amountBaseSol = amountBase; // Výchozí hodnota (pokud je už v SOL)
+        if (baseToken === 'USDC' || baseToken === 'USDT') {
+          try {
+            const tradeTimestamp = new Date(t.timestamp);
+            const solPriceUsd = await binancePriceService.getSolPriceAtTimestamp(tradeTimestamp);
+            if (solPriceUsd && solPriceUsd > 0) {
+              // amountBase je v USDC/USDT (1:1 USD), převedeme na SOL
+              amountBaseSol = amountBase / solPriceUsd;
+            }
+          } catch (error: any) {
+            console.warn(`Failed to convert ${baseToken} to SOL for trade ${t.txSignature}: ${error.message}`);
+            // Pokud se nepodaří převést, použij amountBase (bude to v USDC/USDT, ale lepší než nic)
+          }
+        }
+
+        // DŮLEŽITÉ: Explicitně přepiš amountBase, amountToken, priceBasePerToken jako čísla
         // aby se předešlo problémům s Prisma Decimal serializací
         const { amountBase: _, amountToken: __, priceBasePerToken: ___, ...rest } = t;
         return {
           ...rest,
           token,
           amountToken, // Explicitně jako number
-          amountBase, // V SOL (vždy, i když původně bylo v USDC/USDT)
-          priceBasePerToken, // V SOL (vždy, i když původně bylo v USDC/USDT)
-          // entryPrice = priceBasePerToken (cena v SOL za 1 token)
+          amountBase, // Explicitně jako number (v původní base měně - SOL/USDC/USDT)
+          amountBaseSol, // Převod na SOL (pro zobrazení)
+          priceBasePerToken, // Explicitně jako number
+          // entryPrice = priceBasePerToken (cena v base měně za 1 token)
           entryPrice: priceBasePerToken,
-          // entryCost (pro BUY) nebo proceedsBase (pro SELL) = amountBase (v SOL)
+          // entryCost (pro BUY) nebo proceedsBase (pro SELL) = amountBase
           entryCost: t.side === 'buy' ? amountBase : null,
           proceedsBase: t.side === 'sell' ? amountBase : null,
-          baseToken: 'SOL', // Vždy SOL (konverze se udělala při ukládání)
-          // USD cena tokenu (vypočítaná pomocí Binance API) - pouze pro zobrazení token price
-          priceUsd, // Cena tokenu v USD z doby obchodu (pro zobrazení)
-          // USD hodnoty - pouze pro zobrazení token price
-          valueUsd: computedValueUsd, // USD hodnota (pro zobrazení token price)
+          baseToken, // SOL, USDC, USDT
+          // USD cena tokenu (vypočítaná pomocí Binance API)
+          priceUsd, // Cena tokenu v USD z doby obchodu
+          // USD hodnoty - pouze pro zobrazení
+          valueUsd: computedValueUsd,
           pnlUsd: toNumber(t.pnlUsd),
           pnlPercent: toNumber(t.pnlPercent),
         };
