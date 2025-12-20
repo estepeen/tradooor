@@ -51,6 +51,7 @@
     "debug:pnl-percentages": "tsx src/scripts/debug-pnl-percentages.ts",
     "debug:pnl-display": "tsx src/scripts/debug-pnl-display.ts",
     "check:wallet-trades": "tsx src/scripts/check-wallet-trades.ts",
+    "reset:all-trades": "tsx src/scripts/reset-all-trades.ts",
     "paper-trading:monitor": "tsx src/workers/paper-trading-monitor.ts",
     "reset:paper-trading": "tsx src/scripts/reset-paper-trading.ts",
     "reset:signals": "tsx src/scripts/reset-signals.ts",
