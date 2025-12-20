@@ -316,17 +316,31 @@ export default function WalletDetailPage() {
             {(['1d', '7d', '14d', '30d'] as const).map((period) => {
               const data = pnlData.periods[period];
               if (!data) return null;
+              
+              // DEBUG: Log PnL data
+              if (period === '30d') {
+                console.log(`🔍 [Frontend] PnL ${period}:`, {
+                  pnlUsd: data.pnlUsd,
+                  pnl: data.pnl,
+                  pnlPercent: data.pnlPercent,
+                  trades: data.trades,
+                });
+              }
+              
+              // Use pnl (SOL) if available, otherwise pnlUsd (which should also be SOL now)
+              const pnlValue = data.pnl !== undefined && data.pnl !== null ? data.pnl : data.pnlUsd;
+              
               return (
                 <div key={period} style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
                   <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">PnL ({period})</div>
                   <div className={`${
                     data.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'
                   }`}>
-                    {data.pnlUsd !== undefined && data.pnlUsd !== null
+                    {pnlValue !== undefined && pnlValue !== null
                       ? (
                         <>
                           <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            {formatNumber(Math.abs(data.pnlUsd), 6)} SOL
+                            {formatNumber(Math.abs(pnlValue), 6)} SOL
                           </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>

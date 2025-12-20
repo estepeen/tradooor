@@ -1333,6 +1333,12 @@ router.get('/:id/pnl', async (req, res) => {
         volumeBase, // Volume v SOL (součet všech trades)
         volumeTrades: periodTrades.length, // Počet všech trades (BUY + SELL) v tomto období
       };
+      
+      // #region agent log - Debug period PnL calculation
+      if (period === '30d') {
+        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1330',message:'30d PnL period calculation',data:{period,totalPnl,pnlPercent,periodLotsCount:periodClosedLots.length,volumeBase},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
+      }
+      // #endregion
     }
 
     // Get daily PnL data for charts from ClosedLot (všechny hodnoty jsou v SOL)
@@ -1356,6 +1362,11 @@ router.get('/:id/pnl', async (req, res) => {
         dailyPnl.push({ date, pnl, cumulativePnl });
       });
 
+    // #region agent log - Debug PnL API response
+    const sample30d = pnlData['30d'];
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1360',message:'PnL API response',data:{walletId,periods:Object.keys(pnlData),sample30d:{pnl:sample30d?.pnl,pnlUsd:sample30d?.pnlUsd,pnlPercent:sample30d?.pnlPercent}},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
+    // #endregion
+    
     res.json({
       periods: pnlData,
       daily: dailyPnl,
