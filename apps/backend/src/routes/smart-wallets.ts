@@ -452,7 +452,7 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
       }
     } catch {}
 
-    // Detect primary base token from trades (for multichain support)
+    // Detect primary base token from trades (for multichain support) - BEFORE creating closed positions
     const baseTokenCounts = new Map<string, number>();
     const sampleTrades = await tradeRepo.findByWalletId(wallet.id, {
       page: 1,
@@ -479,19 +479,6 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
     if (primaryBaseToken === 'WSOL') {
       primaryBaseToken = 'SOL';
     }
-
-    // Return in the same structure as existing /portfolio endpoint for UI compatibility
-    const now = new Date().toISOString();
-    const responsePayload = {
-      totalValue, // V SOL
-      knownTotalSol, // V SOL (kompatibilita - frontend může očekávat knownTotalUsd)
-      unknownCount,
-      closedPositions: [],
-      source: 'birdeye-api',
-      lastUpdated: now,
-      cached: false,
-      baseToken: primaryBaseToken, // Primary base token for this wallet
-    };
 
     // Save as baseline snapshot (upsert per wallet)
     try {
@@ -1025,6 +1012,34 @@ router.get('/:id/portfolio', async (req, res) => {
       }
     }
 
+    // Detect primary base token from trades (for multichain support) - BEFORE creating closed positions
+    const baseTokenCounts = new Map<string, number>();
+    const sampleTrades = await tradeRepo.findByWalletId(wallet.id, {
+      page: 1,
+      pageSize: 100, // Sample 100 trades
+    });
+    
+    for (const trade of sampleTrades.trades) {
+      const meta = (trade.meta as any) || {};
+      const baseToken = (meta.baseToken || 'SOL').toUpperCase();
+      baseTokenCounts.set(baseToken, (baseTokenCounts.get(baseToken) || 0) + 1);
+    }
+    
+    // Find most common base token, default to SOL
+    let primaryBaseToken = 'SOL';
+    let maxCount = 0;
+    for (const [token, count] of baseTokenCounts.entries()) {
+      if (count > maxCount) {
+        maxCount = count;
+        primaryBaseToken = token;
+      }
+    }
+    
+    // Normalize WSOL → SOL for display
+    if (primaryBaseToken === 'WSOL') {
+      primaryBaseToken = 'SOL';
+    }
+
     // LOGIKA: Closed positions z ClosedLot (FIFO párované)
     // 
     // CLOSED POSITIONS:
@@ -1210,6 +1225,7 @@ router.get('/:id/portfolio', async (req, res) => {
       pnl30dPercent: pnl30dPercentFromPortfolio, // PnL % za posledních 30 dní
       lastUpdated: now,
       cached: false,
+      baseToken: primaryBaseToken, // Primary base token for this wallet
     };
 
     // PortfolioBaseline cache (Supabase) je v Prisma-only režimu vypnutá
