@@ -55,7 +55,7 @@ async function checkWalletTrades(walletAddress: string) {
     
     console.log(`📦 Trade ${trade.id.substring(0, 16)}...`);
     console.log(`   Side: ${trade.side}`);
-    console.log(`   Token: ${trade.Token?.symbol || trade.tokenId}`);
+    console.log(`   Token: ${trade.token?.symbol || trade.tokenId}`);
     console.log(`   Amount Token: ${amountToken.toFixed(2)}`);
     console.log(`   Amount Base: ${amountBase.toFixed(6)} (baseToken: ${baseToken})`);
     console.log(`   Price Base/Token: ${priceBasePerToken.toFixed(8)}`);

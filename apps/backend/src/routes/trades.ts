@@ -123,37 +123,35 @@ router.get('/', async (req, res) => {
           computedValueUsd = amountBase;
         }
 
-        // DŮLEŽITÉ: Převod amountBase na SOL pro zobrazení
-        // amountBase může být v různých měnách podle toho, jak byl trade zpracován:
-        // 1. Pokud má valuationSource → amountBase je v USD
-        // 2. Pokud je baseToken === 'USDC' || 'USDT' → amountBase je v USDC/USDT (1:1 USD)
-        // 3. Pokud je baseToken === 'SOL' a nemá valuationSource → amountBase je už v SOL
-        let amountBaseSol = amountBase; // Výchozí hodnota
+        // DŮLEŽITÉ: amountBase je vždy v base měně (SOL/USDC/USDT) z TX, NIKDY v USD!
+        // Pokud má trade valuationSource, pak amountBase je stále v base měně, ne v USD
+        // USD hodnoty jsou v valueUsd, ne v amountBase
+        // 
+        // Převod na SOL pro zobrazení:
+        // 1. Pokud je baseToken === 'SOL' || 'WSOL' → amountBase je už v SOL → použij přímo
+        // 2. Pokud je baseToken === 'USDC' || 'USDT' → amountBase je v USDC/USDT (1:1 USD) → převedeme na SOL
+        let amountBaseSol = amountBase; // Výchozí hodnota (pokud je už v SOL)
         const tradeTimestamp = new Date(t.timestamp);
         
-        try {
-          const solPriceUsd = await binancePriceService.getSolPriceAtTimestamp(tradeTimestamp);
-          if (solPriceUsd && solPriceUsd > 0) {
-            if (valuationSource) {
-              // amountBase je v USD (z valuation service), převedeme na SOL
+        if (baseToken === 'SOL' || baseToken === 'WSOL') {
+          // amountBase je už v SOL z TX, použijeme přímo - ŽÁDNÝ PŘEVOD!
+          amountBaseSol = amountBase;
+        } else if (baseToken === 'USDC' || baseToken === 'USDT') {
+          // amountBase je v USDC/USDT (1:1 USD), převedeme na SOL pomocí historické SOL ceny
+          try {
+            const solPriceUsd = await binancePriceService.getSolPriceAtTimestamp(tradeTimestamp);
+            if (solPriceUsd && solPriceUsd > 0) {
               amountBaseSol = amountBase / solPriceUsd;
-            } else if (baseToken === 'USDC' || baseToken === 'USDT') {
-              // amountBase je v USDC/USDT (1:1 USD), převedeme na SOL
-              amountBaseSol = amountBase / solPriceUsd;
-            } else if (baseToken === 'SOL' || baseToken === 'WSOL') {
-              // amountBase je už v SOL, použijeme přímo
-              amountBaseSol = amountBase;
             } else {
-              // Neznámý baseToken - zkusíme použít amountBase přímo (může být už v SOL)
-              amountBaseSol = amountBase;
+              console.warn(`Failed to get SOL price for trade ${t.txSignature}, using amountBase as-is`);
             }
-          } else {
-            // Pokud se nepodaří získat SOL cenu, použij amountBase (bude to v původní měně)
-            console.warn(`Failed to get SOL price for trade ${t.txSignature}, using amountBase as-is`);
+          } catch (error: any) {
+            console.warn(`Failed to convert ${baseToken} to SOL for trade ${t.txSignature}: ${error.message}`);
+            // Pokud se nepodaří převést, použij amountBase (bude to v USDC/USDT)
           }
-        } catch (error: any) {
-          console.warn(`Failed to convert amountBase to SOL for trade ${t.txSignature}: ${error.message}`);
-          // Pokud se nepodaří převést, použij amountBase (bude to v původní měně)
+        } else {
+          // Neznámý baseToken - zkusíme použít amountBase přímo (pravděpodobně už v SOL)
+          amountBaseSol = amountBase;
         }
 
         // DŮLEŽITÉ: Explicitně přepiš amountBase, amountToken, priceBasePerToken jako čísla
