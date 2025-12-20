@@ -81,12 +81,18 @@ router.get('/', async (req, res) => {
         const existingValueUsd = toNumber(t.valueUsd);
         let computedValueUsd: number | null = existingValueUsd;
 
-        // DŮLEŽITÉ: Pokud má trade valuationSource, pak amountBase a priceBasePerToken jsou už v USD!
-        // NormalizedTradeProcessor ukládá: amountBase = valuation.amountBaseUsd, priceBasePerToken = valuation.priceUsdPerToken
+        // #region agent log - Debug amountBase interpretation
+        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trades.ts:84',message:'TRADE DATA CHECK',data:{tradeId:t.id,baseToken,valuationSource,amountBase,priceBasePerToken,valueUsd:existingValueUsd},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+        // #endregion
+
+        // DŮLEŽITÉ: amountBase je vždy v base měně (SOL/USDC/USDT) z TX, NIKDY v USD!
+        // valuationSource znamená, že máme USD hodnoty v valueUsd, ale amountBase je stále v base měně
+        // Pro výpočet priceUsd použijeme valuation pokud existuje, jinak přepočítáme z base měny
         if (valuationSource) {
-          // Trade už byl zpracován valuation service → amountBase a priceBasePerToken jsou v USD
+          // Trade má valuation → použij priceBasePerToken jako USD cenu (z valuation service)
+          // Ale amountBase je stále v base měně, ne v USD!
           priceUsd = priceBasePerToken > 0 ? priceBasePerToken : null;
-          computedValueUsd = existingValueUsd !== null ? existingValueUsd : amountBase;
+          computedValueUsd = existingValueUsd !== null ? existingValueUsd : (priceUsd && amountToken > 0 ? priceUsd * amountToken : null);
         } else if (source === 'quicknode-webhook') {
           // QuickNode webhook bez valuation → může být v base měně, použij valueUsd pokud existuje
           priceUsd = priceBasePerToken > 0 ? priceBasePerToken : null;

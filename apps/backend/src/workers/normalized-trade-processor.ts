@@ -88,17 +88,24 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       secondaryTokenMint: null, // Už nepoužíváme token-to-token swapy
     });
 
+    // #region agent log - Debug amountBase storage
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'normalized-trade-processor.ts:91',message:'BEFORE TRADE CREATE',data:{baseToken:record.baseToken,amountBaseRaw:record.amountBaseRaw,valuationAmountBaseUsd:valuation.amountBaseUsd,valuationSource:valuation.source},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
+
+    // DŮLEŽITÉ: amountBase musí být vždy v base měně (SOL/USDC/USDT) z TX, NIKDY v USD!
+    // valuation.amountBaseUsd je USD hodnota pro valueUsd, ale amountBase musí být v base měně
+    // Použij record.amountBaseRaw (původní hodnota z TX v base měně), ne valuation.amountBaseUsd
     const trade = await tradeRepo.create({
       txSignature: record.txSignature,
       walletId: record.walletId,
       tokenId: record.tokenId,
       side: record.side,
       amountToken: record.amountToken,
-      amountBase: valuation.amountBaseUsd,
-      priceBasePerToken: valuation.priceUsdPerToken,
+      amountBase: record.amountBaseRaw, // V base měně (SOL/USDC/USDT) z TX, ne v USD!
+      priceBasePerToken: record.priceBasePerTokenRaw, // V base měně, ne v USD!
       timestamp: record.timestamp,
       dex: record.dex,
-      valueUsd: valuation.amountBaseUsd,
+      valueUsd: valuation.amountBaseUsd, // USD hodnota pro zobrazení
       meta: {
         ...record.meta,
         normalizedTradeId: record.id,
@@ -107,6 +114,10 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
         valuationSource: valuation.source,
       },
     });
+
+    // #region agent log - Debug amountBase storage
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'normalized-trade-processor.ts:110',message:'AFTER TRADE CREATE',data:{tradeId:trade.id,amountBase:trade.amountBase,priceBasePerToken:trade.priceBasePerToken,valueUsd:trade.valueUsd,baseToken:record.baseToken},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
+    // #endregion
 
     await normalizedTradeRepo.markProcessed(record.id, {
       tradeId: trade.id,
