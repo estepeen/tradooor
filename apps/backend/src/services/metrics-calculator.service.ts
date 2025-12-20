@@ -598,16 +598,16 @@ export class MetricsCalculatorService {
       return sum;
     }, 0);
 
-    // #region agent log
-    const sample3Lots=lots.slice(0,3).map(l=>({realizedPnl:l.realizedPnl,realizedPnlUsd:l.realizedPnlUsd,exitTime:l.exitTime?.toISOString()}));
-    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'metrics-calculator.service.ts:600',message:'PnL aggregation FIXED - using realizedPnlUsd',data:{realizedPnl,realizedPnlUsd,numLots:lots.length,sample3Lots},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
-    // #endregion
-    
     // Pro volume a invested capital použijeme hodnoty v SOL (všechny hodnoty jsou v SOL)
     const totalVolumeSol = lots.reduce((sum, lot) => sum + lot.proceeds, 0);
     const investedCapital = lots.reduce((sum, lot) => sum + Math.max(lot.costBasis, 0), 0);
     const realizedRoiPercent =
       investedCapital > 0 ? (realizedPnl / investedCapital) * 100 : 0;
+    
+    // #region agent log
+    const sample3Lots=lots.slice(0,3).map(l=>({realizedPnl:l.realizedPnl,costBasis:l.costBasis,exitTime:l.exitTime?.toISOString()}));
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'metrics-calculator.service.ts:600',message:'PnL aggregation - using realizedPnl in SOL',data:{realizedPnl,investedCapital,numLots:lots.length,sample3Lots},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+    // #endregion
     
     // #region agent log - Debug ROI percentage calculation
     if (Math.abs(realizedPnl) > 10 || Math.abs(realizedRoiPercent) > 100) {
@@ -643,8 +643,8 @@ export class MetricsCalculatorService {
       medianHoldMinutesWinners: median(winnersHold),
       medianHoldMinutesLosers: median(losersHold),
       numClosedTrades: lots.length,
-      totalVolumeUsd,
-      avgTradeSizeUsd: totalVolumeUsd / lots.length,
+      totalVolumeUsd: totalVolumeSol, // Sloupec se jmenuje Usd ale obsahuje SOL hodnoty
+      avgTradeSizeUsd: totalVolumeSol / lots.length, // Sloupec se jmenuje Usd ale obsahuje SOL hodnoty
     };
   }
 
