@@ -632,13 +632,22 @@ export default function WalletDetailPage() {
                                   : 'text-red-400'
                               }`}
                             >
-                              {isVoid 
-                                ? 'void' 
-                                : trade.amountBaseSol !== undefined && trade.amountBaseSol !== null
-                                ? `${formatNumber(Number(trade.amountBaseSol), 6)} SOL`
-                                : trade.amountBase
-                                ? `${formatNumber(Number(trade.amountBase), 6)} SOL`
-                                : '-'}
+                              {(() => {
+                                // #region agent log - Debug frontend value display
+                                if (trade.id && !isVoid) {
+                                  console.log(`[Frontend] Trade ${trade.id.substring(0, 16)}: amountBase=${trade.amountBase}, amountBaseSol=${trade.amountBaseSol}, baseToken=${trade.baseToken || 'unknown'}`);
+                                }
+                                // #endregion
+                                
+                                if (isVoid) return 'void';
+                                if (trade.amountBaseSol !== undefined && trade.amountBaseSol !== null) {
+                                  return `${formatNumber(Number(trade.amountBaseSol), 6)} SOL`;
+                                }
+                                if (trade.amountBase) {
+                                  return `${formatNumber(Number(trade.amountBase), 6)} SOL`;
+                                }
+                                return '-';
+                              })()}
                           </td>
                             <td
                               className={`px-4 py-3 text-right text-sm font-mono ${

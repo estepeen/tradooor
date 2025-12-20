@@ -34,6 +34,9 @@ const tokenSecurityService = new TokenSecurityService();
 
 // GET /api/trades?walletId=xxx - Get trades for a wallet
 router.get('/', async (req, res) => {
+  // #region agent log - Debug trades endpoint call
+  fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trades.ts:36',message:'TRADES ENDPOINT CALLED',data:{walletId:req.query.walletId,query:req.query},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+  // #endregion
   try {
     const walletId = req.query.walletId as string;
     if (!walletId) {
@@ -213,6 +216,11 @@ router.get('/', async (req, res) => {
 
     // Token metadata se načítá pouze při webhooku (nový trade)
     // Tady jen zobrazujeme data z DB - žádné enrichment, aby se neplýtvalo API kredity
+
+    // #region agent log - Debug trades response
+    const sampleTrade = tradesWithBaseCurrency[0];
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trades.ts:160',message:'TRADES RESPONSE',data:{walletId,totalTrades:tradesWithBaseCurrency.length,sampleTrade:sampleTrade?{id:sampleTrade.id,amountBase:sampleTrade.amountBase,amountBaseSol:sampleTrade.amountBaseSol,baseToken:sampleTrade.baseToken,valuationSource:sampleTrade.meta?.valuationSource}:null},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H4'})}).catch(()=>{});
+    // #endregion
 
     res.json({
       trades: tradesWithBaseCurrency,
