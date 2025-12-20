@@ -119,7 +119,8 @@ export interface Trade {
   tokenId: string;
   side: TradeSide;
   amountToken: number;
-  amountBase: number;
+  amountBase: number; // V původní base měně (SOL/USDC/USDT)
+  amountBaseSol?: number | null; // Převod na SOL (pro zobrazení)
   priceBasePerToken: number;
   timestamp: Date;
   dex: string;
@@ -131,6 +132,12 @@ export interface Trade {
   token?: Token | null;
   wallet?: SmartWallet | null;
   features?: TradeFeature | null;
+  // Další pole z API response
+  baseToken?: string; // SOL, USDC, USDT
+  priceUsd?: number | null; // USD cena tokenu z doby obchodu
+  entryPrice?: number; // Cena v base měně za 1 token
+  entryCost?: number | null; // Pro BUY trades
+  proceedsBase?: number | null; // Pro SELL trades
 }
 
 export interface TradeFeature {
