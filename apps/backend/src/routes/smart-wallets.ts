@@ -148,9 +148,8 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
     const lamports = await connection.getBalance(owner, 'confirmed');
     const solBalance = lamports / 1e9;
     if (solBalance > 0) {
-      const solPrice = await solPriceService.getSolPriceUsd().catch(() => null);
-      const value = solPrice ? solBalance * solPrice : null;
-      // Show ALL SOL balances, even if value is null or < MIN_USD
+      // DŮLEŽITÉ: currentValue je nyní v SOL (ne v USD)
+      // SOL balance je už v SOL, takže currentValue = balance
       positions.push({
         tokenId: 'SOL',
         token: {
@@ -160,8 +159,8 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
           decimals: 9,
         },
         balance: solBalance,
-        averageBuyPrice: solPrice || 0,
-        currentValue: value,
+        averageBuyPrice: 0, // Není potřeba pro SOL (je to 1:1)
+        currentValue: solBalance, // V SOL (balance je už v SOL)
         buyCount: 0,
         sellCount: 0,
       });
@@ -386,43 +385,39 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
     }
     
     // 2. For each position calculate Live PnL
-    // Live PnL = currentValue - totalCost (in USD)
-    // currentValue = balance * currentPrice (from Birdeye)
-    // totalCost = sum of all buy trades in base currency, converted to USD using historical SOL price
+    // DŮLEŽITÉ: Všechny hodnoty jsou nyní v SOL (ne v USD)
+    // Live PnL = currentValue - totalCost (v SOL)
+    // currentValue = balance * currentPrice (z Birdeye v USD) / currentSolPrice (převod na SOL)
+    // totalCost = sum of all buy trades v SOL (amountBase je už v SOL nebo se převede)
+    const { BinancePriceService } = await import('../services/binance-price.service.js');
+    const binancePriceService = new BinancePriceService();
+    const currentSolPrice = await binancePriceService.getCurrentSolPrice().catch(() => null);
+    
     const portfolio = await Promise.all(
       positions.map(async (p) => {
-        const totalCostBase = totalCostMap.get(p.tokenId) || 0;
-        let totalCostUsd = 0;
+        const totalCostBase = totalCostMap.get(p.tokenId) || 0; // V SOL (amountBase je v SOL)
+        let currentValueSol = null; // Aktuální hodnota v SOL
         let livePnl = 0;
         let livePnlPercent = 0;
         
-        // If we have totalCost in base currency, convert to USD using Binance API (historical SOL price)
-        if (totalCostBase > 0 && p.token?.mintAddress) {
-          try {
-            // Get average historical SOL price from buy trades
-            // For simplicity, use current SOL price from Binance (can improve later)
-            const { BinancePriceService } = await import('../services/binance-price.service.js');
-            const binancePriceService = new BinancePriceService();
-            const currentSolPrice = await binancePriceService.getCurrentSolPrice();
-            
-            // Assume totalCost is in SOL (for most tokens)
-            // TODO: Detect baseToken from trades and use correct conversion
-            totalCostUsd = totalCostBase * currentSolPrice;
-          } catch (error: any) {
-            console.warn(`Failed to convert totalCost to USD for token ${p.tokenId}: ${error.message}`);
-          }
+        // Převod currentValue z USD na SOL
+        if (p.currentValue !== null && p.currentValue > 0 && currentSolPrice && currentSolPrice > 0) {
+          // currentValue je v USD (z Birdeye), převedeme na SOL
+          currentValueSol = p.currentValue / currentSolPrice;
         }
         
-        // Vypočítej Live PnL
-        if (p.currentValue !== null && p.currentValue > 0 && totalCostUsd > 0) {
-          livePnl = p.currentValue - totalCostUsd;
-          livePnlPercent = totalCostUsd > 0 ? (livePnl / totalCostUsd) * 100 : 0;
+        // Vypočítej Live PnL (vše v SOL)
+        if (currentValueSol !== null && currentValueSol > 0 && totalCostBase > 0) {
+          livePnl = currentValueSol - totalCostBase;
+          livePnlPercent = totalCostBase > 0 ? (livePnl / totalCostBase) * 100 : 0;
         }
         
         return {
         ...p,
-          totalCost: totalCostUsd, // Total cost v USD
-          livePnl, // Live PnL (unrealized) v USD
+          currentValue: currentValueSol, // Aktuální hodnota v SOL (místo USD)
+          totalCost: totalCostBase, // Total cost v SOL (místo USD)
+          livePnl, // Live PnL (unrealized) v SOL
+          livePnlBase: livePnl, // Live PnL v SOL (explicitní)
           livePnlPercent, // Live PnL v %
           // Pro kompatibilitu zachováme staré názvy
           pnl: livePnl,
@@ -431,27 +426,27 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
       })
     );
     
-    // Seřaď podle currentValue
+    // Seřaď podle currentValue (v SOL)
     portfolio.sort((a, b) => (b.currentValue || 0) - (a.currentValue || 0));
     
-    const knownTotalUsd = portfolio.reduce((sum, p) => sum + (p.currentValue ?? 0), 0);
+    const knownTotalSol = portfolio.reduce((sum, p) => sum + (p.currentValue ?? 0), 0);
     const unknownCount = portfolio.filter(p => p.currentValue == null).length;
-    const totalValue = knownTotalUsd;
+    const totalValue = knownTotalSol; // V SOL
 
     // Debug price coverage
     try {
       console.log('🔎 Portfolio refresh summary', {
         wallet: wallet.address,
         items: portfolio.length,
-        knownTotalUsd,
+        knownTotalSol,
         unknownCount,
       });
       for (const p of portfolio) {
         console.log('  • Portfolio item', {
           mint: p.token?.mintAddress || p.tokenId,
           balance: p.balance,
-          priceUsd: p.averageBuyPrice,
-          valueUsd: p.currentValue,
+          priceUsd: p.averageBuyPrice, // Token price v USD (pro zobrazení)
+          valueSol: p.currentValue, // Aktuální hodnota v SOL
           hasPrice: p.currentValue != null,
         });
       }
@@ -1336,7 +1331,7 @@ router.get('/:id/pnl', async (req, res) => {
     const sample30d = pnlData['30d'];
     fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1360',message:'PnL API response',data:{walletId,periods:Object.keys(pnlData),sample30d:{pnl:sample30d?.pnl,pnlUsd:sample30d?.pnlUsd,pnlPercent:sample30d?.pnlPercent}},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
     // #endregion
-    
+
     res.json({
       periods: pnlData,
       daily: dailyPnl,

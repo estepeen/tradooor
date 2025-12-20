@@ -634,10 +634,8 @@ export default function WalletDetailPage() {
                             >
                               {isVoid 
                                 ? 'void' 
-                                : trade.valueUsd
-                                ? `$${formatNumber(Number(trade.valueUsd), 2)}`
                                 : trade.amountBase
-                                ? `$${formatNumber(Number(trade.amountBase), 2)}`
+                                ? `${formatNumber(Number(trade.amountBase), 6)} SOL`
                                 : '-'}
                           </td>
                             <td
@@ -723,7 +721,7 @@ export default function WalletDetailPage() {
                     <thead>
                       <tr className="border-b border-border text-muted-foreground">
                         <th className="text-left py-2">Window</th>
-                        <th className="text-right py-2">PnL (USD)</th>
+                        <th className="text-right py-2">PnL (SOL)</th>
                         <th className="text-right py-2">ROI</th>
                         <th className="text-right py-2">Win Rate</th>
                         <th className="text-right py-2">Trades</th>

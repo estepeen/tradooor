@@ -906,10 +906,8 @@ export default function WalletDetailPage() {
                                     ? '-'
                                     : (() => {
                                         const value =
-                                          (trade as any).valueUsd ||
-                                          (trade as any).meta?.valueUsd ||
                                           amountBase;
-                                        return value > 0 ? `$${formatNumber(Number(value), 2)}` : '-';
+                                        return amountBase > 0 ? `${formatNumber(Number(amountBase), 6)} SOL` : '-';
                                       })()}
                             </td>
                               </tr>
