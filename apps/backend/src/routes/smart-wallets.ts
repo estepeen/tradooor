@@ -1118,7 +1118,7 @@ router.get('/:id/portfolio', async (req, res) => {
           lastSellPrice: 0,
           firstBuyTimestamp: entryTime.toISOString(),
           lastSellTimestamp: exitTime.toISOString(),
-          baseToken: 'SOL',
+          baseToken: primaryBaseToken, // Use detected base token
           currentPrice: null,
           currentValue: 0,
           totalCost: 0,
