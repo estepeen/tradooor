@@ -455,8 +455,8 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
     // Return in the same structure as existing /portfolio endpoint for UI compatibility
     const now = new Date().toISOString();
     const responsePayload = {
-      totalValue,
-      knownTotalUsd,
+      totalValue, // V SOL
+      knownTotalSol, // V SOL (kompatibilita - frontend může očekávat knownTotalUsd)
       unknownCount,
       closedPositions: [],
       source: 'birdeye-api',
