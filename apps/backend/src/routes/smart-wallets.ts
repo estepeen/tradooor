@@ -1327,14 +1327,39 @@ router.get('/:id/pnl', async (req, res) => {
         dailyPnl.push({ date, pnl, cumulativePnl });
       });
 
+    // Detect primary base token from trades (for multichain support)
+    // Count base tokens from recent trades to determine primary base token
+    const baseTokenCounts = new Map<string, number>();
+    for (const trade of trades.slice(0, 100)) { // Check last 100 trades
+      const meta = (trade.meta as any) || {};
+      const baseToken = (meta.baseToken || 'SOL').toUpperCase();
+      baseTokenCounts.set(baseToken, (baseTokenCounts.get(baseToken) || 0) + 1);
+    }
+    
+    // Find most common base token, default to SOL
+    let primaryBaseToken = 'SOL';
+    let maxCount = 0;
+    for (const [token, count] of baseTokenCounts.entries()) {
+      if (count > maxCount) {
+        maxCount = count;
+        primaryBaseToken = token;
+      }
+    }
+    
+    // Normalize WSOL → SOL for display
+    if (primaryBaseToken === 'WSOL') {
+      primaryBaseToken = 'SOL';
+    }
+
     // #region agent log - Debug PnL API response
     const sample30d = pnlData['30d'];
-    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1360',message:'PnL API response',data:{walletId,periods:Object.keys(pnlData),sample30d:{pnl:sample30d?.pnl,pnlUsd:sample30d?.pnlUsd,pnlPercent:sample30d?.pnlPercent}},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
+    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1360',message:'PnL API response',data:{walletId,periods:Object.keys(pnlData),sample30d:{pnl:sample30d?.pnl,pnlUsd:sample30d?.pnlUsd,pnlPercent:sample30d?.pnlPercent},primaryBaseToken},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
     // #endregion
 
     res.json({
       periods: pnlData,
       daily: dailyPnl,
+      baseToken: primaryBaseToken, // Primary base token for this wallet
     });
   } catch (error: any) {
     console.error('❌ Error fetching PnL data:', error);

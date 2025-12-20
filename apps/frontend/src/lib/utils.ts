@@ -31,6 +31,19 @@ export function formatNumber(value: number | null | undefined, decimals = 2): st
   });
 }
 
+/**
+ * Normalize base token for display
+ * WSOL → SOL (for Solana)
+ * Returns normalized token symbol for display
+ */
+export function normalizeBaseToken(baseToken: string | null | undefined): string {
+  if (!baseToken) return 'SOL'; // Default for Solana
+  const normalized = baseToken.toUpperCase();
+  // WSOL is wrapped SOL - display as SOL
+  if (normalized === 'WSOL') return 'SOL';
+  return normalized;
+}
+
 export function formatDate(date: Date | string): string {
   const d = typeof date === 'string' ? new Date(date) : date;
   if (isNaN(d.getTime())) return '';

@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio, fetchWalletPortfolioRefresh, deletePosition } from '@/lib/api';
-import { formatAddress, formatPercent, formatNumber, formatDate, copyToClipboard, formatMultiplier, formatDateTimeCZ, formatHoldTime } from '@/lib/utils';
+import { formatAddress, formatPercent, formatNumber, formatDate, copyToClipboard, formatMultiplier, formatDateTimeCZ, formatHoldTime, normalizeBaseToken } from '@/lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { SmartWallet, Trade } from '@solbot/shared';
 
@@ -340,7 +340,7 @@ export default function WalletDetailPage() {
                       ? (
                         <>
                           <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            {formatNumber(Math.abs(pnlValue), 6)} SOL
+                            {formatNumber(Math.abs(pnlValue), 6)} {normalizeBaseToken(pnlData?.baseToken)}
                           </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
@@ -481,7 +481,7 @@ export default function WalletDetailPage() {
                                   }`}>
                                     {closedPnl !== null && closedPnl !== undefined ? (
                                       <>
-                                        {formatNumber(Math.abs(closedPnl), 6)} SOL ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent(closedPnlPercent / 100)})
+                                        {formatNumber(Math.abs(closedPnl), 6)} {normalizeBaseToken(portfolio?.baseToken || pnlData?.baseToken)} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent(closedPnlPercent / 100)})
                                       </>
                                     ) : '-'}
                                   </td>
@@ -640,11 +640,12 @@ export default function WalletDetailPage() {
                                 // #endregion
                                 
                                 if (isVoid) return 'void';
+                                const baseToken = normalizeBaseToken(trade.baseToken || pnlData?.baseToken);
                                 if (trade.amountBaseSol !== undefined && trade.amountBaseSol !== null) {
-                                  return `${formatNumber(Number(trade.amountBaseSol), 6)} SOL`;
+                                  return `${formatNumber(Number(trade.amountBaseSol), 6)} ${baseToken}`;
                                 }
                                 if (trade.amountBase) {
-                                  return `${formatNumber(Number(trade.amountBase), 6)} SOL`;
+                                  return `${formatNumber(Number(trade.amountBase), 6)} ${baseToken}`;
                                 }
                                 return '-';
                               })()}
@@ -736,7 +737,7 @@ export default function WalletDetailPage() {
                     <thead>
                       <tr className="border-b border-border text-muted-foreground">
                         <th className="text-left py-2">Window</th>
-                        <th className="text-right py-2">PnL (SOL)</th>
+                        <th className="text-right py-2">PnL ({normalizeBaseToken(portfolio?.baseToken || pnlData?.baseToken)})</th>
                         <th className="text-right py-2">ROI</th>
                         <th className="text-right py-2">Win Rate</th>
                         <th className="text-right py-2">Trades</th>
@@ -755,7 +756,7 @@ export default function WalletDetailPage() {
                             <td className="py-2 font-medium uppercase">{label}</td>
                             <td className={`text-right py-2 ${stats.realizedPnlUsd >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                               {stats.realizedPnlUsd >= 0 ? '+' : ''}
-                              {formatNumber(stats.realizedPnlUsd, 6)} SOL
+                              {formatNumber(stats.realizedPnlUsd, 6)} {normalizeBaseToken(portfolio?.baseToken || pnlData?.baseToken)}
                             </td>
                             <td className="text-right py-2">
                               {formatPercent((stats.realizedRoiPercent ?? 0) / 100)}

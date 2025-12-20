@@ -487,6 +487,57 @@ router.get('/dex', async (req, res) => {
     res.json({ dexes: dexStats });
   } catch (error: any) {
     console.error('Error fetching DEX stats:', error);
+    // Detect primary base token from trades (for multichain support)
+    // Count base tokens from recent trades to determine primary base token
+    const baseTokenCounts = new Map<string, number>();
+    const sampleTrades = await prisma.trade.findMany({
+      take: 1000, // Sample 1000 trades
+      select: { meta: true },
+    });
+    
+    for (const trade of sampleTrades) {
+      const meta = (trade.meta as any) || {};
+      const baseToken = (meta.baseToken || 'SOL').toUpperCase();
+      baseTokenCounts.set(baseToken, (baseTokenCounts.get(baseToken) || 0) + 1);
+    }
+    
+    // Find most common base token, default to SOL
+    let primaryBaseToken = 'SOL';
+    let maxCount = 0;
+    for (const [token, count] of baseTokenCounts.entries()) {
+      if (count > maxCount) {
+        maxCount = count;
+        primaryBaseToken = token;
+      }
+    }
+    
+    // Normalize WSOL → SOL for display
+    if (primaryBaseToken === 'WSOL') {
+      primaryBaseToken = 'SOL';
+    }
+
+    res.json({
+      totalWallets,
+      totalTrades: actualTradeCount,
+      totalPnl,
+      avgScore,
+      avgWinRate,
+      avgHoldingTime,
+      avgRr,
+      avgPnlPercent,
+      avgTradesPerWallet,
+      activeWallets7d,
+      activeWallets30d,
+      trades1d,
+      trades7d,
+      profitableWallets,
+      losingWallets,
+      breakEvenWallets,
+      topPerformers,
+      baseToken: primaryBaseToken, // Primary base token for display
+    });
+  } catch (error: any) {
+    console.error('Error fetching stats overview:', error);
     res.status(500).json({ error: 'Internal server error', message: error?.message });
   }
 });

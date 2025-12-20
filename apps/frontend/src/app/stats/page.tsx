@@ -3,7 +3,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { fetchStatsOverview, fetchTokenStats } from '@/lib/api';
-import { formatNumber, formatPercent, formatHoldTime } from '@/lib/utils';
+import { formatNumber, formatPercent, formatHoldTime, normalizeBaseToken } from '@/lib/utils';
 
 export default function StatsPage() {
   const [overview, setOverview] = useState<any>(null);
@@ -105,7 +105,7 @@ export default function StatsPage() {
                   overview.totalPnl >= 0 ? 'text-green-600' : 'text-red-600'
                 }`}>
                   {overview.totalPnl >= 0 ? '+' : ''}
-                  {formatNumber(Math.abs(overview.totalPnl), 6)} SOL
+                  {formatNumber(Math.abs(overview.totalPnl), 6)} {normalizeBaseToken(overview.baseToken)}
                 </div>
               </div>
               <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="rounded-lg p-4">
@@ -517,7 +517,7 @@ export default function StatsPage() {
                     : 'text-red-600'
                 }`}>
                   {tokenStats.tokens.reduce((sum: number, t: any) => sum + (t.totalPnl || 0), 0) >= 0 ? '+' : ''}
-                  {formatNumber(Math.abs(tokenStats.tokens.reduce((sum: number, t: any) => sum + (t.totalPnl || 0), 0)), 6)} SOL
+                  {formatNumber(Math.abs(tokenStats.tokens.reduce((sum: number, t: any) => sum + (t.totalPnl || 0), 0)), 6)} {normalizeBaseToken(overview?.baseToken)}
                 </div>
               </div>
               <div className="border border-border rounded-lg p-4">
@@ -588,7 +588,7 @@ export default function StatsPage() {
                           {(token.totalPnl || 0) !== 0 ? (
                             <>
                               {(token.totalPnl || 0) >= 0 ? '+' : ''}
-                              {formatNumber(Math.abs(token.totalPnl || 0), 6)} SOL
+                              {formatNumber(Math.abs(token.totalPnl || 0), 6)} {normalizeBaseToken(overview?.baseToken)}
                             </>
                           ) : '-'}
                         </td>
