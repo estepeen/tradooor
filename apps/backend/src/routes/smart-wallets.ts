@@ -914,38 +914,8 @@ router.get('/:id/portfolio', async (req, res) => {
     const closedLots = await closedLotRepo.findByWallet(wallet.id);
     console.log(`   📊 [Portfolio] Loaded ${closedLots.length} ClosedLots for wallet ${wallet.id}`);
     
-    // Get all trades for USD ratio calculation (for closed positions USD conversion)
-    const allTradesForRatios = await tradeRepo.findAllForMetrics(wallet.id);
-
-    // Map tradeId -> USD per base unit (used later for closed position USD conversion)
-    const tradeUsdRatioMap = new Map<string, number>();
-    for (const trade of allTradesForRatios || []) {
-      const baseToken = ((trade as any).meta?.baseToken || 'SOL').toUpperCase();
-      if (!STABLE_BASES.has(baseToken)) {
-        continue;
-      }
-
-      const amountBaseNum = Number((trade as any).amountBase ?? 0);
-      const valueUsdRaw =
-        (trade as any).valueUsd ??
-        (trade as any).meta?.valueUsd ??
-        null;
-      const valueUsdNum =
-        valueUsdRaw !== null && valueUsdRaw !== undefined
-          ? Number(valueUsdRaw)
-          : null;
-
-      let usdPerBase: number | null = null;
-      if (amountBaseNum > 0 && valueUsdNum && Number.isFinite(valueUsdNum)) {
-        usdPerBase = valueUsdNum / amountBaseNum;
-      } else if ((baseToken === 'USDC' || baseToken === 'USDT') && amountBaseNum > 0) {
-        usdPerBase = 1;
-      }
-
-      if (usdPerBase !== null && Number.isFinite(usdPerBase)) {
-        tradeUsdRatioMap.set((trade as any).id, usdPerBase);
-      }
-    }
+    // DŮLEŽITÉ: Odstranili jsme tradeUsdRatioMap a USD konverze - už nepracujeme s USD
+    // Všechny hodnoty jsou nyní v SOL (USDC/USDT se převádějí na SOL při výpočtu PnL v lot-matching.service.ts)
 
     // Get unique tokenIds from ClosedLot (for token data fetching)
     const uniqueTokenIds = closedLots && closedLots.length > 0
@@ -1317,12 +1287,12 @@ router.get('/:id/pnl', async (req, res) => {
         return isInPeriod && isNotVoid;
       });
 
+      // DŮLEŽITÉ: Volume se počítá z amountBase (v SOL), ne z valueUsd (v USD)
+      // Pokud je trade v USDC/USDT, amountBase je v USDC/USDT, ale to je OK - volume je součet všech trades
+      // Pro přesný výpočet bychom museli převádět USDC/USDT na SOL, ale pro zobrazení volume to není nutné
       const volumeBase = periodTrades.reduce((sum, trade) => {
-        // Použij valueUsd (sloupec VALUE) - pokud není, použij amountBase jako fallback
-        const valueUsd = trade.valueUsd != null ? Number(trade.valueUsd) : null;
-        const amountBase = trade.amountBase != null ? Number(trade.amountBase) : null;
-        const tradeValue = valueUsd ?? amountBase ?? 0;
-        return sum + tradeValue; // Součet hodnot
+        const amountBase = trade.amountBase != null ? Number(trade.amountBase) : 0;
+        return sum + amountBase; // Součet amountBase (v SOL nebo USDC/USDT)
       }, 0);
 
       pnlData[period] = {

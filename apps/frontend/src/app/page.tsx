@@ -415,7 +415,7 @@ export default function Home() {
                       // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dBase
                       const getPnlBase = (w: any) => {
                         const rolling30d = w.advancedStats?.rolling?.['30d'];
-                        return rolling30d?.realizedPnl ?? w.recentPnl30dBase ?? w.recentPnl30dUsd ?? 0; // PnL v USD
+                        return rolling30d?.realizedPnl ?? w.recentPnl30dBase ?? w.recentPnl30dUsd ?? 0; // PnL v SOL
                       };
                       const aPnl = getPnlBase(a);
                       const bPnl = getPnlBase(b);

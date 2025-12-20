@@ -322,7 +322,7 @@ export default function StatsPage() {
           </div>
         )}
 
-        {/* Top by Period PnL (1d, 7d, 14d, 30d) - POUZE USD, BEZ PROCENT */}
+        {/* Top by Period PnL (1d, 7d, 14d, 30d) - POUZE SOL, BEZ PROCENT */}
         {overview && overview.topPerformers && overview.topPerformers.byPeriod && (
           <div className="mb-8">
             <h2 className="text-2xl font-semibold mb-4">Top Traders by Period (in $)</h2>
@@ -400,8 +400,8 @@ export default function StatsPage() {
                           <div className="text-sm text-muted-foreground">{wallet.totalTrades} trades</div>
                         </div>
                         <div className="text-right font-bold text-red-600">
-                          {/* Celkový PnL v USD */}
-                          ${formatNumber(wallet.pnlTotalBase || 0, 2)}
+                          {/* Celkový PnL v SOL */}
+                          {formatNumber(wallet.pnlTotalBase || 0, 6)} SOL
                         </div>
                       </Link>
                     ))
