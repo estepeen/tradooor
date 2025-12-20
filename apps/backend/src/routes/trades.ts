@@ -130,34 +130,59 @@ router.get('/', async (req, res) => {
         }
 
         // DŮLEŽITÉ: amountBase je vždy v base měně (SOL/USDC/USDT) z TX, NIKDY v USD!
-        // Pokud má trade valuationSource, pak amountBase je stále v base měně, ne v USD
-        // USD hodnoty jsou v valueUsd, ne v amountBase
+        // ALE: Staré trades v databázi mohou mít amountBase v USD (pokud mají valuationSource)
+        // Detekujeme to tak, že pokud amountBase ≈ valueUsd a má valuationSource, pak je amountBase v USD
         // 
         // Převod na SOL pro zobrazení:
-        // 1. Pokud je baseToken === 'SOL' || 'WSOL' → amountBase je už v SOL → použij přímo
+        // 1. Pokud je baseToken === 'SOL' || 'WSOL' → amountBase by měl být v SOL
+        //    - Pokud má valuationSource a amountBase ≈ valueUsd → amountBase je v USD → převedeme na SOL
+        //    - Jinak → amountBase je už v SOL → použij přímo
         // 2. Pokud je baseToken === 'USDC' || 'USDT' → amountBase je v USDC/USDT (1:1 USD) → převedeme na SOL
-        let amountBaseSol = amountBase; // Výchozí hodnota (pokud je už v SOL)
+        let amountBaseSol = amountBase; // Výchozí hodnota
         const tradeTimestamp = new Date(t.timestamp);
         
-        if (baseToken === 'SOL' || baseToken === 'WSOL') {
-          // amountBase je už v SOL z TX, použijeme přímo - ŽÁDNÝ PŘEVOD!
-          amountBaseSol = amountBase;
-        } else if (baseToken === 'USDC' || baseToken === 'USDT') {
-          // amountBase je v USDC/USDT (1:1 USD), převedeme na SOL pomocí historické SOL ceny
-          try {
-            const solPriceUsd = await binancePriceService.getSolPriceAtTimestamp(tradeTimestamp);
-            if (solPriceUsd && solPriceUsd > 0) {
+        try {
+          const solPriceUsd = await binancePriceService.getSolPriceAtTimestamp(tradeTimestamp);
+          if (solPriceUsd && solPriceUsd > 0) {
+            // #region agent log - Debug amountBaseSol calculation
+            fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trades.ts:133',message:'BEFORE amountBaseSol calc',data:{tradeId:t.id,baseToken,valuationSource,amountBase,valueUsd:computedValueUsd,solPriceUsd},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+            // #endregion
+
+            if (baseToken === 'SOL' || baseToken === 'WSOL') {
+              // Detekuj, jestli je amountBase v USD (staré trades)
+              // Pokud má valuationSource a amountBase se shoduje s valueUsd (s tolerancí 1%), pak je v USD
+              const isLikelyUsd = valuationSource && computedValueUsd !== null && 
+                Math.abs(amountBase - computedValueUsd) / Math.max(Math.abs(amountBase), Math.abs(computedValueUsd), 1) < 0.01;
+              
+              if (isLikelyUsd) {
+                // Starý trade s amountBase v USD → převedeme na SOL
+                amountBaseSol = amountBase / solPriceUsd;
+                // #region agent log - Debug amountBaseSol calculation
+                fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trades.ts:143',message:'DETECTED USD amountBase',data:{tradeId:t.id,amountBase,computedValueUsd,amountBaseSol,converted:true},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+                // #endregion
+              } else {
+                // amountBase je už v SOL z TX, použijeme přímo - ŽÁDNÝ PŘEVOD!
+                amountBaseSol = amountBase;
+                // #region agent log - Debug amountBaseSol calculation
+                fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trades.ts:150',message:'amountBase already in SOL',data:{tradeId:t.id,amountBase,amountBaseSol,converted:false},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+                // #endregion
+              }
+            } else if (baseToken === 'USDC' || baseToken === 'USDT') {
+              // amountBase je v USDC/USDT (1:1 USD), převedeme na SOL
               amountBaseSol = amountBase / solPriceUsd;
+              // #region agent log - Debug amountBaseSol calculation
+              fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'trades.ts:156',message:'USDC/USDT to SOL',data:{tradeId:t.id,baseToken,amountBase,amountBaseSol},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+              // #endregion
             } else {
-              console.warn(`Failed to get SOL price for trade ${t.txSignature}, using amountBase as-is`);
+              // Neznámý baseToken - zkusíme použít amountBase přímo (pravděpodobně už v SOL)
+              amountBaseSol = amountBase;
             }
-          } catch (error: any) {
-            console.warn(`Failed to convert ${baseToken} to SOL for trade ${t.txSignature}: ${error.message}`);
-            // Pokud se nepodaří převést, použij amountBase (bude to v USDC/USDT)
+          } else {
+            console.warn(`Failed to get SOL price for trade ${t.txSignature}, using amountBase as-is`);
           }
-        } else {
-          // Neznámý baseToken - zkusíme použít amountBase přímo (pravděpodobně už v SOL)
-          amountBaseSol = amountBase;
+        } catch (error: any) {
+          console.warn(`Failed to convert amountBase to SOL for trade ${t.txSignature}: ${error.message}`);
+          // Pokud se nepodaří převést, použij amountBase (bude to v původní měně)
         }
 
         // DŮLEŽITÉ: Explicitně přepiš amountBase, amountToken, priceBasePerToken jako čísla
