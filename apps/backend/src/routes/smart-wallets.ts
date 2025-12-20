@@ -480,6 +480,19 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
       primaryBaseToken = 'SOL';
     }
 
+    // Return in the same structure as existing /portfolio endpoint for UI compatibility
+    const now = new Date().toISOString();
+    const responsePayload = {
+      totalValue, // V SOL
+      knownTotalSol, // V SOL (kompatibilita - frontend může očekávat knownTotalUsd)
+      unknownCount,
+      closedPositions: [],
+      source: 'birdeye-api',
+      lastUpdated: now,
+      cached: false,
+      baseToken: primaryBaseToken, // Primary base token for this wallet
+    };
+
     // Save as baseline snapshot (upsert per wallet)
     try {
       const { data, error } = await supabase
