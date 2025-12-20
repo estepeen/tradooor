@@ -123,25 +123,26 @@ router.get('/', async (req, res) => {
           computedValueUsd = amountBase;
         }
 
-        // DŮLEŽITÉ: Explicitně přepiš amountBase, amountToken, priceBasePerToken jako čísla
+        // DŮLEŽITÉ: amountBase je nyní VŽDY v SOL (USDC/USDT se převádějí při ukládání)
+        // Explicitně přepiš amountBase, amountToken, priceBasePerToken jako čísla
         // aby se předešlo problémům s Prisma Decimal serializací
         const { amountBase: _, amountToken: __, priceBasePerToken: ___, ...rest } = t;
         return {
           ...rest,
           token,
           amountToken, // Explicitně jako number
-          amountBase, // Explicitně jako number
-          priceBasePerToken, // Explicitně jako number
-          // entryPrice = priceBasePerToken (cena v base měně za 1 token)
+          amountBase, // V SOL (vždy, i když původně bylo v USDC/USDT)
+          priceBasePerToken, // V SOL (vždy, i když původně bylo v USDC/USDT)
+          // entryPrice = priceBasePerToken (cena v SOL za 1 token)
           entryPrice: priceBasePerToken,
-          // entryCost (pro BUY) nebo proceedsBase (pro SELL) = amountBase
+          // entryCost (pro BUY) nebo proceedsBase (pro SELL) = amountBase (v SOL)
           entryCost: t.side === 'buy' ? amountBase : null,
           proceedsBase: t.side === 'sell' ? amountBase : null,
-          baseToken, // SOL, USDC, USDT
-          // USD cena tokenu (vypočítaná pomocí Binance API)
-          priceUsd, // Cena tokenu v USD z doby obchodu
-          // USD hodnoty - pouze pro zobrazení
-          valueUsd: computedValueUsd,
+          baseToken: 'SOL', // Vždy SOL (konverze se udělala při ukládání)
+          // USD cena tokenu (vypočítaná pomocí Binance API) - pouze pro zobrazení token price
+          priceUsd, // Cena tokenu v USD z doby obchodu (pro zobrazení)
+          // USD hodnoty - pouze pro zobrazení token price
+          valueUsd: computedValueUsd, // USD hodnota (pro zobrazení token price)
           pnlUsd: toNumber(t.pnlUsd),
           pnlPercent: toNumber(t.pnlPercent),
         };
