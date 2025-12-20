@@ -80,9 +80,10 @@ router.get('/overview', async (req, res) => {
       const pnl = walletPnLMap.get(w.id);
       // Preferuj recentPnl30dBase z DB (je to precomputed a přesnější), jinak vypočítej z trades
       // Mapujeme recentPnl30dUsd (DB sloupec) na recentPnl30dBase (SOL hodnota)
+      // DŮLEŽITÉ: Všechny hodnoty jsou nyní v SOL, žádný přepočet!
       const recentPnl30dBase = w.recentPnl30dUsd !== null && w.recentPnl30dUsd !== undefined
         ? Number(w.recentPnl30dUsd) // V DB je to SOL hodnota (i když se jmenuje Usd)
-        : (pnl ? (pnl.sellValue - pnl.buyValue) / 150 : 0); // Přibližný převod z USD na SOL
+        : 0; // Pokud není v DB, použij 0 (ne přepočítávej z trades)
       return {
         ...w,
         recentPnl30dBase, // PnL v SOL

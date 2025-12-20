@@ -1308,47 +1308,26 @@ router.get('/:id/pnl', async (req, res) => {
         return exitTime >= fromDate && exitTime <= now;
       });
 
-      // Calculate PnL from ClosedLot (in base currency - SOL/USDC/USDT)
-      // DŮLEŽITÉ: realizedPnl je v base měně (SOL), ne v USD
+      // Calculate PnL from ClosedLot (všechny hodnoty jsou v SOL)
+      // DŮLEŽITÉ: realizedPnl je vždy v SOL (USDC/USDT se převedou na SOL při výpočtu)
       const totalPnl = periodClosedLots.reduce((sum, lot) => {
         return sum + (lot.realizedPnl || 0);
       }, 0);
 
-      // Calculate PnL in USD from ClosedLot.realizedPnlUsd
-      // Pokud realizedPnlUsd není k dispozici, použij realizedPnl * current SOL price
-      let totalPnlUsd = 0;
-      let totalCostBasis = 0;
-      
-      // Get current SOL price for conversion (if needed)
-      const { BinancePriceService } = await import('../services/binance-price.service.js');
-      const binancePriceService = new BinancePriceService();
-      let solPriceUsd = 150; // Default fallback
-      try {
-        solPriceUsd = await binancePriceService.getCurrentSolPrice();
-      } catch (error) {
-        console.warn(`⚠️  Failed to fetch SOL price, using fallback: ${solPriceUsd}`);
-      }
-
-      for (const lot of periodClosedLots) {
-        // Prefer realizedPnlUsd if available, otherwise convert from realizedPnl
-        if (lot.realizedPnlUsd !== null && lot.realizedPnlUsd !== undefined) {
-          totalPnlUsd += lot.realizedPnlUsd;
-        } else {
-          // Convert from base currency to USD using current SOL price
-          totalPnlUsd += (lot.realizedPnl || 0) * solPriceUsd;
-        }
-        totalCostBasis += (lot.costBasis || 0) * solPriceUsd; // Convert cost basis to USD for ROI calculation
-      }
+      // Calculate cost basis (všechny hodnoty jsou v SOL)
+      const totalCostBasis = periodClosedLots.reduce((sum, lot) => {
+        return sum + (lot.costBasis || 0);
+      }, 0);
 
       // #region agent log
       if(period==='30d'){
-        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1337',message:'DETAIL PAGE - 30d PnL calculated',data:{period,periodLotsCount:periodClosedLots.length,totalPnlUsd,totalCostBasis,solPriceUsd},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
+        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1337',message:'DETAIL PAGE - 30d PnL calculated (SOL)',data:{period,periodLotsCount:periodClosedLots.length,totalPnl,totalCostBasis},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
       }
       // #endregion
 
-      // Calculate PnL percentage (ROI)
+      // Calculate PnL percentage (ROI) - vše v SOL
       const pnlPercent = totalCostBasis > 0
-        ? (totalPnlUsd / totalCostBasis) * 100
+        ? (totalPnl / totalCostBasis) * 100
         : 0;
 
       // Volume = sum of all trade values (valueUsd) in this period
@@ -1371,38 +1350,26 @@ router.get('/:id/pnl', async (req, res) => {
       }, 0);
 
       pnlData[period] = {
-        pnl: totalPnl, // PnL v base měně (SOL)
-        pnlUsd: totalPnlUsd, // PnL v USD
+        pnl: totalPnl, // PnL v SOL (všechny hodnoty jsou v SOL)
+        pnlUsd: totalPnl, // PnL v SOL (kompatibilita - frontend očekává pnlUsd, ale obsahuje SOL)
         pnlPercent, // ROI v %
         trades: periodClosedLots.length, // Počet closed lots (uzavřených pozic)
-        volumeBase, // Volume v USD (součet všech trades)
+        volumeBase, // Volume v SOL (součet všech trades)
         volumeTrades: periodTrades.length, // Počet všech trades (BUY + SELL) v tomto období
       };
     }
 
-    // Get daily PnL data for charts from ClosedLot
+    // Get daily PnL data for charts from ClosedLot (všechny hodnoty jsou v SOL)
     const dailyPnl: Array<{ date: string; pnl: number; cumulativePnl: number }> = [];
     const lotsByDate = new Map<string, number>();
-    
-    // Get current SOL price for conversion
-    const { BinancePriceService } = await import('../services/binance-price.service.js');
-    const binancePriceService = new BinancePriceService();
-    let solPriceUsd = 150; // Default fallback
-    try {
-      solPriceUsd = await binancePriceService.getCurrentSolPrice();
-    } catch (error) {
-      console.warn(`⚠️  Failed to fetch SOL price, using fallback: ${solPriceUsd}`);
-    }
     
     allClosedLots
       .filter(lot => lot.exitTime)
       .forEach(lot => {
         const date = new Date(lot.exitTime!).toISOString().split('T')[0];
-        // Use realizedPnlUsd if available, otherwise convert from realizedPnl
-        const lotPnlUsd = lot.realizedPnlUsd !== null && lot.realizedPnlUsd !== undefined
-          ? lot.realizedPnlUsd
-          : (lot.realizedPnl || 0) * solPriceUsd;
-        lotsByDate.set(date, (lotsByDate.get(date) || 0) + lotPnlUsd);
+        // Všechny hodnoty jsou v SOL (realizedPnl je vždy v SOL)
+        const lotPnl = lot.realizedPnl || 0;
+        lotsByDate.set(date, (lotsByDate.get(date) || 0) + lotPnl);
       });
 
     let cumulativePnl = 0;

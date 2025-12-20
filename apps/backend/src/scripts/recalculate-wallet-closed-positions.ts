@@ -131,7 +131,7 @@ async function main() {
     console.log(`   Score: ${updatedWallet?.score ?? 0}`);
     console.log(`   Total trades: ${updatedWallet?.totalTrades ?? 0}`);
     console.log(`   Win rate: ${((updatedWallet?.winRate ?? 0) * 100).toFixed(2)}%`);
-    console.log(`   Recent PnL (30d): ${updatedWallet?.recentPnl30dUsd ?? 0} USD (${updatedWallet?.recentPnl30dPercent ?? 0}%)`);
+    console.log(`   Recent PnL (30d): ${updatedWallet?.recentPnl30dUsd ?? 0} SOL (${updatedWallet?.recentPnl30dPercent ?? 0}%)`);
     console.log(`\n💡 Tip: Refresh the wallet page in the browser to see updated closed positions.`);
     
   } catch (error: any) {
