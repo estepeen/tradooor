@@ -15,10 +15,12 @@ import { TokenRepository } from '../repositories/token.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { ClosedLotRepository } from '../repositories/closed-lot.repository.js';
 import { SolPriceService } from './sol-price.service.js';
+import { BinancePriceService } from './binance-price.service.js';
 
 // Remove Supabase import - we're using Prisma now
 
 const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
+const USD_STABLES = new Set(['USDC', 'USDT']);
 
 /**
  * Helper functions for calculating timing and market condition metrics
@@ -309,9 +311,29 @@ export class LotMatchingService {
       // ADD a REM jsou jen mezistupně - REM neuzavírá pozici, pouze SELL
       if (side === 'buy') {
         // BUY/ADD: Add new lot (oba přidávají do open lots)
+        // DŮLEŽITÉ: entryPrice musí být VŽDY v SOL (převést USDC/USDT na SOL)
+        let entryPriceInSol = price;
+        const buyBaseToken = baseToken.toUpperCase();
+        
+        // Pokud je buy trade v USDC/USDT, převedeme na SOL podle historické ceny
+        if (USD_STABLES.has(buyBaseToken)) {
+          try {
+            const binancePriceService = new BinancePriceService();
+            const solPriceAtBuy = await binancePriceService.getSolPriceAtTimestamp(timestamp);
+            // amountBase je v USDC/USDT, převedeme na SOL
+            entryPriceInSol = amountBase > 0 ? amountBase / solPriceAtBuy / amount : price / solPriceAtBuy;
+            console.log(`   💱 Converted BUY price from ${buyBaseToken} to SOL: ${price.toFixed(6)} ${buyBaseToken} → ${entryPriceInSol.toFixed(6)} SOL (SOL price: ${solPriceAtBuy.toFixed(2)})`);
+          } catch (error: any) {
+            console.warn(`   ⚠️  Failed to convert BUY price from ${buyBaseToken} to SOL, using fallback:`, error.message);
+            // Fallback: použij aktuální SOL cenu nebo cenu z meta
+            const solPriceAtBuy = (trade.meta as any)?.solPriceUsd || 150;
+            entryPriceInSol = amountBase > 0 ? amountBase / solPriceAtBuy / amount : price / solPriceAtBuy;
+          }
+        }
+        
         openLots.push({
           remainingSize: amount,
-          entryPrice: price,
+          entryPrice: entryPriceInSol, // Vždy v SOL
           entryTime: timestamp,
           tradeId: trade.id,
           isSynthetic: false,
@@ -325,9 +347,41 @@ export class LotMatchingService {
         let toSell = amount;
         const openLotsBeforeSell = openLots.length; // Počet open lots před SELL
         
-        // DŮLEŽITÉ: Použij skutečnou hodnotu SELL trade (valueUsd nebo amountBase) místo price * amount
-        // Tím zajistíme, že proceeds odpovídají skutečné hodnotě z VALUE sloupce
-        const sellTradeValue = Number(trade.valueUsd || trade.amountBase || 0);
+        // DŮLEŽITÉ: Proceeds musí být VŽDY v SOL (převést USDC/USDT na SOL)
+        let sellTradeValue = Number(trade.amountBase || 0);
+        const sellBaseToken = baseToken.toUpperCase();
+        
+        // Pokud je sell trade v USDC/USDT, převedeme na SOL podle historické ceny
+        if (USD_STABLES.has(sellBaseToken)) {
+          try {
+            const binancePriceService = new BinancePriceService();
+            const solPriceAtSell = await binancePriceService.getSolPriceAtTimestamp(timestamp);
+            // amountBase je v USDC/USDT, převedeme na SOL
+            sellTradeValue = sellTradeValue / solPriceAtSell;
+            console.log(`   💱 Converted SELL proceeds from ${sellBaseToken} to SOL: ${Number(trade.amountBase || 0).toFixed(6)} ${sellBaseToken} → ${sellTradeValue.toFixed(6)} SOL (SOL price: ${solPriceAtSell.toFixed(2)})`);
+          } catch (error: any) {
+            console.warn(`   ⚠️  Failed to convert SELL proceeds from ${sellBaseToken} to SOL, using fallback:`, error.message);
+            // Fallback: použij aktuální SOL cenu nebo cenu z meta
+            const solPriceAtSell = (trade.meta as any)?.solPriceUsd || 150;
+            sellTradeValue = sellTradeValue / solPriceAtSell;
+          }
+        }
+        
+        // Fallback: pokud nemáme amountBase, použij valueUsd a převedeme na SOL
+        if (sellTradeValue <= 0 && trade.valueUsd) {
+          try {
+            const binancePriceService = new BinancePriceService();
+            const solPriceAtTrade = await binancePriceService.getSolPriceAtTimestamp(timestamp);
+            const valueUsd = Number(trade.valueUsd);
+            sellTradeValue = valueUsd / solPriceAtTrade; // Převod USD → SOL
+            console.log(`   ⚠️  Using valueUsd fallback: ${valueUsd.toFixed(2)} USD → ${sellTradeValue.toFixed(6)} SOL (SOL price: ${solPriceAtTrade.toFixed(2)})`);
+          } catch (error: any) {
+            console.warn(`   ⚠️  Failed to convert valueUsd to SOL, using fallback:`, error.message);
+            const solPriceAtTrade = (trade.meta as any)?.solPriceUsd || 150;
+            const valueUsd = Number(trade.valueUsd);
+            sellTradeValue = valueUsd / solPriceAtTrade;
+          }
+        }
         
         // Uložíme si data o spotřebovaných lots před jejich spotřebou
         const consumedLotsData: Array<{
@@ -363,16 +417,22 @@ export class LotMatchingService {
           const lot = tempOpenLots[0];
           const consumed = Math.min(tempToSell, lot.remainingSize);
 
-          const costBasis = consumed * lot.entryPrice;
+          const costBasis = consumed * lot.entryPrice; // V SOL
           // DŮLEŽITÉ: Proceeds = proporční část skutečné hodnoty SELL trade
           // Použijeme skutečnou hodnotu SELL trade (valueUsd) a rozdělíme ji podle množství tokenů
           const proceeds = sellTradeValue > 0 && totalConsumedFromOpenLots > 0
             ? (consumed / totalConsumedFromOpenLots) * sellTradeValue
             : consumed * price; // Fallback na starý výpočet, pokud nemáme value nebo totalConsumed = 0
-          const realizedPnl = proceeds - costBasis;
+          const realizedPnl = proceeds - costBasis; // V SOL
           const realizedPnlPercent = lot.costKnown && costBasis > 0
             ? (realizedPnl / costBasis) * 100
             : 0;
+          
+          // #region agent log - Debug PnL percentage calculation
+          if (Math.abs(realizedPnl) > 10 || Math.abs(realizedPnlPercent) > 100) {
+            fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:427',message:'PnL percentage calculation',data:{consumed,entryPrice:lot.entryPrice,costBasis,proceeds,sellTradeValue,realizedPnl,realizedPnlPercent,price},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H5'})}).catch(()=>{});
+          }
+          // #endregion
 
           const holdTimeMinutes = Math.round(
             (timestamp.getTime() - lot.entryTime.getTime()) / (1000 * 60)
@@ -632,8 +692,10 @@ export class LotMatchingService {
 
   /**
    * Save closed lots to database
+   * @param closedLots - Closed lots to save
+   * @param isRecalculation - If true, this is a recalculation (don't incrementally update PnL). If false, this is a new lot (incrementally update PnL).
    */
-  async saveClosedLots(closedLots: ClosedLot[]): Promise<void> {
+  async saveClosedLots(closedLots: ClosedLot[], isRecalculation: boolean = true): Promise<void> {
     if (closedLots.length === 0) {
       return;
     }
@@ -642,24 +704,12 @@ export class LotMatchingService {
     fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:618',message:'saveClosedLots ENTRY',data:{numLots:closedLots.length,walletId:closedLots[0]?.walletId,tokenIds:[...new Set(closedLots.map(l=>l.tokenId))]},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
     // #endregion
 
-    // SIMPLIFIED: Use ONE current SOL price for all lots
-    // realizedPnl is in SOL, we convert to USD once for storage
-    // When displaying, we just SUM realizedPnlUsd from database (no recalculation!)
-    const solPriceService = new SolPriceService();
-    let currentSolPrice = 150; // Fallback
-    try {
-      currentSolPrice = await solPriceService.getSolPriceUsd();
-      console.log(`   💰 Using current SOL price: $${currentSolPrice.toFixed(2)}`);
-    } catch (error) {
-      console.warn('⚠️  Failed to fetch SOL price, using fallback $150');
-    }
-
-    // Convert to database format
-    // realizedPnl is in SOL, realizedPnlUsd = realizedPnl * SOL_price
-    // When displaying PnL, we just SUM realizedPnlUsd column - no recalculation!
+    // DŮLEŽITÉ: Všechny hodnoty jsou nyní v SOL (ne v USD!)
+    // realizedPnl je vždy v SOL (USDC/USDT se převedou na SOL při výpočtu)
+    // realizedPnlUsd se už nepoužívá - vše je v SOL
     const dbLots = closedLots.map((lot,idx) => {
-      // Convert SOL PnL to USD using current SOL price
-      const realizedPnlUsd = lot.realizedPnl * currentSolPrice;
+      // realizedPnl je už v SOL (převod USDC/USDT proběhl při výpočtu)
+      // realizedPnlUsd se ukládá jako null nebo se nepoužívá
       
       return {
         walletId: lot.walletId,
@@ -672,9 +722,9 @@ export class LotMatchingService {
         holdTimeMinutes: typeof lot.holdTimeMinutes === 'number' ? lot.holdTimeMinutes : Number(lot.holdTimeMinutes) || 0,
         costBasis: lot.costBasis.toString(),
         proceeds: lot.proceeds.toString(),
-        realizedPnl: lot.realizedPnl.toString(), // PnL v SOL/base měně (primární hodnota)
+        realizedPnl: lot.realizedPnl.toString(), // PnL v SOL (všechny hodnoty jsou v SOL)
         realizedPnlPercent: lot.realizedPnlPercent.toString(),
-        realizedPnlUsd: realizedPnlUsd.toString(), // PnL v USD (pro rychlejší zobrazení)
+        realizedPnlUsd: null, // Už se nepoužívá - vše je v SOL
         buyTradeId: lot.buyTradeId === 'synthetic' ? null : lot.buyTradeId,
         sellTradeId: lot.sellTradeId,
         isPreHistory: lot.isPreHistory,
@@ -722,32 +772,130 @@ export class LotMatchingService {
 
       // #region agent log
       const existingLotsCount = await prisma.closedLot.count({where:{walletId,tokenId:{in:tokenIds}}});
-      fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:705',message:'BEFORE delete existing lots',data:{walletId,tokenIds,existingLotsCount},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+      fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:705',message:'BEFORE delete existing lots',data:{walletId,tokenIds,existingLotsCount,isRecalculation},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
       // #endregion
 
-      // Delete existing closed lots for these tokens
-      try {
-        const deleteResult = await prisma.closedLot.deleteMany({
+      // If this is NOT a recalculation (new lot from webhook), identify which lots are new
+      // and only add those to PnL incrementally
+      // DŮLEŽITÉ: Všechny hodnoty jsou nyní v SOL (ne v USD!)
+      const newLotsForPnlUpdate: Array<{ realizedPnl: number; exitTime: Date }> = [];
+      
+      if (!isRecalculation) {
+        // Get existing lots to identify which are new
+        const existingLots = await prisma.closedLot.findMany({
           where: {
             walletId,
             tokenId: { in: tokenIds },
           },
+          select: {
+            buyTradeId: true,
+            sellTradeId: true,
+          },
+        });
+        
+        const existingLotKeys = new Set(
+          existingLots
+            .filter(l => l.buyTradeId && l.sellTradeId)
+            .map(l => `${l.buyTradeId}:${l.sellTradeId}`)
+        );
+
+        // Identify new lots (those that don't exist yet) for PnL update
+        for (let i = 0; i < closedLots.length; i++) {
+          const lot = closedLots[i];
+          const lotKey = lot.buyTradeId && lot.sellTradeId 
+            ? `${lot.buyTradeId}:${lot.sellTradeId}`
+            : null;
+          
+          // If lot doesn't exist yet, it's new - add to PnL update list
+          if (lotKey && !existingLotKeys.has(lotKey)) {
+            const realizedPnl = Number(dbLots[i].realizedPnl); // Vždy v SOL
+            const exitTime = lot.exitTime;
+            
+            // Only add to PnL if exitTime is within last 30 days
+            const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+            if (exitTime >= thirtyDaysAgo) {
+              newLotsForPnlUpdate.push({ realizedPnl, exitTime });
+            }
+          }
+        }
+
+        // For new lots, we still need to recalculate all lots for the token
+        // (because a new SELL trade can affect existing lots via FIFO matching)
+        // But we only incrementally update PnL for truly new lots
+        // Delete existing lots for these tokens (needed for FIFO recalculation)
+        try {
+          const deleteResult = await prisma.closedLot.deleteMany({
+            where: {
+              walletId,
+              tokenId: { in: tokenIds },
+            },
+          });
+        } catch (deleteError: any) {
+          console.warn('⚠️ Failed to delete existing closed lots:', deleteError.message);
+        }
+
+        // Insert all closed lots (including recalculated ones)
+        if (dbLots.length > 0) {
+          await this.closedLotRepo.createMany(dbLots);
+        }
+      } else {
+        // Recalculation: delete all existing lots, then create new ones
+        try {
+          const deleteResult = await prisma.closedLot.deleteMany({
+            where: {
+              walletId,
+              tokenId: { in: tokenIds },
+            },
+          });
+
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:711',message:'AFTER delete existing lots (recalculation)',data:{deletedCount:deleteResult.count,walletId,tokenIds},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+          // #endregion
+        } catch (deleteError: any) {
+          console.warn('⚠️ Failed to delete existing closed lots:', deleteError.message);
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:717',message:'DELETE FAILED',data:{error:deleteError.message,walletId,tokenIds},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
+          // #endregion
+        }
+
+        // Insert new closed lots using repository
+        if (dbLots.length > 0) {
+          await this.closedLotRepo.createMany(dbLots);
+        }
+      }
+
+      // Incrementally update PnL for new lots (only if not recalculation)
+      // This happens AFTER lots are saved, so we can safely update PnL
+      if (!isRecalculation && newLotsForPnlUpdate.length > 0) {
+        const totalNewPnlSol = newLotsForPnlUpdate.reduce((sum, lot) => sum + lot.realizedPnl, 0);
+        
+        // Get current wallet to update PnL incrementally
+        const wallet = await prisma.smartWallet.findUnique({
+          where: { id: walletId },
+          select: { recentPnl30dUsd: true }, // Sloupec se jmenuje Usd ale obsahuje SOL hodnoty
         });
 
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:711',message:'AFTER delete existing lots',data:{deletedCount:deleteResult.count,walletId,tokenIds},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
-      } catch (deleteError: any) {
-        console.warn('⚠️ Failed to delete existing closed lots:', deleteError.message);
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:717',message:'DELETE FAILED',data:{error:deleteError.message,walletId,tokenIds},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});
-        // #endregion
-      }
-    }
+        if (wallet) {
+          const currentPnlSol = Number(wallet.recentPnl30dUsd || 0);
+          const newPnlSol = currentPnlSol + totalNewPnlSol;
 
-    // Insert new closed lots using repository
-    if (dbLots.length > 0) {
-      await this.closedLotRepo.createMany(dbLots);
+          await prisma.smartWallet.update({
+            where: { id: walletId },
+            data: { recentPnl30dUsd: newPnlSol }, // Sloupec se jmenuje Usd ale obsahuje SOL hodnoty
+          });
+
+          console.log(`   💰 Incrementally updated PnL: ${currentPnlSol.toFixed(6)} → ${newPnlSol.toFixed(6)} SOL (+${totalNewPnlSol.toFixed(6)} SOL from ${newLotsForPnlUpdate.length} new lots)`);
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'lot-matching.service.ts:807',message:'Incremental PnL update (SOL)',data:{walletId,currentPnlSol,newPnlSol,totalNewPnlSol,newLotsCount:newLotsForPnlUpdate.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H3'})}).catch(()=>{});
+          // #endregion
+        }
+      }
+    } else {
+      // No lots to save, but still handle the case
+      if (dbLots.length > 0) {
+        await this.closedLotRepo.createMany(dbLots);
+      }
     }
 
     await this.updateTradeFeatureMetrics(closedLots);

@@ -468,10 +468,10 @@ export class BacktestService {
 
     // Insert in batches (only if Supabase is available)
     if (isSupabaseAvailable()) {
-      const batchSize = 100;
-      for (let i = 0; i < records.length; i += batchSize) {
-        const batch = records.slice(i, i + batchSize);
-        await supabase.from('BacktestTrade').insert(batch);
+    const batchSize = 100;
+    for (let i = 0; i < records.length; i += batchSize) {
+      const batch = records.slice(i, i + batchSize);
+      await supabase.from('BacktestTrade').insert(batch);
       }
     } else {
       console.warn('⚠️  Supabase not available for saveBacktestTrades');

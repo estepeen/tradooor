@@ -157,7 +157,8 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
           
           if (closedLots.length > 0) {
             try {
-              await lotMatchingService.saveClosedLots(closedLots);
+              // This is a new lot from webhook, not a recalculation - update PnL incrementally
+              await lotMatchingService.saveClosedLots(closedLots, false);
               console.log(`   ✅ [ClosedLots] Successfully saved ${closedLots.length} closed lots for wallet ${walletData.address.substring(0, 8)}... (${walletData.address})`);
             } catch (saveError: any) {
               // CRITICAL: If save fails, log error but don't fail silently
