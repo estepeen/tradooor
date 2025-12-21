@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { fetchSmartWallet, fetchTrades, fetchWalletPnl, fetchWalletPortfolio, deletePosition } from '@/lib/api';
-import { formatAddress, formatPercent, formatNumber, formatDate, formatDateTimeCZ, formatHoldTime } from '@/lib/utils';
+import { formatAddress, formatPercent, formatNumber, formatDate, formatDateTimeCZ, formatHoldTime, normalizeBaseToken } from '@/lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { SmartWallet, Trade } from '@solbot/shared';
 import { Spinner } from '@/components/Spinner';
@@ -586,6 +586,8 @@ export default function WalletDetailPage() {
                             ? formatDate(new Date(position.lastSellTimestamp))
                             : '-';
                           const sequenceNumber = position.sequenceNumber ?? null; // Kolikátý BUY-SELL cyklus (1., 2., 3. atd.)
+                          // Ensure baseToken is always set
+                          const baseToken = normalizeBaseToken(position?.baseToken || portfolio?.baseToken || 'SOL');
 
                           // Vytvoř unikátní klíč pro každou pozici (tokenId + sequenceNumber nebo index)
                           const positionKey = sequenceNumber 
@@ -650,7 +652,12 @@ export default function WalletDetailPage() {
                               }`}>
                                 {closedPnlValue !== null && closedPnlValue !== undefined ? (
                                   <>
-                                    ${formatNumber(Math.abs(closedPnlValue), 2)} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent((closedPnlPercent || 0) / 100)})
+                                    {(() => {
+                                      const formatted = formatNumber(Math.abs(closedPnlValue), 2);
+                                      // Explicitly remove any $ symbol that might be in the formatted string
+                                      const cleaned = formatted.replace(/\$/g, '');
+                                      return `${cleaned} ${baseToken} (${closedPnlPercent >= 0 ? '+' : ''}${formatPercent((closedPnlPercent || 0) / 100)})`;
+                                    })()}
                                   </>
                                 ) : '-'}
                               </td>
