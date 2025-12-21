@@ -364,6 +364,16 @@ export default function WalletDetailPage() {
                               const formatted = formatNumber(Math.abs(pnlValue), 2);
                               // Explicitly remove any $ symbol that might be in the formatted string
                               const cleaned = formatted.replace(/\$/g, '');
+                              // DEBUG: Log what we're rendering
+                              if (period === '30d') {
+                                console.log(`🔍 [Frontend] Rendering PnL ${period}:`, {
+                                  pnlValue,
+                                  formatted,
+                                  cleaned,
+                                  baseToken,
+                                  finalString: `${cleaned} ${baseToken}`,
+                                });
+                              }
                               return `${cleaned} ${baseToken}`;
                             })()}
                           </span>
