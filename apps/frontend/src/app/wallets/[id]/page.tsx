@@ -335,15 +335,8 @@ export default function WalletDetailPage() {
               const data = pnlData.periods[period];
               if (!data) return null;
               
-              // DEBUG: Log PnL data
-              if (period === '30d') {
-                console.log(`🔍 [Frontend] PnL ${period}:`, {
-                  pnlUsd: data.pnlUsd,
-                  pnl: data.pnl,
-                  pnlPercent: data.pnlPercent,
-                  trades: data.trades,
-                });
-              }
+              // DEBUG: Log PnL data (only once, not on every render)
+              // Removed to prevent console spam
               
               // Use pnl (SOL) if available, otherwise pnlUsd (which should also be SOL now)
               const pnlValue = data.pnl !== undefined && data.pnl !== null ? data.pnl : data.pnlUsd;
@@ -364,16 +357,8 @@ export default function WalletDetailPage() {
                               const formatted = formatNumber(Math.abs(pnlValue), 2);
                               // Explicitly remove any $ symbol that might be in the formatted string
                               const cleaned = formatted.replace(/\$/g, '');
-                              // DEBUG: Log what we're rendering
-                              if (period === '30d') {
-                                console.log(`🔍 [Frontend] Rendering PnL ${period}:`, {
-                                  pnlValue,
-                                  formatted,
-                                  cleaned,
-                                  baseToken,
-                                  finalString: `${cleaned} ${baseToken}`,
-                                });
-                              }
+                              // DEBUG: Log what we're rendering (only once, not on every render)
+                              // Removed to prevent console spam
                               return `${cleaned} ${baseToken}`;
                             })()}
                           </span>
@@ -503,16 +488,8 @@ export default function WalletDetailPage() {
                               // Ensure baseToken is always set
                               const baseToken = normalizeBaseToken(position?.baseToken || portfolio?.baseToken || pnlData?.baseToken || 'SOL');
                               
-                              // Debug: Log baseToken for closed positions
-                              if (index === 0) {
-                                console.log(`🔍 [Frontend] Closed Position baseToken:`, {
-                                  positionBaseToken: position?.baseToken,
-                                  portfolioBaseToken: portfolio?.baseToken,
-                                  pnlDataBaseToken: pnlData?.baseToken,
-                                  finalBaseToken: baseToken,
-                                  closedPnl,
-                                });
-                              }
+                              // Debug: Log baseToken for closed positions (only once, not on every render)
+                              // Removed to prevent console spam
                               const sequenceNumber = position.sequenceNumber ?? null;
                               const positionKey = sequenceNumber 
                                 ? `${position.tokenId}-${sequenceNumber}` 

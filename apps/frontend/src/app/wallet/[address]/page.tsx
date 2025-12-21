@@ -444,7 +444,7 @@ export default function WalletDetailPage() {
               console.log(`   ✅ [Frontend] Wallet ${walletAddress}: totalPnl=${totalPnl.toFixed(2)}, totalCost=${totalCost.toFixed(2)}, pnlPercent=${pnlPercent.toFixed(2)}%`);
               closedPositions.forEach((p: any, idx: number) => {
                 if (idx < 5) { // Log first 5 positions
-                  console.log(`   💰 [Frontend] Position ${idx + 1}: tokenId=${p.tokenId}, realizedPnlBase=$${(p.realizedPnlBase ?? p.closedPnlBase ?? p.closedPnl ?? 0).toFixed(2)}, closedPnlPercent=${(p.realizedPnlPercent ?? p.closedPnlPercent ?? 0).toFixed(2)}%, lastSell=${p.lastSellTimestamp}`);
+                  console.log(`   💰 [Frontend] Position ${idx + 1}: tokenId=${p.tokenId}, realizedPnlBase=${(p.realizedPnlBase ?? p.closedPnlBase ?? p.closedPnl ?? 0).toFixed(2)} SOL, closedPnlPercent=${(p.realizedPnlPercent ?? p.closedPnlPercent ?? 0).toFixed(2)}%, lastSell=${p.lastSellTimestamp}`);
                 }
               });
             }
