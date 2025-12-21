@@ -23,14 +23,16 @@ module.exports = {
       cwd: process.cwd(),
       env: {
         NODE_ENV: 'production',
+        PORT: '4444',
       },
       error_file: './logs/frontend-error.log',
       out_file: './logs/frontend-out.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
       merge_logs: true,
       autorestart: true,
-      max_restarts: 10,
-      min_uptime: '10s',
+      max_restarts: 5,
+      min_uptime: '30s', // Increase to 30s to allow server to fully start
+      max_memory_restart: '500M',
     },
     {
       name: 'tradooor-metrics-cron',
