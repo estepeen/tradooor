@@ -123,7 +123,14 @@ export class DiscordNotificationService {
     }
 
     try {
+      // Debug: Log what we're sending
+      console.log(`📨 [Discord] sendSignalNotification called - baseToken: ${data.baseToken || 'MISSING'}, walletIds: ${data.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}, aiDecision: ${data.aiDecision || 'undefined'}, aiConfidence: ${data.aiConfidence || 'undefined'}`);
+      
       const embed = this.buildSignalEmbed(data);
+      
+      // Debug: Log embed content
+      const tradersField = embed.fields?.find(f => f.name.includes('Traders'));
+      console.log(`📨 [Discord] Embed built - title: ${embed.title}, fields: ${embed.fields?.length || 0}, traders field: ${tradersField ? tradersField.value.substring(0, 100) + '...' : 'none'}`);
       
       const payload: DiscordWebhookPayload = {
         username: 'Tradooor Signals',
