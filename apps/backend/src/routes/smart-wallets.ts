@@ -1414,6 +1414,25 @@ router.get('/:id/pnl', async (req, res) => {
     fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1360',message:'PnL API response',data:{walletId,periods:Object.keys(pnlData),sample30d:{pnl:sample30d?.pnl,pnlUsd:sample30d?.pnlUsd,pnlPercent:sample30d?.pnlPercent},primaryBaseToken},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
     // #endregion
 
+    // DEBUG: Log what we're sending to frontend
+    console.log(`🔍 [Backend] PnL API response for wallet ${walletId}:`, {
+      baseToken: primaryBaseToken,
+      sample30d: {
+        pnl: sample30d?.pnl,
+        pnlUsd: sample30d?.pnlUsd,
+        pnlPercent: sample30d?.pnlPercent,
+        volumeBase: sample30d?.volumeBase,
+        pnlType: typeof sample30d?.pnl,
+        pnlUsdType: typeof sample30d?.pnlUsd,
+      },
+      allPeriods: Object.keys(pnlData).map(period => ({
+        period,
+        pnl: pnlData[period]?.pnl,
+        pnlUsd: pnlData[period]?.pnlUsd,
+        volumeBase: pnlData[period]?.volumeBase,
+      })),
+    });
+
     res.json({
       periods: pnlData,
       daily: dailyPnl,
