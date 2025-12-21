@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { fetchRecentTrades } from '@/lib/api';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
+import { normalizeBaseToken, formatNumber } from '@/lib/utils';
 
 interface Trade {
   id: string;
@@ -374,7 +375,8 @@ export default function Notifications() {
                               if (isLiquidity || isVoid) {
                                 return <span className="text-purple-400">void</span>;
                               }
-                              return <span>${formatAmount(trade.amountBase, 2)}</span>;
+                              const baseToken = normalizeBaseToken(trade.baseToken || 'SOL');
+                              return <span>{formatNumber(trade.amountBase || 0, 2)} {baseToken}</span>;
                             })()}
                           </div>
                           <div className="text-xs text-muted-foreground mt-1">
