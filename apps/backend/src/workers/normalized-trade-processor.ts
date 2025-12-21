@@ -267,12 +267,16 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
     if (trade.side === 'buy') {
       setImmediate(async () => {
         try {
-          await consensusService.checkConsensusAfterBuy(
+          console.log(`🔍 [NormalizedTradeWorker] Checking consensus for trade ${trade.id.substring(0, 16)}... (token: ${trade.tokenId.substring(0, 16)}..., wallet: ${trade.walletId.substring(0, 16)}...)`);
+          const consensusResult = await consensusService.checkConsensusAfterBuy(
             trade.id,
             trade.tokenId,
             trade.walletId,
             trade.timestamp
           );
+          if (consensusResult.consensusFound) {
+            console.log(`✅ [NormalizedTradeWorker] Consensus found! Signal created: ${consensusResult.signalCreated?.id?.substring(0, 16) || 'unknown'}...`);
+          }
         } catch (consensusError: any) {
           console.warn(`⚠️  Error checking consensus for trade ${trade.id}:`, consensusError.message);
         }
