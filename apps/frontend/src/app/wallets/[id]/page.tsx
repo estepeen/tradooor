@@ -62,6 +62,24 @@ export default function WalletDetailPage() {
         }),
         fetchWalletPnl(walletId).catch(() => null), // PnL data is optional
       ]);
+
+      // DEBUG: Log what we received from backend
+      if (pnl) {
+        console.log('🔍 [Frontend] Received PnL data from backend:', {
+          baseToken: pnl.baseToken,
+          periods: Object.keys(pnl.periods || {}).map(period => ({
+            period,
+            pnl: pnl.periods[period]?.pnl,
+            pnlUsd: pnl.periods[period]?.pnlUsd,
+            volumeBase: pnl.periods[period]?.volumeBase,
+            pnlType: typeof pnl.periods[period]?.pnl,
+            pnlUsdType: typeof pnl.periods[period]?.pnlUsd,
+            pnlString: String(pnl.periods[period]?.pnl),
+            pnlUsdString: String(pnl.periods[period]?.pnlUsd),
+          })),
+        });
+      }
+
       setWallet(walletData);
       setTrades(tradesData);
       setPnlData(pnl);
