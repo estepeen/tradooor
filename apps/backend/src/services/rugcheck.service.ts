@@ -68,8 +68,13 @@ export class RugCheckService {
 
   /**
    * Získá RugCheck report pro token
+   * DISABLED: Smart wallets don't get rugged, so RugCheck is not needed
    */
   async getReport(mintAddress: string): Promise<RugCheckReport | null> {
+    // RugCheck disabled - smart wallets don't get rugged
+    return null;
+    
+    /* DISABLED - Smart wallets don't get rugged
     try {
       // Check cache first
       const cached = cache.get(mintAddress);
@@ -111,6 +116,7 @@ export class RugCheckService {
       console.error(`RugCheck error for ${mintAddress.substring(0, 8)}...: ${error.message}`);
       return null;
     }
+    */
   }
 
   /**

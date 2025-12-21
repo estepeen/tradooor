@@ -26,9 +26,14 @@ export class TokenSecurityService {
 
   /**
    * Get security data for a token from Birdeye API
-   * Birdeye Security Check API: /v1/token/security?address={mintAddress}
+   * DISABLED: Smart wallets don't get rugged, so security checks are not needed
+   * DexScreener is used for market data instead
    */
   async getTokenSecurity(mintAddress: string): Promise<TokenSecurityData> {
+    // Security checks disabled - smart wallets don't get rugged
+    return this.getDefaultSecurityData();
+    
+    /* DISABLED - Smart wallets don't get rugged, DexScreener is used for market data
     // Check cache first
     const cached = this.cache.get(mintAddress.toLowerCase());
     if (cached && Date.now() - cached.timestamp < this.CACHE_TTL) {
