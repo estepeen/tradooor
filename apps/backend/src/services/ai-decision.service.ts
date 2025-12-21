@@ -592,41 +592,9 @@ Important guidelines:
     prompt: string,
     response: { content: string; promptTokens?: number; completionTokens?: number }
   ): Promise<void> {
-    try {
-      // Supabase removed - AIDecision table doesn't exist in Prisma schema
-      // Skip saving for now (can be added to Prisma schema later if needed)
-      return;
-      
-      // Legacy Supabase code (removed):
-      /*
-      await supabase.from('AIDecision').insert({
-        id: decision.id,
-        tokenId: decision.tokenId,
-        walletId: decision.walletId,
-        signalId: decision.signalId,
-        tradeId: decision.tradeId,
-        decision: decision.decision,
-        confidence: decision.confidence,
-        reasoning: decision.reasoning,
-        suggestedPositionPercent: decision.suggestedPositionPercent,
-        stopLossPercent: decision.stopLossPercent,
-        takeProfitPercent: decision.takeProfitPercent,
-        expectedHoldTimeMinutes: decision.expectedHoldTimeMinutes,
-        riskScore: decision.riskScore,
-        model: decision.model,
-        promptTokens: decision.promptTokens,
-        completionTokens: decision.completionTokens,
-        latencyMs: decision.latencyMs,
-        prompt,
-        response: response.content,
-        createdAt: decision.createdAt.toISOString(),
-      });
-    } catch (error: any) {
-      // Table might not exist - that's OK
-      if (!error.message?.includes('does not exist')) {
-        console.error('Failed to save AI decision:', error);
-      }
-    }
+    // Supabase removed - AIDecision table doesn't exist in Prisma schema
+    // Skip saving for now (can be added to Prisma schema later if needed)
+    return;
   }
 
   /**
