@@ -22,31 +22,15 @@ export function formatMultiplier(percent: number): string {
 }
 
 export function formatNumber(value: number | null | undefined, decimals = 2): string {
-  // #region agent log
-  // Only log first few calls to avoid spam
-  if (typeof window !== 'undefined') {
-    const logCount = ((window as any).__FORMAT_NUMBER_LOG_COUNT__ = ((window as any).__FORMAT_NUMBER_LOG_COUNT__ || 0) + 1);
-    if (logCount <= 10) {
-      console.log(JSON.stringify({location:'utils.ts:24',message:'formatNumber called',data:{value,decimals,type:typeof value,logCount},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'}));
-    }
-  }
-  // #endregion
   if (value === null || value === undefined || isNaN(value)) {
     return '0';
   }
-  const result = value.toLocaleString('en-US', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  });
-  // #region agent log
-  if (typeof window !== 'undefined') {
-    const logCount = (window as any).__FORMAT_NUMBER_LOG_COUNT__ || 0;
-    if (logCount <= 10) {
-      console.log(JSON.stringify({location:'utils.ts:32',message:'formatNumber result',data:{value,decimals,result,resultLength:result.length,logCount},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'}));
-    }
-  }
-  // #endregion
-  return result;
+  // Use toFixed for precise decimal control, then add thousand separators
+  const fixed = value.toFixed(decimals);
+  // Add thousand separators
+  const parts = fixed.split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return parts.join('.');
 }
 
 /**
