@@ -458,6 +458,17 @@ export default function WalletDetailPage() {
                               const closedPnl = position.closedPnl || 0;
                               const closedPnlPercent = position.closedPnlPercent || 0;
                               const holdTimeMinutes = position.holdTimeMinutes;
+                              
+                              // Debug: Log baseToken for closed positions
+                              if (index === 0) {
+                                console.log(`🔍 [Frontend] Closed Position baseToken:`, {
+                                  positionBaseToken: position?.baseToken,
+                                  portfolioBaseToken: portfolio?.baseToken,
+                                  pnlDataBaseToken: pnlData?.baseToken,
+                                  finalBaseToken: normalizeBaseToken(position?.baseToken || portfolio?.baseToken || pnlData?.baseToken || 'SOL'),
+                                  closedPnl,
+                                });
+                              }
                               const sequenceNumber = position.sequenceNumber ?? null;
                               const positionKey = sequenceNumber 
                                 ? `${position.tokenId}-${sequenceNumber}` 
