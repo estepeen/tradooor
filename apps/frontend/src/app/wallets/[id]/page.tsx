@@ -360,6 +360,38 @@ export default function WalletDetailPage() {
           </div>
         )}
 
+        {/* Volume Periods Overview */}
+        {pnlData && pnlData.periods && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            {(['1d', '7d', '14d', '30d'] as const).map((period) => {
+              const data = pnlData.periods[period];
+              if (!data) return null;
+              
+              // Volume is in SOL (volumeBase from backend)
+              const volumeValue = data.volumeBase !== undefined && data.volumeBase !== null ? data.volumeBase : 0;
+              
+              return (
+                <div key={period} style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
+                  <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Volume ({period})</div>
+                  <div className="text-white">
+                    {volumeValue > 0
+                      ? (
+                        <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                          {formatNumber(volumeValue, 6)} {normalizeBaseToken(pnlData?.baseToken)}
+                        </span>
+                      )
+                      : '-'
+                    }
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {data.volumeTrades || 0} trades
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
             {/* Portfolio - DISABLED/TEMPORARILY COMMENTED OUT */}
             {/* {portfolio && (
               <div className="grid grid-cols-2 gap-4 mb-8">
