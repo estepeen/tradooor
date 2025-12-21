@@ -296,6 +296,7 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
           if (savedCount > 0) {
             console.log(`✅ [NormalizedTradeWorker] Advanced signals created: ${savedCount} signals`);
           }
+          if (signals.length > 0) {
             for (const signal of signals) {
               console.log(`   📊 ${signal.type} (${signal.strength}): ${signal.reasoning.substring(0, 80)}...`);
             }
