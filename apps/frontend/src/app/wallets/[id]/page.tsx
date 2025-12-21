@@ -513,7 +513,7 @@ export default function WalletDetailPage() {
                                   }`}>
                                     {closedPnl !== null && closedPnl !== undefined ? (
                                       <>
-                                        {formatNumber(Math.abs(closedPnl), 6)} {normalizeBaseToken(portfolio?.baseToken || pnlData?.baseToken)} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent(closedPnlPercent / 100)})
+                                        {formatNumber(Math.abs(closedPnl), 6)} {normalizeBaseToken(position?.baseToken || portfolio?.baseToken || pnlData?.baseToken || 'SOL')} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent(closedPnlPercent / 100)})
                                       </>
                                     ) : '-'}
                                   </td>
