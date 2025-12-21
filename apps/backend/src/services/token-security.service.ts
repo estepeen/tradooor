@@ -127,6 +127,7 @@ export class TokenSecurityService {
       console.warn(`⚠️  Error fetching token security for ${mintAddress.substring(0, 8)}...: ${error.message}`);
       return this.getDefaultSecurityData();
     }
+    */
   }
 
   /**
