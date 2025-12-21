@@ -419,10 +419,13 @@ export class LotMatchingService {
 
           const costBasis = consumed * lot.entryPrice; // V SOL
           // DŮLEŽITÉ: Proceeds = proporční část skutečné hodnoty SELL trade
-          // Použijeme skutečnou hodnotu SELL trade (valueUsd) a rozdělíme ji podle množství tokenů
-          const proceeds = sellTradeValue > 0 && totalConsumedFromOpenLots > 0
-            ? (consumed / totalConsumedFromOpenLots) * sellTradeValue
-            : consumed * price; // Fallback na starý výpočet, pokud nemáme value nebo totalConsumed = 0
+          // DŮLEŽITÉ: sellTradeValue je hodnota pro CELÉ množství tokenů v SELL trade (amount)
+          // Musíme vypočítat proceeds pouze pro množství tokenů spotřebovaných z BUY (consumed)
+          // Pokud prodáváme 11M tokenů za 6 SOL a spotřebujeme z BUY 3M tokenů, pak proceeds = (3M / 11M) * 6 SOL
+          const sellAmountTotal = amount; // Celkové množství tokenů v SELL trade
+          const proceeds = sellTradeValue > 0 && sellAmountTotal > 0
+            ? (consumed / sellAmountTotal) * sellTradeValue  // Proporční část SELL trade hodnoty podle množství tokenů
+            : consumed * price; // Fallback na starý výpočet, pokud nemáme value nebo sellAmountTotal = 0
           const realizedPnl = proceeds - costBasis; // V SOL
           const realizedPnlPercent = lot.costKnown && costBasis > 0
             ? (realizedPnl / costBasis) * 100
