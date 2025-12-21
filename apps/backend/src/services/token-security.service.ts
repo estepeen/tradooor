@@ -132,30 +132,18 @@ export class TokenSecurityService {
 
   /**
    * Get security data for multiple tokens (batch)
+   * DISABLED: Smart wallets don't get rugged, so security checks are not needed
    */
   async getTokenSecurityBatch(mintAddresses: string[]): Promise<Map<string, TokenSecurityData>> {
+    // Security checks disabled - smart wallets don't get rugged
+    // Return empty/default data for all tokens
     const result = new Map<string, TokenSecurityData>();
+    const defaultData = this.getDefaultSecurityData();
     
-    // Process in smaller batches to avoid rate limits
-    const BATCH_SIZE = 5; // Smaller batch for security API
-    for (let i = 0; i < mintAddresses.length; i += BATCH_SIZE) {
-      const batch = mintAddresses.slice(i, i + BATCH_SIZE);
-      const promises = batch.map(async (mintAddress) => {
-        const data = await this.getTokenSecurity(mintAddress);
-        return { mintAddress, data };
-      });
-
-      const batchResults = await Promise.all(promises);
-      batchResults.forEach(({ mintAddress, data }) => {
-        result.set(mintAddress.toLowerCase(), data);
-      });
-
-      // Delay between batches to respect rate limits
-      if (i + BATCH_SIZE < mintAddresses.length) {
-        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay
-      }
+    for (const mintAddress of mintAddresses) {
+      result.set(mintAddress.toLowerCase(), defaultData);
     }
-
+    
     return result;
   }
 
