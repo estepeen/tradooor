@@ -503,26 +503,6 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
 
     // PortfolioBaseline cache removed (Supabase-only feature)
     // Skip saving baseline - not available in Prisma-only mode
-    try {
-      // Legacy Supabase code (removed):
-      /*
-      const { data, error } = await supabase
-        .from('PortfolioBaseline')
-        .upsert({
-          walletId: wallet.id,
-          updatedAt: now,
-          totalValueUsd: totalValue,
-          holdings: responsePayload,
-        }, { onConflict: 'walletId' });
-      
-      if (error) {
-        console.warn('⚠️ Failed to upsert PortfolioBaseline:', error.message);
-      } else {
-        console.log(`✅ PortfolioBaseline saved for wallet ${wallet.id} (total: $${totalValue.toFixed(2)})`);
-      }
-    } catch (e) {
-      console.warn('⚠️ Failed to upsert PortfolioBaseline:', (e as any)?.message || e);
-    }
 
     res.json(responsePayload);
   } catch (error: any) {
