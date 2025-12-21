@@ -71,6 +71,24 @@ module.exports = {
       min_uptime: '10s',
     },
     {
+      name: 'tradooor-backfill-cron',
+      script: 'pnpm',
+      args: '--filter backend backfill:cron',
+      cwd: process.cwd(),
+      env: {
+        NODE_ENV: 'production',
+        BACKFILL_CRON_SCHEDULE: '*/2 * * * *', // Každé 2 minuty (kontroluje poslední 2 minuty)
+        RUN_ON_START: 'true', // Spusť hned při startu
+      },
+      error_file: './logs/backfill-cron-error.log',
+      out_file: './logs/backfill-cron-out.log',
+      log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+      merge_logs: true,
+      autorestart: true,
+      max_restarts: 10,
+      min_uptime: '10s',
+    },
+    {
       name: 'tradooor-normalized-trade-processor',
       script: 'pnpm',
       args: '--filter backend worker:normalized-trades',
