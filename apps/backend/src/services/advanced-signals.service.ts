@@ -853,7 +853,16 @@ export class AdvancedSignalsService {
         if (signal.suggestedAction === 'buy') {
           try {
             // Get base token from trade meta (default SOL)
-            const baseToken = ((trade as any).meta?.baseToken || 'SOL').toUpperCase();
+            // Try multiple ways to get baseToken
+            let baseToken = 'SOL';
+            if (trade.meta && typeof trade.meta === 'object') {
+              const meta = trade.meta as any;
+              baseToken = (meta.baseToken || meta.base_token || 'SOL').toUpperCase();
+            } else if ((trade as any).meta?.baseToken) {
+              baseToken = ((trade as any).meta.baseToken || 'SOL').toUpperCase();
+            }
+            
+            console.log(`📨 [AdvancedSignals] Sending Discord notification for ${signal.type} signal - baseToken: ${baseToken}, walletId: ${wallet?.id ? 'yes' : 'no'}, walletAddress: ${wallet?.address?.substring(0, 8)}...`);
             
             const notificationData: SignalNotificationData = {
               tokenSymbol: token?.symbol || 'Unknown',
