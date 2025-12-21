@@ -9,9 +9,12 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false, // Keep type checking, but allow build to continue
   },
-  async rewrites() {
+  rewrites() {
     // Use environment variable for backend URL, fallback to localhost for development
-    const backendUrl = process.env.BACKEND_URL || process.env.NEXT_PUBLIC_API_URL?.replace('/api', '') || 'http://localhost:3001';
+    // Make it synchronous to avoid hanging during build/dev server startup
+    const backendUrl = process.env.BACKEND_URL || 
+      (process.env.NEXT_PUBLIC_API_URL ? process.env.NEXT_PUBLIC_API_URL.replace('/api', '') : null) || 
+      'http://localhost:3001';
     return [
       {
         source: '/api/:path*',
@@ -19,7 +22,8 @@ const nextConfig = {
       },
     ];
   },
-  async headers() {
+  headers() {
+    // Make it synchronous to avoid hanging during build/dev server startup
     return [
       {
         source: '/:path*',

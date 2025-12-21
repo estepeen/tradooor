@@ -1,6 +1,11 @@
 import type { Metadata } from 'next'
+import dynamic from 'next/dynamic'
 import './globals.css'
-import Navigation from '@/components/Navigation'
+
+// Dynamically import Navigation to prevent SSR issues
+const Navigation = dynamic(() => import('@/components/Navigation'), {
+  ssr: false,
+})
 
 export const metadata: Metadata = {
   title: 'Tradooor - Smart Wallet Analytics',
