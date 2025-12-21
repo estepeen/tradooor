@@ -288,9 +288,14 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
     if (ENABLE_ADVANCED_SIGNALS) {
       setImmediate(async () => {
         try {
+          console.log(`🔍 [NormalizedTradeWorker] Processing advanced signals for trade ${trade.id.substring(0, 16)}...`);
           const { signals, savedCount } = await advancedSignals.processTradeForSignals(trade.id);
           if (signals.length > 0) {
             console.log(`🎯 [AdvancedSignals] Detected ${signals.length} signals for trade ${trade.id.substring(0, 8)}... (saved: ${savedCount})`);
+          }
+          if (savedCount > 0) {
+            console.log(`✅ [NormalizedTradeWorker] Advanced signals created: ${savedCount} signals`);
+          }
             for (const signal of signals) {
               console.log(`   📊 ${signal.type} (${signal.strength}): ${signal.reasoning.substring(0, 80)}...`);
             }
