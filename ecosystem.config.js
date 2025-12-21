@@ -23,7 +23,7 @@ module.exports = {
       cwd: process.cwd(),
       env: {
         NODE_ENV: 'production',
-        PORT: '4444',
+        PORT: '3000',
       },
       error_file: './logs/frontend-error.log',
       out_file: './logs/frontend-out.log',
