@@ -859,7 +859,7 @@ export default function WalletDetailPage() {
                   <div>
                     <div className="text-sm text-muted-foreground mb-1">Avg. Pool Liquidity</div>
                     <div className="text-xl font-bold">
-                      ${formatNumber(behaviourStats.avgLiquidityUsd ?? 0, 0)}
+                      {formatNumber(behaviourStats.avgLiquidityUsd ?? 0, 0)} USD
                     </div>
                   </div>
                   <div>
@@ -1019,14 +1019,19 @@ export default function WalletDetailPage() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="date" />
                     <YAxis />
-                    <Tooltip />
+                    <Tooltip 
+                      formatter={(value: any) => {
+                        const baseToken = normalizeBaseToken(pnlData?.baseToken);
+                        return `${formatNumber(Number(value), 2)} ${baseToken}`;
+                      }}
+                    />
                     <Legend />
                     <Line
                       type="monotone"
                       dataKey="cumulativePnl"
                       stroke="#82ca9d"
                       strokeWidth={2}
-                      name="Cumulative PnL"
+                      name={`Cumulative PnL (${normalizeBaseToken(pnlData?.baseToken)})`}
                     />
                   </LineChart>
                 </ResponsiveContainer>
