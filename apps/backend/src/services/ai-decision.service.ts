@@ -16,7 +16,6 @@
 
 import { AdvancedSignal, SignalContext, AdvancedSignalType } from './advanced-signals.service.js';
 import { generateId } from '../lib/prisma.js';
-import { supabase, TABLES } from '../lib/supabase.js';
 
 // AI Decision types
 export interface AIDecision {
