@@ -401,39 +401,22 @@ router.get('/consensus-notifications', async (req, res) => {
           };
         });
 
-        // Fetch token security data - zkus z cache synchronně
+        // Fetch token security data - use batch API to avoid rate limits
         const tokenMintAddresses = [...new Set(notifications.map((n: any) => n.token?.mintAddress).filter(Boolean))] as string[];
         const tokenSecurityData = new Map<string, any>();
         
         if (tokenMintAddresses.length > 0) {
           try {
-            const cachedData = await Promise.all(
-              tokenMintAddresses.map(async (mintAddress) => {
-                try {
-                  const security = await tokenSecurityService.getTokenSecurity(mintAddress);
-                  return [mintAddress, security];
-                } catch {
-                  return [mintAddress, null];
-                }
-              })
-            );
-            cachedData.forEach(([mintAddress, security]) => {
+            // Use batch API instead of parallel calls to respect rate limits
+            const batchSecurityData = await tokenSecurityService.getTokenSecurityBatch(tokenMintAddresses);
+            batchSecurityData.forEach((security, mintAddress) => {
               if (security) {
-                tokenSecurityData.set(mintAddress as string, security);
+                tokenSecurityData.set(mintAddress.toLowerCase(), security);
               }
             });
           } catch (error: any) {
-            console.warn(`⚠️  Error fetching cached token security data: ${error.message}`);
+            console.warn(`⚠️  Error fetching token security data: ${error.message}`);
           }
-          
-          // Fetch asynchronně pro další request
-          setImmediate(async () => {
-            try {
-              await tokenSecurityService.getTokenSecurityBatch(tokenMintAddresses);
-            } catch (securityError: any) {
-              console.warn(`⚠️  Error fetching token security data: ${securityError.message}`);
-            }
-          });
         }
 
         const notificationsWithSecurity = notifications.map((notification: any) => ({
@@ -707,40 +690,22 @@ router.get('/consensus-notifications', async (req, res) => {
     const limited = consensusNotifications.slice(0, limit);
 
     // Fetch token security data for each notification (honeypot, tax, holders, etc.)
-    // Zkus načíst z cache synchronně, pokud není v cache, fetch asynchronně pro další request
+    // Fetch token security data - use batch API to avoid rate limits
     const tokenMintAddresses = [...new Set(limited.map(n => n.token?.mintAddress).filter(Boolean))] as string[];
     const tokenSecurityData = new Map<string, any>();
     
-    // Zkus načíst z cache (rychlé)
     if (tokenMintAddresses.length > 0) {
       try {
-        const cachedData = await Promise.all(
-          tokenMintAddresses.map(async (mintAddress) => {
-            try {
-              const security = await tokenSecurityService.getTokenSecurity(mintAddress);
-              return [mintAddress, security];
-            } catch {
-              return [mintAddress, null];
-            }
-          })
-        );
-        cachedData.forEach(([mintAddress, security]) => {
+        // Use batch API instead of parallel calls to respect rate limits
+        const batchSecurityData = await tokenSecurityService.getTokenSecurityBatch(tokenMintAddresses);
+        batchSecurityData.forEach((security, mintAddress) => {
           if (security) {
-            tokenSecurityData.set(mintAddress as string, security);
+            tokenSecurityData.set(mintAddress.toLowerCase(), security);
           }
         });
       } catch (error: any) {
-        console.warn(`⚠️  Error fetching cached token security data: ${error.message}`);
+        console.warn(`⚠️  Error fetching token security data: ${error.message}`);
       }
-      
-      // Fetch asynchronně pro další request (pro tokeny, které nejsou v cache)
-      setImmediate(async () => {
-        try {
-          await tokenSecurityService.getTokenSecurityBatch(tokenMintAddresses);
-        } catch (securityError: any) {
-          console.warn(`⚠️  Error fetching token security data: ${securityError.message}`);
-        }
-      });
     }
 
     // Add security data to notifications
