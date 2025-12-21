@@ -342,7 +342,12 @@ export default function WalletDetailPage() {
                       ? (
                         <>
                           <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            {formatNumber(Math.abs(pnlValue), 2)} {baseToken}
+                            {(() => {
+                              const formatted = formatNumber(Math.abs(pnlValue), 2);
+                              // Explicitly remove any $ symbol that might be in the formatted string
+                              const cleaned = formatted.replace(/\$/g, '');
+                              return `${cleaned} ${baseToken}`;
+                            })()}
                           </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
@@ -381,7 +386,12 @@ export default function WalletDetailPage() {
                     {volumeValue > 0
                       ? (
                         <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                          {formatNumber(volumeValue, 6)} {volumeBaseToken}
+                          {(() => {
+                            const formatted = formatNumber(volumeValue, 6);
+                            // Explicitly remove any $ symbol that might be in the formatted string
+                            const cleaned = formatted.replace(/\$/g, '');
+                            return `${cleaned} ${volumeBaseToken}`;
+                          })()}
                         </span>
                       )
                       : '-'
@@ -530,7 +540,12 @@ export default function WalletDetailPage() {
                                   }`}>
                                     {closedPnl !== null && closedPnl !== undefined ? (
                                       <>
-                                        {formatNumber(Math.abs(closedPnl), 2)} {baseToken} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent(closedPnlPercent / 100)})
+                                        {(() => {
+                                          const formatted = formatNumber(Math.abs(closedPnl), 2);
+                                          // Explicitly remove any $ symbol that might be in the formatted string
+                                          const cleaned = formatted.replace(/\$/g, '');
+                                          return `${cleaned} ${baseToken} (${closedPnlPercent >= 0 ? '+' : ''}${formatPercent(closedPnlPercent / 100)})`;
+                                        })()}
                                       </>
                                     ) : '-'}
                                   </td>
