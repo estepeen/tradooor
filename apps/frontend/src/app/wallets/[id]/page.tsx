@@ -517,7 +517,7 @@ export default function WalletDetailPage() {
                                     )}
                                   </td>
                                   <td className="px-4 py-3 text-right text-sm font-mono">
-                                    {formatNumber(totalSold, 6)}
+                                    {formatNumber(totalSold, 6)} {normalizeBaseToken(position?.baseToken || portfolio?.baseToken || pnlData?.baseToken || 'SOL')}
                                   </td>
                                   <td className={`px-4 py-3 text-right text-sm font-mono ${
                                     closedPnl >= 0 ? 'text-green-400' : 'text-red-400'
@@ -702,9 +702,15 @@ export default function WalletDetailPage() {
                                   : 'text-red-400'
                               }`}
                             >
-                            {isVoid ? '-' : trade.priceUsd !== null && trade.priceUsd !== undefined
-                              ? `$${formatNumber(Number(trade.priceUsd), 6)}`
-                              : `$${formatNumber(Number(trade.priceBasePerToken), 6)}`}
+                            {(() => {
+                                if (isVoid) return '-';
+                                const baseToken = normalizeBaseToken(trade.baseToken || pnlData?.baseToken);
+                                // Price should be in SOL (baseToken), not USD
+                                if (trade.priceBasePerToken !== null && trade.priceBasePerToken !== undefined) {
+                                  return `${formatNumber(Number(trade.priceBasePerToken), 6)} ${baseToken}`;
+                                }
+                                return '-';
+                              })()}
                           </td>
                             <td
                               className={`px-4 py-3 text-right text-sm font-mono ${
