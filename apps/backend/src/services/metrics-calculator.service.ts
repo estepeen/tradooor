@@ -141,11 +141,12 @@ export class MetricsCalculatorService {
     const legacyAdvancedStats = await this.calculateAdvancedStats(walletId);
     const rollingInsights = await this.computeRollingStatsAndScores(walletId);
     
-    // Use rolling stats for recentPnl30d (from closed lots, same as detail page)
-    // This ensures consistency between homepage and detail page
+    // OPTIMALIZACE: PnL se počítá POUZE ze sloupce realizedPnl v ClosedLot
+    // NEPŘEPOČÍTÁVÁME vše znovu - jen sčítáme realizedPnl z ClosedLot za posledních 30 dní
+    // Toto zajišťuje konzistenci a optimalizaci - PnL se aktualizuje inkrementálně při nových closed trades
     // DŮLEŽITÉ: PnL je nyní v SOL (všechny hodnoty jsou v SOL)
     const rolling30d = rollingInsights.rolling['30d'];
-      const recentPnl30dSol = rolling30d?.realizedPnl ?? 0; // PnL v SOL (všechny hodnoty jsou v SOL)
+    const recentPnl30dSol = rolling30d?.realizedPnl ?? 0; // PnL v SOL - součet realizedPnl z ClosedLot za 30d
     const recentPnl30dPercent = rolling30d?.realizedRoiPercent ?? 0;
 
     const legacyScore = this.calculateScore({
@@ -587,11 +588,14 @@ export class MetricsCalculatorService {
     fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'metrics-calculator.service.ts:567',message:'currentSolPrice for volume calc only',data:{solPriceUsd},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
     // #endregion
 
+    // OPTIMALIZACE: PnL se počítá POUZE ze sloupce realizedPnl v ClosedLot
+    // NEPŘEPOČÍTÁVÁME znovu - jen sčítáme hodnoty z databáze
     // DŮLEŽITÉ: Všechny hodnoty jsou nyní v SOL (ne v USD!)
     // realizedPnl je vždy v SOL (USDC/USDT se převedou na SOL při výpočtu)
     // realizedPnlUsd se už nepoužívá - vše je v SOL
+    // Při novém closed trade se PnL aktualizuje inkrementálně v lot-matching.service.ts
     const realizedPnl = lots.reduce((sum, lot) => {
-      // Použij realizedPnl v SOL (všechny hodnoty jsou v SOL)
+      // Použij realizedPnl v SOL (všechny hodnoty jsou v SOL) - jen sčítáme z databáze
       if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
         return sum + lot.realizedPnl;
       }
