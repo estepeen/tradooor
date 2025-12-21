@@ -12,9 +12,16 @@ const nextConfig = {
   rewrites() {
     // Use environment variable for backend URL, fallback to localhost for development
     // Make it synchronous to avoid hanging during build/dev server startup
-    const backendUrl = process.env.BACKEND_URL || 
-      (process.env.NEXT_PUBLIC_API_URL ? process.env.NEXT_PUBLIC_API_URL.replace('/api', '') : null) || 
-      'http://localhost:3001';
+    // Don't try to connect to backend - just configure the rewrite rule
+    let backendUrl = 'http://localhost:3001'; // Default fallback
+    
+    if (process.env.BACKEND_URL) {
+      backendUrl = process.env.BACKEND_URL;
+    } else if (process.env.NEXT_PUBLIC_API_URL) {
+      // Remove /api suffix if present
+      backendUrl = process.env.NEXT_PUBLIC_API_URL.replace(/\/api\/?$/, '');
+    }
+    
     return [
       {
         source: '/api/:path*',
