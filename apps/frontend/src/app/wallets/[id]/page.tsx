@@ -342,7 +342,7 @@ export default function WalletDetailPage() {
                       ? (
                         <>
                           <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            {formatNumber(Math.abs(pnlValue), 2)} {baseToken}
+                            {formatNumber(Math.abs(pnlValue), 2)} {baseToken || 'SOL'}
                           </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
