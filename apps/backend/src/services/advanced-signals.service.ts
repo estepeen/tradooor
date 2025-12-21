@@ -898,6 +898,7 @@ export class AdvancedSignalsService {
               }],
             };
             
+            console.log(`📨 [AdvancedSignals] About to send Discord notification - baseToken: ${notificationData.baseToken || 'MISSING'}, walletIds: ${notificationData.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}, aiDecision: ${notificationData.aiDecision || 'undefined'}`);
             await this.discordNotification.sendSignalNotification(notificationData);
           } catch (discordError: any) {
             console.warn(`⚠️  Discord notification failed: ${discordError.message}`);

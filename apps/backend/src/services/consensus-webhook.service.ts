@@ -345,6 +345,7 @@ export class ConsensusWebhookService {
           };
 
           // Pošli notifikaci
+          console.log(`📨 [ConsensusWebhook] About to send Discord notification - baseToken: ${notificationData.baseToken || 'MISSING'}, walletIds: ${notificationData.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}, aiDecision: ${notificationData.aiDecision || 'undefined'}`);
           await this.discordNotification.sendSignalNotification(notificationData);
           
           // 5d. Vytvoř virtuální pozici pro exit monitoring
