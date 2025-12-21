@@ -793,6 +793,7 @@ export class AdvancedSignalsService {
 
       // AI Evaluation (if GROQ_API_KEY is set)
       if (process.env.GROQ_API_KEY && signal.suggestedAction === 'buy') {
+        console.log(`🤖 [AdvancedSignals] Calling AI for ${signal.type} signal (wallet: ${wallet?.address?.substring(0, 8)}..., token: ${token?.symbol || 'unknown'})`);
         try {
           const aiContext: AIContext = {
             signal,
@@ -825,15 +826,22 @@ export class AdvancedSignalsService {
               signal.suggestedPositionPercent = aiResult.suggestedPositionPercent;
             }
 
-            console.log(`🤖 AI evaluated ${signal.type}: ${aiResult.decision} (${aiResult.confidence}% confidence)`);
+            console.log(`✅ [AdvancedSignals] AI evaluated ${signal.type}: ${aiResult.decision} (${aiResult.confidence}% confidence)`);
+          } else if (aiResult && aiResult.isFallback) {
+            console.warn(`⚠️  [AdvancedSignals] AI returned fallback for ${signal.type} - will not use (showing "-" instead)`);
+            // Don't set aiDecision if it's fallback
+            signal.aiDecision = undefined;
           } else {
-            console.warn(`⚠️  AI evaluation returned null or fallback for ${signal.type} - AI not available`);
-            // Don't set aiDecision if it's null or fallback
+            console.warn(`⚠️  [AdvancedSignals] AI evaluation returned null for ${signal.type} - AI not available`);
+            // Don't set aiDecision if it's null
             signal.aiDecision = undefined;
           }
         } catch (aiError: any) {
-          console.warn(`⚠️  AI evaluation failed: ${aiError.message}`);
+          console.error(`❌ [AdvancedSignals] AI evaluation failed for ${signal.type}: ${aiError.message}`);
+          signal.aiDecision = undefined;
         }
+      } else if (!process.env.GROQ_API_KEY) {
+        console.warn(`⚠️  [AdvancedSignals] GROQ_API_KEY not set - skipping AI evaluation for ${signal.type}`);
       }
 
       // Save enhanced signal

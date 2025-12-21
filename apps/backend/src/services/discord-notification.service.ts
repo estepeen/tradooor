@@ -184,6 +184,7 @@ export class DiscordNotificationService {
 
     // Price Info - use base token instead of $
     const baseToken = (data.baseToken || 'SOL').toUpperCase();
+    console.log(`📨 [Discord] Building embed for ${data.tokenSymbol} - baseToken: ${baseToken}, wallets: ${data.wallets?.length || 0}, walletIds: ${data.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}`);
     const priceInfo = [`**Entry:** ${this.formatNumber(data.entryPriceUsd, 8)} ${baseToken}`];
     if (data.marketCapUsd) priceInfo.push(`**MCap:** ${this.formatNumber(data.marketCapUsd, 0)} ${baseToken}`);
     if (data.liquidityUsd) priceInfo.push(`**Liq:** ${this.formatNumber(data.liquidityUsd, 0)} ${baseToken}`);
