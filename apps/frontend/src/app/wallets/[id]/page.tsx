@@ -371,6 +371,8 @@ export default function WalletDetailPage() {
               
               // Volume is in SOL (volumeBase from backend)
               const volumeValue = data.volumeBase !== undefined && data.volumeBase !== null ? data.volumeBase : 0;
+              // Ensure baseToken is always set for volume
+              const volumeBaseToken = normalizeBaseToken(pnlData?.baseToken || 'SOL');
               
               return (
                 <div key={period} style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
@@ -379,7 +381,7 @@ export default function WalletDetailPage() {
                     {volumeValue > 0
                       ? (
                         <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                          {formatNumber(volumeValue, 6)} {normalizeBaseToken(pnlData?.baseToken || 'SOL')}
+                          {formatNumber(volumeValue, 6)} {volumeBaseToken}
                         </span>
                       )
                       : '-'
