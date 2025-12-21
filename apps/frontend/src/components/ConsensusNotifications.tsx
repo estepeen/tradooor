@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { fetchConsensusNotifications } from '@/lib/api';
 import Link from 'next/link';
 import { formatDistanceToNow } from 'date-fns';
+import { normalizeBaseToken, formatNumber } from '@/lib/utils';
 
 interface ConsensusTrade {
   id: string;
@@ -415,7 +416,7 @@ export default function ConsensusNotifications() {
                                         </Link>
                                         {' • '}
                                         <span className={isNewestTrade ? "text-green-400" : "text-muted-foreground"}>
-                                          bought @ ${trade.priceBasePerToken.toFixed(6)} for ${formatAmount(trade.amountBase, 2)} • {formatTimeAgo(trade.timestamp)}
+                                          bought @ {formatNumber(trade.priceBasePerToken, 6)} {normalizeBaseToken('SOL')} for {formatNumber(trade.amountBase, 2)} {normalizeBaseToken('SOL')} • {formatTimeAgo(trade.timestamp)}
                                         </span>
                                       </div>
                                     );
