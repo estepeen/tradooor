@@ -715,16 +715,16 @@ export default function WalletDetailPage() {
                   if (!hasMore && closedPositionsDisplayCount <= 10) return null;
                   
                   return (
-                    <div className="mt-4 text-center">
+                  <div className="mt-4 text-center">
                       {closedPositionsDisplayCount < 30 && hasMore ? (
-                        <button
+                    <button
                           onClick={() => {
                             setClosedPositionsDisplayCount(prev => Math.min(prev + 10, 30));
                           }}
-                          className="text-sm text-muted-foreground hover:text-foreground"
-                        >
+                      className="text-sm text-muted-foreground hover:text-foreground"
+                    >
                           Show More ({Math.min(remaining, 10)} more)
-                        </button>
+                    </button>
                       ) : closedPositionsDisplayCount > 10 ? (
                         <button
                           onClick={() => setClosedPositionsDisplayCount(10)}
@@ -733,7 +733,7 @@ export default function WalletDetailPage() {
                           Show Less
                         </button>
                       ) : null}
-                    </div>
+                  </div>
                   );
                 })()}
             </div>

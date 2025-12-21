@@ -21,6 +21,7 @@ export interface SignalNotificationData {
   liquidityUsd?: number;
   volume24hUsd?: number;
   tokenAgeMinutes?: number;
+  baseToken?: string; // Base token (SOL, USDC, etc.) - defaults to SOL
   
   // AI Decision
   aiDecision?: 'buy' | 'sell' | 'skip' | 'hold';
@@ -54,6 +55,7 @@ export interface SignalNotificationData {
   wallets?: Array<{
     label?: string;
     address: string;
+    walletId?: string; // Wallet ID for profile link
     score: number;
     tradeAmountUsd?: number;
     tradePrice?: number;
@@ -180,10 +182,11 @@ export class DiscordNotificationService {
       inline: true,
     });
 
-    // Price Info
-    const priceInfo = [`**Entry:** $${this.formatNumber(data.entryPriceUsd, 8)}`];
-    if (data.marketCapUsd) priceInfo.push(`**MCap:** $${this.formatNumber(data.marketCapUsd, 0)}`);
-    if (data.liquidityUsd) priceInfo.push(`**Liq:** $${this.formatNumber(data.liquidityUsd, 0)}`);
+    // Price Info - use base token instead of $
+    const baseToken = (data.baseToken || 'SOL').toUpperCase();
+    const priceInfo = [`**Entry:** ${this.formatNumber(data.entryPriceUsd, 8)} ${baseToken}`];
+    if (data.marketCapUsd) priceInfo.push(`**MCap:** ${this.formatNumber(data.marketCapUsd, 0)} ${baseToken}`);
+    if (data.liquidityUsd) priceInfo.push(`**Liq:** ${this.formatNumber(data.liquidityUsd, 0)} ${baseToken}`);
     
     fields.push({
       name: '💰 Price & Market',
@@ -199,7 +202,7 @@ export class DiscordNotificationService {
         : `${data.tokenAgeMinutes}m`;
       tokenInfo.push(`**Age:** ${ageStr}`);
     }
-    if (data.volume24hUsd) tokenInfo.push(`**24h Vol:** $${this.formatNumber(data.volume24hUsd, 0)}`);
+    if (data.volume24hUsd) tokenInfo.push(`**24h Vol:** ${this.formatNumber(data.volume24hUsd, 0)} ${baseToken}`);
     tokenInfo.push(`**Avg Score:** ${data.avgWalletScore.toFixed(0)}/100`);
     
     fields.push({
@@ -231,14 +234,14 @@ export class DiscordNotificationService {
       });
     }
 
-    // SL/TP (if available)
+    // SL/TP (if available) - use base token instead of $
     if (data.stopLossPercent || data.takeProfitPercent) {
       const sltp = [];
       if (data.stopLossPriceUsd && data.stopLossPercent) {
-        sltp.push(`🛑 **SL:** $${this.formatNumber(data.stopLossPriceUsd, 8)} (-${data.stopLossPercent}%)`);
+        sltp.push(`🛑 **SL:** ${this.formatNumber(data.stopLossPriceUsd, 8)} ${baseToken} (-${data.stopLossPercent}%)`);
       }
       if (data.takeProfitPriceUsd && data.takeProfitPercent) {
-        sltp.push(`🎯 **TP:** $${this.formatNumber(data.takeProfitPriceUsd, 8)} (+${data.takeProfitPercent}%)`);
+        sltp.push(`🎯 **TP:** ${this.formatNumber(data.takeProfitPriceUsd, 8)} ${baseToken} (+${data.takeProfitPercent}%)`);
       }
       
       if (sltp.length > 0) {
@@ -314,17 +317,25 @@ export class DiscordNotificationService {
       }
     }
 
-    // Wallets with trade details (show all)
+    // Wallets with trade details (show all) - add profile links and use base token
     if (data.wallets && data.wallets.length > 0) {
+      const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://tradooor.stepanpanek.cz';
       const walletDetails = data.wallets.map((w) => {
         const name = w.label || `${w.address.substring(0, 6)}...`;
-        const parts = [`**${name}**`];
+        
+        // Create profile link if walletId is available, otherwise use address
+        const profileUrl = w.walletId 
+          ? `${frontendUrl}/wallets/${w.walletId}`
+          : `${frontendUrl}/wallet/${w.address}`;
+        const nameWithLink = `[**${name}**](${profileUrl})`;
+        
+        const parts = [nameWithLink];
         
         if (w.tradeAmountUsd) {
-          parts.push(`$${this.formatNumber(w.tradeAmountUsd, 2)}`);
+          parts.push(`${this.formatNumber(w.tradeAmountUsd, 2)} ${baseToken}`);
         }
         if (w.tradePrice) {
-          parts.push(`@ $${this.formatNumber(w.tradePrice, 8)}`);
+          parts.push(`@ ${this.formatNumber(w.tradePrice, 8)} ${baseToken}`);
         }
         if (w.tradeTime) {
           const time = new Date(w.tradeTime);

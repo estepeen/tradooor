@@ -837,6 +837,9 @@ export class AdvancedSignalsService {
         // Send Discord notification for BUY signals
         if (signal.suggestedAction === 'buy') {
           try {
+            // Get base token from trade meta (default SOL)
+            const baseToken = ((trade as any).meta?.baseToken || 'SOL').toUpperCase();
+            
             const notificationData: SignalNotificationData = {
               tokenSymbol: token?.symbol || 'Unknown',
               tokenMint: token?.mintAddress || '',
@@ -849,6 +852,7 @@ export class AdvancedSignalsService {
               liquidityUsd: marketData.liquidity || undefined,
               volume24hUsd: marketData.volume24h || undefined,
               tokenAgeMinutes: marketData.tokenAgeMinutes || undefined,
+              baseToken, // Add base token
               aiDecision: signal.aiDecision?.decision,
               aiConfidence: signal.aiDecision?.confidence,
               aiReasoning: signal.aiDecision?.reasoning,
@@ -861,6 +865,7 @@ export class AdvancedSignalsService {
               wallets: [{
                 label: wallet?.label,
                 address: wallet?.address || '',
+                walletId: wallet?.id, // Add wallet ID for profile link
                 score: wallet?.score || 0,
                 tradeAmountUsd: Number(trade.amountBase || 0),
                 tradePrice: Number(trade.priceBasePerToken || 0),

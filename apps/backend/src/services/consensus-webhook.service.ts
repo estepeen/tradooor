@@ -233,6 +233,9 @@ export class ConsensusWebhookService {
             ? walletsData.reduce((sum, w) => sum + (Number(w.score) || 0), 0) / walletsData.length
             : 50;
 
+          // Získej base token z trade (default SOL)
+          const baseToken = ((tradeToUse as any).meta?.baseToken || 'SOL').toUpperCase();
+
           // Spočítej SL/TP ceny
           const entryPrice = Number(tradeToUse.priceBasePerToken || 0);
           const stopLossPriceUsd = aiDecisionResult?.stopLossPercent && entryPrice
@@ -295,6 +298,7 @@ export class ConsensusWebhookService {
             liquidityUsd: marketDataResult?.liquidity,
             volume24hUsd: marketDataResult?.volume24h,
             tokenAgeMinutes: marketDataResult?.ageMinutes,
+            baseToken, // Add base token
             aiDecision: aiDecisionResult?.decision,
             aiConfidence: aiDecisionResult?.confidence,
             // Pro update přidej info o novém walletovi
@@ -310,6 +314,7 @@ export class ConsensusWebhookService {
             wallets: walletsData.map(w => ({
               label: w.label || null,
               address: w.address,
+              walletId: w.id, // Add wallet ID for profile link
               score: Number(w.score) || 0,
               tradeAmountUsd: w.tradeAmountUsd,
               tradePrice: w.tradePrice,
