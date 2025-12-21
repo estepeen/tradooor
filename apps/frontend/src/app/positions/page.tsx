@@ -4,8 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { formatNumber, formatDate } from '@/lib/utils';
 import { Spinner } from '@/components/Spinner';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
+import { getApiBaseUrl } from '@/lib/api';
 
 interface Position {
   id: string;
@@ -85,10 +84,11 @@ export default function PositionsPage() {
 
   const loadData = useCallback(async () => {
     try {
+      const apiBase = getApiBaseUrl();
       const [posRes, signalsRes, statsRes] = await Promise.all([
-        fetch(`${API_BASE}/positions?status=${filter}&limit=50`),
-        fetch(`${API_BASE}/positions/exit-signals/recent?hours=24&limit=20`),
-        fetch(`${API_BASE}/positions/stats`),
+        fetch(`${apiBase}/positions?status=${filter}&limit=50`),
+        fetch(`${apiBase}/positions/exit-signals/recent?hours=24&limit=20`),
+        fetch(`${apiBase}/positions/stats`),
       ]);
 
       if (posRes.ok) {
@@ -122,7 +122,7 @@ export default function PositionsPage() {
     if (!confirm('Are you sure you want to close this position?')) return;
     
     try {
-      const res = await fetch(`${API_BASE}/positions/${positionId}/close`, {
+      const res = await fetch(`${getApiBaseUrl()}/positions/${positionId}/close`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ exitReason: 'manual' }),

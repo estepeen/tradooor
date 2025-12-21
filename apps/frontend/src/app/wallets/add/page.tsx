@@ -5,8 +5,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getApiBaseUrl } from '@/lib/api';
 
-const API_BASE_URL = getApiBaseUrl();
-
 export default function AddWalletPage() {
   const router = useRouter();
   const [address, setAddress] = useState('');
@@ -27,7 +25,7 @@ export default function AddWalletPage() {
         .map(t => t.trim())
         .filter(t => t.length > 0);
 
-      const response = await fetch(`${API_BASE_URL}/smart-wallets`, {
+      const response = await fetch(`${getApiBaseUrl()}/smart-wallets`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -4,8 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { formatNumber, formatDate } from '@/lib/utils';
 import { Spinner } from '@/components/Spinner';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api';
+import { getApiBaseUrl } from '@/lib/api';
 
 interface Signal {
   id: string;
@@ -103,7 +102,7 @@ export default function SignalsPage() {
   const loadSignals = useCallback(async () => {
     try {
       setError(null);
-      const res = await fetch(`${API_BASE}/signals/unified?limit=50`, {
+      const res = await fetch(`${getApiBaseUrl()}/signals/unified?limit=50`, {
         cache: 'no-store',
       });
       

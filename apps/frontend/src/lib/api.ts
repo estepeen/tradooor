@@ -1,18 +1,21 @@
 // Use /api for local development (Next.js rewrite) or if NEXT_PUBLIC_API_URL is not set
 // Only use absolute URL if explicitly set and not running on localhost
 export const getApiBaseUrl = () => {
+  // On server-side (during build), always return /api
+  if (typeof window === 'undefined') {
+    return '/api';
+  }
+  
   const envUrl = process.env.NEXT_PUBLIC_API_URL;
   if (!envUrl) return '/api';
   
   // If running on localhost, always use /api (Next.js rewrite)
-  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+  if (window.location.hostname === 'localhost') {
     return '/api';
   }
   
   return envUrl;
 };
-
-const API_BASE_URL = getApiBaseUrl();
 
 export async function fetchSmartWallets(params?: {
   page?: number;
@@ -32,7 +35,7 @@ export async function fetchSmartWallets(params?: {
   if (params?.sortBy) searchParams.set('sortBy', params.sortBy);
   if (params?.sortOrder) searchParams.set('sortOrder', params.sortOrder);
 
-  const url = `${API_BASE_URL}/smart-wallets${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+  const url = `${getApiBaseUrl()}/smart-wallets${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
   // Add cache-busting for data update on refresh
   const res = await fetch(url, {
     cache: 'no-store', // Vždy načti aktuální data
@@ -45,7 +48,7 @@ export async function fetchSmartWallets(params?: {
 }
 
 export async function fetchSmartWallet(id: string) {
-  const res = await fetch(`${API_BASE_URL}/smart-wallets/${id}`, {
+  const res = await fetch(`${getApiBaseUrl()}/smart-wallets/${id}`, {
     cache: 'no-store', // Vždy načti aktuální data
     headers: {
       'Cache-Control': 'no-cache',
@@ -74,7 +77,7 @@ export async function fetchTrades(walletId: string, params?: {
   if (params?.fromDate) searchParams.set('fromDate', params.fromDate);
   if (params?.toDate) searchParams.set('toDate', params.toDate);
 
-  const url = `${API_BASE_URL}/trades?${searchParams.toString()}`;
+  const url = `${getApiBaseUrl()}/trades?${searchParams.toString()}`;
   const res = await fetch(url, {
     cache: 'no-store', // Vždy načti aktuální data
     headers: {
@@ -86,39 +89,39 @@ export async function fetchTrades(walletId: string, params?: {
 }
 
 export async function fetchStatsOverview() {
-  const res = await fetch(`${API_BASE_URL}/stats/overview`);
+  const res = await fetch(`${getApiBaseUrl()}/stats/overview`);
   if (!res.ok) throw new Error('Failed to fetch stats overview');
   return res.json();
 }
 
 export async function fetchTokenStats(period: '1d' | '7d' | '14d' | '30d' | 'all-time' = 'all-time') {
-  const url = `${API_BASE_URL}/stats/tokens${period ? `?period=${period}` : ''}`;
+  const url = `${getApiBaseUrl()}/stats/tokens${period ? `?period=${period}` : ''}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to fetch token stats');
   return res.json();
 }
 
 export async function fetchDexStats() {
-  const res = await fetch(`${API_BASE_URL}/stats/dex`);
+  const res = await fetch(`${getApiBaseUrl()}/stats/dex`);
   if (!res.ok) throw new Error('Failed to fetch DEX stats');
   return res.json();
 }
 
 export async function fetchWalletPnl(walletId: string) {
-  const res = await fetch(`${API_BASE_URL}/smart-wallets/${walletId}/pnl`);
+  const res = await fetch(`${getApiBaseUrl()}/smart-wallets/${walletId}/pnl`);
   if (!res.ok) throw new Error('Failed to fetch wallet PnL');
   return res.json();
 }
 
 export async function fetchWalletPortfolio(walletId: string, forceRefresh: boolean = false) {
-  const url = `${API_BASE_URL}/smart-wallets/${walletId}/portfolio${forceRefresh ? '?forceRefresh=true' : ''}`;
+  const url = `${getApiBaseUrl()}/smart-wallets/${walletId}/portfolio${forceRefresh ? '?forceRefresh=true' : ''}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error('Failed to fetch wallet portfolio');
   return res.json();
 }
 
 export async function fetchWalletPortfolioRefresh(walletId: string) {
-  const url = `${API_BASE_URL}/smart-wallets/${walletId}/portfolio/refresh`;
+  const url = `${getApiBaseUrl()}/smart-wallets/${walletId}/portfolio/refresh`;
   const res = await fetch(url, {
     cache: 'no-store',
     headers: { 'Cache-Control': 'no-cache' },
@@ -148,7 +151,7 @@ export async function fetchRecentTrades(params?: {
   if (params?.limit) searchParams.set('limit', params.limit.toString());
   if (params?.since) searchParams.set('since', params.since);
 
-  const url = `${API_BASE_URL}/trades/recent${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+  const url = `${getApiBaseUrl()}/trades/recent${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
   const res = await fetch(url, {
     cache: 'no-store',
     headers: { 'Cache-Control': 'no-cache' },
@@ -158,7 +161,7 @@ export async function fetchRecentTrades(params?: {
 }
 
 export async function deletePosition(walletId: string, tokenId: string, sequenceNumber?: number) {
-  const url = `${API_BASE_URL}/smart-wallets/${walletId}/positions/${tokenId}${sequenceNumber !== undefined ? `?sequenceNumber=${sequenceNumber}` : ''}`;
+  const url = `${getApiBaseUrl()}/smart-wallets/${walletId}/positions/${tokenId}${sequenceNumber !== undefined ? `?sequenceNumber=${sequenceNumber}` : ''}`;
   const res = await fetch(url, {
     method: 'DELETE',
     cache: 'no-store',
@@ -175,7 +178,7 @@ export async function fetchConsensusSignals(limit?: number) {
   const searchParams = new URLSearchParams();
   if (limit) searchParams.set('limit', limit.toString());
 
-  const url = `${API_BASE_URL}/trades/consensus-signals${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+  const url = `${getApiBaseUrl()}/trades/consensus-signals${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
   const res = await fetch(url, {
     cache: 'no-store',
     headers: { 'Cache-Control': 'no-cache' },
@@ -195,7 +198,7 @@ export async function fetchSignals(options?: {
   if (options?.model) params.append('model', options.model);
   if (options?.status) params.append('status', options.status);
   if (options?.limit) params.append('limit', options.limit.toString());
-  const url = `${API_BASE_URL}/signals${params.toString() ? `?${params.toString()}` : ''}`;
+  const url = `${getApiBaseUrl()}/signals${params.toString() ? `?${params.toString()}` : ''}`;
   const res = await fetch(url, {
     cache: 'no-store',
     headers: { 'Cache-Control': 'no-cache' },
@@ -205,7 +208,7 @@ export async function fetchSignals(options?: {
 }
 
 export async function fetchSignalTypes() {
-  const res = await fetch(`${API_BASE_URL}/signals/types`, {
+  const res = await fetch(`${getApiBaseUrl()}/signals/types`, {
     cache: 'no-store',
     headers: { 'Cache-Control': 'no-cache' },
   });
@@ -214,7 +217,7 @@ export async function fetchSignalTypes() {
 }
 
 export async function fetchSignalsSummary() {
-  const res = await fetch(`${API_BASE_URL}/signals/summary`, {
+  const res = await fetch(`${getApiBaseUrl()}/signals/summary`, {
     cache: 'no-store',
     headers: { 'Cache-Control': 'no-cache' },
   });
@@ -223,7 +226,7 @@ export async function fetchSignalsSummary() {
 }
 
 export async function evaluateSignalWithAI(signalId?: string, tradeId?: string) {
-  const res = await fetch(`${API_BASE_URL}/signals/ai/evaluate`, {
+  const res = await fetch(`${getApiBaseUrl()}/signals/ai/evaluate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ signalId, tradeId }),
@@ -236,7 +239,7 @@ export async function evaluateSignalWithAI(signalId?: string, tradeId?: string) 
 }
 
 export async function fetchAIPerformance() {
-  const res = await fetch(`${API_BASE_URL}/signals/ai/performance`, {
+  const res = await fetch(`${getApiBaseUrl()}/signals/ai/performance`, {
     cache: 'no-store',
     headers: { 'Cache-Control': 'no-cache' },
   });
@@ -245,7 +248,7 @@ export async function fetchAIPerformance() {
 }
 
 export async function generateSignal(tradeId: string, config?: any) {
-  const res = await fetch(`${API_BASE_URL}/signals/generate`, {
+  const res = await fetch(`${getApiBaseUrl()}/signals/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tradeId, config }),
@@ -265,7 +268,7 @@ export async function fetchConsensusNotifications(params?: {
   if (params?.hours) searchParams.set('hours', params.hours.toString());
   if (params?.limit) searchParams.set('limit', params.limit.toString());
 
-  const url = `${API_BASE_URL}/trades/consensus-notifications${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
+  const url = `${getApiBaseUrl()}/trades/consensus-notifications${searchParams.toString() ? `?${searchParams.toString()}` : ''}`;
   const res = await fetch(url, {
     cache: 'no-store',
     headers: { 'Cache-Control': 'no-cache' },
@@ -275,7 +278,7 @@ export async function fetchConsensusNotifications(params?: {
 }
 
 export async function recalculateWalletClosedPositions(walletId: string) {
-  const res = await fetch(`${API_BASE_URL}/smart-wallets/${walletId}/recalculate-closed-positions`, {
+  const res = await fetch(`${getApiBaseUrl()}/smart-wallets/${walletId}/recalculate-closed-positions`, {
     method: 'POST',
     cache: 'no-store',
     headers: { 'Cache-Control': 'no-cache' },
@@ -288,7 +291,7 @@ export async function recalculateWalletClosedPositions(walletId: string) {
 }
 
 export async function recalculateWallet(walletId: string) {
-  const res = await fetch(`${API_BASE_URL}/smart-wallets/${walletId}/recalculate`, {
+  const res = await fetch(`${getApiBaseUrl()}/smart-wallets/${walletId}/recalculate`, {
     method: 'POST',
     cache: 'no-store',
     headers: { 'Cache-Control': 'no-cache' },
