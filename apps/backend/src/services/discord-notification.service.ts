@@ -211,12 +211,12 @@ export class DiscordNotificationService {
       inline: true,
     });
 
-    // AI Decision (if available)
-    if (data.aiDecision) {
+    // AI Decision (if available) - only show if we have real AI decision
+    if (data.aiDecision && data.aiConfidence !== undefined && data.aiConfidence > 0) {
       const aiEmoji = data.aiDecision === 'buy' ? '✅' : data.aiDecision === 'skip' ? '⏭️' : '❌';
       const aiInfo = [
         `${aiEmoji} **Decision:** ${data.aiDecision.toUpperCase()}`,
-        `**Confidence:** ${data.aiConfidence?.toFixed(0) || '-'}%`,
+        `**Confidence:** ${data.aiConfidence.toFixed(0)}%`,
       ];
       
       if (data.aiPositionPercent) {
@@ -232,10 +232,18 @@ export class DiscordNotificationService {
         value: aiInfo.join('\n'),
         inline: true,
       });
+    } else {
+      // Show "-" if AI is not available
+      fields.push({
+        name: '🤖 AI Analysis',
+        value: `**Decision:** -\n**Confidence:** -\n**Position:** -\n**Risk:** -`,
+        inline: true,
+      });
     }
 
     // SL/TP (if available) - use base token instead of $
-    if (data.stopLossPercent || data.takeProfitPercent) {
+    // Only show if we have real AI decision values
+    if (data.stopLossPercent && data.stopLossPercent > 0 && data.takeProfitPercent && data.takeProfitPercent > 0) {
       const sltp = [];
       if (data.stopLossPriceUsd && data.stopLossPercent) {
         sltp.push(`🛑 **SL:** ${this.formatNumber(data.stopLossPriceUsd, 8)} ${baseToken} (-${data.stopLossPercent}%)`);
@@ -251,6 +259,13 @@ export class DiscordNotificationService {
           inline: true,
         });
       }
+    } else {
+      // Show "-" if AI is not available
+      fields.push({
+        name: '📈 Exit Strategy',
+        value: `🛑 **SL:** -\n🎯 **TP:** -`,
+        inline: true,
+      });
     }
 
     // Security (RugCheck)

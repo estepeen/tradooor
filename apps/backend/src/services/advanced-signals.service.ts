@@ -812,18 +812,25 @@ export class AdvancedSignalsService {
           };
 
           const aiResult = await this.aiDecision.evaluateSignal(signal, aiContext);
-          signal.aiDecision = aiResult;
-          aiEvaluated++;
+          
+          if (aiResult && !aiResult.isFallback) {
+            signal.aiDecision = aiResult;
+            aiEvaluated++;
 
-          // Update SL/TP based on AI recommendation
-          if (aiResult.decision === 'buy' && entryPriceUsd > 0) {
-            signal.stopLossPriceUsd = entryPriceUsd * (1 - (aiResult.stopLossPercent || 25) / 100);
-            signal.takeProfitPriceUsd = entryPriceUsd * (1 + (aiResult.takeProfitPercent || 50) / 100);
-            signal.suggestedHoldTimeMinutes = aiResult.expectedHoldTimeMinutes;
-            signal.suggestedPositionPercent = aiResult.suggestedPositionPercent;
+            // Update SL/TP based on AI recommendation
+            if (aiResult.decision === 'buy' && entryPriceUsd > 0) {
+              signal.stopLossPriceUsd = entryPriceUsd * (1 - (aiResult.stopLossPercent || 25) / 100);
+              signal.takeProfitPriceUsd = entryPriceUsd * (1 + (aiResult.takeProfitPercent || 50) / 100);
+              signal.suggestedHoldTimeMinutes = aiResult.expectedHoldTimeMinutes;
+              signal.suggestedPositionPercent = aiResult.suggestedPositionPercent;
+            }
+
+            console.log(`🤖 AI evaluated ${signal.type}: ${aiResult.decision} (${aiResult.confidence}% confidence)`);
+          } else {
+            console.warn(`⚠️  AI evaluation returned null or fallback for ${signal.type} - AI not available`);
+            // Don't set aiDecision if it's null or fallback
+            signal.aiDecision = undefined;
           }
-
-          console.log(`🤖 AI evaluated ${signal.type}: ${aiResult.decision} (${aiResult.confidence}% confidence)`);
         } catch (aiError: any) {
           console.warn(`⚠️  AI evaluation failed: ${aiError.message}`);
         }
@@ -853,15 +860,16 @@ export class AdvancedSignalsService {
               volume24hUsd: marketData.volume24h || undefined,
               tokenAgeMinutes: marketData.tokenAgeMinutes || undefined,
               baseToken, // Add base token
-              aiDecision: signal.aiDecision?.decision,
-              aiConfidence: signal.aiDecision?.confidence,
-              aiReasoning: signal.aiDecision?.reasoning,
-              aiPositionPercent: signal.aiDecision?.suggestedPositionPercent,
-              stopLossPercent: signal.aiDecision?.stopLossPercent,
-              takeProfitPercent: signal.aiDecision?.takeProfitPercent,
-              stopLossPriceUsd: signal.stopLossPriceUsd,
-              takeProfitPriceUsd: signal.takeProfitPriceUsd,
-              aiRiskScore: signal.aiDecision?.riskScore,
+              // Only include AI decision if we have a real one (not fallback)
+              aiDecision: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.decision : undefined,
+              aiConfidence: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.confidence : undefined,
+              aiReasoning: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.reasoning : undefined,
+              aiPositionPercent: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.suggestedPositionPercent : undefined,
+              stopLossPercent: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.stopLossPercent : undefined,
+              takeProfitPercent: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.takeProfitPercent : undefined,
+              stopLossPriceUsd: signal.aiDecision && !signal.aiDecision.isFallback ? signal.stopLossPriceUsd : undefined,
+              takeProfitPriceUsd: signal.aiDecision && !signal.aiDecision.isFallback ? signal.takeProfitPriceUsd : undefined,
+              aiRiskScore: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.riskScore : undefined,
               wallets: [{
                 label: wallet?.label,
                 address: wallet?.address || '',

@@ -190,7 +190,7 @@ export class ConsensusWebhookService {
             sortedBuys
           );
           
-          if (aiDecisionResult) {
+          if (aiDecisionResult && !aiDecisionResult.isFallback) {
             const model = aiDecisionResult.model || 'unknown';
             console.log(`   🤖 AI Decision (${model}): ${aiDecisionResult.decision} (${aiDecisionResult.confidence}% confidence)`);
             console.log(`      Reasoning: ${aiDecisionResult.reasoning?.substring(0, 100)}...`);
@@ -198,8 +198,12 @@ export class ConsensusWebhookService {
             
             // Aktualizuj Signal s AI rozhodnutím
             await this.updateSignalWithAI(signal.id, aiDecisionResult);
+          } else if (aiDecisionResult && aiDecisionResult.isFallback) {
+            console.warn(`   ⚠️  AI returned fallback decision - will not use (showing "-" instead)`);
+            // Don't use fallback - set to null so Discord shows "-"
+            aiDecisionResult = null;
           } else {
-            console.warn(`   ⚠️  AI evaluation returned null`);
+            console.warn(`   ⚠️  AI evaluation returned null - AI not available`);
           }
         } catch (aiError: any) {
           console.error(`   ❌ AI evaluation failed: ${aiError.message}`);
@@ -313,18 +317,19 @@ export class ConsensusWebhookService {
             volume24hUsd: marketDataResult?.volume24h,
             tokenAgeMinutes: marketDataResult?.ageMinutes,
             baseToken, // Add base token
-            aiDecision: aiDecisionResult?.decision,
-            aiConfidence: aiDecisionResult?.confidence,
+            // Only include AI decision if we have a real one (not fallback)
+            aiDecision: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.decision : undefined,
+            aiConfidence: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.confidence : undefined,
             // Pro update přidej info o novém walletovi
             aiReasoning: isUpdate 
               ? `🆕 Nový trader přidán: ${newestWallet?.label || 'Unknown'} (celkem ${uniqueWallets.size} wallets)`
-              : aiDecisionResult?.reasoning,
-            aiPositionPercent: aiDecisionResult?.suggestedPositionPercent,
-            stopLossPercent: aiDecisionResult?.stopLossPercent,
-            takeProfitPercent: aiDecisionResult?.takeProfitPercent,
-            stopLossPriceUsd,
-            takeProfitPriceUsd,
-            aiRiskScore: aiDecisionResult?.riskScore,
+              : (aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.reasoning : undefined),
+            aiPositionPercent: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.suggestedPositionPercent : undefined,
+            stopLossPercent: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.stopLossPercent : undefined,
+            takeProfitPercent: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.takeProfitPercent : undefined,
+            stopLossPriceUsd: aiDecisionResult && !aiDecisionResult.isFallback ? stopLossPriceUsd : undefined,
+            takeProfitPriceUsd: aiDecisionResult && !aiDecisionResult.isFallback ? takeProfitPriceUsd : undefined,
+            aiRiskScore: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.riskScore : undefined,
             wallets: walletsData.map(w => ({
               label: w.label || null,
               address: w.address,
@@ -513,10 +518,15 @@ export class ConsensusWebhookService {
         context,
       };
 
-      // 7. Zavolej AI
-      const decision = await this.aiDecisionService.evaluateSignal(signalForAI, context);
-      
-      return decision;
+          // 7. Zavolej AI
+          const decision = await this.aiDecisionService.evaluateSignal(signalForAI, context);
+          
+          if (!decision) {
+            console.warn(`   ⚠️  AI decision returned null - AI not available or failed`);
+            return null;
+          }
+          
+          return decision;
     } catch (error: any) {
       console.warn(`AI evaluation error: ${error.message}`);
       return null;

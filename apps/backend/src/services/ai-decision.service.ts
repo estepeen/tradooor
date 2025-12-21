@@ -38,6 +38,7 @@ export interface AIDecision {
   completionTokens?: number;
   latencyMs?: number;
   createdAt: Date;
+  isFallback?: boolean; // true if this is a fallback decision (not from AI)
 }
 
 export interface AIContext {
@@ -123,11 +124,13 @@ export class AIDecisionService {
     
     // Check if API key is available
     if (model.startsWith('groq') && !this.groqApiKey) {
-      console.warn(`⚠️  [AI Decision] GROQ_API_KEY not set - using fallback rules for ${signal.type} signal`);
-      return this.fallbackDecision(signal, context);
+      console.warn(`⚠️  [AI Decision] GROQ_API_KEY not set - returning null (no AI decision available)`);
+      return null as any; // Return null to indicate AI is not available
     }
     
     try {
+      console.log(`🤖 [AI Decision] Calling Groq API for ${signal.type} signal...`);
+      
       // Sestav prompt
       const prompt = this.buildPrompt(signal, context);
       
@@ -137,6 +140,7 @@ export class AIDecisionService {
       // Parse odpověď
       const decision = this.parseResponse(response, signal, context);
       decision.latencyMs = Date.now() - startTime;
+      decision.isFallback = false;
       
       console.log(`✅ [AI Decision] ${signal.type} signal evaluated: ${decision.decision} (${decision.confidence}% confidence, ${decision.latencyMs}ms)`);
       
@@ -148,10 +152,10 @@ export class AIDecisionService {
       return decision;
     } catch (error: any) {
       console.error(`❌ [AI Decision] Error evaluating ${signal.type} signal:`, error.message || error);
-      console.error(`   Using fallback decision instead`);
+      console.error(`   Returning null - no AI decision available`);
       
-      // Fallback na rule-based rozhodnutí
-      return this.fallbackDecision(signal, context);
+      // Return null instead of fallback - caller should handle this
+      return null as any;
     }
   }
 
@@ -571,6 +575,7 @@ Important guidelines:
       expectedHoldTimeMinutes,
       riskScore,
       model: 'rule-based-fallback',
+      isFallback: true,
       createdAt: new Date(),
     };
   }
