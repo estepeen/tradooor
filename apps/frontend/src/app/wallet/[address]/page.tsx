@@ -463,6 +463,9 @@ export default function WalletDetailPage() {
             { key: '30d', days: 30 },
           ];
           
+          // Ensure baseToken is always set
+          const baseToken = normalizeBaseToken(portfolio?.baseToken || pnlData?.baseToken || 'SOL');
+          
           return (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               {periods.map(({ key, days }) => {
@@ -474,7 +477,12 @@ export default function WalletDetailPage() {
                     data.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'
                   }`}>
                           <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            ${formatNumber(Math.abs(data.pnlBase), 2)}
+                            {(() => {
+                              const formatted = formatNumber(Math.abs(data.pnlBase), 2);
+                              // Explicitly remove any $ symbol that might be in the formatted string
+                              const cleaned = formatted.replace(/\$/g, '');
+                              return `${cleaned} ${baseToken}`;
+                            })()}
                           </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
@@ -501,6 +509,9 @@ export default function WalletDetailPage() {
             { key: '30d' },
           ];
           
+          // Ensure baseToken is always set for volume
+          const volumeBaseToken = normalizeBaseToken(pnlData?.baseToken || portfolio?.baseToken || 'SOL');
+          
           return (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               {periods.map(({ key }) => {
@@ -515,7 +526,12 @@ export default function WalletDetailPage() {
                     <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Volume ({key})</div>
                     <div className="text-white">
                       <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                        ${formatNumber(volumeBase, 2)}
+                        {(() => {
+                          const formatted = formatNumber(volumeBase, 2);
+                          // Explicitly remove any $ symbol that might be in the formatted string
+                          const cleaned = formatted.replace(/\$/g, '');
+                          return `${cleaned} ${volumeBaseToken}`;
+                        })()}
                       </span>
                     </div>
                     <div className="text-xs text-muted-foreground mt-1">
