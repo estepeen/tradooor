@@ -569,10 +569,16 @@ export default function Home() {
                           // Pokud rolling stats nejsou dostupné, použij recentPnl30dBase
                           const pnlBase = rolling30d?.realizedPnl ?? wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0; // PnL v SOL
                           const pnlPercent = rolling30d?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
-                          
+                          // #region agent log
+                          setTimeout(()=>{fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'page.tsx:570',message:'PnL before formatting',data:{pnlBase,absPnlBase:Math.abs(pnlBase),walletAddress:wallet.address?.substring(0,8),rolling30d:!!rolling30d},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});},0);
+                          // #endregion
+                          const formattedPnl = formatNumber(Math.abs(pnlBase), 2);
+                          // #region agent log
+                          setTimeout(()=>{fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'page.tsx:576',message:'PnL after formatting',data:{pnlBase,absPnlBase:Math.abs(pnlBase),formattedPnl,formattedPnlLength:formattedPnl.length,walletAddress:wallet.address?.substring(0,8)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});},0);
+                          // #endregion
                           return (
                             <>
-                              {formatNumber(Math.abs(pnlBase), 2)} SOL{' '}
+                              {formattedPnl} SOL{' '}
                               ({(pnlPercent >= 0 ? '+' : '')}{formatPercent(pnlPercent / 100)})
                             </>
                           );

@@ -22,13 +22,20 @@ export function formatMultiplier(percent: number): string {
 }
 
 export function formatNumber(value: number | null | undefined, decimals = 2): string {
+  // #region agent log
+  setTimeout(()=>{fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'utils.ts:24',message:'formatNumber called',data:{value,decimals,type:typeof value},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});},0);
+  // #endregion
   if (value === null || value === undefined || isNaN(value)) {
     return '0';
   }
-  return value.toLocaleString('en-US', {
+  const result = value.toLocaleString('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   });
+  // #region agent log
+  setTimeout(()=>{fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'utils.ts:32',message:'formatNumber result',data:{value,decimals,result,resultLength:result.length},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});},0);
+  // #endregion
+  return result;
 }
 
 /**
