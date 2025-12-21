@@ -143,7 +143,7 @@ export class TokenSecurityService {
     for (const mintAddress of mintAddresses) {
       result.set(mintAddress.toLowerCase(), defaultData);
     }
-    
+
     return result;
   }
 

@@ -416,7 +416,7 @@ router.get('/consensus-notifications', async (req, res) => {
             });
           } catch (error: any) {
             console.warn(`⚠️  Error fetching token security data: ${error.message}`);
-          }
+            }
         }
 
         const notificationsWithSecurity = notifications.map((notification: any) => ({
@@ -705,7 +705,7 @@ router.get('/consensus-notifications', async (req, res) => {
         });
       } catch (error: any) {
         console.warn(`⚠️  Error fetching token security data: ${error.message}`);
-      }
+        }
     }
 
     // Add security data to notifications
