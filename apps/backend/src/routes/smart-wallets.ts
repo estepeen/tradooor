@@ -871,24 +871,8 @@ router.get('/:id/portfolio', async (req, res) => {
     
     // PortfolioBaseline cache removed (Supabase-only feature)
     // Always refresh - cache is not available in Prisma-only mode
-    const shouldRefresh = forceRefresh || true;
-    }
     
-    // Pokud máme platný cache a není to force refresh, vrať cache
-    if (cachedData && !shouldRefresh) {
-      const cachedHoldings = cachedData.holdings || {};
-      // Filtruj closed positions z cache - pouze ty s platným HOLD time (>= 0, povolujeme i 0)
-      const cachedClosedPositions = (cachedHoldings.closedPositions || []).filter((p: any) => {
-        return p.holdTimeMinutes !== null && p.holdTimeMinutes !== undefined && p.holdTimeMinutes >= 0;
-      });
-      return res.json({
-        closedPositions: cachedClosedPositions,
-        lastUpdated: cachedData.updatedAt,
-        cached: true,
-      });
-    }
-    
-    // Jinak aktualizuj z Birdeye API
+    // Aktualizuj z Birdeye API
     console.log(`🔄 Refreshing portfolio prices from Birdeye API...`);
 
     // OPTIMALIZACE: Použij precomputed portfolio z PortfolioBaseline (rychlé)
