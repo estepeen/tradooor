@@ -609,54 +609,6 @@ Important guidelines:
     // Supabase removed - AIDecision table doesn't exist in Prisma schema
     // Return empty array for now
     return [];
-    
-    // Legacy Supabase code (removed):
-    /*
-    let query = supabase
-      .from('AIDecision')
-      .select('*')
-      .order('createdAt', { ascending: false });
-
-    if (options?.tokenId) {
-      query = query.eq('tokenId', options.tokenId);
-    }
-    if (options?.walletId) {
-      query = query.eq('walletId', options.walletId);
-    }
-    if (options?.decision) {
-      query = query.eq('decision', options.decision);
-    }
-    if (options?.limit) {
-      query = query.limit(options.limit);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.warn('Failed to get AI decision history:', error);
-      return [];
-    }
-
-    return (data || []).map(row => ({
-      id: row.id,
-      signalId: row.signalId,
-      tradeId: row.tradeId,
-      tokenId: row.tokenId,
-      walletId: row.walletId,
-      decision: row.decision,
-      confidence: row.confidence,
-      reasoning: row.reasoning,
-      suggestedPositionPercent: row.suggestedPositionPercent,
-      stopLossPercent: row.stopLossPercent,
-      takeProfitPercent: row.takeProfitPercent,
-      expectedHoldTimeMinutes: row.expectedHoldTimeMinutes,
-      riskScore: row.riskScore,
-      model: row.model,
-      promptTokens: row.promptTokens,
-      completionTokens: row.completionTokens,
-      latencyMs: row.latencyMs,
-      createdAt: new Date(row.createdAt),
-    }));
   }
 
   /**
