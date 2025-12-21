@@ -340,7 +340,7 @@ export default function WalletDetailPage() {
                       ? (
                         <>
                           <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            {formatNumber(Math.abs(pnlValue), 6)} {normalizeBaseToken(pnlData?.baseToken)}
+                            {formatNumber(Math.abs(pnlValue), 2)} {normalizeBaseToken(pnlData?.baseToken)}
                           </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
@@ -524,7 +524,7 @@ export default function WalletDetailPage() {
                                   }`}>
                                     {closedPnl !== null && closedPnl !== undefined ? (
                                       <>
-                                        {formatNumber(Math.abs(closedPnl), 6)} {normalizeBaseToken(position?.baseToken || portfolio?.baseToken || pnlData?.baseToken || 'SOL')} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent(closedPnlPercent / 100)})
+                                        {formatNumber(Math.abs(closedPnl), 2)} {normalizeBaseToken(position?.baseToken || portfolio?.baseToken || pnlData?.baseToken || 'SOL')} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent(closedPnlPercent / 100)})
                                       </>
                                     ) : '-'}
                                   </td>
@@ -799,7 +799,7 @@ export default function WalletDetailPage() {
                             <td className="py-2 font-medium uppercase">{label}</td>
                             <td className={`text-right py-2 ${stats.realizedPnlUsd >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                               {stats.realizedPnlUsd >= 0 ? '+' : ''}
-                              {formatNumber(stats.realizedPnlUsd, 6)} {normalizeBaseToken(portfolio?.baseToken || pnlData?.baseToken)}
+                              {formatNumber(stats.realizedPnlUsd, 2)} {normalizeBaseToken(portfolio?.baseToken || pnlData?.baseToken)}
                             </td>
                             <td className="text-right py-2">
                               {formatPercent((stats.realizedRoiPercent ?? 0) / 100)}

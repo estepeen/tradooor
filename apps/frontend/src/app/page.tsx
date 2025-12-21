@@ -572,7 +572,7 @@ export default function Home() {
                           
                           return (
                             <>
-                              {formatNumber(Math.abs(pnlBase), 6)} SOL{' '}
+                              {formatNumber(Math.abs(pnlBase), 2)} SOL{' '}
                               ({(pnlPercent >= 0 ? '+' : '')}{formatPercent(pnlPercent / 100)})
                             </>
                           );

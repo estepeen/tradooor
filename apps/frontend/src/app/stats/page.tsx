@@ -105,7 +105,7 @@ export default function StatsPage() {
                   overview.totalPnl >= 0 ? 'text-green-600' : 'text-red-600'
                 }`}>
                   {overview.totalPnl >= 0 ? '+' : ''}
-                  {formatNumber(Math.abs(overview.totalPnl), 6)} {normalizeBaseToken(overview.baseToken)}
+                  {formatNumber(Math.abs(overview.totalPnl), 2)} {normalizeBaseToken(overview.baseToken)}
                 </div>
               </div>
               <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="rounded-lg p-4">
@@ -401,7 +401,7 @@ export default function StatsPage() {
                         </div>
                         <div className="text-right font-bold text-red-600">
                           {/* Celkový PnL v SOL */}
-                          {formatNumber(wallet.pnlTotalBase || 0, 6)} SOL
+                          {formatNumber(wallet.pnlTotalBase || 0, 2)} SOL
                         </div>
                       </Link>
                     ))
@@ -429,7 +429,7 @@ export default function StatsPage() {
                           {(() => {
                             const rolling30d = (wallet.advancedStats as any)?.rolling?.['30d'];
                             const pnlBase = rolling30d?.realizedPnl ?? wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0; // PnL v SOL
-                            return `${formatNumber(pnlBase, 6)} SOL`;
+                            return `${formatNumber(pnlBase, 2)} SOL`;
                           })()}
                         </div>
                       </Link>
@@ -517,7 +517,7 @@ export default function StatsPage() {
                     : 'text-red-600'
                 }`}>
                   {tokenStats.tokens.reduce((sum: number, t: any) => sum + (t.totalPnl || 0), 0) >= 0 ? '+' : ''}
-                  {formatNumber(Math.abs(tokenStats.tokens.reduce((sum: number, t: any) => sum + (t.totalPnl || 0), 0)), 6)} {normalizeBaseToken(overview?.baseToken)}
+                  {formatNumber(Math.abs(tokenStats.tokens.reduce((sum: number, t: any) => sum + (t.totalPnl || 0), 0)), 2)} {normalizeBaseToken(overview?.baseToken)}
                 </div>
               </div>
               <div className="border border-border rounded-lg p-4">
@@ -588,7 +588,7 @@ export default function StatsPage() {
                           {(token.totalPnl || 0) !== 0 ? (
                             <>
                               {(token.totalPnl || 0) >= 0 ? '+' : ''}
-                              {formatNumber(Math.abs(token.totalPnl || 0), 6)} {normalizeBaseToken(overview?.baseToken)}
+                              {formatNumber(Math.abs(token.totalPnl || 0), 2)} {normalizeBaseToken(overview?.baseToken)}
                             </>
                           ) : '-'}
                         </td>
