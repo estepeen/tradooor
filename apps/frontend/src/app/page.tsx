@@ -461,7 +461,7 @@ export default function Home() {
                     // when switching between client-side and server-side sorting
                     return 0;
                   })
-                  .map((wallet) => {
+                  .map((wallet, walletIndex) => {
                     // DEBUG: Log values during render
                     if (process.env.NODE_ENV === 'development' && wallet.address === '4BdKaxN8G6ka4GYtQQWk4G4dZRUTX2vQH9GcXdBREFUk') {
                       console.log(`🎨 [Render] jijo_exe: recentPnl30dUsd=${wallet.recentPnl30dUsd}, recentPnl30dPercent=${wallet.recentPnl30dPercent}, formatted=${formatNumber(Math.abs(wallet.recentPnl30dUsd || 0), 2)}, percentFormatted=${formatPercent((wallet.recentPnl30dPercent || 0) / 100)}`);
@@ -570,11 +570,15 @@ export default function Home() {
                           const pnlBase = rolling30d?.realizedPnl ?? wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0; // PnL v SOL
                           const pnlPercent = rolling30d?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
                           // #region agent log
-                          setTimeout(()=>{fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'page.tsx:570',message:'PnL before formatting',data:{pnlBase,absPnlBase:Math.abs(pnlBase),walletAddress:wallet.address?.substring(0,8),rolling30d:!!rolling30d},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});},0);
+                          if (walletIndex < 3) {
+                            console.log(JSON.stringify({location:'page.tsx:570',message:'PnL before formatting',data:{pnlBase,absPnlBase:Math.abs(pnlBase),walletAddress:wallet.address?.substring(0,8),rolling30d:!!rolling30d,walletIndex},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'}));
+                          }
                           // #endregion
                           const formattedPnl = formatNumber(Math.abs(pnlBase), 2);
                           // #region agent log
-                          setTimeout(()=>{fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'page.tsx:576',message:'PnL after formatting',data:{pnlBase,absPnlBase:Math.abs(pnlBase),formattedPnl,formattedPnlLength:formattedPnl.length,walletAddress:wallet.address?.substring(0,8)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'})}).catch(()=>{});},0);
+                          if (walletIndex < 3) {
+                            console.log(JSON.stringify({location:'page.tsx:576',message:'PnL after formatting',data:{pnlBase,absPnlBase:Math.abs(pnlBase),formattedPnl,formattedPnlLength:formattedPnl.length,walletAddress:wallet.address?.substring(0,8),walletIndex},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'}));
+                          }
                           // #endregion
                           return (
                             <>
