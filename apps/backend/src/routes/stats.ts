@@ -487,6 +487,146 @@ router.get('/dex', async (req, res) => {
     res.json({ dexes: dexStats });
   } catch (error: any) {
     console.error('Error fetching DEX stats:', error);
+    res.status(500).json({ error: 'Internal server error', message: error?.message });
+  }
+});
+
+// GET /api/stats/overview - Overall statistics across all wallets
+router.get('/overview', async (req, res) => {
+  try {
+    // Get actual trade count from trades table (Prisma)
+    const actualTradeCount = await prisma.trade.count();
+
+    const wallets = await prisma.smartWallet.findMany({
+      select: {
+        id: true,
+        address: true,
+        label: true,
+        score: true,
+        totalTrades: true,
+        winRate: true,
+        pnlTotalBase: true,
+        recentPnl30dPercent: true,
+        recentPnl30dUsd: true,
+        advancedStats: true,
+        avgHoldingTimeMin: true,
+        avgRr: true,
+        avgPnlPercent: true,
+      },
+    });
+
+    // Calculate recent PnL in USD for each wallet
+    const walletIds = (wallets || []).map((w) => w.id);
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const recentTrades = await prisma.trade.findMany({
+      where: {
+        walletId: { in: walletIds },
+        timestamp: { gte: thirtyDaysAgo },
+      },
+      select: {
+        walletId: true,
+        side: true,
+        valueUsd: true,
+      },
+    });
+
+    const walletPnLMap = new Map<string, { buyValue: number; sellValue: number }>();
+    if (recentTrades) {
+      for (const trade of recentTrades as any[]) {
+        if (!walletPnLMap.has(trade.walletId)) {
+          walletPnLMap.set(trade.walletId, { buyValue: 0, sellValue: 0 });
+        }
+        const pnl = walletPnLMap.get(trade.walletId)!;
+        const value = Number(trade.valueUsd || 0);
+        if (trade.side === 'buy') {
+          pnl.buyValue += value;
+        } else if (trade.side === 'sell') {
+          pnl.sellValue += value;
+        }
+      }
+    }
+
+    const totalWallets = wallets.length;
+    const walletList = (wallets || []).map((w) => ({
+      ...w,
+      recentPnl: (walletPnLMap.get(w.id)?.sellValue || 0) - (walletPnLMap.get(w.id)?.buyValue || 0),
+    }));
+    
+    // DŮLEŽITÉ: Počítej totalPnl pouze z walletů, které mají platné pnlTotalBase
+    // Ignoruj null, undefined a NaN hodnoty
+    const totalPnl = walletList.reduce((sum, w) => {
+      const pnl = w.pnlTotalBase;
+      if (pnl === null || pnl === undefined || isNaN(Number(pnl))) {
+        return sum;
+      }
+      return sum + Number(pnl);
+    }, 0);
+    const avgScore = totalWallets > 0 
+      ? walletList.reduce((sum, w) => sum + (w.score || 0), 0) / totalWallets 
+      : 0;
+    const avgWinRate = totalWallets > 0
+      ? walletList.reduce((sum, w) => sum + (w.winRate || 0), 0) / totalWallets
+      : 0;
+    
+    // Calculate additional statistics
+    const avgHoldingTime = totalWallets > 0
+      ? walletList.reduce((sum, w) => sum + (w.avgHoldingTimeMin || 0), 0) / totalWallets
+      : 0;
+    const avgRr = totalWallets > 0
+      ? walletList.reduce((sum, w) => sum + (w.avgRr || 0), 0) / totalWallets
+      : 0;
+    const avgPnlPercent = totalWallets > 0
+      ? walletList.reduce((sum, w) => sum + (w.avgPnlPercent || 0), 0) / totalWallets
+      : 0;
+    const avgTradesPerWallet = totalWallets > 0
+      ? actualTradeCount / totalWallets
+      : 0;
+    
+    // Activity stats - wallets with trades in last 7/30 days
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    const recentTrades7d = await prisma.trade.findMany({
+      where: {
+        timestamp: { gte: sevenDaysAgo },
+      },
+      select: { walletId: true },
+    });
+    const activeWallets7d = new Set((recentTrades7d || []).map((t: any) => t.walletId)).size;
+    const activeWallets30d = new Set((recentTrades || []).map(t => t.walletId)).size;
+    
+    // Trades count by period
+    const oneDayAgo = new Date();
+    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+    const trades1d = await prisma.trade.count({
+      where: { timestamp: { gte: oneDayAgo } },
+    });
+    const trades7d = await prisma.trade.count({
+      where: { timestamp: { gte: sevenDaysAgo } },
+    });
+    
+    // Performance distribution
+    const profitableWallets = walletList.filter((w) => (w.recentPnl30dUsd || 0) > 0).length;
+    const losingWallets = walletList.filter((w) => (w.recentPnl30dUsd || 0) < 0).length;
+    const breakEvenWallets = walletList.filter((w) => (w.recentPnl30dUsd || 0) === 0).length;
+    
+    // Top performers by period
+    const topPerformers = {
+      byPeriodByScore: walletList
+        .filter((w) => w.advancedStats && (w.advancedStats as any).rolling)
+        .map((w) => ({
+          walletId: w.id,
+          address: w.address,
+          label: w.label,
+          score: w.score,
+          pnl: (w.advancedStats as any).rolling?.['30d']?.realizedPnl ?? w.recentPnl30dUsd ?? 0,
+          pnlPercent: (w.advancedStats as any).rolling?.['30d']?.realizedRoiPercent ?? w.recentPnl30dPercent ?? 0,
+        }))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 10),
+    };
+
     // Detect primary base token from trades (for multichain support)
     // Count base tokens from recent trades to determine primary base token
     const baseTokenCounts = new Map<string, number>();
