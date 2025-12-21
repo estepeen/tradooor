@@ -65,6 +65,7 @@ export class ConsensusWebhookService {
     walletId: string,
     timestamp: Date
   ): Promise<{ consensusFound: boolean; paperTradeCreated?: any; signalCreated?: any }> {
+    console.log(`🔍 [Consensus] Checking consensus for trade ${newTradeId.substring(0, 16)}... (token: ${tokenId.substring(0, 16)}..., wallet: ${walletId.substring(0, 16)}...)`);
     try {
       // 1. Zkontroluj, jestli už není otevřená pozice pro tento token
       const openPositions = await this.paperTradeRepo.findOpenPositions();
@@ -113,8 +114,9 @@ export class ConsensusWebhookService {
       const tradeToUseId = tradeToUse.id;
       const tradeToUsePrice = Number(tradeToUse.priceBasePerToken || 0);
 
-      console.log(`   🎯 Consensus found: ${uniqueWallets.size} wallets bought ${tokenId.substring(0, 16)}... in 2h window`);
+      console.log(`   🎯 [Consensus] Consensus found: ${uniqueWallets.size} wallets bought ${tokenId.substring(0, 16)}... in 2h window`);
       console.log(`      Using trade ${tradeToUseId.substring(0, 16)}... price: $${tradeToUsePrice.toFixed(6)}`);
+      console.log(`   🤖 [Consensus] Will call AI decision service now...`);
 
       // 5. Zkontroluj existující signál a urči typ notifikace
       const riskLevel = uniqueWallets.size >= 3 ? 'low' : 'medium';

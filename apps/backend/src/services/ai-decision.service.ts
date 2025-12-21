@@ -130,12 +130,16 @@ export class AIDecisionService {
     
     try {
       console.log(`🤖 [AI Decision] Calling Groq API for ${signal.type} signal...`);
+      console.log(`   Context: walletScore=${context.walletScore}, tokenAge=${context.tokenAge}min, liquidity=${context.tokenLiquidity ? `$${(context.tokenLiquidity / 1000).toFixed(1)}K` : 'unknown'}`);
       
       // Sestav prompt
       const prompt = this.buildPrompt(signal, context);
+      console.log(`   📝 Prompt length: ${prompt.length} chars`);
       
       // Zavolej LLM
+      console.log(`   🌐 Calling Groq API...`);
       const response = await this.callLLM(prompt);
+      console.log(`   ✅ Groq API response received (${response.content.length} chars)`);
       
       // Parse odpověď
       const decision = this.parseResponse(response, signal, context);
