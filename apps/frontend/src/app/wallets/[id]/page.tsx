@@ -340,7 +340,7 @@ export default function WalletDetailPage() {
                       ? (
                         <>
                           <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            {formatNumber(Math.abs(pnlValue), 2)} {normalizeBaseToken(pnlData?.baseToken)}
+                            {formatNumber(Math.abs(pnlValue), 2)} {normalizeBaseToken(pnlData?.baseToken || 'SOL')}
                           </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
@@ -377,7 +377,7 @@ export default function WalletDetailPage() {
                     {volumeValue > 0
                       ? (
                         <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                          {formatNumber(volumeValue, 6)} {normalizeBaseToken(pnlData?.baseToken)}
+                          {formatNumber(volumeValue, 6)} {normalizeBaseToken(pnlData?.baseToken || 'SOL')}
                         </span>
                       )
                       : '-'
