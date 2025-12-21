@@ -22,15 +22,22 @@ export function formatMultiplier(percent: number): string {
 }
 
 export function formatNumber(value: number | null | undefined, decimals = 2): string {
-  if (value === null || value === undefined || isNaN(value)) {
-    return '0';
+  if (value === null || value === undefined || isNaN(value) || !Number.isFinite(value)) {
+    return '0.00';
   }
-  // Use toFixed for precise decimal control, then add thousand separators
-  const fixed = value.toFixed(decimals);
-  // Add thousand separators
-  const parts = fixed.split('.');
-  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-  return parts.join('.');
+  try {
+    // Use toFixed for precise decimal control, then add thousand separators
+    const fixed = Number(value).toFixed(decimals);
+    // Add thousand separators
+    const parts = fixed.split('.');
+    if (parts[0]) {
+      parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+    return parts.join('.');
+  } catch (error) {
+    // Fallback to simple toFixed if anything goes wrong
+    return Number(value).toFixed(decimals);
+  }
 }
 
 /**
