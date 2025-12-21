@@ -367,16 +367,24 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
 
     // NEW APPROACH: Calculate totalCost from trades and Live PnL
     // 1. Get all buy trades for each token
-    const { data: allTrades } = await supabase
-      .from(TABLES.TRADE)
-      .select('tokenId, side, amountToken, amountBase, priceBasePerToken, meta')
-      .eq('walletId', wallet.id)
-      .eq('side', 'buy');
+    const allTrades = await prisma.trade.findMany({
+      where: {
+        walletId: wallet.id,
+        side: 'buy',
+      },
+      select: {
+        tokenId: true,
+        side: true,
+        amountToken: true,
+        amountBase: true,
+        priceBasePerToken: true,
+        meta: true,
+      },
+    });
     
     // Vytvoř mapu tokenId -> totalCost (součet všech buy trades v base měně)
     const totalCostMap = new Map<string, number>();
-    if (allTrades) {
-      for (const trade of allTrades) {
+    for (const trade of allTrades) {
         const tokenId = trade.tokenId;
         const amountBase = Number(trade.amountBase || 0);
         const currentCost = totalCostMap.get(tokenId) || 0;
@@ -493,8 +501,11 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
       baseToken: primaryBaseToken, // Primary base token for this wallet
     };
 
-    // Save as baseline snapshot (upsert per wallet)
+    // PortfolioBaseline cache removed (Supabase-only feature)
+    // Skip saving baseline - not available in Prisma-only mode
     try {
+      // Legacy Supabase code (removed):
+      /*
       const { data, error } = await supabase
         .from('PortfolioBaseline')
         .upsert({
@@ -878,35 +889,9 @@ router.get('/:id/portfolio', async (req, res) => {
       return res.status(404).json({ error: 'Wallet not found' });
     }
     
-    // Zkontroluj cache v PortfolioBaseline (Supabase-only) – v Prisma-only režimu cache ignorujeme
-    const CACHE_DURATION_MS = 10 * 60 * 1000; // 10 minut
-    let shouldRefresh = forceRefresh;
-    let cachedData: any = null;
-
-    if (!forceRefresh && process.env.SUPABASE_URL) {
-      const { data: baseline } = await supabase
-        .from('PortfolioBaseline')
-        .select('*')
-        .eq('walletId', wallet.id)
-        .single();
-      
-      if (baseline && baseline.updatedAt) {
-        const cacheAge = Date.now() - new Date(baseline.updatedAt).getTime();
-        if (cacheAge < CACHE_DURATION_MS) {
-          // Cache je ještě platný
-          cachedData = baseline;
-          shouldRefresh = false;
-          console.log(`📦 Using cached portfolio data (age: ${Math.round(cacheAge / 1000)}s)`);
-        } else {
-          console.log(`⏰ Cache expired (age: ${Math.round(cacheAge / 1000)}s), refreshing...`);
-          shouldRefresh = true;
-        }
-      } else {
-        shouldRefresh = true;
-      }
-    } else if (!forceRefresh) {
-      // Bez SUPABASE_URL cache prostě neřešíme
-      shouldRefresh = true;
+    // PortfolioBaseline cache removed (Supabase-only feature)
+    // Always refresh - cache is not available in Prisma-only mode
+    const shouldRefresh = forceRefresh || true;
     }
     
     // Pokud máme platný cache a není to force refresh, vrať cache

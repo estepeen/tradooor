@@ -1,40 +1,9 @@
-import { createClient } from '@supabase/supabase-js';
-import dotenv from 'dotenv';
+// Supabase has been removed - we use Prisma only
+// This file is kept for backward compatibility (TABLES export)
+// All database operations should use Prisma directly
 
-dotenv.config();
-
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY;
-
-// MIGRATION NOTE: We're transitioning from Supabase to Prisma
-// If SUPABASE_URL is not set, use Prisma instead
-// This is a temporary bridge during migration
-let supabase: any;
-
-if (supabaseUrl && supabaseKey) {
-  // Use Supabase if credentials are available
-  supabase = createClient(supabaseUrl, supabaseKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-  console.log('✅ Using Supabase SDK for database operations');
-} else if (process.env.DATABASE_URL) {
-  // Use Prisma if DATABASE_URL is available
-  console.log('⚠️  SUPABASE_URL not found, will use Prisma instead');
-  console.log('⚠️  Note: Some services still need to be migrated to Prisma');
-  // Import Prisma client
-  import('./prisma.js').then((module) => {
-    supabase = module.prisma;
-  });
-} else {
-  throw new Error(
-    'Missing database configuration. Please set either SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY or DATABASE_URL in your .env file.'
-  );
-}
-
-export { supabase };
+// Export null supabase to prevent errors in legacy code
+export const supabase: any = null;
 
 // Database table names (matching Prisma schema)
 export const TABLES = {

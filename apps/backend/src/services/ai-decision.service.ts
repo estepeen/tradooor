@@ -593,13 +593,12 @@ Important guidelines:
     response: { content: string; promptTokens?: number; completionTokens?: number }
   ): Promise<void> {
     try {
-      // Check if Supabase is available and has .from() method
-      // If not, skip saving (we're using Prisma and AIDecision table doesn't exist in Prisma schema)
-      if (!supabase || typeof supabase.from !== 'function') {
-        // Silently skip - AIDecision table is only in Supabase, not in Prisma
-        return;
-      }
+      // Supabase removed - AIDecision table doesn't exist in Prisma schema
+      // Skip saving for now (can be added to Prisma schema later if needed)
+      return;
       
+      // Legacy Supabase code (removed):
+      /*
       await supabase.from('AIDecision').insert({
         id: decision.id,
         tokenId: decision.tokenId,
@@ -639,12 +638,12 @@ Important guidelines:
     decision?: 'buy' | 'sell' | 'hold' | 'skip';
     limit?: number;
   }): Promise<AIDecision[]> {
-    // Check if Supabase is available and has .from() method
-    // If not, return empty array (we're using Prisma and AIDecision table doesn't exist in Prisma schema)
-    if (!supabase || typeof supabase.from !== 'function') {
-      return [];
-    }
+    // Supabase removed - AIDecision table doesn't exist in Prisma schema
+    // Return empty array for now
+    return [];
     
+    // Legacy Supabase code (removed):
+    /*
     let query = supabase
       .from('AIDecision')
       .select('*')
