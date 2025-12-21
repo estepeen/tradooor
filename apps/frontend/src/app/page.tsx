@@ -569,17 +569,7 @@ export default function Home() {
                           // Pokud rolling stats nejsou dostupné, použij recentPnl30dBase
                           const pnlBase = rolling30d?.realizedPnl ?? wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0; // PnL v SOL
                           const pnlPercent = rolling30d?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
-                          // #region agent log
-                          if (walletIndex < 3) {
-                            console.log(JSON.stringify({location:'page.tsx:570',message:'PnL before formatting',data:{pnlBase,absPnlBase:Math.abs(pnlBase),walletAddress:wallet.address?.substring(0,8),rolling30d:!!rolling30d,walletIndex},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'}));
-                          }
-                          // #endregion
                           const formattedPnl = formatNumber(Math.abs(pnlBase), 2);
-                          // #region agent log
-                          if (walletIndex < 3) {
-                            console.log(JSON.stringify({location:'page.tsx:576',message:'PnL after formatting',data:{pnlBase,absPnlBase:Math.abs(pnlBase),formattedPnl,formattedPnlLength:formattedPnl.length,walletAddress:wallet.address?.substring(0,8),walletIndex},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H2'}));
-                          }
-                          // #endregion
                           return (
                             <>
                               {formattedPnl} SOL{' '}
