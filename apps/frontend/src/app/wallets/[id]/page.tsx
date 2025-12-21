@@ -329,6 +329,8 @@ export default function WalletDetailPage() {
               
               // Use pnl (SOL) if available, otherwise pnlUsd (which should also be SOL now)
               const pnlValue = data.pnl !== undefined && data.pnl !== null ? data.pnl : data.pnlUsd;
+              // Ensure baseToken is always set
+              const baseToken = normalizeBaseToken(pnlData?.baseToken || 'SOL');
               
               return (
                 <div key={period} style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
@@ -340,7 +342,7 @@ export default function WalletDetailPage() {
                       ? (
                         <>
                           <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            {formatNumber(Math.abs(pnlValue), 2)} {normalizeBaseToken(pnlData?.baseToken || 'SOL')}
+                            {formatNumber(Math.abs(pnlValue), 2)} {baseToken}
                           </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
@@ -458,6 +460,8 @@ export default function WalletDetailPage() {
                               const closedPnl = position.closedPnl || 0;
                               const closedPnlPercent = position.closedPnlPercent || 0;
                               const holdTimeMinutes = position.holdTimeMinutes;
+                              // Ensure baseToken is always set
+                              const baseToken = normalizeBaseToken(position?.baseToken || portfolio?.baseToken || pnlData?.baseToken || 'SOL');
                               
                               // Debug: Log baseToken for closed positions
                               if (index === 0) {
@@ -465,7 +469,7 @@ export default function WalletDetailPage() {
                                   positionBaseToken: position?.baseToken,
                                   portfolioBaseToken: portfolio?.baseToken,
                                   pnlDataBaseToken: pnlData?.baseToken,
-                                  finalBaseToken: normalizeBaseToken(position?.baseToken || portfolio?.baseToken || pnlData?.baseToken || 'SOL'),
+                                  finalBaseToken: baseToken,
                                   closedPnl,
                                 });
                               }
@@ -517,14 +521,14 @@ export default function WalletDetailPage() {
                                     )}
                                   </td>
                                   <td className="px-4 py-3 text-right text-sm font-mono">
-                                    {formatNumber(totalSold, 6)} {normalizeBaseToken(position?.baseToken || portfolio?.baseToken || pnlData?.baseToken || 'SOL')}
+                                    {formatNumber(totalSold, 6)} {baseToken}
                                   </td>
                                   <td className={`px-4 py-3 text-right text-sm font-mono ${
                                     closedPnl >= 0 ? 'text-green-400' : 'text-red-400'
                                   }`}>
                                     {closedPnl !== null && closedPnl !== undefined ? (
                                       <>
-                                        {formatNumber(Math.abs(closedPnl), 2)} {normalizeBaseToken(position?.baseToken || portfolio?.baseToken || pnlData?.baseToken || 'SOL')} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent(closedPnlPercent / 100)})
+                                        {formatNumber(Math.abs(closedPnl), 2)} {baseToken} ({closedPnlPercent >= 0 ? '+' : ''}{formatPercent(closedPnlPercent / 100)})
                                       </>
                                     ) : '-'}
                                   </td>
