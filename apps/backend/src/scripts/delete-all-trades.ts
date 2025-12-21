@@ -1,6 +1,8 @@
 /**
  * Script to delete all trades from the database and reset all related data
  * WARNING: This will permanently delete all trade data, closed lots, trade features, and reset all wallet metrics!
+ * 
+ * IMPORTANT: SIGNALS are PRESERVED - Signal and ConsensusSignal tables are NOT deleted!
  */
 
 import { supabase, TABLES } from '../lib/supabase.js';
@@ -315,6 +317,7 @@ async function deleteAllTrades() {
     console.log('   - Wallet processing queue cleared');
     console.log('   - Metrics history deleted');
     console.log('   - Wallet metrics reset (score, PnL, advancedStats, tags)');
+    console.log('\n✅ SIGNALS PRESERVED - Signal and ConsensusSignal tables were NOT deleted!');
   } catch (error: any) {
     console.error('❌ Error deleting trades:', error.message);
     process.exit(1);
