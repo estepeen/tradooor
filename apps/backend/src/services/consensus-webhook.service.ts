@@ -175,6 +175,14 @@ export class ConsensusWebhookService {
         let walletsData: any[] = [];
         
         try {
+          // Check if GROQ_API_KEY is set
+          const hasGroqKey = !!process.env.GROQ_API_KEY;
+          if (!hasGroqKey) {
+            console.warn(`   ⚠️  GROQ_API_KEY not set - AI decisions will use fallback rules`);
+          } else {
+            console.log(`   🤖 Calling AI decision service...`);
+          }
+          
           aiDecisionResult = await this.evaluateSignalWithAI(
             signal,
             tradeToUse,
@@ -183,13 +191,19 @@ export class ConsensusWebhookService {
           );
           
           if (aiDecisionResult) {
-            console.log(`   🤖 AI Decision: ${aiDecisionResult.decision} (${aiDecisionResult.confidence}% confidence)`);
+            const model = aiDecisionResult.model || 'unknown';
+            console.log(`   🤖 AI Decision (${model}): ${aiDecisionResult.decision} (${aiDecisionResult.confidence}% confidence)`);
+            console.log(`      Reasoning: ${aiDecisionResult.reasoning?.substring(0, 100)}...`);
+            console.log(`      Position: ${aiDecisionResult.suggestedPositionPercent}%, SL: ${aiDecisionResult.stopLossPercent}%, TP: ${aiDecisionResult.takeProfitPercent}%, Risk: ${aiDecisionResult.riskScore}/10`);
             
             // Aktualizuj Signal s AI rozhodnutím
             await this.updateSignalWithAI(signal.id, aiDecisionResult);
+          } else {
+            console.warn(`   ⚠️  AI evaluation returned null`);
           }
         } catch (aiError: any) {
-          console.warn(`   ⚠️  AI evaluation failed: ${aiError.message}`);
+          console.error(`   ❌ AI evaluation failed: ${aiError.message}`);
+          console.error(`   Stack: ${aiError.stack}`);
         }
 
         // 5c. Pošli Discord notifikaci

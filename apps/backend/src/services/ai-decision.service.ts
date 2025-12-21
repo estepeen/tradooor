@@ -119,6 +119,13 @@ export class AIDecisionService {
     context: AIContext
   ): Promise<AIDecision> {
     const startTime = Date.now();
+    const model = this.config.model || 'groq';
+    
+    // Check if API key is available
+    if (model.startsWith('groq') && !this.groqApiKey) {
+      console.warn(`⚠️  [AI Decision] GROQ_API_KEY not set - using fallback rules for ${signal.type} signal`);
+      return this.fallbackDecision(signal, context);
+    }
     
     try {
       // Sestav prompt
@@ -131,14 +138,17 @@ export class AIDecisionService {
       const decision = this.parseResponse(response, signal, context);
       decision.latencyMs = Date.now() - startTime;
       
+      console.log(`✅ [AI Decision] ${signal.type} signal evaluated: ${decision.decision} (${decision.confidence}% confidence, ${decision.latencyMs}ms)`);
+      
       // Ulož do databáze
       if (this.config.enableLogging) {
         await this.saveDecision(decision, prompt, response);
       }
       
       return decision;
-    } catch (error) {
-      console.error('AI Decision error:', error);
+    } catch (error: any) {
+      console.error(`❌ [AI Decision] Error evaluating ${signal.type} signal:`, error.message || error);
+      console.error(`   Using fallback decision instead`);
       
       // Fallback na rule-based rozhodnutí
       return this.fallbackDecision(signal, context);
@@ -460,30 +470,93 @@ Important guidelines:
     let confidence = signal.confidence;
     let positionPercent = 10;
     let riskScore = 5;
+    let stopLossPercent = 25;
+    let takeProfitPercent = 50;
+    let expectedHoldTimeMinutes = 120;
 
     // Základní pravidla
     if (signal.suggestedAction === 'buy' && signal.confidence >= 60) {
       decision = 'buy';
       
+      // Adjust based on signal type
       if (signal.type === 'whale-entry' && context.walletScore >= 80) {
         confidence = Math.min(95, confidence + 10);
         positionPercent = 12;
         riskScore = 3;
+        stopLossPercent = 20; // Tighter SL for high-quality whale
+        takeProfitPercent = 75; // Higher TP for whale
+      } else if (signal.type === 'consensus' || signal.type === 'consensus-update') {
+        // Consensus signals - adjust based on wallet count and score
+        const consensusStrength = context.otherWalletsCount || 1;
+        if (consensusStrength >= 3) {
+          confidence = Math.min(90, confidence + 8);
+          positionPercent = 12;
+          riskScore = 4;
+          stopLossPercent = 22;
+          takeProfitPercent = 60;
+        } else if (consensusStrength >= 2) {
+          confidence = Math.min(85, confidence + 5);
+          positionPercent = 10;
+          riskScore = 5;
+          stopLossPercent = 25;
+          takeProfitPercent = 50;
+        }
       } else if (signal.type === 'hot-token' && context.otherWalletsCount && context.otherWalletsCount >= 3) {
         confidence = Math.min(90, confidence + 5);
         positionPercent = 10;
         riskScore = 4;
+        stopLossPercent = 23;
+        takeProfitPercent = 55;
       } else if (signal.type === 'early-sniper') {
         riskScore = 7; // Vyšší risk pro nové tokeny
         positionPercent = 7;
+        stopLossPercent = 30; // Wider SL for new tokens
+        takeProfitPercent = 80; // Higher TP potential
+        expectedHoldTimeMinutes = 60; // Shorter hold for snipes
+      } else if (signal.type === 'accumulation') {
+        // Accumulation signals - more conservative
+        riskScore = 6;
+        positionPercent = 8;
+        stopLossPercent = 28;
+        takeProfitPercent = 65;
+        expectedHoldTimeMinutes = 180; // Longer hold for accumulation
+      }
+      
+      // Adjust based on wallet score
+      if (context.walletScore >= 80) {
+        confidence = Math.min(95, confidence + 5);
+        riskScore = Math.max(1, riskScore - 1);
+        positionPercent = Math.min(15, positionPercent + 2);
+      } else if (context.walletScore < 60) {
+        confidence = confidence * 0.8;
+        riskScore = Math.min(10, riskScore + 1);
+        positionPercent = Math.max(5, positionPercent - 2);
+      }
+      
+      // Adjust based on token age
+      if (context.tokenAge < 30) {
+        // Very new token - more risky
+        riskScore = Math.min(10, riskScore + 2);
+        stopLossPercent = Math.max(30, stopLossPercent + 5);
+        positionPercent = Math.max(5, positionPercent - 2);
+      } else if (context.tokenAge > 1440) {
+        // Older token - less risky
+        riskScore = Math.max(1, riskScore - 1);
+        stopLossPercent = Math.max(20, stopLossPercent - 3);
+      }
+      
+      // Adjust based on liquidity
+      if (context.tokenLiquidity && context.tokenLiquidity < 20000) {
+        // Low liquidity - more risky
+        riskScore = Math.min(10, riskScore + 1);
+        stopLossPercent = Math.max(30, stopLossPercent + 3);
+      } else if (context.tokenLiquidity && context.tokenLiquidity > 100000) {
+        // High liquidity - less risky
+        riskScore = Math.max(1, riskScore - 1);
+        stopLossPercent = Math.max(20, stopLossPercent - 2);
       }
     } else if (signal.suggestedAction === 'sell') {
       decision = 'sell';
-    }
-
-    // Snížení confidence pro nízké wallet scores
-    if (context.walletScore < 60) {
-      confidence = confidence * 0.8;
     }
 
     return {
@@ -491,11 +564,11 @@ Important guidelines:
       tokenId: '',
       decision,
       confidence: Math.round(confidence),
-      reasoning: `Fallback decision based on ${signal.type} signal (${signal.strength} strength). Wallet score: ${context.walletScore}`,
+      reasoning: `Fallback decision based on ${signal.type} signal (${signal.strength} strength). Wallet score: ${context.walletScore.toFixed(1)}, Token age: ${context.tokenAge.toFixed(0)}min, Liquidity: ${context.tokenLiquidity ? `$${(context.tokenLiquidity / 1000).toFixed(1)}K` : 'unknown'}`,
       suggestedPositionPercent: positionPercent,
-      stopLossPercent: 25,
-      takeProfitPercent: 50,
-      expectedHoldTimeMinutes: 120,
+      stopLossPercent,
+      takeProfitPercent,
+      expectedHoldTimeMinutes,
       riskScore,
       model: 'rule-based-fallback',
       createdAt: new Date(),
