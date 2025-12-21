@@ -36,7 +36,7 @@ export default function WalletDetailPage() {
   const [pnlData, setPnlData] = useState<any>(null);
   const [portfolio, setPortfolio] = useState<any>({ closedPositions: [] });
   const [loading, setLoading] = useState(true);
-  const [showAllClosedPositions, setShowAllClosedPositions] = useState(false);
+  const [closedPositionsDisplayCount, setClosedPositionsDisplayCount] = useState<number>(10); // 10, 20, or 30
   const [tokenFilter, setTokenFilter] = useState<string>('');
   const [timeframeFilter, setTimeframeFilter] = useState<string>('all');
   const [pnlTimeframe, setPnlTimeframe] = useState<'7d' | '30d' | '90d' | '1y'>('30d');
@@ -46,6 +46,7 @@ export default function WalletDetailPage() {
   const [countdown, setCountdown] = useState<number>(0);
   const [displayedTradesCount, setDisplayedTradesCount] = useState<number>(50); // Kolik trades se aktuálně zobrazuje
   const RECENT_TRADES_PER_PAGE = 50;
+  const MAX_RECENT_TRADES_DISPLAY = 150; // Max 150 trades (50 + 50 + 50)
   const [tradesLoading, setTradesLoading] = useState<boolean>(true);
   const [loadingMoreTrades, setLoadingMoreTrades] = useState<boolean>(false);
   const [deletingPosition, setDeletingPosition] = useState<string | null>(null);
@@ -236,9 +237,9 @@ export default function WalletDetailPage() {
         total: data.total, // Celkový počet zůstává stejný z API
       });
       
-      // Zvětši počet zobrazených trades
+      // Zvětši počet zobrazených trades (max 150)
       setDisplayedTradesCount(prev => {
-        const newCount = prev + RECENT_TRADES_PER_PAGE;
+        const newCount = Math.min(prev + RECENT_TRADES_PER_PAGE, MAX_RECENT_TRADES_DISPLAY);
         console.log(`[Load More Trades] Displayed count: ${prev} -> ${newCount}`);
         return newCount;
       });
@@ -590,7 +591,10 @@ export default function WalletDetailPage() {
                           );
                         }
 
-                        const items = closedPositions.slice(0, showAllClosedPositions ? closedPositions.length : 10);
+                        // Omezit na max 30 nejnovějších closed positions pro zobrazení
+                        const maxDisplayPositions = 30;
+                        const limitedPositions = closedPositions.slice(0, maxDisplayPositions);
+                        const items = limitedPositions.slice(0, closedPositionsDisplayCount);
                         return items.map((position: any, index: number) => {
                           const token = position.token;
                           const closedPnlBase = position.realizedPnlBase ?? position.closedPnlBase ?? position.closedPnl ?? 0;
@@ -701,16 +705,37 @@ export default function WalletDetailPage() {
                     </tbody>
                   </table>
                 </div>
-                {finalPortfolio.closedPositions && finalPortfolio.closedPositions.length > 10 && (
-                  <div className="mt-4 text-center">
-                    <button
-                      onClick={() => setShowAllClosedPositions(!showAllClosedPositions)}
-                      className="text-sm text-muted-foreground hover:text-foreground"
-                    >
-                      {showAllClosedPositions ? 'Show Less' : `Show More (${finalPortfolio.closedPositions.length - 10} more)`}
-                    </button>
-                  </div>
-                )}
+                {(() => {
+                  // Omezit na max 30 nejnovějších closed positions pro zobrazení
+                  const maxDisplayPositions = 30;
+                  const limitedPositions = (finalPortfolio.closedPositions || []).slice(0, maxDisplayPositions);
+                  const hasMore = limitedPositions.length > closedPositionsDisplayCount;
+                  const remaining = limitedPositions.length - closedPositionsDisplayCount;
+                  
+                  if (!hasMore && closedPositionsDisplayCount <= 10) return null;
+                  
+                  return (
+                    <div className="mt-4 text-center">
+                      {closedPositionsDisplayCount < 30 && hasMore ? (
+                        <button
+                          onClick={() => {
+                            setClosedPositionsDisplayCount(prev => Math.min(prev + 10, 30));
+                          }}
+                          className="text-sm text-muted-foreground hover:text-foreground"
+                        >
+                          Show More ({Math.min(remaining, 10)} more)
+                        </button>
+                      ) : closedPositionsDisplayCount > 10 ? (
+                        <button
+                          onClick={() => setClosedPositionsDisplayCount(10)}
+                          className="text-sm text-muted-foreground hover:text-foreground"
+                        >
+                          Show Less
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })()}
             </div>
           )}
         </div>
@@ -800,8 +825,10 @@ export default function WalletDetailPage() {
                         new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
                       );
                       
+                      // Omezit na max 150 nejnovějších trades pro zobrazení
+                      const limitedTrades = allTradesSorted.slice(0, MAX_RECENT_TRADES_DISPLAY);
                       // Zobrazujeme pouze prvních displayedTradesCount trades
-                      const recentTrades = allTradesSorted.slice(0, displayedTradesCount);
+                      const recentTrades = limitedTrades.slice(0, displayedTradesCount);
                       
                       if (recentTrades.length === 0) {
                         return (
@@ -987,17 +1014,22 @@ export default function WalletDetailPage() {
                   new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
                 );
                 
-                // Zkontroluj, zda jsou ještě další trades k načtení
-                // 1. Jsou ještě další trades v načtených datech, které nejsou zobrazeny
-                // 2. NEBO můžeme načíst další trades z API (trades.trades.length < trades.total)
-                const hasMoreInLoaded = displayedTradesCount < allTradesSorted.length;
-                const hasMoreInApi = trades && trades.total > 0 && trades.trades.length < trades.total;
+                // Omezit na max 150 nejnovějších trades pro zobrazení
+                const limitedTrades = allTradesSorted.slice(0, MAX_RECENT_TRADES_DISPLAY);
+                
+                // Zkontroluj, zda jsou ještě další trades k načtení (max 150)
+                // 1. Jsou ještě další trades v načtených datech, které nejsou zobrazeny (ale max 150)
+                // 2. NEBO můžeme načíst další trades z API (trades.trades.length < trades.total) - ale zobrazíme max 150
+                const hasMoreInLoaded = displayedTradesCount < limitedTrades.length && displayedTradesCount < MAX_RECENT_TRADES_DISPLAY;
+                const hasMoreInApi = trades && trades.total > 0 && trades.trades.length < trades.total && displayedTradesCount < MAX_RECENT_TRADES_DISPLAY;
                 const hasMoreTrades = hasMoreInLoaded || hasMoreInApi;
                 
                 // Debug: zobraz vždy, pokud máme trades a total > loaded
                 console.log('[Load More Debug]', {
                   displayedTradesCount,
                   allTradesSortedLength: allTradesSorted.length,
+                  limitedTradesLength: limitedTrades.length,
+                  maxDisplay: MAX_RECENT_TRADES_DISPLAY,
                   tradesLoaded: trades?.trades.length || 0,
                   tradesTotal: trades?.total || 0,
                   hasMoreInLoaded,
