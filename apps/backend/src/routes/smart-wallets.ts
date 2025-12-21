@@ -384,11 +384,11 @@ router.get('/:id/portfolio/refresh', async (req, res) => {
     
     // Vytvoř mapu tokenId -> totalCost (součet všech buy trades v base měně)
     const totalCostMap = new Map<string, number>();
-    for (const trade of allTrades) {
-      const tokenId = trade.tokenId;
-      const amountBase = Number(trade.amountBase || 0);
-      const currentCost = totalCostMap.get(tokenId) || 0;
-      totalCostMap.set(tokenId, currentCost + amountBase);
+      for (const trade of allTrades) {
+        const tokenId = trade.tokenId;
+        const amountBase = Number(trade.amountBase || 0);
+        const currentCost = totalCostMap.get(tokenId) || 0;
+        totalCostMap.set(tokenId, currentCost + amountBase);
     }
     
     // 2. For each position calculate Live PnL

@@ -520,15 +520,15 @@ export class ConsensusWebhookService {
         context,
       };
 
-          // 7. Zavolej AI
-          const decision = await this.aiDecisionService.evaluateSignal(signalForAI, context);
+      // 7. Zavolej AI
+      const decision = await this.aiDecisionService.evaluateSignal(signalForAI, context);
           
           if (!decision) {
             console.warn(`   ⚠️  AI decision returned null - AI not available or failed`);
             return null;
           }
-          
-          return decision;
+      
+      return decision;
     } catch (error: any) {
       console.warn(`AI evaluation error: ${error.message}`);
       return null;

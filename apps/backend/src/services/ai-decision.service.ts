@@ -593,7 +593,7 @@ Important guidelines:
   ): Promise<void> {
     // Supabase removed - AIDecision table doesn't exist in Prisma schema
     // Skip saving for now (can be added to Prisma schema later if needed)
-    return;
+        return;
   }
 
   /**
@@ -607,7 +607,7 @@ Important guidelines:
   }): Promise<AIDecision[]> {
     // Supabase removed - AIDecision table doesn't exist in Prisma schema
     // Return empty array for now
-    return [];
+      return [];
   }
 
   /**

@@ -815,16 +815,16 @@ export class AdvancedSignalsService {
           const aiResult = await this.aiDecision.evaluateSignal(signal, aiContext);
           
           if (aiResult && !aiResult.isFallback) {
-            signal.aiDecision = aiResult;
-            aiEvaluated++;
+          signal.aiDecision = aiResult;
+          aiEvaluated++;
 
-            // Update SL/TP based on AI recommendation
-            if (aiResult.decision === 'buy' && entryPriceUsd > 0) {
-              signal.stopLossPriceUsd = entryPriceUsd * (1 - (aiResult.stopLossPercent || 25) / 100);
-              signal.takeProfitPriceUsd = entryPriceUsd * (1 + (aiResult.takeProfitPercent || 50) / 100);
-              signal.suggestedHoldTimeMinutes = aiResult.expectedHoldTimeMinutes;
-              signal.suggestedPositionPercent = aiResult.suggestedPositionPercent;
-            }
+          // Update SL/TP based on AI recommendation
+          if (aiResult.decision === 'buy' && entryPriceUsd > 0) {
+            signal.stopLossPriceUsd = entryPriceUsd * (1 - (aiResult.stopLossPercent || 25) / 100);
+            signal.takeProfitPriceUsd = entryPriceUsd * (1 + (aiResult.takeProfitPercent || 50) / 100);
+            signal.suggestedHoldTimeMinutes = aiResult.expectedHoldTimeMinutes;
+            signal.suggestedPositionPercent = aiResult.suggestedPositionPercent;
+          }
 
             console.log(`✅ [AdvancedSignals] AI evaluated ${signal.type}: ${aiResult.decision} (${aiResult.confidence}% confidence)`);
           } else if (aiResult && aiResult.isFallback) {
