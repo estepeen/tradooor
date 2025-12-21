@@ -27,27 +27,32 @@ async function deleteAllTrades() {
     const deletedNormalizedTrades = await prisma.normalizedTrade.deleteMany({});
     console.log(`✅ Successfully deleted ${deletedNormalizedTrades.count} normalized trades`);
 
-    // 4. Delete all trades
+    // 4. Delete paper trades first (they reference trades via foreign key)
+    console.log('🗑️  Deleting paper trades...');
+    const deletedPaperTrades = await prisma.paperTrade.deleteMany({});
+    console.log(`✅ Successfully deleted ${deletedPaperTrades.count} paper trades`);
+
+    // 5. Delete all trades
     console.log('🗑️  Deleting trades...');
     const deletedTrades = await prisma.trade.deleteMany({});
     console.log(`✅ Successfully deleted ${deletedTrades.count} trades`);
 
-    // 5. Delete trade sequences
+    // 6. Delete trade sequences
     console.log('🗑️  Deleting trade sequences...');
     const deletedSequences = await prisma.tradeSequence.deleteMany({});
     console.log(`✅ Successfully deleted ${deletedSequences.count} trade sequences`);
 
-    // 6. Delete trade outcomes
+    // 7. Delete trade outcomes
     console.log('🗑️  Deleting trade outcomes...');
     const deletedOutcomes = await prisma.tradeOutcome.deleteMany({});
     console.log(`✅ Successfully deleted ${deletedOutcomes.count} trade outcomes`);
 
-    // 7. Delete metrics history
+    // 8. Delete metrics history
     console.log('🗑️  Deleting metrics history...');
     const deletedMetricsHistory = await prisma.smartWalletMetricsHistory.deleteMany({});
     console.log(`✅ Successfully deleted ${deletedMetricsHistory.count} metrics history records`);
 
-    // 8. Clear wallet processing queue
+    // 9. Clear wallet processing queue
     console.log('🗑️  Clearing wallet processing queue...');
     const deletedQueue = await prisma.walletProcessingQueue.deleteMany({});
     if (deletedQueue.count > 0) {
@@ -56,7 +61,7 @@ async function deleteAllTrades() {
       console.log('✅ Wallet processing queue is empty');
     }
 
-    // 9. Reset all wallet metrics (including score, PnL, and tags)
+    // 10. Reset all wallet metrics (including score, PnL, and tags)
     console.log('🔄 Resetting wallet metrics (including score, PnL, and tags)...');
     const updatedWallets = await prisma.smartWallet.updateMany({
       data: {
@@ -81,6 +86,7 @@ async function deleteAllTrades() {
     console.log('   - All closed lots deleted');
     console.log('   - All trade features deleted');
     console.log('   - All normalized trades deleted');
+    console.log('   - All paper trades deleted');
     console.log('   - All trade sequences deleted');
     console.log('   - All trade outcomes deleted');
     console.log('   - Wallet processing queue cleared');
