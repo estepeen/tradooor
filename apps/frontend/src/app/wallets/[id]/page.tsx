@@ -810,7 +810,7 @@ export default function WalletDetailPage() {
                               {formatHoldTime(stats.medianHoldMinutesLosers)}
                             </td>
                             <td className="text-right py-2">
-                              ${formatNumber(stats.avgTradeSizeUsd ?? 0, 2)}
+                              {formatNumber(stats.avgTradeSizeUsd ?? 0, 6)} {normalizeBaseToken(pnlData?.baseToken || portfolio?.baseToken)}
                             </td>
                           </tr>
                         );
