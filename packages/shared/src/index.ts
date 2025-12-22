@@ -96,6 +96,7 @@ export interface SmartWallet {
   recentPnl30dPercent: number;
   recentPnl30dUsd?: number; // Deprecated: use recentPnl30dBase (SOL value stored in DB column)
   recentPnl30dBase?: number; // PnL v SOL/base měně (primární hodnota)
+  recentPnl30dUsdValue?: number; // USD hodnota PnL (vypočítaná z SOL ceny, pro zobrazení místo procent)
   lastTradeTimestamp?: Date | null;
   advancedStats?: SmartWalletAdvancedStats | null;
   createdAt: Date;
