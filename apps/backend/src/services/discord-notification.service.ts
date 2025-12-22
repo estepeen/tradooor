@@ -358,7 +358,7 @@ export class DiscordNotificationService {
         }
         // Za @ chceme zobrazit MarketCap (globální pro token), ne cenu
         if (data.marketCapUsd) {
-          parts.push(`@ MCap $${this.formatNumber(data.marketCapUsd, 0)}`);
+          parts.push(`@ $${this.formatNumber(data.marketCapUsd, 0)} MCap`);
         }
         if (w.tradeTime) {
           const time = new Date(w.tradeTime);
