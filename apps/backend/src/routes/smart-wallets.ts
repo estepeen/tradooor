@@ -1024,29 +1024,37 @@ router.get('/:id/portfolio', async (req, res) => {
     const closedPositionsFromLots: any[] = [];
     if (closedLots && closedLots.length > 0) {
       console.log(`   📊 [Portfolio] Found ${closedLots.length} ClosedLots for wallet ${wallet.id}`);
-      // DŮLEŽITÉ: Seskupujeme ClosedLots podle tokenId + sequenceNumber + sellTradeId
-      // Problém: Pokud má token více SELL trades se stejným sequenceNumber, vytvoří se více closed positions
-      // Řešení: Seskupíme podle tokenId + sequenceNumber (ne podle sellTradeId), aby se všechny ClosedLots pro stejný cyklus sečetly dohromady
-      const lotsByTokenAndSequence = new Map<string, any[]>();
-      const seenLotIds = new Set<string>(); // Kontrola duplicit
+      // DŮLEŽITÉ: Seskupujeme ClosedLots podle tokenId (ne podle sequenceNumber nebo sellTradeId)
+      // Tím zajistíme, že všechny ClosedLots pro stejný token se sečtou do jedné closed position
+      // a PnL se počítá správně bez duplicit
+      const lotsByToken = new Map<string, any[]>();
+      const seenLotIds = new Set<string>(); // Kontrola duplicit podle ID
+      const seenLotKeys = new Set<string>(); // Kontrola duplicit podle klíče (tokenId + entryTime + exitTime + size)
       
       for (const lot of closedLots) {
-        // Kontrola duplicit - každý ClosedLot by měl být jen jednou
+        // Kontrola duplicit podle ID - každý ClosedLot by měl být jen jednou
         if (seenLotIds.has(lot.id)) {
-          console.warn(`   ⚠️  [Portfolio] Duplicate ClosedLot detected: id=${lot.id}, tokenId=${lot.tokenId}, sellTradeId=${lot.sellTradeId}`);
+          console.warn(`   ⚠️  [Portfolio] Duplicate ClosedLot ID detected: id=${lot.id}, tokenId=${lot.tokenId}, sellTradeId=${lot.sellTradeId}`);
           continue; // Přeskoč duplicitní ClosedLot
         }
         seenLotIds.add(lot.id);
         
-        // Seskupíme podle tokenId + sequenceNumber (ne podle sellTradeId)
-        // Tím zajistíme, že všechny ClosedLots pro stejný cyklus (sequenceNumber) se sečtou dohromady
-        const sequenceNumber = lot.sequenceNumber ?? 1;
-        const groupingKey = `${lot.tokenId}-${sequenceNumber}`;
-        
-        if (!lotsByTokenAndSequence.has(groupingKey)) {
-          lotsByTokenAndSequence.set(groupingKey, []);
+        // Kontrola duplicit podle klíče (tokenId + entryTime + exitTime + size)
+        // Pokud máme ClosedLot se stejnými hodnotami, je to pravděpodobně duplicita
+        const lotKey = `${lot.tokenId}-${lot.entryTime}-${lot.exitTime}-${lot.size || lot.realizedPnl}`;
+        if (seenLotKeys.has(lotKey)) {
+          console.warn(`   ⚠️  [Portfolio] Duplicate ClosedLot key detected: id=${lot.id}, tokenId=${lot.tokenId}, key=${lotKey}`);
+          continue; // Přeskoč duplicitní ClosedLot
         }
-        lotsByTokenAndSequence.get(groupingKey)!.push(lot);
+        seenLotKeys.add(lotKey);
+        
+        // Seskupíme podle tokenId (všechny ClosedLots pro stejný token do jedné skupiny)
+        const tokenId = lot.tokenId;
+        
+        if (!lotsByToken.has(tokenId)) {
+          lotsByToken.set(tokenId, []);
+        }
+        lotsByToken.get(tokenId)!.push(lot);
       }
       
       // DEBUG: Log grouping for UNDERSTAND token
@@ -1063,44 +1071,31 @@ router.get('/:id/portfolio', async (req, res) => {
         console.log(`   🔍 [DEBUG UNDERSTAND] Grouped into ${understandSellTradeIds.size} sellTradeId groups: ${Array.from(understandSellTradeIds).join(', ')}`);
       }
       
-      // Pro každou skupinu ClosedLots se stejným tokenId + sequenceNumber vytvoříme samostatnou closed position
-      for (const [groupingKey, lotsForSell] of lotsByTokenAndSequence.entries()) {
-        if (lotsForSell.length === 0) continue;
+      // Pro každý token vytvoříme jednu closed position se součtem všech ClosedLots
+      for (const [tokenId, lotsForToken] of lotsByToken.entries()) {
+        if (lotsForToken.length === 0) continue;
         
-        const firstLot = lotsForSell.sort((a: any, b: any) => 
-          new Date(a.entryTime).getTime() - new Date(b.entryTime).getTime()
-        )[0];
-        const lastLot = lotsForSell.sort((a: any, b: any) => 
-          new Date(b.exitTime).getTime() - new Date(a.exitTime).getTime()
-        )[0];
+        // Seřadíme ClosedLots podle entryTime a exitTime
+        const sortedLots = lotsForToken.sort((a: any, b: any) => {
+          const aEntry = new Date(a.entryTime).getTime();
+          const bEntry = new Date(b.entryTime).getTime();
+          if (aEntry !== bEntry) return aEntry - bEntry;
+          return new Date(a.exitTime).getTime() - new Date(b.exitTime).getTime();
+        });
         
-        const tokenId = firstLot.tokenId;
+        const firstLot = sortedLots[0];
+        const lastLot = sortedLots[sortedLots.length - 1];
+        
         const token = tokenDataMap.get(tokenId);
-        const sequenceNumber = firstLot.sequenceNumber ?? null; // Kolikátý cyklus (1., 2., 3. atd.)
         
-        // Získej všechny unikátní sellTradeId pro tuto skupinu (pro debug)
-        const uniqueSellTradeIds = Array.from(new Set(lotsForSell.map((lot: any) => lot.sellTradeId || 'unknown')));
-        
-        const totalRealizedPnl = lotsForSell.reduce((sum: number, lot: any) => {
+        // Sečteme všechny ClosedLots pro tento token do jedné closed position
+        const totalRealizedPnl = lotsForToken.reduce((sum: number, lot: any) => {
           const pnl = lot.realizedPnl !== null && lot.realizedPnl !== undefined ? Number(lot.realizedPnl) : 0;
-          // DEBUG: Log all ClosedLots for UNDERSTAND token to debug PnL calculation
-          const tokenSymbol = token?.symbol?.toUpperCase();
-          if (tokenSymbol === 'UNDERSTAND' && wallet.id) {
-            console.log(`   🔍 [DEBUG UNDERSTAND] ClosedLot: id=${lot.id}, tokenId=${lot.tokenId}, sequenceNumber=${sequenceNumber}, sellTradeId=${lot.sellTradeId}, realizedPnl=${pnl.toFixed(4)} SOL, costBasis=${(lot.costBasis || 0).toFixed(4)}, proceeds=${(lot.proceeds || 0).toFixed(4)}, entryTime=${lot.entryTime}, exitTime=${lot.exitTime}`);
-          } else if (wallet.id && Math.abs(pnl) > 0.0001) {
-            console.log(`   💰 [ClosedLot] tokenId=${lot.tokenId}, sequenceNumber=${sequenceNumber}, sellTradeId=${lot.sellTradeId}, realizedPnl=${pnl.toFixed(4)} SOL`);
-          }
           return sum + pnl;
         }, 0);
         
-        // DEBUG: Log total PnL for UNDERSTAND token after summing
-        const tokenSymbol = token?.symbol?.toUpperCase();
-        if (tokenSymbol === 'UNDERSTAND' && wallet.id) {
-          console.log(`   🔍 [DEBUG UNDERSTAND] Closed position: tokenId=${tokenId}, sequenceNumber=${sequenceNumber}, uniqueSellTradeIds=${uniqueSellTradeIds.length} (${uniqueSellTradeIds.join(', ')}), totalRealizedPnl=${totalRealizedPnl.toFixed(4)} SOL (from ${lotsForSell.length} lots)`);
-        }
-        
-        const totalCostBase = lotsForSell.reduce((sum: number, lot: any) => sum + (lot.costBasis || 0), 0);
-        const totalProceedsBase = lotsForSell.reduce((sum: number, lot: any) => sum + (lot.proceeds || 0), 0);
+        const totalCostBase = lotsForToken.reduce((sum: number, lot: any) => sum + (Number(lot.costBasis) || 0), 0);
+        const totalProceedsBase = lotsForToken.reduce((sum: number, lot: any) => sum + (Number(lot.proceeds) || 0), 0);
         const effectiveCostBase = totalCostBase > 0 ? totalCostBase : (totalProceedsBase - totalRealizedPnl);
         const realizedPnlPercent = effectiveCostBase > 0 ? (totalRealizedPnl / effectiveCostBase) * 100 : 0;
 
@@ -1115,10 +1110,16 @@ router.get('/:id/portfolio', async (req, res) => {
         const holdTimeMs = exitTime.getTime() - entryTime.getTime();
         const holdTimeMinutes = Math.round(holdTimeMs / (1000 * 60));
         
+        // DEBUG: Log for UNDERSTAND token
+        const tokenSymbol = token?.symbol?.toUpperCase();
+        if (tokenSymbol === 'UNDERSTAND' && wallet.id) {
+          console.log(`   🔍 [DEBUG UNDERSTAND] Created closed position: tokenId=${tokenId}, totalRealizedPnl=${totalRealizedPnl.toFixed(4)} SOL (from ${lotsForToken.length} unique lots), totalCostBase=${totalCostBase.toFixed(4)}, totalProceedsBase=${totalProceedsBase.toFixed(4)}`);
+        }
+        
         closedPositionsFromLots.push({
           tokenId,
           token: token || null,
-          sequenceNumber, // Přidáme sequenceNumber pro řadové označení
+          sequenceNumber: null, // Nenastavujeme sequenceNumber - je to jedna pozice pro celý token
           balance: 0,
           totalBought: 0,
           totalSold: 0,
@@ -1129,8 +1130,8 @@ router.get('/:id/portfolio', async (req, res) => {
           totalCostUsd: totalCostUsdValue, // V SOL (kompatibilita - obsahuje SOL hodnoty)
           totalProceedsUsd: totalProceedsUsdValue, // V SOL (kompatibilita - obsahuje SOL hodnoty)
           averageBuyPrice: 0,
-          buyCount: lotsForSell.length, // Počet lots = počet BUY/ADD trades
-          sellCount: 1, // Jeden SELL trade
+          buyCount: lotsForToken.length, // Počet lots
+          sellCount: new Set(lotsForToken.map((lot: any) => lot.sellTradeId)).size, // Počet unikátních SELL trades
           removeCount: 0,
           lastBuyPrice: 0,
           lastSellPrice: 0,
@@ -1155,7 +1156,7 @@ router.get('/:id/portfolio', async (req, res) => {
           closedPnlPercent: realizedPnlPercent,
         });
         
-        console.log(`   ✅ Created closed position from ClosedLot: tokenId=${tokenId}, sequenceNumber=${sequenceNumber}, realizedPnlBase=${totalRealizedPnl.toFixed(4)} SOL, holdTime=${holdTimeMinutes}min`);
+        console.log(`   ✅ Created closed position: tokenId=${tokenId}, symbol=${token?.symbol || 'N/A'}, realizedPnlBase=${totalRealizedPnl.toFixed(4)} SOL (from ${lotsForToken.length} lots), holdTime=${holdTimeMinutes}min`);
       }
     }
     
