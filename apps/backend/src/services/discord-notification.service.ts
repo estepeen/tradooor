@@ -4,6 +4,8 @@
  * Posílá bohaté notifikace o signálech do Discordu pomocí webhooků.
  */
 
+import { SolPriceCacheService } from './sol-price-cache.service.js';
+
 export interface SignalNotificationData {
   // Token info
   tokenSymbol: string;
