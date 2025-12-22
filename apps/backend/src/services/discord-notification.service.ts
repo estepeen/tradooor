@@ -66,6 +66,7 @@ export interface SignalNotificationData {
     accumulationBuys?: Array<{
       amountBase: number;
       timestamp: string;
+      marketCapUsd?: number; // Market cap v době nákupu
     }>;
   }>;
 }
@@ -416,9 +417,10 @@ export class DiscordNotificationService {
             const amountUsd = amountBase * solPriceUsd;
             const parts = [`${this.formatNumber(amountBase, 2)} ${baseToken} ($${this.formatNumber(amountUsd, 0)})`];
             
-            // Market cap a čas pro každý nákup
-            if (data.marketCapUsd) {
-              parts.push(`@ $${this.formatNumber(data.marketCapUsd, 0)} MCap`);
+            // Market cap a čas pro každý nákup - použij market cap z doby nákupu, pokud je k dispozici
+            const buyMarketCap = buy.marketCapUsd ?? data.marketCapUsd;
+            if (buyMarketCap) {
+              parts.push(`@ $${this.formatNumber(buyMarketCap, 0)} MCap`);
             }
             if (buy.timestamp) {
               const time = new Date(buy.timestamp);

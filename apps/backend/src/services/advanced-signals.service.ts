@@ -1081,6 +1081,7 @@ export class AdvancedSignalsService {
                       timestamp: { gte: sixHoursAgo },
                     },
                     select: {
+                      id: true,
                       amountBase: true,
                       timestamp: true,
                       meta: true,
@@ -1108,10 +1109,28 @@ export class AdvancedSignalsService {
                     return amountInSol >= 0.3;
                   });
                   
-                  return validBuys.map(buy => ({
-                    amountBase: Number(buy.amountBase),
-                    timestamp: buy.timestamp.toISOString(),
-                  }));
+                  // Načti market cap pro každý trade z TradeFeature (fdvUsd)
+                  const buyResults = await Promise.all(
+                    validBuys.map(async (buy) => {
+                      let marketCapUsd: number | undefined = undefined;
+                      try {
+                        const tradeFeature = await this.tradeFeatureRepo.findByTradeId(buy.id);
+                        if (tradeFeature?.fdvUsd) {
+                          marketCapUsd = tradeFeature.fdvUsd;
+                        }
+                      } catch (error: any) {
+                        // Pokud TradeFeature neexistuje, použijeme undefined (fallback na globální market cap)
+                      }
+                      
+                      return {
+                        amountBase: Number(buy.amountBase),
+                        timestamp: buy.timestamp.toISOString(),
+                        marketCapUsd,
+                      };
+                    })
+                  );
+                  
+                  return buyResults;
                 })() : undefined,
               }],
             };
@@ -1202,10 +1221,7 @@ export class AdvancedSignalsService {
           tradeAmountUsd: Number(validBuys[validBuys.length - 1]?.amountBase || 0), // Poslední trade
           tradePrice: signal.entryPriceUsd || 0,
           tradeTime: pending.lastTradeTime.toISOString(),
-          accumulationBuys: validBuys.map(buy => ({
-            amountBase: Number(buy.amountBase),
-            timestamp: buy.timestamp.toISOString(),
-          })),
+          accumulationBuys: buyResults,
         }],
       };
       
