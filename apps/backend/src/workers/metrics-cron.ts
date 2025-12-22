@@ -95,6 +95,13 @@ async function calculateAllMetrics() {
         
         // Nyní přepočítej metriky (které používají POUZE ClosedLot)
         await metricsCalculator.calculateMetricsForWallet(wallet.id);
+        
+        // DEBUG: Zkontroluj, co se uložilo do databáze
+        const updatedWallet = await smartWalletRepo.findById(wallet.id);
+        if (updatedWallet) {
+          console.log(`    💰 Saved to DB: recentPnl30dUsd=${updatedWallet.recentPnl30dUsd?.toFixed(4) ?? 'null'} SOL, recentPnl30dPercent=${updatedWallet.recentPnl30dPercent?.toFixed(2) ?? 'null'}%`);
+        }
+        
         successCount++;
         
         // Add delay between wallets to reduce CPU spikes (except for last wallet)
