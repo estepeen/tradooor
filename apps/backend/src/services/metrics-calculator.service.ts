@@ -1088,8 +1088,23 @@ export class MetricsCalculatorService {
       
       // DEBUG: Log filtered lots count for 30d period
       if (label === '30d' && filteredLots.length > 0) {
-        const totalPnl = filteredLots.reduce((sum, lot) => sum + (lot.realizedPnl || 0), 0);
-        console.log(`   📊 [Rolling Stats] Wallet ${walletId}: Found ${filteredLots.length} closed lots in last 30d, totalPnl=${totalPnl.toFixed(2)} SOL`);
+        // Seskup podle tokenu pro debug (stejně jako v buildRollingWindowStats)
+        const lotsByTokenDebug = new Map<string, ClosedLotRecord[]>();
+        for (const lot of filteredLots) {
+          if (!lotsByTokenDebug.has(lot.tokenId)) {
+            lotsByTokenDebug.set(lot.tokenId, []);
+          }
+          lotsByTokenDebug.get(lot.tokenId)!.push(lot);
+        }
+        
+        const totalPnlBeforeGrouping = filteredLots.reduce((sum, lot) => sum + (lot.realizedPnl || 0), 0);
+        const totalPnlAfterGrouping = Array.from(lotsByTokenDebug.values()).reduce((totalPnl, tokenLots) => {
+          const tokenPnl = tokenLots.reduce((sum, lot) => sum + (lot.realizedPnl || 0), 0);
+          return totalPnl + tokenPnl;
+        }, 0);
+        
+        console.log(`   📊 [Rolling Stats] Wallet ${walletId}: Found ${filteredLots.length} closed lots (${lotsByTokenDebug.size} unique tokens) in last 30d`);
+        console.log(`   📊 [Rolling Stats] Wallet ${walletId}: totalPnl before grouping=${totalPnlBeforeGrouping.toFixed(2)} SOL, after grouping=${totalPnlAfterGrouping.toFixed(2)} SOL`);
       }
       
       // Použij buildRollingWindowStats - čistě jen sčítá realizedPnl z ClosedLot (v SOL)
