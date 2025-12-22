@@ -1074,8 +1074,11 @@ export class MetricsCalculatorService {
     // DŮLEŽITÉ: PnL se počítá POUZE z ClosedLot (jednotný princip)
     // ClosedLot se vytváří v worker queue a metrics cron před výpočtem metrik
     // Pokud ClosedLot neexistují, PnL = 0 (žádný fallback!)
+    // DŮLEŽITÉ: Načteme VŠECHNY ClosedLots (bez filtru fromDate), stejně jako portfolio endpoint
+    // Pro 30d filtrování podle lastSellTimestamp potřebujeme všechny ClosedLots pro token,
+    // ne jen ty z posledních MAX_WINDOW_DAYS dní
     const [closedLots, tradeFeatures] = await Promise.all([
-      this.closedLotRepo.findByWallet(walletId, { fromDate: earliest }),
+      this.closedLotRepo.findByWallet(walletId), // Bez fromDate - načteme všechny ClosedLots
       this.fetchTradeFeaturesSafe(walletId, earliest),
     ]);
 
