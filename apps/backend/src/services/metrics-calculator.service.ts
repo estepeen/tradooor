@@ -1204,13 +1204,49 @@ export class MetricsCalculatorService {
       lotsByToken.get(lot.tokenId)!.push(lot);
     }
     
+    // DŮLEŽITÉ: Pro 30d období filtrujeme podle lastSellTimestamp (exitTime z posledního ClosedLot pro token)
+    // Stejně jako portfolio endpoint - pokud má token poslední exitTime v 30d, vezmeme všechny ClosedLots pro tento token
+    // Toto zajišťuje konzistenci s detail stránkou
+    let lotsToSum: ClosedLotRecord[] = [];
+    if (label === '30d') {
+      // Pro 30d: filtruj podle lastSellTimestamp (stejně jako portfolio endpoint)
+      const cutoff = new Date(now);
+      cutoff.setDate(cutoff.getDate() - 30);
+      
+      for (const tokenLots of lotsByToken.values()) {
+        // Najdi poslední exitTime pro tento token (lastSellTimestamp)
+        const lastExitTime = tokenLots.reduce((latest, lot) => {
+          if (!lot.exitTime) return latest;
+          const exitTime = new Date(lot.exitTime);
+          return exitTime > latest ? exitTime : latest;
+        }, new Date(0));
+        
+        // Pokud je lastSellTimestamp v 30d období, vezmi všechny ClosedLots pro tento token
+        if (lastExitTime >= cutoff && lastExitTime <= now) {
+          lotsToSum.push(...tokenLots);
+        }
+      }
+    } else {
+      // Pro ostatní období: použij všechny lots (už jsou filtrované podle exitTime výše)
+      lotsToSum = lots;
+    }
+    
+    // Seskup znovu podle tokenId (po filtrování podle lastSellTimestamp)
+    const filteredLotsByToken = new Map<string, ClosedLotRecord[]>();
+    for (const lot of lotsToSum) {
+      if (!filteredLotsByToken.has(lot.tokenId)) {
+        filteredLotsByToken.set(lot.tokenId, []);
+      }
+      filteredLotsByToken.get(lot.tokenId)!.push(lot);
+    }
+    
     // Pro každý token sečti PnL a costBasis z jeho ClosedLots (stejně jako portfolio endpoint)
     // Toto zajišťuje konzistenci s detail stránkou
     let realizedPnl = 0;
     let investedCapital = 0;
     let totalVolumeSol = 0;
     
-    for (const tokenLots of lotsByToken.values()) {
+    for (const tokenLots of filteredLotsByToken.values()) {
       // Sečti PnL pro všechny ClosedLots tohoto tokenu
       const tokenPnl = tokenLots.reduce((sum, lot) => {
       if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
