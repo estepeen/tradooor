@@ -768,9 +768,14 @@ export class AdvancedSignalsService {
     let savedCount = 0;
     let aiEvaluated = 0;
 
+    // DŮLEŽITÉ: AI decision se volá jen jednou pro trade (ne pro každý signál zvlášť)
+    // Vyber nejlepší signál (nejvyšší confidence) pro AI evaluaci
+    let bestSignalForAI: AdvancedSignal | null = null;
+    let bestSignalConfidence = 0;
+    
     for (const signal of signals) {
       if (signal.confidence < 50) continue;
-
+      
       // Enrich signal context with market data
       signal.context.tokenSymbol = token?.symbol;
       signal.context.tokenMint = token?.mintAddress;
@@ -791,57 +796,73 @@ export class AdvancedSignalsService {
         signal.suggestedHoldTimeMinutes = signal.riskLevel === 'low' ? 120 : signal.riskLevel === 'medium' ? 60 : 30;
       }
 
-      // AI Evaluation (if GROQ_API_KEY is set)
-      if (process.env.GROQ_API_KEY && signal.suggestedAction === 'buy') {
-        console.log(`🤖 [AdvancedSignals] Calling AI for ${signal.type} signal (wallet: ${wallet?.address?.substring(0, 8)}..., token: ${token?.symbol || 'unknown'})`);
-        try {
-          const aiContext: AIContext = {
-            signal,
-            signalType: signal.type,
-            walletScore: signal.context.walletScore,
-            walletWinRate: signal.context.walletWinRate,
-            walletRecentPnl30d: signal.context.walletRecentPnl30d,
-            walletTotalTrades: signal.context.walletTotalTrades || 0,
-            walletAvgHoldTimeMin: signal.context.walletAvgHoldTimeMin || 60,
-            tokenSymbol: signal.context.tokenSymbol,
-            tokenAge: signal.context.tokenAge,
-            tokenLiquidity: signal.context.tokenLiquidity,
-            tokenVolume24h: signal.context.tokenVolume24h,
-            tokenMarketCap: signal.context.tokenMarketCap,
-            otherWalletsCount: signal.context.consensusWalletCount,
-            consensusStrength: signal.strength,
-          };
+      // Najdi nejlepší signál pro AI evaluaci (nejvyšší confidence)
+      if (signal.suggestedAction === 'buy' && signal.confidence > bestSignalConfidence) {
+        bestSignalForAI = signal;
+        bestSignalConfidence = signal.confidence;
+      }
+    }
 
-          const aiResult = await this.aiDecision.evaluateSignal(signal, aiContext);
+      // AI Evaluation (if GROQ_API_KEY is set) - JEN PRO NEJLEPŠÍ SIGNÁL
+    let sharedAIDecision: any = null;
+    if (process.env.GROQ_API_KEY && bestSignalForAI && bestSignalForAI.suggestedAction === 'buy' && bestSignalForAI.confidence >= 50) {
+      console.log(`🤖 [AdvancedSignals] Calling AI for best signal: ${bestSignalForAI.type} (confidence: ${bestSignalForAI.confidence}%) - will reuse for all ${signals.length} signals from this trade`);
+      try {
+        const aiContext: AIContext = {
+          signal: bestSignalForAI,
+          signalType: bestSignalForAI.type,
+          walletScore: bestSignalForAI.context.walletScore,
+          walletWinRate: bestSignalForAI.context.walletWinRate,
+          walletRecentPnl30d: bestSignalForAI.context.walletRecentPnl30d,
+          walletTotalTrades: bestSignalForAI.context.walletTotalTrades || 0,
+          walletAvgHoldTimeMin: bestSignalForAI.context.walletAvgHoldTimeMin || 60,
+          tokenSymbol: bestSignalForAI.context.tokenSymbol,
+          tokenAge: bestSignalForAI.context.tokenAge,
+          tokenLiquidity: bestSignalForAI.context.tokenLiquidity,
+          tokenVolume24h: bestSignalForAI.context.tokenVolume24h,
+          tokenMarketCap: bestSignalForAI.context.tokenMarketCap,
+          otherWalletsCount: bestSignalForAI.context.consensusWalletCount,
+          consensusStrength: bestSignalForAI.strength,
+        };
+
+        const aiResult = await this.aiDecision.evaluateSignal(bestSignalForAI, aiContext);
+        sharedAIDecision = aiResult;
           
-          if (aiResult && !aiResult.isFallback) {
-          signal.aiDecision = aiResult;
+        if (aiResult && !aiResult.isFallback) {
           aiEvaluated++;
-
-          // Update SL/TP based on AI recommendation
-          if (aiResult.decision === 'buy' && entryPriceUsd > 0) {
-            signal.stopLossPriceUsd = entryPriceUsd * (1 - (aiResult.stopLossPercent || 25) / 100);
-            signal.takeProfitPriceUsd = entryPriceUsd * (1 + (aiResult.takeProfitPercent || 50) / 100);
-            signal.suggestedHoldTimeMinutes = aiResult.expectedHoldTimeMinutes;
-            signal.suggestedPositionPercent = aiResult.suggestedPositionPercent;
-          }
-
-            console.log(`✅ [AdvancedSignals] AI evaluated ${signal.type}: ${aiResult.decision} (${aiResult.confidence}% confidence)`);
-          } else if (aiResult && aiResult.isFallback) {
-            console.warn(`⚠️  [AdvancedSignals] AI returned fallback for ${signal.type} - will not use (showing "-" instead)`);
-            // Don't set aiDecision if it's fallback
-            signal.aiDecision = undefined;
-          } else {
-            console.warn(`⚠️  [AdvancedSignals] AI evaluation returned null for ${signal.type} - AI not available`);
-            // Don't set aiDecision if it's null
-            signal.aiDecision = undefined;
-          }
-        } catch (aiError: any) {
-          console.error(`❌ [AdvancedSignals] AI evaluation failed for ${signal.type}: ${aiError.message}`);
-          signal.aiDecision = undefined;
+          console.log(`✅ [AdvancedSignals] AI evaluated best signal (${bestSignalForAI.type}): ${aiResult.decision} (${aiResult.confidence}% confidence) - will reuse for all signals`);
+        } else if (aiResult && aiResult.isFallback) {
+          console.warn(`⚠️  [AdvancedSignals] AI returned fallback - will not use (showing "-" instead)`);
+          sharedAIDecision = null;
+        } else {
+          console.warn(`⚠️  [AdvancedSignals] AI evaluation returned null - AI not available`);
+          sharedAIDecision = null;
         }
-      } else if (!process.env.GROQ_API_KEY) {
-        console.warn(`⚠️  [AdvancedSignals] GROQ_API_KEY not set - skipping AI evaluation for ${signal.type}`);
+      } catch (aiError: any) {
+        console.error(`❌ [AdvancedSignals] AI evaluation failed: ${aiError.message}`);
+        sharedAIDecision = null;
+      }
+    } else if (!process.env.GROQ_API_KEY) {
+      console.warn(`⚠️  [AdvancedSignals] GROQ_API_KEY not set - skipping AI evaluation`);
+    }
+
+    // Nyní projdi všechny signály a použij sdílené AI decision
+    for (const signal of signals) {
+      if (signal.confidence < 50) continue;
+
+      // Použij sdílené AI decision pro všechny signály z tohoto trade
+      if (sharedAIDecision && !sharedAIDecision.isFallback && signal.suggestedAction === 'buy') {
+        signal.aiDecision = sharedAIDecision;
+        
+        // Update SL/TP based on AI recommendation
+        if (sharedAIDecision.decision === 'buy' && entryPriceUsd > 0) {
+          signal.stopLossPriceUsd = entryPriceUsd * (1 - (sharedAIDecision.stopLossPercent || 25) / 100);
+          signal.takeProfitPriceUsd = entryPriceUsd * (1 + (sharedAIDecision.takeProfitPercent || 50) / 100);
+          signal.suggestedHoldTimeMinutes = sharedAIDecision.expectedHoldTimeMinutes;
+          signal.suggestedPositionPercent = sharedAIDecision.suggestedPositionPercent;
+        }
+      } else {
+        signal.aiDecision = undefined;
       }
 
       // Save enhanced signal

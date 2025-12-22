@@ -129,9 +129,9 @@ export class ConsensusWebhookService {
       if (existingSignal) {
         previousWalletCount = (existingSignal.meta as any)?.walletCount || 0;
         
-        // Pokud je stejný nebo menší počet wallets, skip
+        // Pokud je stejný nebo menší počet wallets, skip (nevoláme AI znovu)
         if (uniqueWallets.size <= previousWalletCount) {
-          console.log(`   ⏭️  Consensus already notified for ${previousWalletCount} wallets, current: ${uniqueWallets.size}`);
+          console.log(`   ⏭️  Consensus already notified for ${previousWalletCount} wallets, current: ${uniqueWallets.size} - skipping AI evaluation`);
           return { consensusFound: true };
         }
         
@@ -201,9 +201,16 @@ export class ConsensusWebhookService {
             // Aktualizuj Signal s AI rozhodnutím
             await this.updateSignalWithAI(signal.id, aiDecisionResult);
           } else if (aiDecisionResult && aiDecisionResult.isFallback) {
-            console.warn(`   ⚠️  AI returned fallback decision - will not use (showing "-" instead)`);
-            // Don't use fallback - set to null so Discord shows "-"
-            aiDecisionResult = null;
+            // Use fallback decision if rate limited (better than showing "-")
+            // Only skip if it's a parse error fallback, not rate limit fallback
+            const isRateLimitFallback = aiDecisionResult.reasoning?.includes('Fallback decision based on');
+            if (isRateLimitFallback) {
+              console.warn(`   ⚠️  AI rate limited, using fallback decision (rule-based)`);
+              // Keep aiDecisionResult - it will be used in Discord embed
+            } else {
+              console.warn(`   ⚠️  AI returned fallback decision - will not use (showing "-" instead)`);
+              aiDecisionResult = null;
+            }
           } else {
             console.warn(`   ⚠️  AI evaluation returned null - AI not available`);
           }

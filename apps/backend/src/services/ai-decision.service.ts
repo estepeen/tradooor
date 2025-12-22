@@ -161,14 +161,28 @@ export class AIDecisionService {
       
       return decision;
     } catch (error: any) {
-      console.error(`❌ [AI Decision] Error evaluating ${signal.type} signal:`, error.message || error);
+      const errorMessage = error.message || String(error);
+      const isRateLimit = errorMessage.includes('rate_limit') || errorMessage.includes('Rate limit');
+      
+      if (isRateLimit) {
+        console.warn(`⚠️  [AI Decision] Rate limit reached for ${signal.type} signal - using fallback decision`);
+        console.warn(`   💡 Consider upgrading Groq plan or reducing AI evaluation frequency`);
+        
+        // Return fallback decision instead of null when rate limited
+        // This way Discord will still show AI decision (even if rule-based)
+        const fallback = this.fallbackDecision(signal, context);
+        fallback.isFallback = true; // Mark as fallback so caller knows it's not from AI
+        return fallback;
+      }
+      
+      console.error(`❌ [AI Decision] Error evaluating ${signal.type} signal:`, errorMessage);
       console.error(`   Error details:`, error);
       if (error.stack) {
         console.error(`   Stack:`, error.stack);
       }
       console.error(`   Returning null - no AI decision available`);
       
-      // Return null instead of fallback - caller should handle this
+      // Return null for other errors - caller should handle this
       return null as any;
     }
   }
@@ -302,45 +316,51 @@ Important guidelines:
       ? 'llama-3.1-8b-instant'      // Faster, less accurate
       : 'llama-3.3-70b-versatile';  // Default, best quality (replacement for decommissioned llama-3.1-70b-versatile)
 
-    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.groqApiKey}`,
-      },
-      body: JSON.stringify({
-        model: groqModel,
-        messages: [
-          {
-            role: 'system',
-            content: 'You are an expert Solana memecoin trader. Always respond with valid JSON only, no markdown formatting, no code blocks.',
-          },
-          {
-            role: 'user',
-            content: prompt,
-          },
-        ],
-        temperature: this.config.temperature || 0.3,
-        max_tokens: 1024,
-        response_format: { type: 'json_object' },
-      }),
-    });
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.groqApiKey}`,
+        },
+        body: JSON.stringify({
+          model: groqModel,
+          messages: [
+            {
+              role: 'system',
+              content: 'You are an expert Solana memecoin trader. Always respond with valid JSON only, no markdown formatting, no code blocks.',
+            },
+            {
+              role: 'user',
+              content: prompt,
+            },
+          ],
+          temperature: this.config.temperature || 0.3,
+          max_tokens: 1024,
+          response_format: { type: 'json_object' },
+        }),
+      });
 
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Groq API error: ${error}`);
-    }
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`Groq API error: ${error}`);
+      }
 
-    const data = await response.json() as {
-      choices?: Array<{ message?: { content?: string } }>;
-      usage?: { prompt_tokens?: number; completion_tokens?: number };
-    };
-    
-    return {
-      content: data.choices?.[0]?.message?.content || '',
-      promptTokens: data.usage?.prompt_tokens,
-      completionTokens: data.usage?.completion_tokens,
-    };
+      const data = await response.json() as {
+        choices?: Array<{ message?: { content?: string } }>;
+        usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+      };
+      
+      const promptTokens = data.usage?.prompt_tokens || 0;
+      const completionTokens = data.usage?.completion_tokens || 0;
+      const totalTokens = data.usage?.total_tokens || (promptTokens + completionTokens);
+      
+      console.log(`   📊 Token usage: ${promptTokens} prompt + ${completionTokens} completion = ${totalTokens} total tokens`);
+      
+      return {
+        content: data.choices?.[0]?.message?.content || '',
+        promptTokens,
+        completionTokens,
+      };
   }
 
   /**

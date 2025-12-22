@@ -219,7 +219,7 @@ export class DiscordNotificationService {
       inline: true,
     });
 
-    // AI Decision (if available) - only show if we have real AI decision
+    // AI Decision (if available) - show if we have AI decision (including fallback when rate limited)
     if (data.aiDecision && data.aiConfidence !== undefined && data.aiConfidence > 0) {
       const aiEmoji = data.aiDecision === 'buy' ? '✅' : data.aiDecision === 'skip' ? '⏭️' : '❌';
       const aiInfo = [
