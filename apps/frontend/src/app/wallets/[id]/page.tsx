@@ -340,6 +340,7 @@ export default function WalletDetailPage() {
               
               // Use pnl (SOL) if available, otherwise pnlUsd (which should also be SOL now)
               const pnlValue = data.pnl !== undefined && data.pnl !== null ? data.pnl : data.pnlUsd;
+              const pnlUsdValue = data.pnlUsdValue ?? 0; // USD hodnota (vypočítaná z SOL ceny)
               // Ensure baseToken is always set
               const baseToken = normalizeBaseToken(pnlData?.baseToken || 'SOL');
               
@@ -347,7 +348,7 @@ export default function WalletDetailPage() {
                 <div key={period} style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
                   <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">PnL ({period})</div>
                   <div className={`${
-                    data.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'
+                    pnlValue >= 0 ? 'text-green-600' : 'text-red-600'
                   }`}>
                     {pnlValue !== undefined && pnlValue !== null
                       ? (
@@ -357,18 +358,16 @@ export default function WalletDetailPage() {
                               const formatted = formatNumber(Math.abs(pnlValue), 2);
                               // Explicitly remove any $ symbol that might be in the formatted string
                               const cleaned = formatted.replace(/\$/g, '');
-                              // DEBUG: Log what we're rendering (only once, not on every render)
-                              // Removed to prevent console spam
                               return `${cleaned} ${baseToken}`;
                             })()}
                           </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            ({data.pnlPercent >= 0 ? '+' : ''}{formatPercent(data.pnlPercent / 100)})
+                            (${formatNumber(Math.abs(pnlUsdValue), 0)})
                           </span>
                         </>
                       )
-                      : `${data.pnlPercent >= 0 ? '+' : ''}${formatPercent(data.pnlPercent / 100)}`
+                      : '-'
                     }
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
@@ -389,6 +388,7 @@ export default function WalletDetailPage() {
               
               // Volume is in SOL (volumeBase from backend)
               const volumeValue = data.volumeBase !== undefined && data.volumeBase !== null ? data.volumeBase : 0;
+              const volumeUsdValue = data.volumeUsdValue ?? 0; // USD hodnota (vypočítaná z SOL ceny)
               // Ensure baseToken is always set for volume
               const volumeBaseToken = normalizeBaseToken(pnlData?.baseToken || 'SOL');
               
@@ -398,14 +398,20 @@ export default function WalletDetailPage() {
                   <div className="text-white">
                     {volumeValue > 0
                       ? (
-                        <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                          {(() => {
-                            const formatted = formatNumber(volumeValue, 6);
-                            // Explicitly remove any $ symbol that might be in the formatted string
-                            const cleaned = formatted.replace(/\$/g, '');
-                            return `${cleaned} ${volumeBaseToken}`;
-                          })()}
-                        </span>
+                        <>
+                          <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                            {(() => {
+                              const formatted = formatNumber(volumeValue, 6);
+                              // Explicitly remove any $ symbol that might be in the formatted string
+                              const cleaned = formatted.replace(/\$/g, '');
+                              return `${cleaned} ${volumeBaseToken}`;
+                            })()}
+                          </span>
+                          {' '}
+                          <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                            (${formatNumber(Math.abs(volumeUsdValue), 0)})
+                          </span>
+                        </>
                       )
                       : '-'
                     }
@@ -549,7 +555,10 @@ export default function WalletDetailPage() {
                                           const formatted = formatNumber(Math.abs(closedPnl), 2);
                                           // Explicitly remove any $ symbol that might be in the formatted string
                                           const cleaned = formatted.replace(/\$/g, '');
-                                          return `${cleaned} ${baseToken} (${closedPnlPercent >= 0 ? '+' : ''}${formatPercent(closedPnlPercent / 100)})`;
+                                          // Získej SOL cenu z portfolio nebo použij fallback
+                                          const solPriceUsd = portfolio?.solPriceUsd ?? 150.0;
+                                          const closedPnlUsdValue = closedPnl * solPriceUsd;
+                                          return `${cleaned} ${baseToken} ($${formatNumber(Math.abs(closedPnlUsdValue), 0)})`;
                                         })()}
                                       </>
                                     ) : '-'}

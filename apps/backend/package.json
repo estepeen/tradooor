@@ -13,6 +13,7 @@
     "recalculate:wallet-closed-positions": "tsx src/scripts/recalculate-wallet-closed-positions.ts",
     "metrics:cron": "tsx src/workers/metrics-cron.ts",
     "wallet-percentiles:cron": "tsx src/workers/wallet-percentiles-cron.ts",
+    "sol-price:cron": "tsx src/workers/sol-price-cron.ts",
     "ai-ml-data:cron": "tsx src/workers/ai-ml-data-cron.ts",
     "tokens:backfill-symbols": "tsx src/workers/backfill-token-symbols.ts",
     "position:add-column": "tsx src/workers/add-position-column.ts",

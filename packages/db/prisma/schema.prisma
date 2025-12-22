@@ -501,3 +501,13 @@ model Signal {
   @@index([status])
 }
 
+/// Cache pro aktuální cenu SOL (aktualizováno každých 10 minut z Binance API)
+model SolPriceCache {
+  id        String   @id @default("current")
+  priceUsd  Float    // Aktuální cena SOL v USD
+  updatedAt DateTime @updatedAt @default(now())
+  source    String   @default("binance") // Zdroj ceny (např. "binance")
+  
+  @@index([updatedAt])
+}
+

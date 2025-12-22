@@ -564,16 +564,17 @@ export default function Home() {
                         })()
                       }`}>
                         {(() => {
-                          // DŮLEŽITÉ: Použij recentPnl30dBase a recentPnl30dPercent z backendu (stejný výpočet jako detail)
+                          // DŮLEŽITÉ: Použij recentPnl30dBase a recentPnl30dUsdValue z backendu
                           // Backend endpoint /api/smart-wallets teď počítá PnL stejným způsobem jako /pnl endpoint
                           // NEPOUŽÍVEJ rolling30d.realizedPnl z advancedStats - backend teď vrací správné hodnoty
                           const pnlBase = wallet.recentPnl30dBase ?? 0; // PnL v SOL (z ClosedLot, stejný výpočet jako detail)
-                          const pnlPercent = wallet.recentPnl30dPercent ?? 0;
+                          const pnlUsdValue = wallet.recentPnl30dUsdValue ?? 0; // USD hodnota (vypočítaná z SOL ceny)
                           const formattedPnl = formatNumber(Math.abs(pnlBase), 2);
+                          const formattedUsd = formatNumber(Math.abs(pnlUsdValue), 0);
                           return (
                             <>
                               {formattedPnl} SOL{' '}
-                              ({(pnlPercent >= 0 ? '+' : '')}{formatPercent(pnlPercent / 100)})
+                              (${formattedUsd})
                             </>
                           );
                         })()}

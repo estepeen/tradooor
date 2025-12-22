@@ -47,6 +47,10 @@ const solPriceService = new SolPriceService();
 const tokenMetadataBatchService = new TokenMetadataBatchService(tokenRepo);
 const closedLotRepo = new ClosedLotRepository();
 
+// Import SolPriceCacheService for USD conversion
+import { SolPriceCacheService } from '../services/sol-price-cache.service.js';
+const solPriceCacheService = new SolPriceCacheService();
+
 const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
 
 const normalizeTradeSide = (side?: string | null): 'buy' | 'sell' => {
@@ -90,6 +94,15 @@ router.get('/', async (req, res) => {
 
     console.log(`✅ Found ${result.wallets.length} wallets (total: ${result.total})`);
     
+    // Získej aktuální SOL cenu pro přepočet na USD
+    let solPriceUsd = 150.0; // Fallback
+    try {
+      solPriceUsd = await solPriceCacheService.getCurrentSolPrice();
+      console.log(`   💰 Current SOL price: $${solPriceUsd.toFixed(2)} USD`);
+    } catch (error: any) {
+      console.warn(`   ⚠️  Failed to fetch SOL price, using fallback: $${solPriceUsd}`);
+    }
+    
     // DŮLEŽITÉ: Použij hodnoty PnL PŘÍMO z databáze
     // recentPnl30dUsd obsahuje PnL v SOL (vypočítané z ClosedLot v metrics-calculator.service.ts)
     // recentPnl30dPercent obsahuje ROI v % (vypočítané z ClosedLot v metrics-calculator.service.ts)
@@ -97,10 +110,14 @@ router.get('/', async (req, res) => {
     const walletsWithPnl = result.wallets.map((wallet: any) => {
       // recentPnl30dUsd obsahuje PnL v SOL (sloupec se jmenuje Usd ale obsahuje SOL)
       // recentPnl30dBase je mapováno z recentPnl30dUsd v repository
+      const pnl30dSol = wallet.recentPnl30dBase ?? 0;
+      const pnl30dUsd = pnl30dSol * solPriceUsd; // Přepočet SOL → USD
+      
       return {
         ...wallet,
         // recentPnl30dBase je už mapováno v repository z recentPnl30dUsd
         // recentPnl30dPercent je už v wallet z DB
+        recentPnl30dUsdValue: pnl30dUsd, // USD hodnota pro zobrazení (místo procent)
       };
     });
     
@@ -1105,6 +1122,14 @@ router.get('/:id/portfolio', async (req, res) => {
         console.log(`   🔍 [DEBUG UNDERSTAND] Grouped into ${understandSellTradeIds.size} sellTradeId groups: ${Array.from(understandSellTradeIds).join(', ')}`);
       }
       
+      // Získej aktuální SOL cenu pro přepočet na USD
+      let solPriceUsd = 150.0; // Fallback
+      try {
+        solPriceUsd = await solPriceCacheService.getCurrentSolPrice();
+      } catch (error: any) {
+        console.warn(`   ⚠️  Failed to fetch SOL price, using fallback: $${solPriceUsd}`);
+      }
+      
       // Pro každý token vytvoříme jednu closed position se součtem všech ClosedLots
       for (const [tokenId, lotsForToken] of lotsByToken.entries()) {
         if (lotsForToken.length === 0) continue;
@@ -1132,6 +1157,10 @@ router.get('/:id/portfolio', async (req, res) => {
         const totalProceedsBase = lotsForToken.reduce((sum: number, lot: any) => sum + (Number(lot.proceeds) || 0), 0);
         const effectiveCostBase = totalCostBase > 0 ? totalCostBase : (totalProceedsBase - totalRealizedPnl);
         const realizedPnlPercent = effectiveCostBase > 0 ? (totalRealizedPnl / effectiveCostBase) * 100 : 0;
+        
+        // Přepočet na USD
+        const totalRealizedPnlUsd = totalRealizedPnl * solPriceUsd;
+        const totalCostBaseUsd = totalCostBase * solPriceUsd;
 
         // DŮLEŽITÉ: Všechny hodnoty jsou nyní v SOL (ne v USD!)
         // Odstranili jsme přepočet na USD - vše je v SOL
@@ -1188,6 +1217,9 @@ router.get('/:id/portfolio', async (req, res) => {
           closedPnlBase: totalRealizedPnl,
           closedPnlUsd: realizedPnlUsd,
           closedPnlPercent: realizedPnlPercent,
+          // Přidáme USD hodnoty pro zobrazení (místo procent)
+          realizedPnlUsdValue: totalRealizedPnlUsd, // USD hodnota PnL
+          totalCostBaseUsd: totalCostBaseUsd, // USD hodnota cost
         });
         
         console.log(`   ✅ Created closed position: tokenId=${tokenId}, symbol=${token?.symbol || 'N/A'}, realizedPnlBase=${totalRealizedPnl.toFixed(4)} SOL (from ${lotsForToken.length} lots), holdTime=${holdTimeMinutes}min`);
@@ -1267,12 +1299,27 @@ router.get('/:id/portfolio', async (req, res) => {
     const pnl30dFromPortfolio = totalPnl30d; // Už jsme to vypočítali výše, nemusíme znovu
     const pnl30dPercentFromPortfolio = pnlPercent30d; // Už jsme to vypočítali výše, nemusíme znovu
     
+    // Získej aktuální SOL cenu pro přepočet na USD
+    let solPriceUsd = 150.0; // Fallback
+    try {
+      solPriceUsd = await solPriceCacheService.getCurrentSolPrice();
+    } catch (error: any) {
+      console.warn(`   ⚠️  Failed to fetch SOL price, using fallback: $${solPriceUsd}`);
+    }
+    
+    // Přepočet PnL a volume na USD
+    const pnl30dUsdValue = pnl30dFromPortfolio * solPriceUsd;
+    const totalCost30dUsd = totalCost30d * solPriceUsd;
+    
     // Ulož do cache
     const now = new Date().toISOString();
     const responseData = {
       closedPositions,
       pnl30d: pnl30dFromPortfolio, // PnL v SOL za posledních 30 dní (stejná logika jako detail)
-      pnl30dPercent: pnl30dPercentFromPortfolio, // PnL % za posledních 30 dní
+      pnl30dPercent: pnl30dPercentFromPortfolio, // PnL % za posledních 30 dní (pro kompatibilitu)
+      pnl30dUsdValue, // USD hodnota pro zobrazení (místo procent)
+      totalCost30dUsd, // USD hodnota cost pro zobrazení
+      solPriceUsd, // Aktuální SOL cena pro frontend
       lastUpdated: now,
       cached: false,
       baseToken: primaryBaseToken, // Primary base token for this wallet
@@ -1334,7 +1381,15 @@ router.get('/:id/pnl', async (req, res) => {
       '30d': new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
     };
     
-    const pnlData: Record<string, { pnl: number; pnlUsd: number; pnlPercent: number; trades: number; volumeBase: number; volumeTrades: number }> = {};
+    // Získej aktuální SOL cenu pro přepočet na USD
+    let solPriceUsd = 150.0; // Fallback
+    try {
+      solPriceUsd = await solPriceCacheService.getCurrentSolPrice();
+    } catch (error: any) {
+      console.warn(`   ⚠️  Failed to fetch SOL price, using fallback: $${solPriceUsd}`);
+    }
+    
+    const pnlData: Record<string, { pnl: number; pnlUsd: number; pnlPercent: number; pnlUsdValue: number; volumeBase: number; volumeUsdValue: number; trades: number; volumeTrades: number }> = {};
     
     for (const [period, fromDate] of Object.entries(periods)) {
       // Filter closed lots by exitTime (when the lot was closed)
@@ -1385,12 +1440,18 @@ router.get('/:id/pnl', async (req, res) => {
         return sum + amountBase; // Součet amountBase (v SOL nebo USDC/USDT)
       }, 0);
 
+      // Přepočet na USD
+      const pnlUsdValue = totalPnl * solPriceUsd;
+      const volumeUsdValue = volumeBase * solPriceUsd;
+      
       pnlData[period] = {
         pnl: totalPnl, // PnL v SOL (všechny hodnoty jsou v SOL)
         pnlUsd: totalPnl, // PnL v SOL (kompatibilita - frontend očekává pnlUsd, ale obsahuje SOL)
-        pnlPercent, // ROI v %
+        pnlPercent, // ROI v % (pro kompatibilitu)
+        pnlUsdValue, // USD hodnota PnL pro zobrazení (místo procent)
         trades: periodClosedLots.length, // Počet closed lots (uzavřených pozic)
         volumeBase, // Volume v SOL (součet všech trades)
+        volumeUsdValue, // USD hodnota volume pro zobrazení (místo procent)
         volumeTrades: periodTrades.length, // Počet všech trades (BUY + SELL) v tomto období
       };
       
@@ -1472,6 +1533,7 @@ router.get('/:id/pnl', async (req, res) => {
 
     res.json({
       periods: pnlData,
+      solPriceUsd, // Aktuální SOL cena pro frontend
       daily: dailyPnl,
       baseToken: primaryBaseToken, // Primary base token for this wallet
     });

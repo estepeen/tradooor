@@ -216,8 +216,8 @@ export class ConsensusWebhookService {
               console.warn(`   ⚠️  AI rate limited, using fallback decision (rule-based)`);
               // Keep aiDecisionResult - it will be used in Discord embed
             } else {
-              console.warn(`   ⚠️  AI returned fallback decision - will not use (showing "-" instead)`);
-              aiDecisionResult = null;
+            console.warn(`   ⚠️  AI returned fallback decision - will not use (showing "-" instead)`);
+            aiDecisionResult = null;
             }
           } else {
             console.warn(`   ⚠️  AI evaluation returned null - AI not available`);
@@ -525,7 +525,7 @@ export class ConsensusWebhookService {
       const totalVolume = allBuys.reduce((sum, b) => sum + Number(b.amountBase || 0), 0);
 
       // 5. Vytvoř context pro AI
-          const context = {
+      const context = {
         // Required by SignalContext interface
         walletScore: avgWalletScore,
         walletWinRate: avgWinRate,
