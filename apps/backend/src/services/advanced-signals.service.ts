@@ -109,6 +109,7 @@ export class AdvancedSignalsService {
   private tokenMarketData: TokenMarketDataService;
   private aiDecision: AIDecisionService;
   private discordNotification: DiscordNotificationService;
+  private solPriceCacheService: SolPriceCacheService;
 
   constructor() {
     this.signalRepo = new SignalRepository();
@@ -120,6 +121,7 @@ export class AdvancedSignalsService {
     this.tokenMarketData = new TokenMarketDataService();
     this.aiDecision = new AIDecisionService();
     this.discordNotification = new DiscordNotificationService();
+    this.solPriceCacheService = new SolPriceCacheService();
   }
 
   /**
