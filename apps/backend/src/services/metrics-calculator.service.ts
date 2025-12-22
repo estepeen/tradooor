@@ -1087,34 +1087,102 @@ export class MetricsCalculatorService {
       const cutoff = new Date(now);
       cutoff.setDate(cutoff.getDate() - days);
       
-      // DŮLEŽITÉ: Pro 30d období filtrujeme podle lastSellTimestamp (exitTime z posledního ClosedLot pro token)
-      // Stejně jako portfolio endpoint - pokud má token poslední exitTime v 30d, vezmeme všechny ClosedLots pro tento token
-      // Pro ostatní období filtrujeme podle exitTime jednotlivých ClosedLots
+      // DŮLEŽITÉ: Pro 30d období použijeme PŘESNĚ STEJNOU logiku jako portfolio endpoint
+      // Portfolio endpoint: vytvoří closed positions (seskupené podle tokenId), pak filtruje podle lastSellTimestamp
+      // Musíme to udělat stejně, aby byl výpočet 1:1 identický
       let filteredLots: ClosedLotRecord[] = [];
       
       if (label === '30d') {
-        // Pro 30d: seskup podle tokenId a filtruj podle lastSellTimestamp
+        // KROK 1: Seskup ClosedLots podle tokenId (stejně jako portfolio endpoint)
         const lotsByToken = new Map<string, ClosedLotRecord[]>();
+        const seenLotIds = new Set<string>(); // Kontrola duplicit podle ID (stejně jako portfolio endpoint)
+        const seenLotKeys = new Set<string>(); // Kontrola duplicit podle klíče (stejně jako portfolio endpoint)
+        
         for (const lot of closedLots) {
+          // Kontrola duplicit podle ID - každý ClosedLot by měl být jen jednou
+          if (seenLotIds.has(lot.id)) {
+            continue; // Přeskoč duplicitní ClosedLot
+          }
+          seenLotIds.add(lot.id);
+          
+          // Kontrola duplicit podle klíče (tokenId + entryTime + exitTime + size)
+          const lotKey = `${lot.tokenId}-${lot.entryTime}-${lot.exitTime}-${lot.size || lot.realizedPnl}`;
+          if (seenLotKeys.has(lotKey)) {
+            continue; // Přeskoč duplicitní ClosedLot
+          }
+          seenLotKeys.add(lotKey);
+          
+          // Seskupíme podle tokenId (všechny ClosedLots pro stejný token do jedné skupiny)
           if (!lotsByToken.has(lot.tokenId)) {
             lotsByToken.set(lot.tokenId, []);
           }
           lotsByToken.get(lot.tokenId)!.push(lot);
         }
         
-        // Pro každý token zkontroluj, jestli má lastSellTimestamp v 30d období
-        for (const tokenLots of lotsByToken.values()) {
-          // Najdi poslední exitTime pro tento token (lastSellTimestamp)
-          const lastExitTime = tokenLots.reduce((latest, lot) => {
-            if (!lot.exitTime) return latest;
-            const exitTime = new Date(lot.exitTime);
-            return exitTime > latest ? exitTime : latest;
-          }, new Date(0));
+        // KROK 2: Pro každý token vytvoříme closed position (stejně jako portfolio endpoint)
+        // a zjistíme lastSellTimestamp (exitTime z posledního ClosedLot pro token)
+        const closedPositions: Array<{ tokenId: string; realizedPnlBase: number; lastSellTimestamp: Date }> = [];
+        
+        for (const [tokenId, lotsForToken] of lotsByToken.entries()) {
+          if (lotsForToken.length === 0) continue;
           
-          // Pokud je lastSellTimestamp v 30d období, vezmi všechny ClosedLots pro tento token
-          if (lastExitTime >= cutoff && lastExitTime <= now) {
-            filteredLots.push(...tokenLots);
+          // Seřadíme ClosedLots podle entryTime a exitTime (stejně jako portfolio endpoint)
+          const sortedLots = lotsForToken.sort((a, b) => {
+            const aEntry = new Date(a.entryTime).getTime();
+            const bEntry = new Date(b.entryTime).getTime();
+            if (aEntry !== bEntry) return aEntry - bEntry;
+            return new Date(a.exitTime).getTime() - new Date(b.exitTime).getTime();
+          });
+          
+          const lastLot = sortedLots[sortedLots.length - 1];
+          
+          // Sečteme všechny ClosedLots pro tento token do jedné closed position (stejně jako portfolio endpoint)
+          const totalRealizedPnl = lotsForToken.reduce((sum: number, lot: any) => {
+            const pnl = lot.realizedPnl !== null && lot.realizedPnl !== undefined ? Number(lot.realizedPnl) : 0;
+            return sum + pnl;
+          }, 0);
+          
+          // lastSellTimestamp = exitTime z posledního ClosedLot pro token (stejně jako portfolio endpoint)
+          const lastSellTimestamp = new Date(lastLot.exitTime);
+          
+          closedPositions.push({
+            tokenId,
+            realizedPnlBase: totalRealizedPnl,
+            lastSellTimestamp,
+          });
+        }
+        
+        // KROK 3: Filtruj closed positions podle lastSellTimestamp pro 30d (stejně jako portfolio endpoint)
+        const recentClosedPositions30d = closedPositions.filter((p) => {
+          return p.lastSellTimestamp >= cutoff && p.lastSellTimestamp <= now;
+        });
+        
+        // KROK 4: Sečti PnL z filtrovaných closed positions (stejně jako portfolio endpoint)
+        const totalPnl30d = recentClosedPositions30d.reduce((sum, p) => {
+          return sum + (p.realizedPnlBase || 0);
+        }, 0);
+        
+        // Pro buildRollingWindowStats potřebujeme ClosedLots, takže vezmeme všechny ClosedLots z filtrovaných closed positions
+        const tokenIdsIn30d = new Set(recentClosedPositions30d.map(p => p.tokenId));
+        filteredLots = closedLots.filter(lot => tokenIdsIn30d.has(lot.tokenId));
+        
+        // DEBUG: Log pro 30d období
+        if (filteredLots.length > 0) {
+          const lotsByTokenDebug = new Map<string, ClosedLotRecord[]>();
+          for (const lot of filteredLots) {
+            if (!lotsByTokenDebug.has(lot.tokenId)) {
+              lotsByTokenDebug.set(lot.tokenId, []);
+            }
+            lotsByTokenDebug.get(lot.tokenId)!.push(lot);
           }
+          
+          const totalPnlAfterGrouping = Array.from(lotsByTokenDebug.values()).reduce((totalPnl, tokenLots) => {
+            const tokenPnl = tokenLots.reduce((sum, lot) => sum + (lot.realizedPnl || 0), 0);
+            return totalPnl + tokenPnl;
+          }, 0);
+          
+          console.log(`   📊 [Rolling Stats] Wallet ${walletId}: Found ${recentClosedPositions30d.length} closed positions (${lotsByTokenDebug.size} unique tokens) in last 30d`);
+          console.log(`   📊 [Rolling Stats] Wallet ${walletId}: totalPnl30d=${totalPnl30d.toFixed(4)} SOL (from closed positions, same as portfolio endpoint), totalPnl after grouping=${totalPnlAfterGrouping.toFixed(4)} SOL`);
         }
       } else {
         // Pro ostatní období: filtruj podle exitTime jednotlivých ClosedLots
@@ -1125,41 +1193,58 @@ export class MetricsCalculatorService {
         });
       }
       
-      // DEBUG: Log filtered lots count for 30d period
-      if (label === '30d' && filteredLots.length > 0) {
-        // Seskup podle tokenu pro debug (stejně jako v buildRollingWindowStats)
-        const lotsByTokenDebug = new Map<string, ClosedLotRecord[]>();
-        for (const lot of filteredLots) {
-          if (!lotsByTokenDebug.has(lot.tokenId)) {
-            lotsByTokenDebug.set(lot.tokenId, []);
-          }
-          lotsByTokenDebug.get(lot.tokenId)!.push(lot);
-        }
-        
-        const totalPnlBeforeGrouping = filteredLots.reduce((sum, lot) => sum + (lot.realizedPnl || 0), 0);
-        const totalPnlAfterGrouping = Array.from(lotsByTokenDebug.values()).reduce((totalPnl, tokenLots) => {
-          const tokenPnl = tokenLots.reduce((sum, lot) => sum + (lot.realizedPnl || 0), 0);
-          return totalPnl + tokenPnl;
-        }, 0);
-        
-        // Log detail pro každý token (prvních 10)
-        const tokenPnlDetails: Array<{ tokenId: string; lotsCount: number; pnl: number }> = [];
-        for (const [tokenId, tokenLots] of lotsByTokenDebug.entries()) {
-          const tokenPnl = tokenLots.reduce((sum, lot) => sum + (lot.realizedPnl || 0), 0);
-          tokenPnlDetails.push({ tokenId: tokenId.substring(0, 8) + '...', lotsCount: tokenLots.length, pnl: tokenPnl });
-        }
-        tokenPnlDetails.sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
-        
-        console.log(`   📊 [Rolling Stats] Wallet ${walletId}: Found ${filteredLots.length} closed lots (${lotsByTokenDebug.size} unique tokens) in last 30d`);
-        console.log(`   📊 [Rolling Stats] Wallet ${walletId}: totalPnl before grouping=${totalPnlBeforeGrouping.toFixed(4)} SOL, after grouping=${totalPnlAfterGrouping.toFixed(4)} SOL`);
-        if (tokenPnlDetails.length > 0) {
-          console.log(`   📊 [Rolling Stats] Wallet ${walletId}: Top tokens: ${tokenPnlDetails.slice(0, 5).map(t => `${t.tokenId}(${t.lotsCount}lots)=${t.pnl.toFixed(4)}SOL`).join(', ')}`);
-        }
-      }
-      
       // Použij buildRollingWindowStats - čistě jen sčítá realizedPnl z ClosedLot (v SOL)
       // Pokud neexistují ClosedLot, PnL = 0 (žádný fallback!)
       rolling[label] = await this.buildRollingWindowStats(filteredLots);
+      
+      // DŮLEŽITÉ: Pro 30d použijeme PnL vypočítané z closed positions (stejně jako portfolio endpoint)
+      // Toto zajišťuje, že recentPnl30dSol je stejné jako v portfolio endpointu
+      if (label === '30d' && filteredLots.length > 0) {
+        // Vypočítáme totalPnl30d z closed positions (stejně jako portfolio endpoint)
+        const lotsByToken = new Map<string, ClosedLotRecord[]>();
+        for (const lot of closedLots) {
+          if (!lotsByToken.has(lot.tokenId)) {
+            lotsByToken.set(lot.tokenId, []);
+          }
+          lotsByToken.get(lot.tokenId)!.push(lot);
+        }
+        
+        const closedPositions: Array<{ tokenId: string; realizedPnlBase: number; lastSellTimestamp: Date }> = [];
+        for (const [tokenId, lotsForToken] of lotsByToken.entries()) {
+          if (lotsForToken.length === 0) continue;
+          const sortedLots = lotsForToken.sort((a, b) => {
+            const aEntry = new Date(a.entryTime).getTime();
+            const bEntry = new Date(b.entryTime).getTime();
+            if (aEntry !== bEntry) return aEntry - bEntry;
+            return new Date(a.exitTime).getTime() - new Date(b.exitTime).getTime();
+          });
+          const lastLot = sortedLots[sortedLots.length - 1];
+          const totalRealizedPnl = lotsForToken.reduce((sum: number, lot: any) => {
+            const pnl = lot.realizedPnl !== null && lot.realizedPnl !== undefined ? Number(lot.realizedPnl) : 0;
+            return sum + pnl;
+          }, 0);
+          closedPositions.push({
+            tokenId,
+            realizedPnlBase: totalRealizedPnl,
+            lastSellTimestamp: new Date(lastLot.exitTime),
+          });
+        }
+        
+        const cutoff = new Date(now);
+        cutoff.setDate(cutoff.getDate() - 30);
+        const recentClosedPositions30d = closedPositions.filter((p) => {
+          return p.lastSellTimestamp >= cutoff && p.lastSellTimestamp <= now;
+        });
+        const totalPnl30d = recentClosedPositions30d.reduce((sum, p) => {
+          return sum + (p.realizedPnlBase || 0);
+        }, 0);
+        
+        // Přepíšeme realizedPnl v rolling stats hodnotou z closed positions
+        rolling[label] = {
+          ...rolling[label],
+          realizedPnl: totalPnl30d, // Použij PnL z closed positions (stejně jako portfolio endpoint)
+        };
+      }
     }
 
     const behaviour = this.buildBehaviourStats(tradeFeatures);
