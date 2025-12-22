@@ -359,7 +359,7 @@ export class ConsensusWebhookService {
             aiConfidence: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.confidence : undefined,
             // Pro update přidej info o novém walletovi
             aiReasoning: isUpdate 
-              ? `🆕 Nový trader přidán: ${newestWallet?.label || 'Unknown'} (celkem ${uniqueWallets.size} wallets)`
+              ? `🆕 New trader added: ${newestWallet?.label || 'Unknown'} (total ${uniqueWallets.size} wallets)`
               : (aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.reasoning : undefined),
             aiPositionPercent: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.suggestedPositionPercent : undefined,
             stopLossPercent: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.stopLossPercent : undefined,

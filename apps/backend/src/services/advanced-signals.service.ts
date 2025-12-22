@@ -99,6 +99,21 @@ const THRESHOLDS = {
   LARGE_POSITION_MIN_USD: 1000,           // $1000+ position
 };
 
+interface PendingAccumulationSignal {
+  tokenId: string;
+  walletId: string;
+  tokenSymbol: string;
+  tokenMint: string;
+  wallet: any;
+  token: any;
+  baseToken: string;
+  marketData: { marketCap: number | null; liquidity: number | null; volume24h: number | null; tokenAgeMinutes: number | null };
+  signal: AdvancedSignal;
+  firstTradeTime: Date;
+  lastTradeTime: Date;
+  timeoutId?: NodeJS.Timeout;
+}
+
 export class AdvancedSignalsService {
   private signalRepo: SignalRepository;
   private smartWalletRepo: SmartWalletRepository;
@@ -110,6 +125,10 @@ export class AdvancedSignalsService {
   private aiDecision: AIDecisionService;
   private discordNotification: DiscordNotificationService;
   private solPriceCacheService: SolPriceCacheService;
+  
+  // Cache pro seskupování accumulation signálů (key: tokenId-walletId)
+  private pendingAccumulationSignals: Map<string, PendingAccumulationSignal> = new Map();
+  private readonly ACCUMULATION_GROUP_WINDOW_MS = 60 * 1000; // 1 minuta
 
   constructor() {
     this.signalRepo = new SignalRepository();
@@ -1057,6 +1076,94 @@ export class AdvancedSignalsService {
     }
 
     return { signals, savedCount, aiEvaluated };
+  }
+
+  /**
+   * Pošle seskupený accumulation signál do Discordu
+   */
+  private async sendAccumulationNotification(pending: PendingAccumulationSignal): Promise<void> {
+    try {
+      const { token, wallet, baseToken, marketData, signal } = pending;
+      
+      // Načti všechny validní nákupy pro accumulation signál (stejná logika jako v detectAccumulation)
+      const sixHoursAgo = new Date(Date.now() - THRESHOLDS.ACCUMULATION_TIME_WINDOW_HOURS * 60 * 60 * 1000);
+      const recentBuys = await prisma.trade.findMany({
+        where: {
+          walletId: wallet.id,
+          tokenId: token.id,
+          side: 'buy',
+          timestamp: { gte: sixHoursAgo },
+        },
+        select: {
+          amountBase: true,
+          timestamp: true,
+          meta: true,
+        },
+        orderBy: { timestamp: 'asc' },
+      });
+      
+      // Filtruj podle 0.3 SOL minimum
+      let solPriceUsd = 125.0;
+      try {
+        solPriceUsd = await this.solPriceCacheService.getCurrentSolPrice();
+      } catch (error: any) {
+        // Fallback
+      }
+      
+      const validBuys = recentBuys.filter(t => {
+        const amountBase = Number(t.amountBase) || 0;
+        if (amountBase <= 0) return false;
+        const meta = t.meta as any;
+        const baseTokenFromMeta = (meta?.baseToken || 'SOL').toUpperCase();
+        let amountInSol = amountBase;
+        if (baseTokenFromMeta === 'USDC' || baseTokenFromMeta === 'USDT') {
+          amountInSol = amountBase / solPriceUsd;
+        }
+        return amountInSol >= 0.3;
+      });
+      
+      const notificationData: SignalNotificationData = {
+        tokenSymbol: pending.tokenSymbol,
+        tokenMint: pending.tokenMint,
+        signalType: 'accumulation',
+        strength: signal.strength,
+        walletCount: 1,
+        avgWalletScore: wallet?.score || 0,
+        entryPriceUsd: signal.entryPriceUsd || 0,
+        marketCapUsd: marketData.marketCap || undefined,
+        liquidityUsd: marketData.liquidity || undefined,
+        volume24hUsd: marketData.volume24h || undefined,
+        tokenAgeMinutes: marketData.tokenAgeMinutes || undefined,
+        baseToken,
+        aiDecision: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.decision : undefined,
+        aiConfidence: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.confidence : undefined,
+        aiReasoning: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.reasoning : undefined,
+        aiPositionPercent: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.suggestedPositionPercent : undefined,
+        stopLossPercent: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.stopLossPercent : undefined,
+        takeProfitPercent: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.takeProfitPercent : undefined,
+        stopLossPriceUsd: signal.aiDecision && !signal.aiDecision.isFallback ? signal.stopLossPriceUsd : undefined,
+        takeProfitPriceUsd: signal.aiDecision && !signal.aiDecision.isFallback ? signal.takeProfitPriceUsd : undefined,
+        aiRiskScore: signal.aiDecision && !signal.aiDecision.isFallback ? signal.aiDecision.riskScore : undefined,
+        wallets: [{
+          label: wallet?.label,
+          address: wallet?.address || '',
+          walletId: wallet?.id,
+          score: wallet?.score || 0,
+          tradeAmountUsd: Number(validBuys[validBuys.length - 1]?.amountBase || 0), // Poslední trade
+          tradePrice: signal.entryPriceUsd || 0,
+          tradeTime: pending.lastTradeTime.toISOString(),
+          accumulationBuys: validBuys.map(buy => ({
+            amountBase: Number(buy.amountBase),
+            timestamp: buy.timestamp.toISOString(),
+          })),
+        }],
+      };
+      
+      console.log(`📦 [Accumulation] Sending grouped accumulation signal for ${pending.tokenSymbol} - ${wallet.label || wallet.address.substring(0, 8)}... (${validBuys.length} buys)`);
+      await this.discordNotification.sendSignalNotification(notificationData);
+    } catch (error: any) {
+      console.error(`❌ Error sending accumulation notification: ${error.message}`);
+    }
   }
 
   /**
