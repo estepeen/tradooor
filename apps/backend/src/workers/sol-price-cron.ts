@@ -51,7 +51,8 @@ async function updateSolPrice() {
 updateSolPrice().catch(console.error);
 
 // Nastav cron schedule (každých 10 minut)
-const cronSchedule = process.env.CRON_SCHEDULE || '*/10 * * * *'; // Každých 10 minut
+// POZOR: PM2 může mít problém s */10, použijeme '0,10,20,30,40,50 * * * *' nebo '0-59/10 * * * *'
+const cronSchedule = process.env.CRON_SCHEDULE || '0,10,20,30,40,50 * * * *'; // Každých 10 minut (0, 10, 20, 30, 40, 50)
 
 console.log(`📅 SOL price cron schedule: ${cronSchedule}`);
 console.log('✅ SOL price cron job is running. Press Ctrl+C to stop.');
