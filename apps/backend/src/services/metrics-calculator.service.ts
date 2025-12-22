@@ -684,6 +684,13 @@ export class MetricsCalculatorService {
     const rolling30d = rollingInsights.rolling['30d'];
     const recentPnl30dSol = rolling30d?.realizedPnl ?? 0; // PnL v SOL - součet realizedPnl z ClosedLot za 30d
     const recentPnl30dPercent = rolling30d?.realizedRoiPercent ?? 0;
+    
+    // DEBUG: Log PnL values before saving to database
+    const wallet = await this.smartWalletRepo.findById(walletId);
+    if (wallet) {
+      console.log(`   💰 [Metrics] Wallet ${wallet.address.substring(0, 8)}...: recentPnl30dSol=${recentPnl30dSol.toFixed(4)} SOL, recentPnl30dPercent=${recentPnl30dPercent.toFixed(2)}%`);
+      console.log(`   💰 [Metrics] Wallet ${wallet.address.substring(0, 8)}...: rolling30d.numClosedTrades=${rolling30d?.numClosedTrades ?? 0}, rolling30d.realizedPnl=${rolling30d?.realizedPnl?.toFixed(4) ?? 'N/A'}`);
+    }
 
     const legacyScore = this.calculateScore({
       totalTrades,
@@ -1195,12 +1202,12 @@ export class MetricsCalculatorService {
     for (const tokenLots of lotsByToken.values()) {
       // Sečti PnL pro všechny ClosedLots tohoto tokenu
       const tokenPnl = tokenLots.reduce((sum, lot) => {
-        if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
-          return sum + lot.realizedPnl;
-        }
-        return sum;
-      }, 0);
-      
+      if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
+        return sum + lot.realizedPnl;
+      }
+      return sum;
+    }, 0);
+
       // Sečti costBasis pro všechny ClosedLots tohoto tokenu
       const tokenCostBasis = tokenLots.reduce((sum, lot) => {
         return sum + Math.max(lot.costBasis || 0, 0);
