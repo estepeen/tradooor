@@ -1084,14 +1084,43 @@ export class MetricsCalculatorService {
       const cutoff = new Date(now);
       cutoff.setDate(cutoff.getDate() - days);
       
-      // Filtruj closed lots podle exitTime (kdy byl lot uzavřen)
-      // DŮLEŽITÉ: exitTime v ClosedLot = timestamp z SELL trade = lastSellTimestamp v portfolio
-      // Měly by být stejné, ale pro jistotu filtrujeme stejně jako portfolio endpoint
-      const filteredLots = closedLots.filter(lot => {
-        if (!lot.exitTime) return false;
-        const exitTime = new Date(lot.exitTime);
-        return exitTime >= cutoff && exitTime <= now;
-      });
+      // DŮLEŽITÉ: Pro 30d období filtrujeme podle lastSellTimestamp (exitTime z posledního ClosedLot pro token)
+      // Stejně jako portfolio endpoint - pokud má token poslední exitTime v 30d, vezmeme všechny ClosedLots pro tento token
+      // Pro ostatní období filtrujeme podle exitTime jednotlivých ClosedLots
+      let filteredLots: ClosedLotRecord[] = [];
+      
+      if (label === '30d') {
+        // Pro 30d: seskup podle tokenId a filtruj podle lastSellTimestamp
+        const lotsByToken = new Map<string, ClosedLotRecord[]>();
+        for (const lot of closedLots) {
+          if (!lotsByToken.has(lot.tokenId)) {
+            lotsByToken.set(lot.tokenId, []);
+          }
+          lotsByToken.get(lot.tokenId)!.push(lot);
+        }
+        
+        // Pro každý token zkontroluj, jestli má lastSellTimestamp v 30d období
+        for (const tokenLots of lotsByToken.values()) {
+          // Najdi poslední exitTime pro tento token (lastSellTimestamp)
+          const lastExitTime = tokenLots.reduce((latest, lot) => {
+            if (!lot.exitTime) return latest;
+            const exitTime = new Date(lot.exitTime);
+            return exitTime > latest ? exitTime : latest;
+          }, new Date(0));
+          
+          // Pokud je lastSellTimestamp v 30d období, vezmi všechny ClosedLots pro tento token
+          if (lastExitTime >= cutoff && lastExitTime <= now) {
+            filteredLots.push(...tokenLots);
+          }
+        }
+      } else {
+        // Pro ostatní období: filtruj podle exitTime jednotlivých ClosedLots
+        filteredLots = closedLots.filter(lot => {
+          if (!lot.exitTime) return false;
+          const exitTime = new Date(lot.exitTime);
+          return exitTime >= cutoff && exitTime <= now;
+        });
+      }
       
       // DEBUG: Log filtered lots count for 30d period
       if (label === '30d' && filteredLots.length > 0) {
@@ -1196,6 +1225,7 @@ export class MetricsCalculatorService {
     // DŮLEŽITÉ: Seskup ClosedLots podle tokenId (stejně jako portfolio endpoint)
     // Portfolio endpoint seskupuje ClosedLots podle tokenu, aby se PnL nepočítalo dvakrát
     // Pokud má token více ClosedLots (např. různé sequenceNumber), seskupíme je a sečteme PnL
+    // POZNÁMKA: Filtrování podle lastSellTimestamp pro 30d období je už provedeno výše v computeRollingStatsAndScores
     const lotsByToken = new Map<string, ClosedLotRecord[]>();
     for (const lot of lots) {
       if (!lotsByToken.has(lot.tokenId)) {
@@ -1204,49 +1234,13 @@ export class MetricsCalculatorService {
       lotsByToken.get(lot.tokenId)!.push(lot);
     }
     
-    // DŮLEŽITÉ: Pro 30d období filtrujeme podle lastSellTimestamp (exitTime z posledního ClosedLot pro token)
-    // Stejně jako portfolio endpoint - pokud má token poslední exitTime v 30d, vezmeme všechny ClosedLots pro tento token
-    // Toto zajišťuje konzistenci s detail stránkou
-    let lotsToSum: ClosedLotRecord[] = [];
-    if (label === '30d') {
-      // Pro 30d: filtruj podle lastSellTimestamp (stejně jako portfolio endpoint)
-      const cutoff = new Date(now);
-      cutoff.setDate(cutoff.getDate() - 30);
-      
-      for (const tokenLots of lotsByToken.values()) {
-        // Najdi poslední exitTime pro tento token (lastSellTimestamp)
-        const lastExitTime = tokenLots.reduce((latest, lot) => {
-          if (!lot.exitTime) return latest;
-          const exitTime = new Date(lot.exitTime);
-          return exitTime > latest ? exitTime : latest;
-        }, new Date(0));
-        
-        // Pokud je lastSellTimestamp v 30d období, vezmi všechny ClosedLots pro tento token
-        if (lastExitTime >= cutoff && lastExitTime <= now) {
-          lotsToSum.push(...tokenLots);
-        }
-      }
-    } else {
-      // Pro ostatní období: použij všechny lots (už jsou filtrované podle exitTime výše)
-      lotsToSum = lots;
-    }
-    
-    // Seskup znovu podle tokenId (po filtrování podle lastSellTimestamp)
-    const filteredLotsByToken = new Map<string, ClosedLotRecord[]>();
-    for (const lot of lotsToSum) {
-      if (!filteredLotsByToken.has(lot.tokenId)) {
-        filteredLotsByToken.set(lot.tokenId, []);
-      }
-      filteredLotsByToken.get(lot.tokenId)!.push(lot);
-    }
-    
     // Pro každý token sečti PnL a costBasis z jeho ClosedLots (stejně jako portfolio endpoint)
     // Toto zajišťuje konzistenci s detail stránkou
     let realizedPnl = 0;
     let investedCapital = 0;
     let totalVolumeSol = 0;
     
-    for (const tokenLots of filteredLotsByToken.values()) {
+    for (const tokenLots of lotsByToken.values()) {
       // Sečti PnL pro všechny ClosedLots tohoto tokenu
       const tokenPnl = tokenLots.reduce((sum, lot) => {
       if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
