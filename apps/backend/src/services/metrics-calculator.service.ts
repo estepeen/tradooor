@@ -1160,18 +1160,28 @@ export class MetricsCalculatorService {
     fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'metrics-calculator.service.ts:567',message:'currentSolPrice for volume calc only',data:{solPriceUsd},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
     // #endregion
 
-    // OPTIMALIZACE: PnL se počítá POUZE ze sloupce realizedPnl v ClosedLot
-    // NEPŘEPOČÍTÁVÁME znovu - jen sčítáme hodnoty z databáze
-    // DŮLEŽITÉ: Všechny hodnoty jsou nyní v SOL (ne v USD!)
-    // realizedPnl je vždy v SOL (USDC/USDT se převedou na SOL při výpočtu)
-    // realizedPnlUsd se už nepoužívá - vše je v SOL
-    // Při novém closed trade se PnL aktualizuje inkrementálně v lot-matching.service.ts
-    const realizedPnl = lots.reduce((sum, lot) => {
-      // Použij realizedPnl v SOL (všechny hodnoty jsou v SOL) - jen sčítáme z databáze
-      if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
-        return sum + lot.realizedPnl;
+    // DŮLEŽITÉ: Seskup ClosedLots podle tokenId (stejně jako portfolio endpoint)
+    // Portfolio endpoint seskupuje ClosedLots podle tokenu, aby se PnL nepočítalo dvakrát
+    // Pokud má token více ClosedLots (např. různé sequenceNumber), seskupíme je a sečteme PnL
+    const lotsByToken = new Map<string, ClosedLotRecord[]>();
+    for (const lot of lots) {
+      if (!lotsByToken.has(lot.tokenId)) {
+        lotsByToken.set(lot.tokenId, []);
       }
-      return sum;
+      lotsByToken.get(lot.tokenId)!.push(lot);
+    }
+    
+    // Pro každý token sečti PnL z jeho ClosedLots (stejně jako portfolio endpoint)
+    // Toto zajišťuje konzistenci s detail stránkou
+    const realizedPnl = Array.from(lotsByToken.values()).reduce((totalPnl, tokenLots) => {
+      // Sečti PnL pro všechny ClosedLots tohoto tokenu
+      const tokenPnl = tokenLots.reduce((sum, lot) => {
+        if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
+          return sum + lot.realizedPnl;
+        }
+        return sum;
+      }, 0);
+      return totalPnl + tokenPnl;
     }, 0);
 
     // Pro volume a invested capital použijeme hodnoty v SOL (všechny hodnoty jsou v SOL)

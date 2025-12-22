@@ -1214,33 +1214,30 @@ router.get('/:id/portfolio', async (req, res) => {
       }
     }
     
-    // DEBUG: Log 30d closed positions for PnL calculation
-    // DŮLEŽITÉ: Pro konzistenci s homepage (metrics calculator) počítáme PnL PŘÍMO z ClosedLot
-    // Portfolio endpoint seskupuje ClosedLot podle sellTradeId do closed positions (pro UI),
-    // ale pro výpočet PnL používáme stejnou logiku jako metrics calculator - sčítáme všechny ClosedLot
+    // DŮLEŽITÉ: Pro konzistenci s detail stránkou počítáme PnL ze seskupených closed positions
+    // Detail stránka používá closedPositions (seskupené podle tokenu), ne všechny ClosedLots
+    // Toto zajišťuje, že PnL je stejné na homepage i v detailu
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     
-    // Filtruj ClosedLot podle exitTime (stejně jako metrics calculator)
-    // DŮLEŽITÉ: exitTime v ClosedLot = timestamp z SELL trade = lastSellTimestamp v closed positions
-    const recentClosedLots30d = (closedLots || []).filter((lot: any) => {
-      if (!lot.exitTime) return false;
-      const exitTime = new Date(lot.exitTime);
-      return exitTime >= thirtyDaysAgo && exitTime <= new Date();
+    // Filtruj closed positions podle lastSellTimestamp (kdy byla pozice uzavřena)
+    const recentClosedPositions30d = closedPositions.filter((p: any) => {
+      if (!p.lastSellTimestamp) return false;
+      const sellDate = new Date(p.lastSellTimestamp);
+      return sellDate >= thirtyDaysAgo && sellDate <= new Date();
     });
     
-    // Sčítáme realizedPnl z ClosedLot (stejně jako metrics calculator)
+    // Sčítáme realizedPnlBase ze seskupených closed positions (stejně jako detail stránka)
     // Toto zajišťuje konzistenci mezi homepage a detail stránkou
-    const totalPnl30d = recentClosedLots30d.reduce((sum: number, lot: any) => {
-      const pnl = lot.realizedPnl !== null && lot.realizedPnl !== undefined ? Number(lot.realizedPnl) : 0;
-      return sum + pnl;
+    const totalPnl30d = recentClosedPositions30d.reduce((sum: number, p: any) => {
+      const pnl = p.realizedPnlBase ?? p.closedPnlBase ?? p.closedPnl ?? 0;
+      return sum + (typeof pnl === 'number' ? pnl : 0);
     }, 0);
     
-    // Sčítáme costBasis z ClosedLot (stejně jako metrics calculator pro konzistenci)
-    // DŮLEŽITÉ: Pro konzistenci s homepage používáme costBasis z ClosedLot, ne z closed positions
-    const totalCost30d = recentClosedLots30d.reduce((sum: number, lot: any) => {
-      const costBasis = lot.costBasis !== null && lot.costBasis !== undefined ? Number(lot.costBasis) : 0;
-      return sum + Math.max(costBasis, 0); // Použij costBasis z ClosedLot
+    // Sčítáme costBasis ze seskupených closed positions (stejně jako detail stránka)
+    const totalCost30d = recentClosedPositions30d.reduce((sum: number, p: any) => {
+      const costBasis = p.totalCostBase ?? p.totalCostUsd ?? 0;
+      return sum + (typeof costBasis === 'number' ? costBasis : 0);
     }, 0);
     
     // Pro closed positions (UI) stále používáme seskupené pozice
