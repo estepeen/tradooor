@@ -1000,6 +1000,50 @@ export class AdvancedSignalsService {
                   return Number(trade.priceBasePerToken || 0);
                 })(),
                 tradeTime: trade.timestamp.toISOString(),
+                // Pro accumulation signál: všechny nákupy tradera
+                accumulationBuys: signal.type === 'accumulation' ? await (async () => {
+                  // Načti všechny validní nákupy pro accumulation signál
+                  const sixHoursAgo = new Date(Date.now() - THRESHOLDS.ACCUMULATION_TIME_WINDOW_HOURS * 60 * 60 * 1000);
+                  const recentBuys = await prisma.trade.findMany({
+                    where: {
+                      walletId: wallet.id,
+                      tokenId: token.id,
+                      side: 'buy',
+                      timestamp: { gte: sixHoursAgo },
+                    },
+                    select: {
+                      amountBase: true,
+                      timestamp: true,
+                      meta: true,
+                    },
+                    orderBy: { timestamp: 'asc' },
+                  });
+                  
+                  // Filtruj podle 0.3 SOL minimum (stejná logika jako v detectAccumulation)
+                  let solPriceUsd = 125.0;
+                  try {
+                    solPriceUsd = await this.solPriceCacheService.getCurrentSolPrice();
+                  } catch (error: any) {
+                    // Fallback
+                  }
+                  
+                  const validBuys = recentBuys.filter(t => {
+                    const amountBase = Number(t.amountBase) || 0;
+                    if (amountBase <= 0) return false;
+                    const meta = t.meta as any;
+                    const baseToken = (meta?.baseToken || 'SOL').toUpperCase();
+                    let amountInSol = amountBase;
+                    if (baseToken === 'USDC' || baseToken === 'USDT') {
+                      amountInSol = amountBase / solPriceUsd;
+                    }
+                    return amountInSol >= 0.3;
+                  });
+                  
+                  return validBuys.map(buy => ({
+                    amountBase: Number(buy.amountBase),
+                    timestamp: buy.timestamp.toISOString(),
+                  }));
+                })() : undefined,
               }],
             };
             

@@ -62,6 +62,11 @@ export interface SignalNotificationData {
     tradeAmountUsd?: number;
     tradePrice?: number;
     tradeTime?: string;
+    // Pro accumulation signál: všechny nákupy tradera
+    accumulationBuys?: Array<{
+      amountBase: number;
+      timestamp: string;
+    }>;
   }>;
 }
 
@@ -405,13 +410,31 @@ export class DiscordNotificationService {
         
         const parts = [nameWithLink];
         
-        // Velikost obchodu v base tokenu (např. SOL) + USD hodnota
-        // POZOR: tradeAmountUsd je ve skutečnosti v SOL (název je zavádějící)
-        if (w.tradeAmountUsd) {
-          const amountBase = w.tradeAmountUsd; // Ve skutečnosti v SOL
-          const amountUsd = amountBase * solPriceUsd; // Přepočet na USD
-          parts.push(`${this.formatNumber(amountBase, 2)} ${baseToken} ($${this.formatNumber(amountUsd, 0)})`);
+        // Pro accumulation signál: zobraz všechny nákupy
+        if (data.signalType === 'accumulation' && w.accumulationBuys && w.accumulationBuys.length > 0) {
+          const buys = w.accumulationBuys;
+          const buyCount = buys.length;
+          const buyAmounts = buys.map(buy => {
+            const amountBase = buy.amountBase;
+            const amountUsd = amountBase * solPriceUsd;
+            return `${this.formatNumber(amountBase, 2)} ${baseToken} ($${this.formatNumber(amountUsd, 0)})`;
+          });
+          const totalAmount = buys.reduce((sum, buy) => sum + buy.amountBase, 0);
+          const totalUsd = totalAmount * solPriceUsd;
+          
+          // Formát: "3x nákupy: 0.5 SOL ($62), 0.4 SOL ($50), 0.3 SOL ($37) = celkem 1.2 SOL ($150)"
+          parts.push(`${buyCount}x nákupy: ${buyAmounts.join(', ')} = celkem ${this.formatNumber(totalAmount, 2)} ${baseToken} ($${this.formatNumber(totalUsd, 0)})`);
+        } else {
+          // Pro ostatní signály: zobraz jen aktuální trade
+          // Velikost obchodu v base tokenu (např. SOL) + USD hodnota
+          // POZOR: tradeAmountUsd je ve skutečnosti v SOL (název je zavádějící)
+          if (w.tradeAmountUsd) {
+            const amountBase = w.tradeAmountUsd; // Ve skutečnosti v SOL
+            const amountUsd = amountBase * solPriceUsd; // Přepočet na USD
+            parts.push(`${this.formatNumber(amountBase, 2)} ${baseToken} ($${this.formatNumber(amountUsd, 0)})`);
+          }
         }
+        
         // Za @ chceme zobrazit MarketCap (globální pro token), ne cenu
         if (data.marketCapUsd) {
           parts.push(`@ $${this.formatNumber(data.marketCapUsd, 0)} MCap`);
