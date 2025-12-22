@@ -1171,9 +1171,13 @@ export class MetricsCalculatorService {
       lotsByToken.get(lot.tokenId)!.push(lot);
     }
     
-    // Pro každý token sečti PnL z jeho ClosedLots (stejně jako portfolio endpoint)
+    // Pro každý token sečti PnL a costBasis z jeho ClosedLots (stejně jako portfolio endpoint)
     // Toto zajišťuje konzistenci s detail stránkou
-    const realizedPnl = Array.from(lotsByToken.values()).reduce((totalPnl, tokenLots) => {
+    let realizedPnl = 0;
+    let investedCapital = 0;
+    let totalVolumeSol = 0;
+    
+    for (const tokenLots of lotsByToken.values()) {
       // Sečti PnL pro všechny ClosedLots tohoto tokenu
       const tokenPnl = tokenLots.reduce((sum, lot) => {
         if (lot.realizedPnl !== null && lot.realizedPnl !== undefined) {
@@ -1181,12 +1185,22 @@ export class MetricsCalculatorService {
         }
         return sum;
       }, 0);
-      return totalPnl + tokenPnl;
-    }, 0);
-
-    // Pro volume a invested capital použijeme hodnoty v SOL (všechny hodnoty jsou v SOL)
-    const totalVolumeSol = lots.reduce((sum, lot) => sum + lot.proceeds, 0);
-    const investedCapital = lots.reduce((sum, lot) => sum + Math.max(lot.costBasis, 0), 0);
+      
+      // Sečti costBasis pro všechny ClosedLots tohoto tokenu
+      const tokenCostBasis = tokenLots.reduce((sum, lot) => {
+        return sum + Math.max(lot.costBasis || 0, 0);
+      }, 0);
+      
+      // Sečti proceeds pro všechny ClosedLots tohoto tokenu
+      const tokenProceeds = tokenLots.reduce((sum, lot) => {
+        return sum + (lot.proceeds || 0);
+      }, 0);
+      
+      realizedPnl += tokenPnl;
+      investedCapital += tokenCostBasis;
+      totalVolumeSol += tokenProceeds;
+    }
+    
     const realizedRoiPercent =
       investedCapital > 0 ? (realizedPnl / investedCapital) * 100 : 0;
     
