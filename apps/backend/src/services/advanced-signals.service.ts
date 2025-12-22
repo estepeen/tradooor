@@ -20,6 +20,7 @@ import { ClosedLotRepository } from '../repositories/closed-lot.repository.js';
 import { TokenMarketDataService } from './token-market-data.service.js';
 import { AIDecisionService, AIContext, AIDecision } from './ai-decision.service.js';
 import { DiscordNotificationService, SignalNotificationData } from './discord-notification.service.js';
+import { SolPriceCacheService } from './sol-price-cache.service.js';
 import { prisma } from '../lib/prisma.js';
 
 // Signal type definitions
@@ -558,6 +559,14 @@ export class AdvancedSignalsService {
     // DŮLEŽITÉ: Každý jednotlivý nákup musí mít minimálně 0.3 SOL (ne součet!)
     // Filtrujeme pouze nákupy, které mají amountBase >= 0.3 SOL
     // POZOR: amountBase může být v SOL, USDC nebo USDT - musíme zkontrolovat base token a převést na SOL
+    // Získej aktuální SOL cenu pro převod USDC/USDT na SOL
+    let solPriceUsd = 125.0; // Fallback
+    try {
+      solPriceUsd = await this.solPriceCacheService.getCurrentSolPrice();
+    } catch (error: any) {
+      console.warn(`   ⚠️  Failed to fetch SOL price for accumulation check, using fallback: $${solPriceUsd}`);
+    }
+    
     const validBuys = recentBuys.filter(t => {
       const amountBase = Number(t.amountBase) || 0;
       if (amountBase <= 0) return false;
@@ -567,29 +576,17 @@ export class AdvancedSignalsService {
       const baseToken = (meta?.baseToken || 'SOL').toUpperCase();
       
       // Převod na SOL: pokud je trade v USDC/USDT, musíme převést na SOL
-      // Pro jednoduchost: USDC/USDT ≈ 1 USD, SOL ≈ 125 USD (aktuální cena)
-      // Takže 0.3 SOL ≈ 37.5 USD, takže pro USDC/USDT by minimum mělo být cca 37.5
-      // Ale pro jistotu použijeme 0.3 jako minimum i pro USDC/USDT (což je velmi konzervativní)
-      // Pokud je amountBase v USDC/USDT a je >= 0.3, je to pravděpodobně malý trade
-      
       let amountInSol = amountBase;
       if (baseToken === 'USDC' || baseToken === 'USDT') {
-        // USDC/USDT: přibližně 1:1 s USD, SOL je cca $125
-        // Takže 0.3 SOL = cca $37.5, takže pro USDC/USDT by minimum mělo být cca 37.5
-        // Ale uživatel chce minimum 0.3 SOL, takže pro USDC/USDT použijeme 37.5 jako minimum
-        const SOL_PRICE_USD = 125; // Přibližná cena SOL (můžeme použít aktuální z cache, ale pro jednoduchost použijeme fixní)
-        const minUsdcUsdt = 0.3 * SOL_PRICE_USD; // 37.5 USD
-        if (amountBase < minUsdcUsdt) {
-          console.log(`   ⚠️  [Accumulation] Skipping buy: amountBase=${amountBase.toFixed(4)} ${baseToken} (${(amountBase / SOL_PRICE_USD).toFixed(4)} SOL) < 0.3 SOL minimum`);
-          return false;
-        }
-        amountInSol = amountBase / SOL_PRICE_USD;
-      } else {
-        // SOL: přímo porovnáme s 0.3
-        if (amountBase < 0.3) {
-          console.log(`   ⚠️  [Accumulation] Skipping buy: amountBase=${amountBase.toFixed(4)} ${baseToken} < 0.3 SOL minimum`);
-          return false;
-        }
+        // USDC/USDT: přibližně 1:1 s USD, převedeme na SOL pomocí aktuální ceny
+        amountInSol = amountBase / solPriceUsd;
+      }
+      // Pro SOL: amountInSol = amountBase (už je v SOL)
+      
+      // Minimum je 0.3 SOL pro všechny base tokeny
+      if (amountInSol < 0.3) {
+        console.log(`   ⚠️  [Accumulation] Skipping buy: amountBase=${amountBase.toFixed(4)} ${baseToken} (${amountInSol.toFixed(4)} SOL) < 0.3 SOL minimum`);
+        return false;
       }
       
       return true;
