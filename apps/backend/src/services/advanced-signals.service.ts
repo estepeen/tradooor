@@ -977,6 +977,56 @@ export class AdvancedSignalsService {
               baseToken = ((trade as any).meta.baseToken || 'SOL').toUpperCase();
             }
             
+            // Pro accumulation signály: seskupit do jednoho embedu (debounce 1 minuta)
+            if (signal.type === 'accumulation') {
+              const key = `${token.id}-${wallet.id}`;
+              const existing = this.pendingAccumulationSignals.get(key);
+              
+              if (existing) {
+                // Aktualizuj existující pending signál
+                existing.lastTradeTime = trade.timestamp;
+                existing.signal = signal; // Aktualizuj signál (může se změnit strength)
+                existing.marketData = marketData; // Aktualizuj market data
+                
+                // Reset timeout - počkáme další minutu od posledního trade
+                if (existing.timeoutId) {
+                  clearTimeout(existing.timeoutId);
+                }
+                existing.timeoutId = setTimeout(() => {
+                  this.sendAccumulationNotification(existing);
+                  this.pendingAccumulationSignals.delete(key);
+                }, this.ACCUMULATION_GROUP_WINDOW_MS);
+                
+                console.log(`📦 [Accumulation] Updated pending signal for ${token.symbol} - ${wallet.label || wallet.address.substring(0, 8)}... (waiting for more trades)`);
+                continue; // Pokračuj na další signál
+              } else {
+                // Nový accumulation signál - přidej do pending a nastav timeout
+                const pending: PendingAccumulationSignal = {
+                  tokenId: token.id,
+                  walletId: wallet.id,
+                  tokenSymbol: token?.symbol || 'Unknown',
+                  tokenMint: token?.mintAddress || '',
+                  wallet,
+                  token,
+                  baseToken,
+                  marketData,
+                  signal,
+                  firstTradeTime: trade.timestamp,
+                  lastTradeTime: trade.timestamp,
+                };
+                
+                pending.timeoutId = setTimeout(() => {
+                  this.sendAccumulationNotification(pending);
+                  this.pendingAccumulationSignals.delete(key);
+                }, this.ACCUMULATION_GROUP_WINDOW_MS);
+                
+                this.pendingAccumulationSignals.set(key, pending);
+                console.log(`📦 [Accumulation] Created pending signal for ${token.symbol} - ${wallet.label || wallet.address.substring(0, 8)}... (will send in 1 minute if no more trades)`);
+                continue; // Pokračuj na další signál
+              }
+            }
+            
+            // Pro ostatní signály: pošli okamžitě
             console.log(`📨 [AdvancedSignals] Sending Discord notification for ${signal.type} signal - baseToken: ${baseToken}, walletId: ${wallet?.id ? 'yes' : 'no'}, walletAddress: ${wallet?.address?.substring(0, 8)}...`);
             
             const notificationData: SignalNotificationData = {
