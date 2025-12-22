@@ -47,6 +47,7 @@ const lotMatchingService = new LotMatchingService();
 const solPriceService = new SolPriceService();
 const tokenMetadataBatchService = new TokenMetadataBatchService(tokenRepo);
 const closedLotRepo = new ClosedLotRepository();
+const solPriceCacheService = new SolPriceCacheService();
 
 const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
 
