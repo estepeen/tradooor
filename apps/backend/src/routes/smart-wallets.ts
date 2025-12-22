@@ -1024,10 +1024,12 @@ router.get('/:id/portfolio', async (req, res) => {
     const closedPositionsFromLots: any[] = [];
     if (closedLots && closedLots.length > 0) {
       console.log(`   📊 [Portfolio] Found ${closedLots.length} ClosedLots for wallet ${wallet.id}`);
-      // Seskupíme ClosedLots podle sellTradeId (každý SELL = jeden cyklus)
-      // DŮLEŽITÉ: Kontrola duplicit - každý ClosedLot by měl být jen v jedné skupině
-      const lotsBySellTradeId = new Map<string, any[]>();
+      // DŮLEŽITÉ: Seskupujeme ClosedLots podle tokenId + sequenceNumber + sellTradeId
+      // Problém: Pokud má token více SELL trades se stejným sequenceNumber, vytvoří se více closed positions
+      // Řešení: Seskupíme podle tokenId + sequenceNumber (ne podle sellTradeId), aby se všechny ClosedLots pro stejný cyklus sečetly dohromady
+      const lotsByTokenAndSequence = new Map<string, any[]>();
       const seenLotIds = new Set<string>(); // Kontrola duplicit
+      
       for (const lot of closedLots) {
         // Kontrola duplicit - každý ClosedLot by měl být jen jednou
         if (seenLotIds.has(lot.id)) {
@@ -1036,11 +1038,15 @@ router.get('/:id/portfolio', async (req, res) => {
         }
         seenLotIds.add(lot.id);
         
-        const sellTradeId = lot.sellTradeId || 'unknown';
-        if (!lotsBySellTradeId.has(sellTradeId)) {
-          lotsBySellTradeId.set(sellTradeId, []);
+        // Seskupíme podle tokenId + sequenceNumber (ne podle sellTradeId)
+        // Tím zajistíme, že všechny ClosedLots pro stejný cyklus (sequenceNumber) se sečtou dohromady
+        const sequenceNumber = lot.sequenceNumber ?? 1;
+        const groupingKey = `${lot.tokenId}-${sequenceNumber}`;
+        
+        if (!lotsByTokenAndSequence.has(groupingKey)) {
+          lotsByTokenAndSequence.set(groupingKey, []);
         }
-        lotsBySellTradeId.get(sellTradeId)!.push(lot);
+        lotsByTokenAndSequence.get(groupingKey)!.push(lot);
       }
       
       // DEBUG: Log grouping for UNDERSTAND token
@@ -1057,8 +1063,8 @@ router.get('/:id/portfolio', async (req, res) => {
         console.log(`   🔍 [DEBUG UNDERSTAND] Grouped into ${understandSellTradeIds.size} sellTradeId groups: ${Array.from(understandSellTradeIds).join(', ')}`);
       }
       
-      // Pro každou skupinu ClosedLots se stejným sellTradeId vytvoříme samostatnou closed position
-      for (const [sellTradeId, lotsForSell] of lotsBySellTradeId.entries()) {
+      // Pro každou skupinu ClosedLots se stejným tokenId + sequenceNumber vytvoříme samostatnou closed position
+      for (const [groupingKey, lotsForSell] of lotsByTokenAndSequence.entries()) {
         if (lotsForSell.length === 0) continue;
         
         const firstLot = lotsForSell.sort((a: any, b: any) => 
@@ -1072,14 +1078,17 @@ router.get('/:id/portfolio', async (req, res) => {
         const token = tokenDataMap.get(tokenId);
         const sequenceNumber = firstLot.sequenceNumber ?? null; // Kolikátý cyklus (1., 2., 3. atd.)
         
+        // Získej všechny unikátní sellTradeId pro tuto skupinu (pro debug)
+        const uniqueSellTradeIds = Array.from(new Set(lotsForSell.map((lot: any) => lot.sellTradeId || 'unknown')));
+        
         const totalRealizedPnl = lotsForSell.reduce((sum: number, lot: any) => {
           const pnl = lot.realizedPnl !== null && lot.realizedPnl !== undefined ? Number(lot.realizedPnl) : 0;
           // DEBUG: Log all ClosedLots for UNDERSTAND token to debug PnL calculation
           const tokenSymbol = token?.symbol?.toUpperCase();
           if (tokenSymbol === 'UNDERSTAND' && wallet.id) {
-            console.log(`   🔍 [DEBUG UNDERSTAND] ClosedLot: tokenId=${lot.tokenId}, sequenceNumber=${sequenceNumber}, sellTradeId=${sellTradeId}, realizedPnl=${pnl.toFixed(4)} SOL, costBasis=${(lot.costBasis || 0).toFixed(4)}, proceeds=${(lot.proceeds || 0).toFixed(4)}, entryTime=${lot.entryTime}, exitTime=${lot.exitTime}`);
+            console.log(`   🔍 [DEBUG UNDERSTAND] ClosedLot: id=${lot.id}, tokenId=${lot.tokenId}, sequenceNumber=${sequenceNumber}, sellTradeId=${lot.sellTradeId}, realizedPnl=${pnl.toFixed(4)} SOL, costBasis=${(lot.costBasis || 0).toFixed(4)}, proceeds=${(lot.proceeds || 0).toFixed(4)}, entryTime=${lot.entryTime}, exitTime=${lot.exitTime}`);
           } else if (wallet.id && Math.abs(pnl) > 0.0001) {
-            console.log(`   💰 [ClosedLot] tokenId=${lot.tokenId}, sequenceNumber=${sequenceNumber}, sellTradeId=${sellTradeId}, realizedPnl=${pnl.toFixed(4)} SOL`);
+            console.log(`   💰 [ClosedLot] tokenId=${lot.tokenId}, sequenceNumber=${sequenceNumber}, sellTradeId=${lot.sellTradeId}, realizedPnl=${pnl.toFixed(4)} SOL`);
           }
           return sum + pnl;
         }, 0);
@@ -1087,7 +1096,7 @@ router.get('/:id/portfolio', async (req, res) => {
         // DEBUG: Log total PnL for UNDERSTAND token after summing
         const tokenSymbol = token?.symbol?.toUpperCase();
         if (tokenSymbol === 'UNDERSTAND' && wallet.id) {
-          console.log(`   🔍 [DEBUG UNDERSTAND] Closed position: tokenId=${tokenId}, sequenceNumber=${sequenceNumber}, sellTradeId=${sellTradeId}, totalRealizedPnl=${totalRealizedPnl.toFixed(4)} SOL (from ${lotsForSell.length} lots)`);
+          console.log(`   🔍 [DEBUG UNDERSTAND] Closed position: tokenId=${tokenId}, sequenceNumber=${sequenceNumber}, uniqueSellTradeIds=${uniqueSellTradeIds.length} (${uniqueSellTradeIds.join(', ')}), totalRealizedPnl=${totalRealizedPnl.toFixed(4)} SOL (from ${lotsForSell.length} lots)`);
         }
         
         const totalCostBase = lotsForSell.reduce((sum: number, lot: any) => sum + (lot.costBasis || 0), 0);
