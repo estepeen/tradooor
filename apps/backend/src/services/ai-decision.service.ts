@@ -126,11 +126,10 @@ export class AIDecisionService {
     const startTime = Date.now();
     const model = this.config.model || 'groq';
     
-    // Check if API key is available
-    if (model.startsWith('groq') && !this.groqApiKey) {
-      console.warn(`⚠️  [AI Decision] GROQ_API_KEY not set - returning null (no AI decision available)`);
-      console.warn(`   💡 Check that GROQ_API_KEY is set in .env file`);
-      return null as any; // Return null to indicate AI is not available
+    // Global switch to enable/disable AI layer
+    if (process.env.ENABLE_AI_DECISIONS !== 'true') {
+      console.warn(`⚠️  [AI Decision] AI layer disabled via ENABLE_AI_DECISIONS env - skipping evaluation for ${signal.type}`);
+      return null as any;
     }
     
     try {

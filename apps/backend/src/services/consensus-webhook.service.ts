@@ -256,11 +256,31 @@ export class ConsensusWebhookService {
           // Spoj wallet info s trade info
           walletsData = wallets.map(w => {
             const trade = sortedBuys.find(b => b.walletId === w.id);
+            if (!trade) {
+              return {
+                ...w,
+                tradeAmountUsd: undefined,
+                tradePrice: undefined,
+                tradeTime: undefined,
+              };
+            }
+            
+            const amountToken = Number(trade.amountToken || 0);
+            const valueUsd = Number(trade.valueUsd || 0);
+            let priceUsdPerToken = 0;
+            if (amountToken > 0 && valueUsd > 0) {
+              priceUsdPerToken = valueUsd / amountToken;
+            } else {
+              priceUsdPerToken = Number(trade.priceBasePerToken || 0);
+            }
+
             return {
               ...w,
-              tradeAmountUsd: trade ? trade.amountBase : undefined,
-              tradePrice: trade ? trade.priceBasePerToken : undefined,
-              tradeTime: trade?.timestamp.toISOString(),
+              // Trade size in USD (if known)
+              tradeAmountUsd: valueUsd > 0 ? valueUsd : undefined,
+              // Price per token in USD
+              tradePrice: priceUsdPerToken || undefined,
+              tradeTime: trade.timestamp.toISOString(),
             };
           });
           

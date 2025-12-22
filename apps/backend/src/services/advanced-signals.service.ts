@@ -155,7 +155,8 @@ export class AdvancedSignalsService {
         walletWinRate: wallet.winRate || 0,
         walletRecentPnl30d: wallet.recentPnl30dPercent || 0,
         tokenAge: await this.getTokenAgeMinutes(token.id),
-        positionSizeUsd: Number(trade.amountBase || 0) * 150, // Rough SOL->USD conversion
+        // Používejme base token velikost (SOL/USDC/USDT), ne USD odhad
+        positionSizeUsd: Number(trade.amountBase || 0),
       };
 
       // Spusť všechny detektory paralelně
@@ -236,7 +237,8 @@ export class AdvancedSignalsService {
       return null;
     }
 
-    context.walletAvgPositionUsd = avgPosition * 150;
+    // Ukládejme průměrnou velikost pozice v base tokenu
+    context.walletAvgPositionUsd = avgPosition;
 
     const strength = positionMultiplier >= 4 ? 'strong' : positionMultiplier >= 3 ? 'medium' : 'weak';
     const confidence = Math.min(95, 60 + wallet.score / 5 + positionMultiplier * 5);
@@ -554,6 +556,11 @@ export class AdvancedSignalsService {
     const totalAmount = recentBuys.reduce((sum, t) => sum + Number(t.amountBase), 0);
     const buyCount = recentBuys.length;
 
+    // Minimální akumulace v base tokenu (např. alespoň 0.2 SOL)
+    if (totalAmount < 0.2) {
+      return null;
+    }
+
     const strength = buyCount >= 5 ? 'strong' : buyCount >= 4 ? 'medium' : 'weak';
     const confidence = Math.min(85, 40 + buyCount * 10 + wallet.score / 5);
 
@@ -607,8 +614,9 @@ export class AdvancedSignalsService {
     }
 
     // Přidej do context
-    context.walletAvgPositionUsd = avgTradeSize * 150; // Rough SOL->USD
-    context.positionSizeUsd = currentTradeSize * 150;
+    // Používejme base token (SOL/USDC/USDT), ne USD
+    context.walletAvgPositionUsd = avgTradeSize;
+    context.positionSizeUsd = currentTradeSize;
 
     const strength = multiplier >= 5 ? 'strong' : multiplier >= 3 ? 'medium' : 'weak';
     const confidence = Math.min(95, 55 + multiplier * 8 + wallet.score / 5);
@@ -921,8 +929,17 @@ export class AdvancedSignalsService {
                 address: wallet?.address || '',
                 walletId: wallet?.id, // Add wallet ID for profile link
                 score: wallet?.score || 0,
-                tradeAmountUsd: Number(trade.amountBase || 0),
-                tradePrice: Number(trade.priceBasePerToken || 0),
+                // Show trade size in USD
+                tradeAmountUsd: trade.valueUsd != null ? Number(trade.valueUsd) : undefined,
+                // Show price in USD per token (prefer valueUsd/amountToken)
+                tradePrice: (() => {
+                  const amountToken = Number(trade.amountToken || 0);
+                  const valueUsd = Number(trade.valueUsd || 0);
+                  if (amountToken > 0 && valueUsd > 0) {
+                    return valueUsd / amountToken;
+                  }
+                  return Number(trade.priceBasePerToken || 0);
+                })(),
                 tradeTime: trade.timestamp.toISOString(),
               }],
             };

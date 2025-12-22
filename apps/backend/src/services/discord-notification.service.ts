@@ -340,7 +340,7 @@ export class DiscordNotificationService {
       }
     }
 
-    // Wallets with trade details (show all) - add profile links and use base token
+    // Wallets with trade details (show all) - add profile links and show values in USD
     if (data.wallets && data.wallets.length > 0) {
       const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://tradooor.stepanpanek.cz';
       const walletDetails = data.wallets.map((w) => {
@@ -355,10 +355,10 @@ export class DiscordNotificationService {
         const parts = [nameWithLink];
         
         if (w.tradeAmountUsd) {
-          parts.push(`${this.formatNumber(w.tradeAmountUsd, 2)} ${baseToken}`);
+          parts.push(`$${this.formatNumber(w.tradeAmountUsd, 2)}`);
         }
         if (w.tradePrice) {
-          parts.push(`@ ${this.formatNumber(w.tradePrice, 8)} ${baseToken}`);
+          parts.push(`@ $${this.formatNumber(w.tradePrice, 8)}`);
         }
         if (w.tradeTime) {
           const time = new Date(w.tradeTime);
