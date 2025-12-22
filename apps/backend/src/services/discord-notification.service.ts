@@ -346,10 +346,8 @@ export class DiscordNotificationService {
       const walletDetails = data.wallets.map((w) => {
         const name = w.label || `${w.address.substring(0, 6)}...`;
         
-        // Create profile link if walletId is available, otherwise use address
-        const profileUrl = w.walletId 
-          ? `${frontendUrl}/wallets/${w.walletId}`
-          : `${frontendUrl}/wallet/${w.address}`;
+        // Prefer URL s reálnou wallet address (přehlednější než interní ID)
+        const profileUrl = `${frontendUrl}/wallet/${w.address}`;
         const nameWithLink = `[**${name}**](${profileUrl})`;
         
         const parts = [nameWithLink];
