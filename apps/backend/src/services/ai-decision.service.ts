@@ -212,67 +212,27 @@ export class AIDecisionService {
    * Sestaví prompt pro LLM
    */
   private buildPrompt(signal: AdvancedSignal, context: AIContext): string {
-    return `You are an expert Solana memecoin trader analyzing a trading signal.
+    // Kompaktní prompt pro snížení spotřeby tokenů
+    const walletInfo = `Score:${context.walletScore} WR:${(context.walletWinRate * 100).toFixed(0)}% PnL30d:${context.walletRecentPnl30d.toFixed(1)}%`;
+    const tokenInfo = `${context.tokenSymbol || 'Unknown'} Age:${context.tokenAge.toFixed(0)}m${context.tokenLiquidity ? ` Liq:$${(context.tokenLiquidity/1000).toFixed(0)}K` : ''}${context.tokenVolume24h ? ` Vol24h:$${(context.tokenVolume24h/1000).toFixed(0)}K` : ''}`;
+    const marketInfo = `${context.otherWalletsCount ? `Wallets:${context.otherWalletsCount}` : ''}${context.consensusStrength ? ` Strength:${context.consensusStrength}` : ''}`;
+    
+    return `Analyze Solana memecoin signal. Return JSON only.
 
-## SIGNAL INFORMATION
-- Type: ${signal.type}
-- Strength: ${signal.strength}
-- Confidence: ${signal.confidence}%
-- Initial Reasoning: ${signal.reasoning}
-- Suggested Action: ${signal.suggestedAction}
-- Risk Level: ${signal.riskLevel}
+Signal: ${signal.type} ${signal.strength} (${signal.confidence}% conf) ${signal.riskLevel} risk
+Trader: ${walletInfo}
+Token: ${tokenInfo}
+${marketInfo ? `Market: ${marketInfo}` : ''}
 
-## WALLET METRICS (Trader who triggered this signal)
-- Quality Score: ${context.walletScore}/100
-- Win Rate: ${(context.walletWinRate * 100).toFixed(1)}%
-- Recent 30d PnL: ${context.walletRecentPnl30d.toFixed(1)}%
-- Total Trades: ${context.walletTotalTrades}
-- Avg Hold Time: ${context.walletAvgHoldTimeMin.toFixed(0)} minutes
+Rules:
+- New tokens (<30m): higher risk, smaller position
+- High-score traders (>80): more aggressive
+- Consensus (2+ wallets): increase confidence
+- Max position: 20%
+- Always set SL: 10-50%, TP: 20-200%
 
-## TOKEN INFORMATION
-- Symbol: ${context.tokenSymbol || 'Unknown'}
-- Token Age: ${context.tokenAge.toFixed(0)} minutes
-${context.tokenLiquidity ? `- Liquidity: $${context.tokenLiquidity.toLocaleString()}` : ''}
-${context.tokenVolume24h ? `- 24h Volume: $${context.tokenVolume24h.toLocaleString()}` : ''}
-${context.tokenMarketCap ? `- Market Cap: $${context.tokenMarketCap.toLocaleString()}` : ''}
-
-## MARKET CONTEXT
-${context.otherWalletsCount ? `- Other Smart Wallets Trading: ${context.otherWalletsCount}` : ''}
-${context.consensusStrength ? `- Consensus Strength: ${context.consensusStrength}` : ''}
-${context.recentTokenPerformance !== undefined ? `- Recent Token Performance: ${context.recentTokenPerformance.toFixed(1)}%` : ''}
-
-## HISTORICAL PERFORMANCE ON SIMILAR TRADES
-${context.similarTradesCount ? `- Similar Trades Analyzed: ${context.similarTradesCount}` : 'No historical data available'}
-${context.similarTradesWinRate !== undefined ? `- Win Rate on Similar: ${(context.similarTradesWinRate * 100).toFixed(1)}%` : ''}
-${context.similarTradesAvgPnl !== undefined ? `- Avg PnL on Similar: ${context.similarTradesAvgPnl.toFixed(1)}%` : ''}
-
-## YOUR TASK
-Analyze this signal and provide a trading decision. Consider:
-1. The quality and track record of the trader
-2. The token's characteristics (age, liquidity, volume)
-3. The type and strength of the signal
-4. Risk/reward ratio
-5. Market conditions
-
-Respond in JSON format:
-{
-  "decision": "buy" | "sell" | "hold" | "skip",
-  "confidence": 0-100,
-  "reasoning": "Your detailed analysis (2-3 sentences)",
-  "suggestedPositionPercent": 5-20,
-  "stopLossPercent": 10-50,
-  "takeProfitPercent": 20-200,
-  "expectedHoldTimeMinutes": 5-1440,
-  "riskScore": 1-10
-}
-
-Important guidelines:
-- For new tokens (<30 min old), be more cautious (higher risk, smaller position)
-- For whale entries from high-score traders, be more aggressive
-- For consensus signals (multiple wallets), increase confidence
-- NEVER recommend position size > 20% of portfolio
-- Always set stop-loss (10-50% depending on risk)
-- Be skeptical of very new tokens with low liquidity`;
+JSON:
+{"decision":"buy|sell|hold|skip","confidence":0-100,"reasoning":"2-3 sentences","suggestedPositionPercent":5-20,"stopLossPercent":10-50,"takeProfitPercent":20-200,"expectedHoldTimeMinutes":5-1440,"riskScore":1-10}`;
   }
 
   /**
