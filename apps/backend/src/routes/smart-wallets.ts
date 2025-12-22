@@ -119,6 +119,10 @@ router.get('/', async (req, res) => {
         console.log(`      recentPnl30dBase: ${specificWallet.recentPnl30dBase}`);
         console.log(`      recentPnl30dUsd (from DB): ${specificWallet.recentPnl30dUsd}`);
         console.log(`      recentPnl30dPercent: ${specificWallet.recentPnl30dPercent}`);
+      } else {
+        // Wallet not in current page - log all addresses to see what's in response
+        console.log(`   ⚠️ [DEBUG CyaE1Vxv] Wallet NOT found in current page. Total wallets in response: ${walletsWithPnl.length}`);
+        console.log(`   ⚠️ [DEBUG CyaE1Vxv] First 10 addresses in response: ${walletsWithPnl.slice(0, 10).map((w: any) => w.address.substring(0, 8) + '...').join(', ')}`);
       }
     }
     

@@ -102,11 +102,16 @@ export class SmartWalletRepository {
     // DEBUG: Log specific wallet if present (CyaE1VxvBrahnPWkqm5VsdCvyS2QmNht2UFrKJHga54o)
     const specificWallet = mappedWallets.find((w: any) => w.address === 'CyaE1VxvBrahnPWkqm5VsdCvyS2QmNht2UFrKJHga54o');
     if (specificWallet) {
-      console.log(`   🔍 [Repository DEBUG CyaE1Vxv] Wallet found in DB query:`);
+      console.log(`   🔍 [Repository DEBUG CyaE1Vxv] Wallet found in DB query (page ${page}, pageSize ${pageSize}):`);
       console.log(`      address: ${specificWallet.address}`);
       console.log(`      recentPnl30dUsd (from DB): ${specificWallet.recentPnl30dUsd}`);
       console.log(`      recentPnl30dBase (mapped): ${specificWallet.recentPnl30dBase}`);
       console.log(`      recentPnl30dPercent: ${specificWallet.recentPnl30dPercent}`);
+      console.log(`      id: ${specificWallet.id}`);
+    } else {
+      // Wallet not in current page - log query params to see why
+      console.log(`   ⚠️ [Repository DEBUG CyaE1Vxv] Wallet NOT found in DB query. Query params: page=${page}, pageSize=${pageSize}, sortBy=${sortBy}, sortOrder=${sortOrder}, minScore=${params?.minScore}, tags=${params?.tags}, search=${params?.search}`);
+      console.log(`   ⚠️ [Repository DEBUG CyaE1Vxv] Total wallets in query result: ${mappedWallets.length}`);
     }
 
     // Sort by lastTradeTimestamp in memory if needed
