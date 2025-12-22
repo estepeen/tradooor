@@ -690,6 +690,7 @@ export class MetricsCalculatorService {
     if (wallet) {
       console.log(`   💰 [Metrics] Wallet ${wallet.address.substring(0, 8)}...: recentPnl30dSol=${recentPnl30dSol.toFixed(4)} SOL, recentPnl30dPercent=${recentPnl30dPercent.toFixed(2)}%`);
       console.log(`   💰 [Metrics] Wallet ${wallet.address.substring(0, 8)}...: rolling30d.numClosedTrades=${rolling30d?.numClosedTrades ?? 0}, rolling30d.realizedPnl=${rolling30d?.realizedPnl?.toFixed(4) ?? 'N/A'}`);
+      console.log(`   🔍 [Metrics] Wallet ${wallet.address.substring(0, 8)}...: rollingInsights.rolling['30d']=${JSON.stringify(rollingInsights.rolling['30d'])}`);
     }
 
     const legacyScore = this.calculateScore({
@@ -1244,6 +1245,10 @@ export class MetricsCalculatorService {
           ...rolling[label],
           realizedPnl: totalPnl30d, // Použij PnL z closed positions (stejně jako portfolio endpoint)
         };
+        
+        // DEBUG: Log přepsané hodnoty
+        console.log(`   🔍 [Metrics Calculator] Wallet ${walletId}: Overriding rolling['30d'].realizedPnl with totalPnl30d=${totalPnl30d.toFixed(4)} SOL (from ${recentClosedPositions30d.length} closed positions)`);
+        console.log(`   🔍 [Metrics Calculator] Wallet ${walletId}: rolling['30d'].realizedPnl after override=${rolling[label].realizedPnl.toFixed(4)} SOL`);
       }
     }
 
