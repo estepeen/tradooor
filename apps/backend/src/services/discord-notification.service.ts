@@ -130,7 +130,7 @@ export class DiscordNotificationService {
       // Debug: Log what we're sending
       console.log(`📨 [Discord] sendSignalNotification called - baseToken: ${data.baseToken || 'MISSING'}, walletIds: ${data.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}, aiDecision: ${data.aiDecision || 'undefined'}, aiConfidence: ${data.aiConfidence || 'undefined'}`);
       
-      const embed = this.buildSignalEmbed(data);
+      const embed = await this.buildSignalEmbed(data);
       
       // Debug: Log embed content
       const tradersField = embed.fields?.find(f => f.name.includes('Traders'));
@@ -166,7 +166,7 @@ export class DiscordNotificationService {
   /**
    * Vytvoří embed pro signál
    */
-  private buildSignalEmbed(data: SignalNotificationData): DiscordEmbed {
+  private async buildSignalEmbed(data: SignalNotificationData): Promise<DiscordEmbed> {
     const birdeyeUrl = `https://birdeye.so/token/${data.tokenMint}?chain=solana`;
     const baseToken = (data.baseToken || 'SOL').toUpperCase();
 
