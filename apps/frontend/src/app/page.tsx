@@ -101,8 +101,8 @@ export default function Home() {
       // DEBUG: Log PnL values from API (always log for debugging)
       if (result.wallets) {
         console.log(`📊 [Homepage] Received ${result.wallets.length} wallets from API`);
-        result.wallets.forEach((wallet: any) => {
-          console.log(`   💰 Wallet ${wallet.address}: recentPnl30dUsd=${wallet.recentPnl30dUsd}, recentPnl30dPercent=${wallet.recentPnl30dPercent}, hasValue=${wallet.recentPnl30dUsd !== undefined && wallet.recentPnl30dUsd !== null}`);
+        result.wallets.slice(0, 5).forEach((wallet: any) => {
+          console.log(`   💰 Wallet ${wallet.address}: recentPnl30dBase=${wallet.recentPnl30dBase}, recentPnl30dUsdValue=${wallet.recentPnl30dUsdValue}, recentPnl30dPercent=${wallet.recentPnl30dPercent}`);
         });
       }
       
