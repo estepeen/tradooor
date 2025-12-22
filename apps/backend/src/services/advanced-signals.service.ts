@@ -556,8 +556,8 @@ export class AdvancedSignalsService {
     const totalAmount = recentBuys.reduce((sum, t) => sum + Number(t.amountBase), 0);
     const buyCount = recentBuys.length;
 
-    // Minimální akumulace v base tokenu (např. alespoň 0.2 SOL)
-    if (totalAmount < 0.2) {
+    // Minimální akumulace v base tokenu (např. alespoň 0.3 SOL)
+    if (totalAmount < 0.3) {
       return null;
     }
 
@@ -788,10 +788,10 @@ export class AdvancedSignalsService {
     // Vyber nejlepší signál (nejvyšší confidence) pro AI evaluaci
     let bestSignalForAI: AdvancedSignal | null = null;
     let bestSignalConfidence = 0;
-    
+
     for (const signal of signals) {
       if (signal.confidence < 50) continue;
-      
+
       // Enrich signal context with market data
       signal.context.tokenSymbol = token?.symbol;
       signal.context.tokenMint = token?.mintAddress;
@@ -823,8 +823,8 @@ export class AdvancedSignalsService {
     let sharedAIDecision: any = null;
     if (process.env.GROQ_API_KEY && bestSignalForAI && bestSignalForAI.suggestedAction === 'buy' && bestSignalForAI.confidence >= 50) {
       console.log(`🤖 [AdvancedSignals] Calling AI for best signal: ${bestSignalForAI.type} (confidence: ${bestSignalForAI.confidence}%) - will reuse for all ${signals.length} signals from this trade`);
-      try {
-        const aiContext: AIContext = {
+        try {
+          const aiContext: AIContext = {
           signal: bestSignalForAI,
           signalType: bestSignalForAI.type,
           walletScore: bestSignalForAI.context.walletScore,
@@ -839,26 +839,26 @@ export class AdvancedSignalsService {
           tokenMarketCap: bestSignalForAI.context.tokenMarketCap,
           otherWalletsCount: bestSignalForAI.context.consensusWalletCount,
           consensusStrength: bestSignalForAI.strength,
-        };
+          };
 
         const aiResult = await this.aiDecision.evaluateSignal(bestSignalForAI, aiContext);
         sharedAIDecision = aiResult;
           
-        if (aiResult && !aiResult.isFallback) {
+          if (aiResult && !aiResult.isFallback) {
           aiEvaluated++;
           console.log(`✅ [AdvancedSignals] AI evaluated best signal (${bestSignalForAI.type}): ${aiResult.decision} (${aiResult.confidence}% confidence) - will reuse for all signals`);
-        } else if (aiResult && aiResult.isFallback) {
+          } else if (aiResult && aiResult.isFallback) {
           console.warn(`⚠️  [AdvancedSignals] AI returned fallback - will not use (showing "-" instead)`);
           sharedAIDecision = null;
-        } else {
+          } else {
           console.warn(`⚠️  [AdvancedSignals] AI evaluation returned null - AI not available`);
           sharedAIDecision = null;
-        }
-      } catch (aiError: any) {
+          }
+        } catch (aiError: any) {
         console.error(`❌ [AdvancedSignals] AI evaluation failed: ${aiError.message}`);
         sharedAIDecision = null;
-      }
-    } else if (!process.env.GROQ_API_KEY) {
+        }
+      } else if (!process.env.GROQ_API_KEY) {
       console.warn(`⚠️  [AdvancedSignals] GROQ_API_KEY not set - skipping AI evaluation`);
     }
 

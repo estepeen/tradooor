@@ -174,8 +174,8 @@ export class DiscordNotificationService {
     // Determine color based on high-level signal type (bar color on the left)
     let color: number;
     if (data.signalType === 'accumulation') {
-      // Accumulation → žlutá čára
-      color = 0xffff00;
+      // Accumulation → oranžovo-žlutá čára (méně křiklavá než čistá žlutá)
+      color = 0xffc107;
     } else if (data.signalType === 'consensus' || data.signalType === 'consensus-update') {
       // Consensus → modrá čára
       color = 0x0099ff;
