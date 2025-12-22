@@ -184,14 +184,29 @@ export class AdvancedSignalsService {
           this.detectVolumeSpike(trade, wallet, token, context),
         ]);
 
-        if (whaleSignal) signals.push(whaleSignal);
-        if (sniperSignal) signals.push(sniperSignal);
-        if (momentumSignal) signals.push(momentumSignal);
         // Re-entry signál odstraněn - uživatel nechce
         // if (reentrySignal) signals.push(reentrySignal);
+        
+        // Sjednocení whale-entry a conviction-buy do conviction-buy
+        // Pokud máme oba signály, použijeme ten s vyšším multiplikátorem
+        if (whaleSignal && convictionSignal) {
+          // Použijeme conviction-buy (má lepší logiku)
+          signals.push(convictionSignal);
+        } else if (whaleSignal) {
+          // Převést whale-entry na conviction-buy
+          signals.push({
+            ...whaleSignal,
+            type: 'conviction-buy',
+            reasoning: whaleSignal.reasoning.replace('🐋 Whale Entry', '💪 Conviction Buy'),
+          });
+        } else if (convictionSignal) {
+          signals.push(convictionSignal);
+        }
+        
+        if (sniperSignal) signals.push(sniperSignal);
+        if (momentumSignal) signals.push(momentumSignal);
         if (hotTokenSignal) signals.push(hotTokenSignal);
         if (accumulationSignal) signals.push(accumulationSignal);
-        if (convictionSignal) signals.push(convictionSignal);
         if (volumeSpikeSignal) signals.push(volumeSpikeSignal);
       } else if (trade.side === 'sell') {
         const exitSignal = await this.detectExitWarning(trade, token, context);
@@ -928,8 +943,9 @@ export class AdvancedSignalsService {
         savedCount++;
         
         // Send Discord notification for BUY signals
-        // POZOR: Posíláme jen 3 typy signálů: consensus, accumulation, conviction-buy/whale-entry/large-position
-        const allowedDiscordSignalTypes = ['consensus', 'consensus-update', 'accumulation', 'whale-entry', 'conviction-buy', 'large-position'];
+        // POZOR: Posíláme jen 3 hlavní typy signálů: consensus, accumulation, conviction-buy
+        // (whale-entry a large-position jsou sjednoceny do conviction-buy)
+        const allowedDiscordSignalTypes = ['consensus', 'consensus-update', 'accumulation', 'conviction-buy'];
         if (signal.suggestedAction === 'buy' && allowedDiscordSignalTypes.includes(signal.type)) {
           try {
             // Get base token from trade meta (default SOL)
