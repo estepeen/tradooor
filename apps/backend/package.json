@@ -41,6 +41,7 @@
     "debug:closed-lots": "tsx src/scripts/debug-closed-lots.ts",
     "debug:wallet-trades": "tsx src/scripts/debug-wallet-trades.ts",
     "debug:token-trades": "tsx src/scripts/debug-token-trades.ts",
+    "test:sol-price": "tsx src/scripts/test-sol-price.ts",
     "find:token": "tsx src/scripts/find-token-by-name.ts",
     "debug:liquidity-tx": "tsx src/scripts/debug-liquidity-tx.ts",
     "convert:liquidity-to-void": "tsx src/scripts/convert-liquidity-to-void.ts",
