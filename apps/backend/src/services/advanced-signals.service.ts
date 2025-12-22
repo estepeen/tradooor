@@ -553,13 +553,20 @@ export class AdvancedSignalsService {
       return null;
     }
 
-    const totalAmount = recentBuys.reduce((sum, t) => sum + Number(t.amountBase), 0);
-    const buyCount = recentBuys.length;
+    // DŮLEŽITÉ: Každý jednotlivý nákup musí mít minimálně 0.3 SOL (ne součet!)
+    // Filtrujeme pouze nákupy, které mají amountBase >= 0.3 SOL
+    const validBuys = recentBuys.filter(t => {
+      const amountBase = Number(t.amountBase) || 0;
+      return amountBase >= 0.3;
+    });
 
-    // Minimální akumulace v base tokenu (např. alespoň 0.3 SOL)
-    if (totalAmount < 0.3) {
+    // Musí být alespoň ACCUMULATION_MIN_BUYS nákupů s minimálně 0.3 SOL každý
+    if (validBuys.length < THRESHOLDS.ACCUMULATION_MIN_BUYS) {
       return null;
     }
+
+    const totalAmount = validBuys.reduce((sum, t) => sum + Number(t.amountBase), 0);
+    const buyCount = validBuys.length;
 
     const strength = buyCount >= 5 ? 'strong' : buyCount >= 4 ? 'medium' : 'weak';
     const confidence = Math.min(85, 40 + buyCount * 10 + wallet.score / 5);
