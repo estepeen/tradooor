@@ -16,6 +16,7 @@ import { ClosedLotRepository } from '../repositories/closed-lot.repository.js';
 import { isValidSolanaAddress, parseTags } from '../lib/utils.js';
 import { TokenMetadataBatchService } from '../services/token-metadata-batch.service.js';
 import { LotMatchingService } from '../services/lot-matching.service.js';
+import { SolPriceCacheService } from '../services/sol-price-cache.service.js';
 
 // Get project root - when running from apps/backend, go up 2 levels
 // When running from root, use current directory
@@ -46,10 +47,6 @@ const lotMatchingService = new LotMatchingService();
 const solPriceService = new SolPriceService();
 const tokenMetadataBatchService = new TokenMetadataBatchService(tokenRepo);
 const closedLotRepo = new ClosedLotRepository();
-
-// Import SolPriceCacheService for USD conversion
-import { SolPriceCacheService } from '../services/sol-price-cache.service.js';
-const solPriceCacheService = new SolPriceCacheService();
 
 const STABLE_BASES = new Set(['SOL', 'WSOL', 'USDC', 'USDT']);
 
