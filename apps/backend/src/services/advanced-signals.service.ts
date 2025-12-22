@@ -762,8 +762,16 @@ export class AdvancedSignalsService {
       }
     }
 
-    // Calculate entry price
-    const entryPriceUsd = Number(trade.priceBasePerToken || 0);
+    // Calculate entry price in USD per token
+    // trade.valueUsd = total trade value in USD, trade.amountToken = token amount
+    const amountToken = Number(trade.amountToken || 0);
+    let entryPriceUsd = 0;
+    if (amountToken > 0 && trade.valueUsd != null) {
+      entryPriceUsd = Number(trade.valueUsd) / amountToken;
+    } else {
+      // Fallback: use base token price if USD value is not available
+      entryPriceUsd = Number(trade.priceBasePerToken || 0);
+    }
 
     let savedCount = 0;
     let aiEvaluated = 0;

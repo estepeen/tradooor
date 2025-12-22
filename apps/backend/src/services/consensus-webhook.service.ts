@@ -112,7 +112,15 @@ export class ConsensusWebhookService {
       // Použij druhý nákup (nebo aktuální, pokud je to druhý)
       const tradeToUse = currentTradeIndex >= 1 ? sortedBuys[currentTradeIndex] : sortedBuys[1];
       const tradeToUseId = tradeToUse.id;
-      const tradeToUsePrice = Number(tradeToUse.priceBasePerToken || 0);
+      // Cena v USD za token – preferuj valueUsd/amountToken, fallback na base price
+      const tradeToUseAmountToken = Number(tradeToUse.amountToken || 0);
+      const tradeToUseValueUsd = Number(tradeToUse.valueUsd || 0);
+      let tradeToUsePrice = 0;
+      if (tradeToUseAmountToken > 0 && tradeToUseValueUsd > 0) {
+        tradeToUsePrice = tradeToUseValueUsd / tradeToUseAmountToken;
+      } else {
+        tradeToUsePrice = Number(tradeToUse.priceBasePerToken || 0);
+      }
 
       console.log(`   🎯 [Consensus] Consensus found: ${uniqueWallets.size} wallets bought ${tokenId.substring(0, 16)}... in 2h window`);
       console.log(`      Using trade ${tradeToUseId.substring(0, 16)}... price: $${tradeToUsePrice.toFixed(6)}`);
@@ -497,7 +505,7 @@ export class ConsensusWebhookService {
       const totalVolume = allBuys.reduce((sum, b) => sum + Number(b.amountBase || 0), 0);
 
       // 5. Vytvoř context pro AI
-      const context = {
+          const context = {
         // Required by SignalContext interface
         walletScore: avgWalletScore,
         walletWinRate: avgWinRate,
@@ -514,7 +522,15 @@ export class ConsensusWebhookService {
         tokenVolume24h: marketData?.volume24h || 0,
         tokenMarketCap: marketData?.marketCap || 0,
         consensusWalletCount: walletCount,
-        entryPriceUsd: Number(trade.priceBasePerToken || 0),
+        // Entry price in USD per token (prefer valueUsd/amountToken)
+        entryPriceUsd: (() => {
+          const amountToken = Number(trade.amountToken || 0);
+          const valueUsd = Number(trade.valueUsd || 0);
+          if (amountToken > 0 && valueUsd > 0) {
+            return valueUsd / amountToken;
+          }
+          return Number(trade.priceBasePerToken || 0);
+        })(),
       };
 
       // 6. Vytvoř signál pro AI

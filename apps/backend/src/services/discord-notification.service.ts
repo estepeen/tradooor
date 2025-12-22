@@ -189,12 +189,12 @@ export class DiscordNotificationService {
       inline: true,
     });
 
-    // Price Info - use base token instead of $
+    // Price Info - always show in USD
     const baseToken = (data.baseToken || 'SOL').toUpperCase();
     console.log(`📨 [Discord] Building embed for ${data.tokenSymbol} - baseToken: ${baseToken}, wallets: ${data.wallets?.length || 0}, walletIds: ${data.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}`);
-    const priceInfo = [`**Entry:** ${this.formatNumber(data.entryPriceUsd, 8)} ${baseToken}`];
-    if (data.marketCapUsd) priceInfo.push(`**MCap:** ${this.formatNumber(data.marketCapUsd, 0)} ${baseToken}`);
-    if (data.liquidityUsd) priceInfo.push(`**Liq:** ${this.formatNumber(data.liquidityUsd, 0)} ${baseToken}`);
+    const priceInfo = [`**Entry:** $${this.formatNumber(data.entryPriceUsd, 8)}`];
+    if (data.marketCapUsd) priceInfo.push(`**MCap:** $${this.formatNumber(data.marketCapUsd, 0)}`);
+    if (data.liquidityUsd) priceInfo.push(`**Liq:** $${this.formatNumber(data.liquidityUsd, 0)}`);
     
     fields.push({
       name: '💰 Price & Market',
@@ -210,7 +210,7 @@ export class DiscordNotificationService {
         : `${data.tokenAgeMinutes}m`;
       tokenInfo.push(`**Age:** ${ageStr}`);
     }
-    if (data.volume24hUsd) tokenInfo.push(`**24h Vol:** ${this.formatNumber(data.volume24hUsd, 0)} ${baseToken}`);
+    if (data.volume24hUsd) tokenInfo.push(`**24h Vol:** $${this.formatNumber(data.volume24hUsd, 0)}`);
     tokenInfo.push(`**Avg Score:** ${data.avgWalletScore.toFixed(0)}/100`);
     
     fields.push({
@@ -249,15 +249,15 @@ export class DiscordNotificationService {
       });
     }
 
-    // SL/TP (if available) - use base token instead of $
+    // SL/TP (if available) - show in USD
     // Only show if we have real AI decision values
     if (data.stopLossPercent && data.stopLossPercent > 0 && data.takeProfitPercent && data.takeProfitPercent > 0) {
       const sltp = [];
       if (data.stopLossPriceUsd && data.stopLossPercent) {
-        sltp.push(`🛑 **SL:** ${this.formatNumber(data.stopLossPriceUsd, 8)} ${baseToken} (-${data.stopLossPercent}%)`);
+        sltp.push(`🛑 **SL:** $${this.formatNumber(data.stopLossPriceUsd, 8)} (-${data.stopLossPercent}%)`);
       }
       if (data.takeProfitPriceUsd && data.takeProfitPercent) {
-        sltp.push(`🎯 **TP:** ${this.formatNumber(data.takeProfitPriceUsd, 8)} ${baseToken} (+${data.takeProfitPercent}%)`);
+        sltp.push(`🎯 **TP:** $${this.formatNumber(data.takeProfitPriceUsd, 8)} (+${data.takeProfitPercent}%)`);
       }
       
       if (sltp.length > 0) {
