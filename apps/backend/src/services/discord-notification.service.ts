@@ -104,6 +104,7 @@ const COLORS = {
 export class DiscordNotificationService {
   private webhookUrl: string;
   private enabled: boolean;
+  private solPriceCacheService: any;
 
   constructor() {
     this.webhookUrl = process.env.DISCORD_WEBHOOK_URL || '';
@@ -112,6 +113,17 @@ export class DiscordNotificationService {
     if (!this.enabled) {
       console.warn('⚠️  Discord notifications disabled: DISCORD_WEBHOOK_URL not set');
     }
+    
+    // Lazy load SolPriceCacheService to avoid circular dependencies
+    this.solPriceCacheService = null;
+  }
+  
+  private async getSolPriceCacheService() {
+    if (!this.solPriceCacheService) {
+      const { SolPriceCacheService } = await import('./sol-price-cache.service.js');
+      this.solPriceCacheService = new SolPriceCacheService();
+    }
+    return this.solPriceCacheService;
   }
 
   /**
@@ -377,6 +389,16 @@ export class DiscordNotificationService {
     // Wallets with trade details (show all) - add profile links
     if (data.wallets && data.wallets.length > 0) {
       const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://tradooor.stepanpanek.cz';
+      
+      // Získej SOL cenu pro přepočet na USD
+      let solPriceUsd = 150.0; // Fallback
+      try {
+        const solPriceService = await this.getSolPriceCacheService();
+        solPriceUsd = await solPriceService.getCurrentSolPrice();
+      } catch (error: any) {
+        console.warn(`⚠️  Failed to fetch SOL price for Discord notification, using fallback: $${solPriceUsd}`);
+      }
+      
       const walletDetails = data.wallets.map((w) => {
         const name = w.label || `${w.address.substring(0, 6)}...`;
         
@@ -386,9 +408,11 @@ export class DiscordNotificationService {
         
         const parts = [nameWithLink];
         
-        // Velikost obchodu v base tokenu (např. SOL)
+        // Velikost obchodu v base tokenu (např. SOL) + USD hodnota
         if (w.tradeAmountUsd) {
-          parts.push(`${this.formatNumber(w.tradeAmountUsd, 2)} ${baseToken}`);
+          const amountBase = w.tradeAmountUsd; // V SOL (nebo jiném base tokenu)
+          const amountUsd = amountBase * solPriceUsd; // Přepočet na USD
+          parts.push(`${this.formatNumber(amountBase, 2)} ${baseToken} ($${this.formatNumber(amountUsd, 0)})`);
         }
         // Za @ chceme zobrazit MarketCap (globální pro token), ne cenu
         if (data.marketCapUsd) {

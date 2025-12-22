@@ -1442,7 +1442,7 @@ router.get('/:id/pnl', async (req, res) => {
       // Přepočet na USD
       const pnlUsdValue = totalPnl * solPriceUsd;
       const volumeUsdValue = volumeBase * solPriceUsd;
-      
+
       pnlData[period] = {
         pnl: totalPnl, // PnL v SOL (všechny hodnoty jsou v SOL)
         pnlUsd: totalPnl, // PnL v SOL (kompatibilita - frontend očekává pnlUsd, ale obsahuje SOL)

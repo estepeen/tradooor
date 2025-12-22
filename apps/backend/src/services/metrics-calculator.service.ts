@@ -1193,13 +1193,13 @@ export class MetricsCalculatorService {
         console.log(`   ✅ [Rolling Stats] Wallet ${walletId}: totalPnl30d=${totalPnl30d.toFixed(4)} SOL (from closed positions, same as portfolio endpoint), totalCost30d=${totalCost30d.toFixed(4)} SOL, pnlPercent30d=${pnlPercent30d.toFixed(2)}%`);
       } else {
         // Pro ostatní období: filtruj podle exitTime jednotlivých ClosedLots
-        const filteredLots = closedLots.filter(lot => {
-          if (!lot.exitTime) return false;
-          const exitTime = new Date(lot.exitTime);
-          return exitTime >= cutoff && exitTime <= now;
-        });
-        
-        rolling[label] = await this.buildRollingWindowStats(filteredLots);
+      const filteredLots = closedLots.filter(lot => {
+        if (!lot.exitTime) return false;
+        const exitTime = new Date(lot.exitTime);
+        return exitTime >= cutoff && exitTime <= now;
+      });
+      
+      rolling[label] = await this.buildRollingWindowStats(filteredLots);
       }
     }
 

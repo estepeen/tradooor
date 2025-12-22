@@ -399,14 +399,14 @@ export default function WalletDetailPage() {
                     {volumeValue > 0
                       ? (
                         <>
-                          <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            {(() => {
-                              const formatted = formatNumber(volumeValue, 6);
-                              // Explicitly remove any $ symbol that might be in the formatted string
-                              const cleaned = formatted.replace(/\$/g, '');
-                              return `${cleaned} ${volumeBaseToken}`;
-                            })()}
-                          </span>
+                        <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
+                          {(() => {
+                            const formatted = formatNumber(volumeValue, 6);
+                            // Explicitly remove any $ symbol that might be in the formatted string
+                            const cleaned = formatted.replace(/\$/g, '');
+                            return `${cleaned} ${volumeBaseToken}`;
+                          })()}
+                        </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
                             (${formatNumber(Math.abs(volumeUsdValue), 0)})
