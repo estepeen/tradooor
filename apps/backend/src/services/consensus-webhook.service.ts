@@ -19,6 +19,7 @@ import { TokenMarketDataService } from './token-market-data.service.js';
 import { DiscordNotificationService, SignalNotificationData } from './discord-notification.service.js';
 import { RugCheckService } from './rugcheck.service.js';
 import { PositionMonitorService } from './position-monitor.service.js';
+import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
@@ -36,6 +37,7 @@ export class ConsensusWebhookService {
   private discordNotification: DiscordNotificationService;
   private rugCheck: RugCheckService;
   private positionMonitor: PositionMonitorService;
+  private tradeFeatureRepo: TradeFeatureRepository;
 
   constructor() {
     this.paperTradeService = new PaperTradeService();
@@ -50,6 +52,7 @@ export class ConsensusWebhookService {
     this.discordNotification = new DiscordNotificationService();
     this.rugCheck = new RugCheckService();
     this.positionMonitor = new PositionMonitorService();
+    this.tradeFeatureRepo = new TradeFeatureRepository();
   }
 
   /**
@@ -253,36 +256,51 @@ export class ConsensusWebhookService {
             },
           });
 
-          // Spoj wallet info s trade info
-          walletsData = wallets.map(w => {
-            const trade = sortedBuys.find(b => b.walletId === w.id);
-            if (!trade) {
+          // Spoj wallet info s trade info a načti market cap pro každý trade
+          walletsData = await Promise.all(
+            wallets.map(async (w) => {
+              const trade = sortedBuys.find(b => b.walletId === w.id);
+              if (!trade) {
+                return {
+                  ...w,
+                  tradeAmountUsd: undefined,
+                  tradePrice: undefined,
+                  tradeTime: undefined,
+                  marketCapUsd: undefined,
+                };
+              }
+              
+              const amountToken = Number(trade.amountToken || 0);
+              const valueUsd = Number(trade.valueUsd || 0);
+              let priceUsdPerToken = 0;
+              if (amountToken > 0 && valueUsd > 0) {
+                priceUsdPerToken = valueUsd / amountToken;
+              } else {
+                priceUsdPerToken = Number(trade.priceBasePerToken || 0);
+              }
+
+              // Načti market cap pro tento trade z TradeFeature (fdvUsd)
+              let marketCapUsd: number | undefined = undefined;
+              try {
+                const tradeFeature = await this.tradeFeatureRepo.findByTradeId(trade.id);
+                if (tradeFeature?.fdvUsd) {
+                  marketCapUsd = tradeFeature.fdvUsd;
+                }
+              } catch (error: any) {
+                // Pokud TradeFeature neexistuje, použijeme undefined (fallback na globální market cap)
+              }
+
               return {
                 ...w,
-                tradeAmountUsd: undefined,
-                tradePrice: undefined,
-                tradeTime: undefined,
+                // Velikost pozice v base tokenu (SOL/USDC/USDT)
+                tradeAmountUsd: Number(trade.amountBase || 0),
+                // Cena v USD za 1 token
+                tradePrice: priceUsdPerToken || undefined,
+                tradeTime: trade.timestamp.toISOString(),
+                marketCapUsd, // Market cap v době trade
               };
-            }
-            
-            const amountToken = Number(trade.amountToken || 0);
-            const valueUsd = Number(trade.valueUsd || 0);
-            let priceUsdPerToken = 0;
-            if (amountToken > 0 && valueUsd > 0) {
-              priceUsdPerToken = valueUsd / amountToken;
-            } else {
-              priceUsdPerToken = Number(trade.priceBasePerToken || 0);
-            }
-
-            return {
-              ...w,
-              // Velikost pozice v base tokenu (SOL/USDC/USDT)
-              tradeAmountUsd: Number(trade.amountBase || 0),
-              // Cena v USD za 1 token
-              tradePrice: priceUsdPerToken || undefined,
-              tradeTime: trade.timestamp.toISOString(),
-            };
-          });
+            })
+          );
           
           const avgWalletScore = walletsData.length > 0
             ? walletsData.reduce((sum, w) => sum + (Number(w.score) || 0), 0) / walletsData.length
@@ -375,6 +393,7 @@ export class ConsensusWebhookService {
               tradeAmountUsd: w.tradeAmountUsd,
               tradePrice: w.tradePrice,
               tradeTime: w.tradeTime,
+              marketCapUsd: w.marketCapUsd, // Market cap v době trade
             })),
             security: securityData,
           };

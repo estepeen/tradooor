@@ -435,27 +435,28 @@ export class DiscordNotificationService {
           return [nameWithLink, ...buyLines].join('\n');
         } else {
           // Pro ostatní signály: zobraz jen aktuální trade (stejný formát jako consensus)
-          const parts = [nameWithLink];
-          
+        const parts = [nameWithLink];
+        
           // Velikost obchodu v base tokenu (např. SOL) + USD hodnota
           // POZOR: tradeAmountUsd je ve skutečnosti v SOL (název je zavádějící)
-          if (w.tradeAmountUsd) {
+        if (w.tradeAmountUsd) {
             const amountBase = w.tradeAmountUsd; // Ve skutečnosti v SOL
             const amountUsd = amountBase * solPriceUsd; // Přepočet na USD
             parts.push(`${this.formatNumber(amountBase, 2)} ${baseToken} ($${this.formatNumber(amountUsd, 0)})`);
-          }
+        }
           
-          // Za @ chceme zobrazit MarketCap (globální pro token), ne cenu
-          if (data.marketCapUsd) {
-            parts.push(`@ $${this.formatNumber(data.marketCapUsd, 0)} MCap`);
+          // Za @ chceme zobrazit MarketCap - použij market cap z doby trade, pokud je k dispozici
+          const tradeMarketCap = w.marketCapUsd ?? data.marketCapUsd;
+          if (tradeMarketCap) {
+            parts.push(`@ $${this.formatNumber(tradeMarketCap, 0)} MCap`);
           }
-          if (w.tradeTime) {
-            const time = new Date(w.tradeTime);
+        if (w.tradeTime) {
+          const time = new Date(w.tradeTime);
             const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-            parts.push(`• ${timeStr}`);
-          }
-          
-          return parts.join(' ');
+          parts.push(`• ${timeStr}`);
+        }
+        
+        return parts.join(' ');
         }
       }).join('\n');
       
@@ -490,7 +491,7 @@ export class DiscordNotificationService {
           const year = now.getFullYear();
           const hours = String(now.getHours()).padStart(2, '0');
           const minutes = String(now.getMinutes()).padStart(2, '0');
-          return `⚡ Powered by STPNGPT•${day}/${month}/${year}, ${hours}:${minutes}`;
+          return `⚡ Powered by STPNGPT • ${day}/${month}/${year}, ${hours}:${minutes}`;
         })(),
       },
       timestamp: new Date().toISOString(),
