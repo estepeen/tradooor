@@ -104,26 +104,16 @@ const COLORS = {
 export class DiscordNotificationService {
   private webhookUrl: string;
   private enabled: boolean;
-  private solPriceCacheService: any;
+  private solPriceCacheService: SolPriceCacheService;
 
   constructor() {
     this.webhookUrl = process.env.DISCORD_WEBHOOK_URL || '';
     this.enabled = !!this.webhookUrl;
+    this.solPriceCacheService = new SolPriceCacheService();
     
     if (!this.enabled) {
       console.warn('⚠️  Discord notifications disabled: DISCORD_WEBHOOK_URL not set');
     }
-    
-    // Lazy load SolPriceCacheService to avoid circular dependencies
-    this.solPriceCacheService = null;
-  }
-  
-  private async getSolPriceCacheService() {
-    if (!this.solPriceCacheService) {
-      const { SolPriceCacheService } = await import('./sol-price-cache.service.js');
-      this.solPriceCacheService = new SolPriceCacheService();
-    }
-    return this.solPriceCacheService;
   }
 
   /**
@@ -393,8 +383,7 @@ export class DiscordNotificationService {
       // Získej SOL cenu pro přepočet na USD
       let solPriceUsd = 150.0; // Fallback
       try {
-        const solPriceService = await this.getSolPriceCacheService();
-        solPriceUsd = await solPriceService.getCurrentSolPrice();
+        solPriceUsd = await this.solPriceCacheService.getCurrentSolPrice();
       } catch (error: any) {
         console.warn(`⚠️  Failed to fetch SOL price for Discord notification, using fallback: $${solPriceUsd}`);
       }
@@ -409,8 +398,9 @@ export class DiscordNotificationService {
         const parts = [nameWithLink];
         
         // Velikost obchodu v base tokenu (např. SOL) + USD hodnota
+        // POZOR: tradeAmountUsd je ve skutečnosti v SOL (název je zavádějící)
         if (w.tradeAmountUsd) {
-          const amountBase = w.tradeAmountUsd; // V SOL (nebo jiném base tokenu)
+          const amountBase = w.tradeAmountUsd; // Ve skutečnosti v SOL
           const amountUsd = amountBase * solPriceUsd; // Přepočet na USD
           parts.push(`${this.formatNumber(amountBase, 2)} ${baseToken} ($${this.formatNumber(amountUsd, 0)})`);
         }

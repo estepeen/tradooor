@@ -44,6 +44,7 @@ export default function Notifications() {
   const [page, setPage] = useState(1);
   const [lastFetchTime, setLastFetchTime] = useState<Date | null>(null);
   const [newTradesCount, setNewTradesCount] = useState(0);
+  const [solPriceUsd, setSolPriceUsd] = useState<number>(150.0); // Fallback SOL price
   const sidebarRef = useRef<HTMLDivElement>(null);
   const ITEMS_PER_PAGE = 20;
   const MAX_TRADES = 100;
@@ -85,6 +86,11 @@ export default function Notifications() {
       });
       
       const newTrades = result.trades || [];
+      
+      // Získej SOL cenu z response (pokud je k dispozici)
+      if (result.solPriceUsd) {
+        setSolPriceUsd(result.solPriceUsd);
+      }
       
       if (since && lastFetchTime && trades.length > 0) {
         // Count new trades by comparing IDs (more reliable than timestamp)
@@ -376,7 +382,16 @@ export default function Notifications() {
                                 return <span className="text-purple-400">void</span>;
                               }
                               const baseToken = normalizeBaseToken(trade.baseToken || 'SOL');
-                              return <span>{formatNumber(trade.amountBase || 0, 2)} {baseToken}</span>;
+                              const amountBase = trade.amountBase || 0;
+                              // Přepočet na USD (pouze pro SOL, pro USDC/USDT je amountBase už v USD)
+                              const amountUsd = baseToken === 'SOL' ? amountBase * solPriceUsd : amountBase;
+                              return (
+                                <>
+                                  <span>{formatNumber(amountBase, 2)} {baseToken}</span>
+                                  {' '}
+                                  <span className="text-muted-foreground">(${formatNumber(amountUsd, 0)})</span>
+                                </>
+                              );
                             })()}
                           </div>
                           <div className="text-xs text-muted-foreground mt-1">

@@ -13,6 +13,7 @@ import { SolscanClient } from '../services/solscan-client.service.js';
 import { BinancePriceService } from '../services/binance-price.service.js';
 import { TokenSecurityService } from '../services/token-security.service.js';
 import { ConsensusSignalRepository } from '../repositories/consensus-signal.repository.js';
+import { SolPriceCacheService } from '../services/sol-price-cache.service.js';
 
 const router = Router();
 const tradeRepo = new TradeRepository();
@@ -31,6 +32,7 @@ const solscanClient = new SolscanClient();
 const binancePriceService = new BinancePriceService();
 const consensusSignalRepo = new ConsensusSignalRepository();
 const tokenSecurityService = new TokenSecurityService();
+const solPriceCacheService = new SolPriceCacheService();
 
 // GET /api/trades?walletId=xxx - Get trades for a wallet
 router.get('/', async (req, res) => {
@@ -365,9 +367,18 @@ router.get('/recent', async (req, res) => {
       };
     });
 
+    // Získej aktuální SOL cenu pro přepočet na USD
+    let solPriceUsd = 150.0; // Fallback
+    try {
+      solPriceUsd = await solPriceCacheService.getCurrentSolPrice();
+    } catch (error: any) {
+      console.warn(`   ⚠️  Failed to fetch SOL price, using fallback: $${solPriceUsd}`);
+    }
+
     res.json({
       trades: formattedTrades,
       total: formattedTrades.length,
+      solPriceUsd, // Přidej SOL cenu pro frontend
     });
   } catch (error: any) {
     console.error('Error fetching recent trades:', error);
