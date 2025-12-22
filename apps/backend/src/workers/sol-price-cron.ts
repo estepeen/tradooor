@@ -12,7 +12,7 @@ dotenv.config();
  *   pnpm --filter backend sol-price:cron
  * 
  * Nebo s vlastním cron schedule (každých 10 minut):
- *   CRON_SCHEDULE="*/10 * * * *" pnpm --filter backend sol-price:cron
+ *   CRON_SCHEDULE="0,10,20,30,40,50 * * * *" pnpm --filter backend sol-price:cron
  */
 async function updateSolPrice() {
   console.log(`\n⏰ [${new Date().toISOString()}] Updating SOL price from Binance...`);
