@@ -164,20 +164,55 @@ export class DiscordNotificationService {
    */
   private buildSignalEmbed(data: SignalNotificationData): DiscordEmbed {
     const birdeyeUrl = `https://birdeye.so/token/${data.tokenMint}?chain=solana`;
-    
-    // Determine color based on AI decision or strength
-    let color = COLORS.medium;
-    if (data.aiDecision) {
-      color = COLORS[data.aiDecision] || COLORS.medium;
+    const baseToken = (data.baseToken || 'SOL').toUpperCase();
+
+    // Entry MCap label for title / trader line
+    const entryMcapLabel = data.marketCapUsd
+      ? `$${this.formatNumber(data.marketCapUsd, 0)}`
+      : 'n/a';
+
+    // Determine color based on high-level signal type (bar color on the left)
+    let color: number;
+    if (data.signalType === 'accumulation') {
+      // Accumulation → žlutá čára
+      color = 0xffff00;
+    } else if (data.signalType === 'consensus' || data.signalType === 'consensus-update') {
+      // Consensus → modrá čára
+      color = 0x0099ff;
+    } else if (
+      data.signalType === 'whale-entry' ||
+      data.signalType === 'conviction-buy' ||
+      data.signalType === 'large-position'
+    ) {
+      // Conviction / whale → červená čára
+      color = 0xff0000;
+    } else if (data.aiDecision) {
+      // Fallback: podle AI rozhodnutí
+      color = COLORS[data.aiDecision] || COLORS[data.strength] || COLORS.medium;
     } else {
+      // Fallback: podle síly signálu
       color = COLORS[data.strength] || COLORS.medium;
     }
 
-    // Build title with emoji based on signal type
-    const signalEmoji = this.getSignalEmoji(data.signalType);
-    const strengthEmoji = data.strength === 'strong' ? '🔥' : data.strength === 'medium' ? '⚡' : '💨';
-    
-    const title = `${signalEmoji} ${data.tokenSymbol} - ${data.signalType.toUpperCase()} Signal ${strengthEmoji}`;
+    // Build title podle typu signálu
+    let title: string;
+    if (data.signalType === 'accumulation') {
+      title = `⚡ ACCUMULATION Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
+    } else if (data.signalType === 'consensus' || data.signalType === 'consensus-update') {
+      title = `💎 CONSENSUS Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
+    } else if (
+      data.signalType === 'whale-entry' ||
+      data.signalType === 'conviction-buy' ||
+      data.signalType === 'large-position'
+    ) {
+      title = `🔥 CONVICTION Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
+    } else {
+      // Ostatní typy necháme v původním formátu
+      const signalEmoji = this.getSignalEmoji(data.signalType);
+      const strengthEmoji =
+        data.strength === 'strong' ? '🔥' : data.strength === 'medium' ? '⚡' : '💨';
+      title = `${signalEmoji} ${data.tokenSymbol} - ${data.signalType.toUpperCase()} Signal ${strengthEmoji}`;
+    }
 
     // Build fields
     const fields: DiscordEmbed['fields'] = [];
@@ -190,7 +225,6 @@ export class DiscordNotificationService {
     });
 
     // Price Info - always show in USD
-    const baseToken = (data.baseToken || 'SOL').toUpperCase();
     console.log(`📨 [Discord] Building embed for ${data.tokenSymbol} - baseToken: ${baseToken}, wallets: ${data.wallets?.length || 0}, walletIds: ${data.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}`);
     const priceInfo = [`**Entry:** $${this.formatNumber(data.entryPriceUsd, 8)}`];
     if (data.marketCapUsd) priceInfo.push(`**MCap:** $${this.formatNumber(data.marketCapUsd, 0)}`);
