@@ -67,15 +67,16 @@ export default function WalletDetailPage() {
       if (pnl) {
         console.log('🔍 [Frontend] Received PnL data from backend:', {
           baseToken: pnl.baseToken,
+          solPriceUsd: pnl.solPriceUsd,
           periods: Object.keys(pnl.periods || {}).map(period => ({
             period,
             pnl: pnl.periods[period]?.pnl,
             pnlUsd: pnl.periods[period]?.pnlUsd,
+            pnlUsdValue: pnl.periods[period]?.pnlUsdValue,
             volumeBase: pnl.periods[period]?.volumeBase,
+            volumeUsdValue: pnl.periods[period]?.volumeUsdValue,
             pnlType: typeof pnl.periods[period]?.pnl,
-            pnlUsdType: typeof pnl.periods[period]?.pnlUsd,
-            pnlString: String(pnl.periods[period]?.pnl),
-            pnlUsdString: String(pnl.periods[period]?.pnlUsd),
+            pnlUsdValueType: typeof pnl.periods[period]?.pnlUsdValue,
           })),
         });
       }
@@ -341,6 +342,13 @@ export default function WalletDetailPage() {
               // Use pnl (SOL) if available, otherwise pnlUsd (which should also be SOL now)
               const pnlValue = data.pnl !== undefined && data.pnl !== null ? data.pnl : data.pnlUsd;
               const pnlUsdValue = data.pnlUsdValue ?? 0; // USD hodnota (vypočítaná z SOL ceny)
+              
+              // Debug: Log if USD value is missing
+              if (pnlUsdValue === 0 && pnlValue !== 0) {
+                console.warn(`⚠️  [Detail] Period ${period}: pnlValue=${pnlValue} but pnlUsdValue=${pnlUsdValue} (missing USD conversion)`);
+                console.warn(`   Data object:`, data);
+              }
+              
               // Ensure baseToken is always set
               const baseToken = normalizeBaseToken(pnlData?.baseToken || 'SOL');
               
