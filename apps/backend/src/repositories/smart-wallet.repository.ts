@@ -186,6 +186,13 @@ export class SmartWalletRepository {
     tags: string[];
     twitterUrl: string | null;
     score: number;
+    enhancedScore: number;
+    percentileRankWinRate: number;
+    percentileRankRoi: number;
+    positionDisciplineScore: number;
+    timingIntelligenceScore: number;
+    categorySpecializationBonus: number;
+    marketRegime: string | null;
     totalTrades: number;
     winRate: number;
     avgRr: number;

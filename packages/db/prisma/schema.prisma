@@ -23,6 +23,13 @@ model SmartWallet {
   
   // Metriky (průběžně přepočítávané)
   score                 Float    @default(0) // Celkové skóre kvality tradera (0-100)
+  enhancedScore         Float    @default(0) // Enhanced skóre podle pokročilého modelu (0-100)
+  percentileRankWinRate Float    @default(0) // Percentil win rate (0-1)
+  percentileRankRoi     Float    @default(0) // Percentil ROI (0-1)
+  positionDisciplineScore Float  @default(0) // Skóre disciplíny velikosti pozic (0-100)
+  timingIntelligenceScore Float  @default(0) // Skóre timingu vstupů/výstupů (0-100)
+  categorySpecializationBonus Float @default(0) // Bonus za specializaci v kategorii (0-15)
+  marketRegime          String?        // 'bull' | 'bear' | 'sideways' (současný tržní režim při výpočtu skóre)
   totalTrades           Int      @default(0) // Celkový počet tradeů
   winRate               Float    @default(0) // Win rate (0-1, např. 0.65 = 65%)
   avgRr                 Float    @default(0) // Průměrný risk/reward poměr
@@ -185,6 +192,11 @@ model TradeFeature {
   meta                         Json?
   createdAt                    DateTime @default(now())
   updatedAt                    DateTime @updatedAt
+
+  // Enhanced scoring features
+  entryRankPercentile          Decimal? @db.Decimal(36, 18) // Kdy wallet vstoupila relativně k ostatním (0-1, lower = earlier)
+  exitEfficiency               Decimal? @db.Decimal(36, 18) // Jak blízko k lokálnímu maximu/minimu exitoval trade (0-1)
+  tokenCategory                String?  // Např. 'meme', 'defi', 'nft' – pro category specialization
 
   // Market context features (pro AI/ML)
   priceMomentum1mPercent        Decimal? @db.Decimal(36, 18) // Změna ceny 1 min před trade

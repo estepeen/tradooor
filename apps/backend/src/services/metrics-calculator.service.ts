@@ -59,7 +59,75 @@ type ScoreBreakdown = {
   sampleFactor: number;
   walletScoreRaw: number;
   smartScore: number;
+  // Enhanced scoring (optional, experimental)
+  enhancedScore?: number;
+  enhancedBreakdown?: any;
+  enhancedAdjustments?: any;
 };
+
+// ============================================================================
+// ENHANCED SCORING TYPES (experimental, builds on existing implementation)
+// ============================================================================
+
+export interface EnhancedScoreWeights {
+  performance: number;
+  consistency: number;
+  risk_management: number;
+  speed_intelligence: number;
+  recent_form: number;
+  position_discipline: number;
+  market_adaptation: number;
+  category_specialization: number;
+}
+
+export const ENHANCED_WEIGHTS: EnhancedScoreWeights = {
+  performance: 0.30,
+  consistency: 0.20,
+  risk_management: 0.20,
+  speed_intelligence: 0.12,
+  recent_form: 0.08,
+  position_discipline: 0.05,
+  market_adaptation: 0.03,
+  // Category specialization temporarily disabled (weights kept for future use)
+  category_specialization: 0,
+};
+
+export interface MarketRegime {
+  regime: 'bull' | 'bear' | 'sideways';
+  solPriceChange30d: number;
+  volatility: number;
+}
+
+export interface WalletPercentileRanks {
+  walletId: string;
+  winRatePercentile: number;
+  roiPercentile: number;
+  profitFactorPercentile: number;
+  volumePercentile: number;
+  updatedAt: Date;
+}
+
+export interface PositionDisciplineMetrics {
+  positionSizeConsistency: number;
+  avgPositionSizePercent: number;
+  oversizedTradesCount: number;
+  portfolioConcentration: number;
+}
+
+export interface TimingIntelligenceMetrics {
+  avgEntryCohort: 'early' | 'middle' | 'late';
+  avgExitEfficiency: number;
+  lossCutSpeed: number;
+  profitTakeSpeed: number;
+  lossCutDiscipline: number;
+}
+
+export interface CategorySpecialization {
+  primaryCategory: string;
+  categoryConcentration: number;
+  categoryWinRate: Record<string, number>;
+  specialistBonus: number;
+}
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
@@ -90,8 +158,475 @@ const stdDeviation = (values: number[]): number => {
   return Math.sqrt(variance);
 };
 
+// ============================================================================
+// ENHANCED METRICS CALCULATOR (experimental)
+// ============================================================================
+
+export class EnhancedMetricsCalculator {
+  /**
+   * 1. TIME-WEIGHTED WIN RATE (exponential decay)
+   * Recent trades get higher weight.
+   */
+  calculateTimeWeightedWinRate(lots: ClosedLotRecord[], decayFactor = 0.95): number {
+    if (!lots.length) return 0;
+
+    const now = Date.now();
+    const sortedLots = [...lots].sort(
+      (a, b) => b.exitTime.getTime() - a.exitTime.getTime()
+    );
+
+    let weightedWins = 0;
+    let totalWeight = 0;
+
+    for (const lot of sortedLots) {
+      const daysAgo =
+        (now - lot.exitTime.getTime()) / (1000 * 60 * 60 * 24);
+      const weight = Math.pow(decayFactor, daysAgo);
+
+      totalWeight += weight;
+      if (lot.realizedPnl > 0) {
+        weightedWins += weight;
+      }
+    }
+
+    return totalWeight > 0 ? weightedWins / totalWeight : 0;
+  }
+
+  /**
+   * 4. POSITION SIZING DISCIPLINE SCORE
+   * Penalize erratic position sizing (gambling behavior)
+   */
+  calculatePositionDiscipline(lots: ClosedLotRecord[]): PositionDisciplineMetrics {
+    if (!lots.length) {
+      return {
+        positionSizeConsistency: 50,
+        avgPositionSizePercent: 0,
+        oversizedTradesCount: 0,
+        portfolioConcentration: 0,
+      };
+    }
+
+    const positionSizes = lots.map(lot => Math.max(lot.costBasis, 0));
+    const avgSize =
+      positionSizes.reduce((sum, size) => sum + size, 0) /
+      positionSizes.length;
+    const variance = this.variance(positionSizes);
+    const stdDev = Math.sqrt(variance);
+    const coefficientOfVariation =
+      avgSize > 0 ? stdDev / avgSize : 0;
+
+    // Lower CV = higher consistency (0.3 = good, 1.0 = erratic)
+    const positionSizeConsistency = Math.max(
+      0,
+      100 - coefficientOfVariation * 100
+    );
+
+    // Oversized trades (>3x average size)
+    const oversizedTradesCount = positionSizes.filter(
+      size => size > avgSize * 3
+    ).length;
+
+    // Portfolio concentration (Herfindahl index by token)
+    const tokenExposure = new Map<string, number>();
+    let totalValue = 0;
+    for (const lot of lots) {
+      const existing = tokenExposure.get(lot.tokenId) || 0;
+      const value = Math.max(lot.costBasis, 0);
+      tokenExposure.set(lot.tokenId, existing + value);
+      totalValue += value;
+    }
+
+    let herfindahl = 0;
+    for (const exposure of tokenExposure.values()) {
+      const share = totalValue > 0 ? exposure / totalValue : 0;
+      herfindahl += share * share;
+    }
+
+    return {
+      positionSizeConsistency,
+      avgPositionSizePercent: avgSize,
+      oversizedTradesCount,
+      portfolioConcentration: herfindahl,
+    };
+  }
+
+  /**
+   * 5. ENHANCED TIMING INTELLIGENCE
+   * Measure not just entry/exit efficiency, but SPEED of loss cutting.
+   * Uses per-trade features when available, falls back to closed lots.
+   */
+  calculateTimingIntelligence(
+    lots: ClosedLotRecord[],
+    features: TradeFeatureRecord[]
+  ): TimingIntelligenceMetrics {
+    if (!lots.length && !features.length) {
+      return {
+        avgEntryCohort: 'middle',
+        avgExitEfficiency: 0,
+        lossCutSpeed: 0,
+        profitTakeSpeed: 0,
+        lossCutDiscipline: 50,
+      };
+    }
+
+    // Entry timing: use entryRankPercentile from features (0 = earliest)
+    const entryRanks: number[] = [];
+    for (const feature of features) {
+      if (feature.entryRankPercentile !== null && feature.entryRankPercentile !== undefined) {
+        entryRanks.push(feature.entryRankPercentile);
+      }
+    }
+    const avgEntryRank =
+      entryRanks.length > 0
+        ? entryRanks.reduce((sum, r) => sum + r, 0) / entryRanks.length
+        : 0.5;
+
+    const avgEntryCohort =
+      avgEntryRank < 0.2 ? 'early' : avgEntryRank < 0.6 ? 'middle' : 'late';
+
+    // Exit efficiency
+    const exitEfficiencies = features
+      .map(f => f.exitEfficiency)
+      .filter((e): e is number => e !== null && e !== undefined);
+    const avgExitEfficiency =
+      exitEfficiencies.length > 0
+        ? exitEfficiencies.reduce((sum, e) => sum + e, 0) / exitEfficiencies.length
+        : 0;
+
+    // Loss cutting / profit taking speed from lots
+    const losingTrades = lots.filter(lot => lot.realizedPnl <= 0);
+    const winningTrades = lots.filter(lot => lot.realizedPnl > 0);
+
+    const lossCutSpeed =
+      losingTrades.length > 0
+        ? this.median(losingTrades.map(lot => lot.holdTimeMinutes))
+        : 0;
+
+    const profitTakeSpeed =
+      winningTrades.length > 0
+        ? this.median(winningTrades.map(lot => lot.holdTimeMinutes))
+        : 0;
+
+    const idealLossCutMinutes = 60; // 1 hour
+    const lossCutDiscipline =
+      lossCutSpeed > 0 && lossCutSpeed < 240
+        ? Math.max(0, 100 - Math.abs(lossCutSpeed - idealLossCutMinutes))
+        : 50;
+
+    return {
+      avgEntryCohort,
+      avgExitEfficiency,
+      lossCutSpeed,
+      profitTakeSpeed,
+      lossCutDiscipline,
+    };
+  }
+
+  /**
+   * 6. CATEGORY SPECIALIZATION BONUS
+   * Currently a neutral implementation – requires token categories in features.
+   */
+  calculateCategorySpecialization(
+    lots: ClosedLotRecord[],
+    features: TradeFeatureRecord[]
+  ): CategorySpecialization {
+    if (!features.length || !lots.length) {
+      return {
+        primaryCategory: 'unknown',
+        categoryConcentration: 0,
+        categoryWinRate: {},
+        specialistBonus: 0,
+      };
+    }
+
+    const categoryMap = new Map<string, { wins: number; total: number }>();
+
+    for (const feature of features) {
+      if (!feature.tokenCategory) continue;
+      const category = feature.tokenCategory;
+
+      if (!categoryMap.has(category)) {
+        categoryMap.set(category, { wins: 0, total: 0 });
+      }
+
+      // Find corresponding lot: same tokenId and close in time
+      const lot = lots.find(
+        l =>
+          l.tokenId === feature.tokenId &&
+          Math.abs(l.entryTime.getTime() - (feature.txTimestamp?.getTime() ?? l.entryTime.getTime())) <
+            10_000
+      );
+
+      const stats = categoryMap.get(category)!;
+      stats.total++;
+      if (lot && lot.realizedPnl > 0) {
+        stats.wins++;
+      }
+    }
+
+    let primaryCategory = 'unknown';
+    let maxCount = 0;
+    const categoryWinRate: Record<string, number> = {};
+
+    for (const [category, stats] of categoryMap.entries()) {
+      categoryWinRate[category] =
+        stats.total > 0 ? stats.wins / stats.total : 0;
+      if (stats.total > maxCount) {
+        maxCount = stats.total;
+        primaryCategory = category;
+      }
+    }
+
+    const totalTrades = features.length;
+    const categoryConcentration =
+      totalTrades > 0 ? maxCount / totalTrades : 0;
+
+    const primaryWinRate = categoryWinRate[primaryCategory] || 0;
+    let specialistBonus = 0;
+    if (categoryConcentration > 0.7 && primaryWinRate > 0.6) {
+      specialistBonus = 15;
+    } else if (categoryConcentration > 0.6 && primaryWinRate > 0.55) {
+      specialistBonus = 10;
+    } else if (categoryConcentration > 0.5 && primaryWinRate > 0.5) {
+      specialistBonus = 5;
+    }
+
+    return {
+      primaryCategory,
+      categoryConcentration,
+      categoryWinRate,
+      specialistBonus,
+    };
+  }
+
+  /**
+   * 7. MARKET REGIME ADAPTATION
+   * Reward wallets that are consistent across different periods.
+   */
+  calculateMarketAdaptationScore(
+    lots: ClosedLotRecord[],
+    _currentRegime: MarketRegime
+  ): number {
+    const lotsByPeriod = this.groupLotsByTimeWindow(lots, 30); // 30-day windows
+
+    if (lotsByPeriod.length < 2) {
+      return 50; // Not enough data
+    }
+
+    const winRates = lotsByPeriod.map(period => {
+      const wins = period.filter(lot => lot.realizedPnl > 0).length;
+      return period.length > 0 ? wins / period.length : 0;
+    });
+
+    const variance = this.variance(winRates);
+    const stdDev = Math.sqrt(variance);
+
+    // Lower variance = more consistent across regimes = higher score
+    const consistencyScore = Math.max(0, 100 - stdDev * 200);
+
+    return consistencyScore;
+  }
+
+  /**
+   * 8. ENHANCED FINAL SCORE CALCULATION
+   * Combines all metrics with weights and sample factor.
+   *
+   * NOTE: Cross-wallet percentiles are approximated here using
+   * wallet-local stats until a global percentile cron is implemented.
+   */
+  calculateEnhancedScore(params: {
+    lots: ClosedLotRecord[];
+    features: TradeFeatureRecord[];
+    rolling30d: RollingWindowStats | undefined;
+    rolling90d: RollingWindowStats | undefined;
+    percentileRanks: WalletPercentileRanks;
+    marketRegime: MarketRegime;
+  }): {
+    score: number;
+    breakdown: any;
+    adjustments: any;
+  } {
+    const { lots, features, rolling30d, rolling90d, percentileRanks, marketRegime } = params;
+
+    const timeWeightedWinRate = this.calculateTimeWeightedWinRate(lots);
+    const positionDiscipline = this.calculatePositionDiscipline(lots);
+    const timingIntelligence = this.calculateTimingIntelligence(lots, features);
+    const categorySpec = this.calculateCategorySpecialization(lots, features);
+    const marketAdaptation = this.calculateMarketAdaptationScore(
+      lots,
+      marketRegime
+    );
+
+    // Performance (30%) - use percentile ranking
+    const performanceScore =
+      (percentileRanks.roiPercentile * 0.5 +
+        percentileRanks.profitFactorPercentile * 0.3 +
+        timeWeightedWinRate * 0.2) *
+      100;
+
+    // Consistency (20%)
+    const consistencyScore =
+      (timeWeightedWinRate * 0.6 +
+        percentileRanks.winRatePercentile * 0.4) *
+      100;
+
+    // Risk Management (20%)
+    const drawdownPenalty = Math.min(
+      Math.abs(rolling90d?.maxDrawdownPercent ?? 0),
+      50
+    );
+    const riskScore =
+      (100 - drawdownPenalty) * 0.6 +
+      positionDiscipline.positionSizeConsistency * 0.4;
+
+    // Speed Intelligence (12%)
+    const speedScore =
+      timingIntelligence.avgExitEfficiency * 100 * 0.5 +
+      timingIntelligence.lossCutDiscipline * 0.5;
+
+    // Recent Form (8%)
+    const recentFormScore = Math.max(
+      0,
+      Math.min(
+        100,
+        (rolling30d?.realizedRoiPercent ?? 0) / 2 + 50
+      )
+    );
+
+    // Position Discipline (5%)
+    const disciplineScore =
+      positionDiscipline.positionSizeConsistency * 0.7 +
+      Math.max(
+        0,
+        100 - positionDiscipline.portfolioConcentration * 100
+      ) *
+        0.3;
+
+    // Market Adaptation (3%)
+    const adaptationScore = marketAdaptation;
+
+    // Category Specialization (2%)
+    const specializationScore = 50 + categorySpec.specialistBonus * 3.33;
+
+    const rawScore =
+      performanceScore * ENHANCED_WEIGHTS.performance +
+      consistencyScore * ENHANCED_WEIGHTS.consistency +
+      riskScore * ENHANCED_WEIGHTS.risk_management +
+      speedScore * ENHANCED_WEIGHTS.speed_intelligence +
+      recentFormScore * ENHANCED_WEIGHTS.recent_form +
+      disciplineScore * ENHANCED_WEIGHTS.position_discipline +
+      adaptationScore * ENHANCED_WEIGHTS.market_adaptation +
+      specializationScore * ENHANCED_WEIGHTS.category_specialization;
+
+    // Sample factor – reuse 90d window stats
+    const trades = rolling90d?.numClosedTrades ?? 0;
+    const volume = rolling90d?.totalVolumeUsd ?? 0;
+    const tradeFactor = trades > 0 ? Math.log10(trades + 1) : 0;
+    const volumeFactor =
+      volume > 0 ? Math.log10(volume / 100 + 1) : 0;
+    const sampleFactor = Math.min(
+      1,
+      0.5 * tradeFactor + 0.5 * volumeFactor
+    );
+
+    // Market regime adjustment
+    let regimeMultiplier = 1.0;
+    if (marketRegime.regime === 'bear' && percentileRanks.roiPercentile > 0.7) {
+      regimeMultiplier = 1.1;
+    } else if (
+      marketRegime.regime === 'bull' &&
+      percentileRanks.roiPercentile < 0.3
+    ) {
+      regimeMultiplier = 0.9;
+    }
+
+    const finalScore = clamp(rawScore * sampleFactor * regimeMultiplier, 0, 100);
+
+    return {
+      score: finalScore,
+      breakdown: {
+        performanceScore,
+        consistencyScore,
+        riskScore,
+        speedScore,
+        recentFormScore,
+        disciplineScore,
+        adaptationScore,
+        specializationScore,
+      },
+      adjustments: {
+        sampleFactor,
+        regimeMultiplier,
+        timeWeightedWinRate,
+        percentileRanks,
+        positionDiscipline,
+        timingIntelligence,
+        categorySpec,
+      },
+    };
+  }
+
+  // Helper methods
+  private median(values: number[]): number {
+    if (!values.length) return 0;
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0
+      ? (sorted[mid - 1] + sorted[mid]) / 2
+      : sorted[mid];
+  }
+
+  private variance(values: number[]): number {
+    if (values.length <= 1) return 0;
+    const mean =
+      values.reduce((sum, v) => sum + v, 0) / values.length;
+    return (
+      values.reduce((sum, v) => sum + Math.pow(v - mean, 2), 0) /
+      values.length
+    );
+  }
+
+  private groupLotsByTimeWindow(
+    lots: ClosedLotRecord[],
+    windowDays: number
+  ): ClosedLotRecord[][] {
+    if (!lots.length) return [];
+
+    const sorted = [...lots].sort(
+      (a, b) => a.exitTime.getTime() - b.exitTime.getTime()
+    );
+    const windows: ClosedLotRecord[][] = [];
+
+    let currentWindow: ClosedLotRecord[] = [];
+    let windowStart = sorted[0].exitTime;
+
+    for (const lot of sorted) {
+      const daysSinceStart =
+        (lot.exitTime.getTime() - windowStart.getTime()) /
+        (1000 * 60 * 60 * 24);
+
+      if (daysSinceStart > windowDays) {
+        if (currentWindow.length > 0) {
+          windows.push(currentWindow);
+        }
+        currentWindow = [lot];
+        windowStart = lot.exitTime;
+      } else {
+        currentWindow.push(lot);
+      }
+    }
+
+    if (currentWindow.length > 0) {
+      windows.push(currentWindow);
+    }
+
+    return windows;
+  }
+}
+
 export class MetricsCalculatorService {
   private binancePriceService: BinancePriceService;
+  private enhancedCalculator: EnhancedMetricsCalculator;
 
   constructor(
     private smartWalletRepo: SmartWalletRepository,
@@ -101,6 +636,7 @@ export class MetricsCalculatorService {
     private tradeFeatureRepo: TradeFeatureRepository = new TradeFeatureRepository()
   ) {
     this.binancePriceService = new BinancePriceService();
+    this.enhancedCalculator = new EnhancedMetricsCalculator();
   }
 
   /**
@@ -162,6 +698,26 @@ export class MetricsCalculatorService {
     const score = shouldFallbackToLegacy
       ? legacyScore
       : rollingInsights.scores.smartScore ?? legacyScore;
+    const enhancedScore = rollingInsights.scores.enhancedScore ?? score;
+
+    // Extract component scores (safe fallbacks)
+    const enhancedBreakdown = rollingInsights.scores.enhancedBreakdown as
+      | {
+          disciplineScore?: number;
+          speedScore?: number;
+        }
+      | undefined;
+    const enhancedAdjustments = rollingInsights.scores.enhancedAdjustments as
+      | {
+          categorySpec?: { specialistBonus?: number };
+        }
+      | undefined;
+
+    const positionDisciplineScore =
+      enhancedBreakdown?.disciplineScore ?? 0;
+    const timingIntelligenceScore = enhancedBreakdown?.speedScore ?? 0;
+    const categorySpecializationBonus =
+      enhancedAdjustments?.categorySpec?.specialistBonus ?? 0;
 
     const advancedStatsPayload = legacyAdvancedStats ? { ...legacyAdvancedStats } : {};
     const advancedStatsRaw = {
@@ -191,6 +747,10 @@ export class MetricsCalculatorService {
     // Update wallet metrics
     await this.smartWalletRepo.update(walletId, {
       score,
+      enhancedScore,
+      positionDisciplineScore,
+      timingIntelligenceScore,
+      categorySpecializationBonus,
       totalTrades,
       winRate,
       avgRr,
@@ -501,6 +1061,9 @@ export class MetricsCalculatorService {
     const earliest = new Date(now);
     earliest.setDate(earliest.getDate() - MAX_WINDOW_DAYS);
 
+    // Načti aktuální wallet z DB kvůli percentilům a market regime
+    const walletRow = await this.smartWalletRepo.findById(walletId);
+
     // DŮLEŽITÉ: PnL se počítá POUZE z ClosedLot (jednotný princip)
     // ClosedLot se vytváří v worker queue a metrics cron před výpočtem metrik
     // Pokud ClosedLot neexistují, PnL = 0 (žádný fallback!)
@@ -535,7 +1098,16 @@ export class MetricsCalculatorService {
     }
 
     const behaviour = this.buildBehaviourStats(tradeFeatures);
-    const scores = this.buildScoreBreakdown(rolling, behaviour);
+    const scores = this.buildScoreBreakdown(
+      rolling,
+      behaviour,
+      {
+        walletId,
+        closedLots,
+        tradeFeatures,
+        wallet: walletRow as any,
+      }
+    );
 
     return { rolling, behaviour, scores };
   }
@@ -741,7 +1313,13 @@ export class MetricsCalculatorService {
 
   private buildScoreBreakdown(
     rolling: Record<RollingWindowLabel, RollingWindowStats>,
-    behaviour: BehaviourStats
+    behaviour: BehaviourStats,
+    context: {
+      walletId: string;
+      closedLots: ClosedLotRecord[];
+      tradeFeatures: TradeFeatureRecord[];
+      wallet: any | null;
+    }
   ): ScoreBreakdown {
     const stats30 = rolling['30d'];
     const stats90 = rolling['90d'];
@@ -757,7 +1335,87 @@ export class MetricsCalculatorService {
       0.2 * riskScore +
       0.15 * behaviourScore;
 
-    const smartScore = clamp(walletScoreRaw * sampleFactor, 0, 100);
+    const baseSmartScore = clamp(walletScoreRaw * sampleFactor, 0, 100);
+
+    // ----------------------------------------------------------------------
+    // Enhanced score (experimental) – builds on top of rolling stats
+    // ----------------------------------------------------------------------
+    let enhancedScore: number | undefined;
+    let enhancedBreakdown: any | undefined;
+    let enhancedAdjustments: any | undefined;
+
+    try {
+      const wallet = context.wallet;
+
+      // Prefer true cross-wallet percentiles from DB (wallet-percentiles cron),
+      // fallback to local approximations if not available.
+      const dbWinRatePct =
+        typeof wallet?.percentileRankWinRate === 'number'
+          ? wallet.percentileRankWinRate
+          : undefined;
+      const dbRoiPct =
+        typeof wallet?.percentileRankRoi === 'number'
+          ? wallet.percentileRankRoi
+          : undefined;
+
+      const percentileRanks: WalletPercentileRanks = {
+        walletId: context.walletId,
+        winRatePercentile:
+          dbWinRatePct !== undefined
+            ? clamp(dbWinRatePct, 0, 1)
+            : clamp(stats30?.winRate ?? 0, 0, 1),
+        roiPercentile:
+          dbRoiPct !== undefined
+            ? clamp(dbRoiPct, 0, 1)
+            : clamp(
+                ((stats90?.realizedRoiPercent ?? 0) + 100) / 200,
+                0,
+                1
+              ),
+        profitFactorPercentile: 0.5,
+        volumePercentile: clamp(
+          Math.log10((stats90?.totalVolumeUsd ?? 0) / 100 + 1) / 3,
+          0,
+          1
+        ),
+        updatedAt: new Date(),
+      };
+
+      const regimeStr = wallet?.marketRegime as
+        | 'bull'
+        | 'bear'
+        | 'sideways'
+        | undefined;
+      const marketRegime: MarketRegime = {
+        regime: regimeStr ?? 'sideways',
+        solPriceChange30d: 0,
+        volatility: Math.abs(stats90?.volatilityPercent ?? 0),
+      };
+
+      const enhanced = this.enhancedCalculator.calculateEnhancedScore({
+        lots: context.closedLots,
+        features: context.tradeFeatures,
+        rolling30d: stats30,
+        rolling90d: stats90,
+        percentileRanks,
+        marketRegime,
+      });
+
+      enhancedScore = enhanced.score;
+      enhancedBreakdown = enhanced.breakdown;
+      enhancedAdjustments = enhanced.adjustments;
+    } catch (error) {
+      console.warn(
+        `⚠️  Failed to calculate enhanced score for wallet ${context.walletId}:`,
+        (error as any)?.message || error
+      );
+    }
+
+    const smartScore = clamp(
+      enhancedScore !== undefined ? enhancedScore : baseSmartScore,
+      0,
+      100
+    );
 
     return {
       profitabilityScore,
@@ -767,6 +1425,9 @@ export class MetricsCalculatorService {
       sampleFactor,
       walletScoreRaw,
       smartScore,
+      enhancedScore,
+      enhancedBreakdown,
+      enhancedAdjustments,
     };
   }
 

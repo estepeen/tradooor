@@ -46,6 +46,10 @@ export interface TradeFeatureRecord {
   baseTokenSymbol: string | null;
   meta: Record<string, any> | null;
   side: string | null;
+  // Enhanced scoring features
+  entryRankPercentile: number | null;
+  exitEfficiency: number | null;
+  tokenCategory: string | null;
 }
 
 export type TradeFeatureBaseInput = {
@@ -77,6 +81,10 @@ export type TradeFeatureBaseInput = {
   dayOfWeek?: number | null;
   baseTokenSymbol?: string | null;
   meta?: Record<string, any> | null;
+  // Enhanced scoring features (optional)
+  entryRankPercentile?: number | null;
+  exitEfficiency?: number | null;
+  tokenCategory?: string | null;
 };
 
 export type TradeFeatureRealizedInput = {
@@ -120,6 +128,9 @@ export class TradeFeatureRepository {
         dayOfWeek: data.dayOfWeek ?? null,
         baseTokenSymbol: data.baseTokenSymbol ?? null,
         meta: data.meta as any,
+        entryRankPercentile: toDecimal(data.entryRankPercentile),
+        exitEfficiency: toDecimal(data.exitEfficiency),
+        tokenCategory: data.tokenCategory ?? null,
       },
       update: {
         sizeToken: toDecimal(data.sizeToken),
@@ -147,6 +158,9 @@ export class TradeFeatureRepository {
         dayOfWeek: data.dayOfWeek ?? null,
         baseTokenSymbol: data.baseTokenSymbol ?? null,
         meta: data.meta as any,
+        entryRankPercentile: toDecimal(data.entryRankPercentile),
+        exitEfficiency: toDecimal(data.exitEfficiency),
+        tokenCategory: data.tokenCategory ?? null,
         updatedAt: new Date(),
       },
     });
@@ -257,6 +271,15 @@ export class TradeFeatureRepository {
     }
     if (data.avgTimeSinceOtherTradersTradeSeconds !== undefined) {
       updateData.avgTimeSinceOtherTradersTradeSeconds = data.avgTimeSinceOtherTradersTradeSeconds;
+    }
+    if (data.entryRankPercentile !== undefined) {
+      updateData.entryRankPercentile = toDecimal(data.entryRankPercentile as any);
+    }
+    if (data.exitEfficiency !== undefined) {
+      updateData.exitEfficiency = toDecimal(data.exitEfficiency as any);
+    }
+    if (data.tokenCategory !== undefined) {
+      updateData.tokenCategory = data.tokenCategory;
     }
     if (data.copyTraderScore !== undefined) {
       updateData.copyTraderScore = data.copyTraderScore ? toDecimal(Number(data.copyTraderScore)) : null;
