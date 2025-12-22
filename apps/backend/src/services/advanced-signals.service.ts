@@ -929,9 +929,9 @@ export class AdvancedSignalsService {
                 address: wallet?.address || '',
                 walletId: wallet?.id, // Add wallet ID for profile link
                 score: wallet?.score || 0,
-                // Show trade size in USD
-                tradeAmountUsd: trade.valueUsd != null ? Number(trade.valueUsd) : undefined,
-                // Show price in USD per token (prefer valueUsd/amountToken)
+                // Velikost pozice v base tokenu (SOL/USDC/USDT)
+                tradeAmountUsd: Number(trade.amountBase || 0),
+                // Cena v USD za 1 token (preferuj valueUsd/amountToken, fallback na base price)
                 tradePrice: (() => {
                   const amountToken = Number(trade.amountToken || 0);
                   const valueUsd = Number(trade.valueUsd || 0);

@@ -276,9 +276,9 @@ export class ConsensusWebhookService {
 
             return {
               ...w,
-              // Trade size in USD (if known)
-              tradeAmountUsd: valueUsd > 0 ? valueUsd : undefined,
-              // Price per token in USD
+              // Velikost pozice v base tokenu (SOL/USDC/USDT)
+              tradeAmountUsd: Number(trade.amountBase || 0),
+              // Cena v USD za 1 token
               tradePrice: priceUsdPerToken || undefined,
               tradeTime: trade.timestamp.toISOString(),
             };

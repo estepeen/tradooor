@@ -340,7 +340,7 @@ export class DiscordNotificationService {
       }
     }
 
-    // Wallets with trade details (show all) - add profile links and show values in USD
+    // Wallets with trade details (show all) - add profile links
     if (data.wallets && data.wallets.length > 0) {
       const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://tradooor.stepanpanek.cz';
       const walletDetails = data.wallets.map((w) => {
@@ -352,11 +352,13 @@ export class DiscordNotificationService {
         
         const parts = [nameWithLink];
         
+        // Velikost obchodu v base tokenu (např. SOL)
         if (w.tradeAmountUsd) {
-          parts.push(`$${this.formatNumber(w.tradeAmountUsd, 2)}`);
+          parts.push(`${this.formatNumber(w.tradeAmountUsd, 2)} ${baseToken}`);
         }
-        if (w.tradePrice) {
-          parts.push(`@ $${this.formatNumber(w.tradePrice, 8)}`);
+        // Za @ chceme zobrazit MarketCap (globální pro token), ne cenu
+        if (data.marketCapUsd) {
+          parts.push(`@ $${this.formatNumber(data.marketCapUsd, 0)}`);
         }
         if (w.tradeTime) {
           const time = new Date(w.tradeTime);
