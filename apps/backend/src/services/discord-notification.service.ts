@@ -494,7 +494,6 @@ export class DiscordNotificationService {
           return `⚡ Powered by STPNGPT • ${day}/${month}/${year}, ${hours}:${minutes}`;
         })(),
       },
-      timestamp: new Date().toISOString(),
     };
   }
 
