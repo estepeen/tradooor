@@ -412,10 +412,10 @@ export default function Home() {
                       return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
                     }
                     if (sortBy === 'recentPnl30dUsd') {
-                      // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dBase
+                      // DŮLEŽITÉ: Použij recentPnl30dBase z backendu (stejný výpočet jako detail)
+                      // Backend endpoint /api/smart-wallets teď počítá PnL stejným způsobem jako /pnl endpoint
                       const getPnlBase = (w: any) => {
-                        const rolling30d = w.advancedStats?.rolling?.['30d'];
-                        return rolling30d?.realizedPnl ?? w.recentPnl30dBase ?? w.recentPnl30dUsd ?? 0; // PnL v SOL
+                        return w.recentPnl30dBase ?? 0; // PnL v SOL (z ClosedLot, stejný výpočet jako detail)
                       };
                       const aPnl = getPnlBase(a);
                       const bPnl = getPnlBase(b);
@@ -448,10 +448,10 @@ export default function Home() {
                       }
                     }
                     if (sortBy === 'recentPnl30dPercent') {
-                      // Use advancedStats.rolling['30d'] if available (same as detail page), otherwise fallback to recentPnl30dPercent
+                      // DŮLEŽITÉ: Použij recentPnl30dPercent z backendu (stejný výpočet jako detail)
+                      // Backend endpoint /api/smart-wallets teď počítá PnL stejným způsobem jako /pnl endpoint
                       const getPnlPercent = (w: any) => {
-                        const rolling30d = w.advancedStats?.rolling?.['30d'];
-                        return rolling30d?.realizedRoiPercent ?? w.recentPnl30dPercent ?? 0;
+                        return w.recentPnl30dPercent ?? 0;
                       };
                       const aPnl = getPnlPercent(a);
                       const bPnl = getPnlPercent(b);
@@ -553,38 +553,22 @@ export default function Home() {
                       </td>
                       <td className={`px-4 py-3 text-right text-sm font-medium ${
                         (() => {
-                          // DŮLEŽITÉ: Použij stejnou logiku jako detail tradera - rolling stats z ClosedLot
-                          // Detail tradera používá /pnl endpoint, který počítá PnL z ClosedLot filtrovaných podle exitTime >= 30d ago
-                          // Rolling stats v advancedStats se počítají stejně (z ClosedLot filtrovaných podle exitTime)
-                          const rolling30d = (wallet.advancedStats as any)?.rolling?.['30d'];
-                          const pnlPercent = rolling30d?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
+                          // DŮLEŽITÉ: Použij recentPnl30dBase a recentPnl30dPercent z backendu
+                          // Backend endpoint /api/smart-wallets teď počítá PnL stejným způsobem jako /pnl endpoint:
+                          // 1. Načte všechny ClosedLot pro wallet
+                          // 2. Filtruje podle exitTime >= 30d ago
+                          // 3. Sečte realizedPnl z těchto ClosedLot
+                          // Toto je IDENTICKÝ výpočet jako v detailu tradera
+                          const pnlPercent = wallet.recentPnl30dPercent ?? 0;
                           return pnlPercent >= 0 ? 'text-green-600' : 'text-red-600';
                         })()
                       }`}>
                         {(() => {
-                          // DŮLEŽITÉ: Použij POUZE rolling stats z advancedStats (stejný výpočet jako detail tradera)
-                          // Detail tradera používá /pnl endpoint, který:
-                          // 1. Načte všechny ClosedLot pro wallet
-                          // 2. Filtruje podle exitTime >= 30d ago
-                          // 3. Sečte realizedPnl z těchto ClosedLot
-                          // Rolling stats v advancedStats se počítají stejně v metrics-calculator.service.ts
-                          // NEPOUŽÍVEJ recentPnl30dBase/recentPnl30dUsd - to může být jiný výpočet!
-                          const rolling30d = (wallet.advancedStats as any)?.rolling?.['30d'];
-                          if (!rolling30d) {
-                            // Fallback pouze pokud rolling stats nejsou dostupné (staré walletky)
-                            const pnlBase = wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0;
-                            const pnlPercent = wallet.recentPnl30dPercent ?? 0;
-                            const formattedPnl = formatNumber(Math.abs(pnlBase), 2);
-                            return (
-                              <>
-                                {formattedPnl} SOL{' '}
-                                ({(pnlPercent >= 0 ? '+' : '')}{formatPercent(pnlPercent / 100)})
-                              </>
-                            );
-                          }
-                          // Použij rolling stats (stejný výpočet jako detail tradera)
-                          const pnlBase = rolling30d.realizedPnl ?? 0; // PnL v SOL (z ClosedLot)
-                          const pnlPercent = rolling30d.realizedRoiPercent ?? 0;
+                          // DŮLEŽITÉ: Použij recentPnl30dBase a recentPnl30dPercent z backendu (stejný výpočet jako detail)
+                          // Backend endpoint /api/smart-wallets teď počítá PnL stejným způsobem jako /pnl endpoint
+                          // NEPOUŽÍVEJ rolling30d.realizedPnl z advancedStats - backend teď vrací správné hodnoty
+                          const pnlBase = wallet.recentPnl30dBase ?? 0; // PnL v SOL (z ClosedLot, stejný výpočet jako detail)
+                          const pnlPercent = wallet.recentPnl30dPercent ?? 0;
                           const formattedPnl = formatNumber(Math.abs(pnlBase), 2);
                           return (
                             <>

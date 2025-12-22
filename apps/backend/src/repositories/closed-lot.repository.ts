@@ -202,6 +202,21 @@ export class ClosedLotRepository {
     return lots.map(this.mapRow);
   }
 
+  async findByWalletIds(walletIds: string[]): Promise<ClosedLotRecord[]> {
+    if (walletIds.length === 0) {
+      return [];
+    }
+
+    const lots = await prisma.closedLot.findMany({
+      where: {
+        walletId: { in: walletIds },
+      },
+      orderBy: { exitTime: 'desc' },
+    });
+
+    return lots.map(this.mapRow);
+  }
+
   async createMany(lots: any[]): Promise<void> {
     if (lots.length === 0) return;
 

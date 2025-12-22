@@ -61,6 +61,7 @@ const normalizeTradeSide = (side?: string | null): 'buy' | 'sell' => {
 
 
 // GET /api/smart-wallets - List all smart wallets with pagination and filters
+// DŮLEŽITÉ: PnL se počítá POUZE z ClosedLot (stejný výpočet jako /pnl endpoint)
 router.get('/', async (req, res) => {
   try {
     console.log('📥 GET /api/smart-wallets - Request received');
@@ -87,15 +88,73 @@ router.get('/', async (req, res) => {
 
     console.log(`✅ Found ${result.wallets.length} wallets (total: ${result.total})`);
     
+    // DŮLEŽITÉ: Vypočítat PnL pro každou wallet stejným způsobem jako /pnl endpoint
+    // Použij ClosedLot místo recentPnl30dBase/recentPnl30dPercent z DB
+    const { ClosedLotRepository } = await import('../repositories/closed-lot.repository.js');
+    const closedLotRepo = new ClosedLotRepository();
+    
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    // Načti všechny ClosedLot pro všechny wallets v batchu
+    const walletIds = result.wallets.map(w => w.id);
+    const allClosedLots = await closedLotRepo.findByWalletIds(walletIds);
+    
+    // Seskup ClosedLot podle walletId
+    const lotsByWalletId = new Map<string, any[]>();
+    for (const lot of allClosedLots) {
+      if (!lotsByWalletId.has(lot.walletId)) {
+        lotsByWalletId.set(lot.walletId, []);
+      }
+      lotsByWalletId.get(lot.walletId)!.push(lot);
+    }
+    
+    // Vypočítat PnL pro každou wallet (stejný výpočet jako /pnl endpoint)
+    const walletsWithPnl = result.wallets.map((wallet: any) => {
+      const walletLots = lotsByWalletId.get(wallet.id) || [];
+      
+      // Filter closed lots by exitTime (when the lot was closed) - stejně jako v /pnl endpointu
+      const recentClosedLots30d = walletLots.filter((lot: any) => {
+        if (!lot.exitTime) return false;
+        const exitTime = new Date(lot.exitTime);
+        return exitTime >= thirtyDaysAgo && exitTime <= now;
+      });
+      
+      // Calculate PnL from ClosedLot (všechny hodnoty jsou v SOL) - stejně jako v /pnl endpointu
+      const totalPnl = recentClosedLots30d.reduce((sum: number, lot: any) => {
+        return sum + (lot.realizedPnl || 0);
+      }, 0);
+      
+      // Calculate cost basis (všechny hodnoty jsou v SOL) - stejně jako v /pnl endpointu
+      const totalCostBasis = recentClosedLots30d.reduce((sum: number, lot: any) => {
+        return sum + (lot.costBasis || 0);
+      }, 0);
+      
+      // Calculate PnL percentage (ROI) - stejně jako v /pnl endpointu
+      const pnlPercent = totalCostBasis > 0
+        ? (totalPnl / totalCostBasis) * 100
+        : 0;
+      
+      // Přepiš recentPnl30dBase a recentPnl30dPercent vypočítanými hodnotami z ClosedLot
+      return {
+        ...wallet,
+        recentPnl30dBase: totalPnl, // PnL v SOL (stejný výpočet jako detail)
+        recentPnl30dPercent: pnlPercent, // ROI v % (stejný výpočet jako detail)
+      };
+    });
+    
     // DEBUG: Log PnL values for first few wallets
-    if (result.wallets && result.wallets.length > 0) {
-      console.log(`📊 [Endpoint] Sample PnL values from repository:`);
-      result.wallets.slice(0, 5).forEach((wallet: any) => {
+    if (walletsWithPnl && walletsWithPnl.length > 0) {
+      console.log(`📊 [Endpoint] Sample PnL values (calculated from ClosedLot, same as detail):`);
+      walletsWithPnl.slice(0, 5).forEach((wallet: any) => {
         console.log(`   💰 Wallet ${wallet.address}: recentPnl30dBase=${wallet.recentPnl30dBase}, recentPnl30dPercent=${wallet.recentPnl30dPercent}`);
       });
     }
     
-    res.json(result);
+    res.json({
+      ...result,
+      wallets: walletsWithPnl,
+    });
   } catch (error: any) {
     console.error('❌ Error fetching smart wallets:');
     console.error('Error message:', error?.message);
