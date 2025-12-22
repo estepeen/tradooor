@@ -408,24 +408,33 @@ export class DiscordNotificationService {
         const profileUrl = `${frontendUrl}/wallet/${w.address}`;
         const nameWithLink = `[**${name}**](${profileUrl})`;
         
-        const parts = [nameWithLink];
-        
-        // Pro accumulation signál: zobraz všechny nákupy
+        // Pro accumulation signál: zobraz jméno a pod ním všechny nákupy (jako u consensus)
         if (data.signalType === 'accumulation' && w.accumulationBuys && w.accumulationBuys.length > 0) {
           const buys = w.accumulationBuys;
-          const buyCount = buys.length;
-          const buyAmounts = buys.map(buy => {
+          const buyLines = buys.map(buy => {
             const amountBase = buy.amountBase;
             const amountUsd = amountBase * solPriceUsd;
-            return `${this.formatNumber(amountBase, 2)} ${baseToken} ($${this.formatNumber(amountUsd, 0)})`;
+            const parts = [`${this.formatNumber(amountBase, 2)} ${baseToken} ($${this.formatNumber(amountUsd, 0)})`];
+            
+            // Market cap a čas pro každý nákup
+            if (data.marketCapUsd) {
+              parts.push(`@ $${this.formatNumber(data.marketCapUsd, 0)} MCap`);
+            }
+            if (buy.timestamp) {
+              const time = new Date(buy.timestamp);
+              const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+              parts.push(`• ${timeStr}`);
+            }
+            
+            return parts.join(' ');
           });
-          const totalAmount = buys.reduce((sum, buy) => sum + buy.amountBase, 0);
-          const totalUsd = totalAmount * solPriceUsd;
           
-          // Formát: "3x nákupy: 0.5 SOL ($62), 0.4 SOL ($50), 0.3 SOL ($37) = celkem 1.2 SOL ($150)"
-          parts.push(`${buyCount}x nákupy: ${buyAmounts.join(', ')} = celkem ${this.formatNumber(totalAmount, 2)} ${baseToken} ($${this.formatNumber(totalUsd, 0)})`);
+          // Jméno na prvním řádku, pak všechny nákupy pod sebou
+          return [nameWithLink, ...buyLines].join('\n');
         } else {
-          // Pro ostatní signály: zobraz jen aktuální trade
+          // Pro ostatní signály: zobraz jen aktuální trade (stejný formát jako consensus)
+          const parts = [nameWithLink];
+          
           // Velikost obchodu v base tokenu (např. SOL) + USD hodnota
           // POZOR: tradeAmountUsd je ve skutečnosti v SOL (název je zavádějící)
           if (w.tradeAmountUsd) {
@@ -433,19 +442,19 @@ export class DiscordNotificationService {
             const amountUsd = amountBase * solPriceUsd; // Přepočet na USD
             parts.push(`${this.formatNumber(amountBase, 2)} ${baseToken} ($${this.formatNumber(amountUsd, 0)})`);
           }
+          
+          // Za @ chceme zobrazit MarketCap (globální pro token), ne cenu
+          if (data.marketCapUsd) {
+            parts.push(`@ $${this.formatNumber(data.marketCapUsd, 0)} MCap`);
+          }
+          if (w.tradeTime) {
+            const time = new Date(w.tradeTime);
+            const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            parts.push(`• ${timeStr}`);
+          }
+          
+          return parts.join(' ');
         }
-        
-        // Za @ chceme zobrazit MarketCap (globální pro token), ne cenu
-        if (data.marketCapUsd) {
-          parts.push(`@ $${this.formatNumber(data.marketCapUsd, 0)} MCap`);
-        }
-        if (w.tradeTime) {
-          const time = new Date(w.tradeTime);
-          const timeStr = time.toLocaleTimeString('cs-CZ', { hour: '2-digit', minute: '2-digit' });
-          parts.push(`• ${timeStr}`);
-        }
-        
-        return parts.join(' ');
       }).join('\n');
       
       fields.push({
