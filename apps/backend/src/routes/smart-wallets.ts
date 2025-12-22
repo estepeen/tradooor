@@ -104,12 +104,22 @@ router.get('/', async (req, res) => {
       };
     });
     
-    // DEBUG: Log PnL values for first few wallets
+    // DEBUG: Log PnL values for first few wallets and specific wallet if present
     if (walletsWithPnl && walletsWithPnl.length > 0) {
       console.log(`📊 [Endpoint] Sample PnL values (from database, same as detail):`);
       walletsWithPnl.slice(0, 5).forEach((wallet: any) => {
-        console.log(`   💰 Wallet ${wallet.address}: recentPnl30dBase=${wallet.recentPnl30dBase}, recentPnl30dPercent=${wallet.recentPnl30dPercent}`);
+        console.log(`   💰 Wallet ${wallet.address}: recentPnl30dBase=${wallet.recentPnl30dBase}, recentPnl30dPercent=${wallet.recentPnl30dPercent}, recentPnl30dUsd=${wallet.recentPnl30dUsd}`);
       });
+      
+      // DEBUG: Log specific wallet if present (CyaE1VxvBrahnPWkqm5VsdCvyS2QmNht2UFrKJHga54o)
+      const specificWallet = walletsWithPnl.find((w: any) => w.address === 'CyaE1VxvBrahnPWkqm5VsdCvyS2QmNht2UFrKJHga54o');
+      if (specificWallet) {
+        console.log(`   🔍 [DEBUG CyaE1Vxv] Wallet found in response:`);
+        console.log(`      address: ${specificWallet.address}`);
+        console.log(`      recentPnl30dBase: ${specificWallet.recentPnl30dBase}`);
+        console.log(`      recentPnl30dUsd (from DB): ${specificWallet.recentPnl30dUsd}`);
+        console.log(`      recentPnl30dPercent: ${specificWallet.recentPnl30dPercent}`);
+      }
     }
     
     res.json({

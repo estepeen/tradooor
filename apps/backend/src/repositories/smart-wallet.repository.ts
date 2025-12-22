@@ -39,10 +39,14 @@ export class SmartWalletRepository {
     
     let orderBy: Prisma.SmartWalletOrderByWithRelationInput = {};
     
-    // Only apply DB sorting for fields that exist in the database
-    if (sortBy !== 'lastTradeTimestamp' && sortBy !== 'recentPnl30dUsd' && sortBy !== 'recentPnl30dPercent') {
+    // Apply DB sorting for fields that exist in the database
+    if (sortBy === 'recentPnl30dUsd' || sortBy === 'recentPnl30dPercent') {
+      // These fields exist in DB, so we can sort by them
+      orderBy = { [sortBy]: sortOrder };
+    } else if (sortBy !== 'lastTradeTimestamp') {
       orderBy = { [sortBy]: sortOrder };
     }
+    // If sortBy is 'lastTradeTimestamp', we'll sort in memory after fetching
 
     // Fetch wallets with pagination
     const [wallets, total] = await Promise.all([
@@ -94,6 +98,25 @@ export class SmartWalletRepository {
       ...wallet,
       recentPnl30dBase: wallet.recentPnl30dUsd ?? 0,
     }));
+
+    // DEBUG: Log specific wallet if present (CyaE1VxvBrahnPWkqm5VsdCvyS2QmNht2UFrKJHga54o)
+    const specificWallet = mappedWallets.find((w: any) => w.address === 'CyaE1VxvBrahnPWkqm5VsdCvyS2QmNht2UFrKJHga54o');
+    if (specificWallet) {
+      console.log(`   🔍 [Repository DEBUG CyaE1Vxv] Wallet found in DB query:`);
+      console.log(`      address: ${specificWallet.address}`);
+      console.log(`      recentPnl30dUsd (from DB): ${specificWallet.recentPnl30dUsd}`);
+      console.log(`      recentPnl30dBase (mapped): ${specificWallet.recentPnl30dBase}`);
+      console.log(`      recentPnl30dPercent: ${specificWallet.recentPnl30dPercent}`);
+    }
+
+    // Sort by lastTradeTimestamp in memory if needed
+    if (sortBy === 'lastTradeTimestamp') {
+      mappedWallets.sort((a: any, b: any) => {
+        const aTime = a.lastTradeTimestamp ? new Date(a.lastTradeTimestamp).getTime() : 0;
+        const bTime = b.lastTradeTimestamp ? new Date(b.lastTradeTimestamp).getTime() : 0;
+        return sortOrder === 'desc' ? bTime - aTime : aTime - bTime;
+      });
+    }
 
     return {
       wallets: mappedWallets,
