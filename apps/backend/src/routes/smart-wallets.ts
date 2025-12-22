@@ -122,8 +122,9 @@ router.get('/', async (req, res) => {
     // DEBUG: Log PnL values for first few wallets and specific wallet if present
     if (walletsWithPnl && walletsWithPnl.length > 0) {
       console.log(`📊 [Endpoint] Sample PnL values (from database, same as detail):`);
+      console.log(`   💰 SOL price used: $${solPriceUsd.toFixed(2)} USD`);
       walletsWithPnl.slice(0, 5).forEach((wallet: any) => {
-        console.log(`   💰 Wallet ${wallet.address}: recentPnl30dBase=${wallet.recentPnl30dBase}, recentPnl30dPercent=${wallet.recentPnl30dPercent}, recentPnl30dUsd=${wallet.recentPnl30dUsd}`);
+        console.log(`   💰 Wallet ${wallet.address}: recentPnl30dBase=${wallet.recentPnl30dBase}, recentPnl30dUsdValue=${wallet.recentPnl30dUsdValue}, recentPnl30dPercent=${wallet.recentPnl30dPercent}`);
       });
       
       // DEBUG: Log specific wallet if present (CyaE1VxvBrahnPWkqm5VsdCvyS2QmNht2UFrKJHga54o)

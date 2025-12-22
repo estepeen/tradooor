@@ -569,12 +569,22 @@ export default function Home() {
                           // NEPOUŽÍVEJ rolling30d.realizedPnl z advancedStats - backend teď vrací správné hodnoty
                           const pnlBase = wallet.recentPnl30dBase ?? 0; // PnL v SOL (z ClosedLot, stejný výpočet jako detail)
                           const pnlUsdValue = wallet.recentPnl30dUsdValue ?? 0; // USD hodnota (vypočítaná z SOL ceny)
+                          
+                          // Debug: Log if USD value is missing
+                          if (pnlUsdValue === 0 && pnlBase !== 0) {
+                            console.warn(`⚠️  [Homepage] Wallet ${wallet.address}: pnlBase=${pnlBase} but pnlUsdValue=${pnlUsdValue} (missing USD conversion)`);
+                          }
+                          
                           const formattedPnl = formatNumber(Math.abs(pnlBase), 2);
                           const formattedUsd = formatNumber(Math.abs(pnlUsdValue), 0);
+                          
+                          // If USD value is 0 but we have SOL value, calculate it manually (fallback)
+                          const displayUsd = pnlUsdValue > 0 ? formattedUsd : (Math.abs(pnlBase) * 150).toFixed(0); // Fallback to ~150 USD per SOL
+                          
                           return (
                             <>
                               {formattedPnl} SOL{' '}
-                              (${formattedUsd})
+                              (${displayUsd})
                             </>
                           );
                         })()}
