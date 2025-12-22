@@ -184,7 +184,8 @@ export class AdvancedSignalsService {
         if (whaleSignal) signals.push(whaleSignal);
         if (sniperSignal) signals.push(sniperSignal);
         if (momentumSignal) signals.push(momentumSignal);
-        if (reentrySignal) signals.push(reentrySignal);
+        // Re-entry signál odstraněn - uživatel nechce
+        // if (reentrySignal) signals.push(reentrySignal);
         if (hotTokenSignal) signals.push(hotTokenSignal);
         if (accumulationSignal) signals.push(accumulationSignal);
         if (convictionSignal) signals.push(convictionSignal);
@@ -545,6 +546,7 @@ export class AdvancedSignalsService {
         id: true,
         amountBase: true,
         timestamp: true,
+        meta: true, // Potřebujeme baseToken pro převod USDC/USDT na SOL
       },
       orderBy: { timestamp: 'asc' },
     });
@@ -555,9 +557,42 @@ export class AdvancedSignalsService {
 
     // DŮLEŽITÉ: Každý jednotlivý nákup musí mít minimálně 0.3 SOL (ne součet!)
     // Filtrujeme pouze nákupy, které mají amountBase >= 0.3 SOL
+    // POZOR: amountBase může být v SOL, USDC nebo USDT - musíme zkontrolovat base token a převést na SOL
     const validBuys = recentBuys.filter(t => {
       const amountBase = Number(t.amountBase) || 0;
-      return amountBase >= 0.3;
+      if (amountBase <= 0) return false;
+      
+      // Získej base token z meta
+      const meta = t.meta as any;
+      const baseToken = (meta?.baseToken || 'SOL').toUpperCase();
+      
+      // Převod na SOL: pokud je trade v USDC/USDT, musíme převést na SOL
+      // Pro jednoduchost: USDC/USDT ≈ 1 USD, SOL ≈ 125 USD (aktuální cena)
+      // Takže 0.3 SOL ≈ 37.5 USD, takže pro USDC/USDT by minimum mělo být cca 37.5
+      // Ale pro jistotu použijeme 0.3 jako minimum i pro USDC/USDT (což je velmi konzervativní)
+      // Pokud je amountBase v USDC/USDT a je >= 0.3, je to pravděpodobně malý trade
+      
+      let amountInSol = amountBase;
+      if (baseToken === 'USDC' || baseToken === 'USDT') {
+        // USDC/USDT: přibližně 1:1 s USD, SOL je cca $125
+        // Takže 0.3 SOL = cca $37.5, takže pro USDC/USDT by minimum mělo být cca 37.5
+        // Ale uživatel chce minimum 0.3 SOL, takže pro USDC/USDT použijeme 37.5 jako minimum
+        const SOL_PRICE_USD = 125; // Přibližná cena SOL (můžeme použít aktuální z cache, ale pro jednoduchost použijeme fixní)
+        const minUsdcUsdt = 0.3 * SOL_PRICE_USD; // 37.5 USD
+        if (amountBase < minUsdcUsdt) {
+          console.log(`   ⚠️  [Accumulation] Skipping buy: amountBase=${amountBase.toFixed(4)} ${baseToken} (${(amountBase / SOL_PRICE_USD).toFixed(4)} SOL) < 0.3 SOL minimum`);
+          return false;
+        }
+        amountInSol = amountBase / SOL_PRICE_USD;
+      } else {
+        // SOL: přímo porovnáme s 0.3
+        if (amountBase < 0.3) {
+          console.log(`   ⚠️  [Accumulation] Skipping buy: amountBase=${amountBase.toFixed(4)} ${baseToken} < 0.3 SOL minimum`);
+          return false;
+        }
+      }
+      
+      return true;
     });
 
     // Musí být alespoň ACCUMULATION_MIN_BUYS nákupů s minimálně 0.3 SOL každý
@@ -894,7 +929,9 @@ export class AdvancedSignalsService {
         savedCount++;
         
         // Send Discord notification for BUY signals
-        if (signal.suggestedAction === 'buy') {
+        // POZOR: Posíláme jen 3 typy signálů: consensus, accumulation, conviction-buy/whale-entry/large-position
+        const allowedDiscordSignalTypes = ['consensus', 'consensus-update', 'accumulation', 'whale-entry', 'conviction-buy', 'large-position'];
+        if (signal.suggestedAction === 'buy' && allowedDiscordSignalTypes.includes(signal.type)) {
           try {
             // Get base token from trade meta (default SOL)
             // Try multiple ways to get baseToken
