@@ -1110,8 +1110,19 @@ export class MetricsCalculatorService {
           return totalPnl + tokenPnl;
         }, 0);
         
+        // Log detail pro každý token (prvních 10)
+        const tokenPnlDetails: Array<{ tokenId: string; lotsCount: number; pnl: number }> = [];
+        for (const [tokenId, tokenLots] of lotsByTokenDebug.entries()) {
+          const tokenPnl = tokenLots.reduce((sum, lot) => sum + (lot.realizedPnl || 0), 0);
+          tokenPnlDetails.push({ tokenId: tokenId.substring(0, 8) + '...', lotsCount: tokenLots.length, pnl: tokenPnl });
+        }
+        tokenPnlDetails.sort((a, b) => Math.abs(b.pnl) - Math.abs(a.pnl));
+        
         console.log(`   📊 [Rolling Stats] Wallet ${walletId}: Found ${filteredLots.length} closed lots (${lotsByTokenDebug.size} unique tokens) in last 30d`);
-        console.log(`   📊 [Rolling Stats] Wallet ${walletId}: totalPnl before grouping=${totalPnlBeforeGrouping.toFixed(2)} SOL, after grouping=${totalPnlAfterGrouping.toFixed(2)} SOL`);
+        console.log(`   📊 [Rolling Stats] Wallet ${walletId}: totalPnl before grouping=${totalPnlBeforeGrouping.toFixed(4)} SOL, after grouping=${totalPnlAfterGrouping.toFixed(4)} SOL`);
+        if (tokenPnlDetails.length > 0) {
+          console.log(`   📊 [Rolling Stats] Wallet ${walletId}: Top tokens: ${tokenPnlDetails.slice(0, 5).map(t => `${t.tokenId}(${t.lotsCount}lots)=${t.pnl.toFixed(4)}SOL`).join(', ')}`);
+        }
       }
       
       // Použij buildRollingWindowStats - čistě jen sčítá realizedPnl z ClosedLot (v SOL)
