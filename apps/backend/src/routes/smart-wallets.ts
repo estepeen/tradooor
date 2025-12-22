@@ -1240,17 +1240,11 @@ router.get('/:id/portfolio', async (req, res) => {
       return sum + (typeof costBasis === 'number' ? costBasis : 0);
     }, 0);
     
-    // Pro closed positions (UI) stále používáme seskupené pozice
-    const recentClosedPositions30d = closedPositions.filter((p: any) => {
-      if (!p.lastSellTimestamp) return false;
-      const sellDate = new Date(p.lastSellTimestamp);
-      return sellDate >= thirtyDaysAgo && sellDate <= new Date();
-    });
     const pnlPercent30d = totalCost30d > 0 ? (totalPnl30d / totalCost30d) * 100 : 0;
     
-    if (wallet.id && recentClosedLots30d.length > 0) {
-      console.log(`   📊 [Portfolio] Wallet ${wallet.id}: Found ${recentClosedLots30d.length} closed lots in last 30 days (${recentClosedPositions30d.length} closed positions)`);
-      console.log(`   ✅ [Portfolio] Wallet ${wallet.id}: totalPnl30d=${totalPnl30d.toFixed(4)} SOL (from ClosedLot, same as homepage), totalCost30d=${totalCost30d.toFixed(4)} SOL, pnlPercent30d=${pnlPercent30d.toFixed(2)}%`);
+    if (wallet.id && recentClosedPositions30d.length > 0) {
+      console.log(`   📊 [Portfolio] Wallet ${wallet.id}: Found ${recentClosedPositions30d.length} closed positions in last 30 days`);
+      console.log(`   ✅ [Portfolio] Wallet ${wallet.id}: totalPnl30d=${totalPnl30d.toFixed(4)} SOL (from closed positions, same as detail), totalCost30d=${totalCost30d.toFixed(4)} SOL, pnlPercent30d=${pnlPercent30d.toFixed(2)}%`);
     }
     
     
