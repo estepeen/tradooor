@@ -11,6 +11,11 @@ import { MetricsCalculatorService } from '../services/metrics-calculator.service
 import { AdvancedSignalsService } from '../services/advanced-signals.service.js';
 import { PositionMonitorService } from '../services/position-monitor.service.js';
 
+// Log environment variables status
+console.log(`🔍 [NormalizedTradeWorker] Environment check:`);
+console.log(`   GROQ_API_KEY: ${process.env.GROQ_API_KEY ? `${process.env.GROQ_API_KEY.substring(0, 10)}...` : 'NOT SET'}`);
+console.log(`   ENABLE_ADVANCED_SIGNALS: ${process.env.ENABLE_ADVANCED_SIGNALS !== 'false' ? 'true' : 'false'}`);
+
 const normalizedTradeRepo = new NormalizedTradeRepository();
 const tradeRepo = new TradeRepository();
 const walletQueueRepo = new WalletProcessingQueueRepository();

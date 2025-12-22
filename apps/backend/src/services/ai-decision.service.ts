@@ -106,8 +106,13 @@ export class AIDecisionService {
     
     // Log which provider is being used
     const model = this.config.model || 'groq';
-    if (model.startsWith('groq') && !this.groqApiKey) {
-      console.warn('⚠️  GROQ_API_KEY not set - AI decisions will use fallback rules');
+    if (model.startsWith('groq')) {
+      if (this.groqApiKey) {
+        console.log(`✅ [AI Decision] GROQ_API_KEY loaded (${this.groqApiKey.substring(0, 10)}...)`);
+      } else {
+        console.warn('⚠️  [AI Decision] GROQ_API_KEY not set - AI decisions will return null');
+        console.warn('   💡 Set GROQ_API_KEY in .env file to enable AI decisions');
+      }
     }
   }
 
@@ -124,12 +129,14 @@ export class AIDecisionService {
     // Check if API key is available
     if (model.startsWith('groq') && !this.groqApiKey) {
       console.warn(`⚠️  [AI Decision] GROQ_API_KEY not set - returning null (no AI decision available)`);
+      console.warn(`   💡 Check that GROQ_API_KEY is set in .env file`);
       return null as any; // Return null to indicate AI is not available
     }
     
     try {
       console.log(`🤖 [AI Decision] Calling Groq API for ${signal.type} signal...`);
       console.log(`   Context: walletScore=${context.walletScore}, tokenAge=${context.tokenAge}min, liquidity=${context.tokenLiquidity ? `$${(context.tokenLiquidity / 1000).toFixed(1)}K` : 'unknown'}`);
+      console.log(`   API Key: ${this.groqApiKey ? `${this.groqApiKey.substring(0, 10)}...` : 'NOT SET'}`);
       
       // Sestav prompt
       const prompt = this.buildPrompt(signal, context);
@@ -155,6 +162,10 @@ export class AIDecisionService {
       return decision;
     } catch (error: any) {
       console.error(`❌ [AI Decision] Error evaluating ${signal.type} signal:`, error.message || error);
+      console.error(`   Error details:`, error);
+      if (error.stack) {
+        console.error(`   Stack:`, error.stack);
+      }
       console.error(`   Returning null - no AI decision available`);
       
       // Return null instead of fallback - caller should handle this
@@ -279,8 +290,11 @@ Important guidelines:
     completionTokens?: number;
   }> {
     if (!this.groqApiKey) {
+      console.error(`❌ [AI Decision] GROQ_API_KEY not set in callGroq`);
       throw new Error('GROQ_API_KEY not set. Get free key at https://console.groq.com');
     }
+    
+    console.log(`   🔑 Using API key: ${this.groqApiKey.substring(0, 10)}...`);
 
     // Select model based on config
     // Note: llama-3.1-70b-versatile was decommissioned, using llama-3.3-70b-versatile as replacement
