@@ -48,26 +48,17 @@ export class WalletCorrelationService {
     console.log('🔍 Analyzing wallet correlations...');
     
     try {
-      // Check if Supabase is available
-      if (!isSupabaseAvailable()) {
-        console.warn('⚠️  Supabase not available for analyzeAllCorrelations, using Prisma');
-        // Use Prisma instead
-        const wallets = await prisma.smartWallet.findMany({
-          take: 100,
-          select: { id: true, address: true, score: true, winRate: true },
-        });
-        
-        if (wallets.length < 2) {
-          return { correlationsFound: 0, groupsDetected: 0 };
-        }
-        // Continue with Prisma wallets...
-        console.log(`   Found ${wallets.length} active wallets (via Prisma)`);
-        // Use Prisma wallets for correlation analysis
-        console.log(`   Found ${wallets.length} active wallets (via Prisma)`);
-        
-        if (wallets.length < 2) {
-          return { correlationsFound: 0, groupsDetected: 0 };
-        }
+      // Use Prisma to get wallets (Supabase is no longer used)
+      const wallets = await prisma.smartWallet.findMany({
+        take: 100,
+        select: { id: true, address: true, score: true, winRate: true },
+      });
+      
+      if (wallets.length < 2) {
+        return { correlationsFound: 0, groupsDetected: 0 };
+      }
+      
+      console.log(`   Found ${wallets.length} active wallets (via Prisma)`);
 
       // 2. Pro každý pár walletů spočítej korelaci
       const correlations: WalletCorrelation[] = [];
