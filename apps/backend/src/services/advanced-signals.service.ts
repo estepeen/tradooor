@@ -1111,6 +1111,8 @@ export class AdvancedSignalsService {
                   });
                   
                   // Načti market cap pro každý trade z TradeFeature (fdvUsd) nebo z Trade.meta
+                  // Pokud není k dispozici historický market cap, použijeme globální market cap z signálu
+                  const globalMarketCap = marketData?.marketCap;
                   const buyResults = await Promise.all(
                     validBuys.map(async (buy) => {
                       let marketCapUsd: number | undefined = undefined;
@@ -1135,6 +1137,12 @@ export class AdvancedSignalsService {
                         } else if (meta.marketCap !== null && meta.marketCap !== undefined) {
                           marketCapUsd = Number(meta.marketCap);
                         }
+                      }
+                      
+                      // 3. Pokud stále nemáme market cap, použijeme globální market cap z signálu
+                      // (lepší než zobrazit null nebo nic)
+                      if (!marketCapUsd && globalMarketCap) {
+                        marketCapUsd = globalMarketCap;
                       }
                       
                       return {
