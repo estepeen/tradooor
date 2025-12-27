@@ -173,6 +173,16 @@ export class DiscordNotificationService {
    * Vytvoří embed pro signál
    */
   private async buildSignalEmbed(data: SignalNotificationData): Promise<DiscordEmbed> {
+    if (data.signalType === 'accumulation') {
+      console.error(`[ACCUMULATION DEBUG] buildSignalEmbed called for ${data.tokenSymbol}`);
+      console.error(`[ACCUMULATION DEBUG] wallets count: ${data.wallets?.length || 0}`);
+      if (data.wallets?.[0]?.accumulationBuys) {
+        console.error(`[ACCUMULATION DEBUG] accumulationBuys count: ${data.wallets[0].accumulationBuys.length}`);
+        console.error(`[ACCUMULATION DEBUG] accumulationBuys data: ${JSON.stringify(data.wallets[0].accumulationBuys.map(b => ({ amountBase: b.amountBase, marketCapUsd: b.marketCapUsd })))}`);
+      } else {
+        console.error(`[ACCUMULATION DEBUG] NO accumulationBuys in wallets[0]!`);
+      }
+    }
     const birdeyeUrl = `https://birdeye.so/token/${data.tokenMint}?chain=solana`;
     const baseToken = (data.baseToken || 'SOL').toUpperCase();
 

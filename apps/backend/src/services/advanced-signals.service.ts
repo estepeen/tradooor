@@ -569,7 +569,6 @@ export class AdvancedSignalsService {
     token: any,
     context: SignalContext
   ): Promise<AdvancedSignal | null> {
-    console.error(`[ACCUMULATION] detectAccumulation CALLED for token ${token?.symbol}, wallet ${wallet?.label || wallet?.address?.substring(0, 8)}`);
     const sixHoursAgo = new Date(Date.now() - THRESHOLDS.ACCUMULATION_TIME_WINDOW_HOURS * 60 * 60 * 1000);
 
     // Najdi všechny BUY trades této wallet na tento token v posledních 6h
@@ -589,9 +588,7 @@ export class AdvancedSignalsService {
       orderBy: { timestamp: 'asc' },
     });
 
-    console.error(`[ACCUMULATION] Found ${recentBuys?.length || 0} recent buys (min required: ${THRESHOLDS.ACCUMULATION_MIN_BUYS})`);
     if (!recentBuys || recentBuys.length < THRESHOLDS.ACCUMULATION_MIN_BUYS) {
-      console.error(`[ACCUMULATION] Not enough buys, returning null`);
       return null;
     }
 
@@ -608,10 +605,7 @@ export class AdvancedSignalsService {
     
     const validBuys = recentBuys.filter(t => {
       const amountBase = Number(t.amountBase) || 0;
-      if (amountBase <= 0) {
-        console.error(`[ACCUMULATION] Trade ${t.id}: amountBase is 0 or negative, skipping`);
-        return false;
-      }
+      if (amountBase <= 0) return false;
       
       // Získej base token z meta
       const meta = t.meta as any;
@@ -635,9 +629,7 @@ export class AdvancedSignalsService {
     });
 
     // Musí být alespoň ACCUMULATION_MIN_BUYS nákupů s minimálně 0.3 SOL každý
-    console.error(`[ACCUMULATION] Valid buys after filtering: ${validBuys.length} (min required: ${THRESHOLDS.ACCUMULATION_MIN_BUYS})`);
     if (validBuys.length < THRESHOLDS.ACCUMULATION_MIN_BUYS) {
-      console.error(`[ACCUMULATION] Not enough valid buys (>=0.3 SOL each), returning null`);
       return null;
     }
 
@@ -647,7 +639,6 @@ export class AdvancedSignalsService {
     const strength = buyCount >= 5 ? 'strong' : buyCount >= 4 ? 'medium' : 'weak';
     const confidence = Math.min(85, 40 + buyCount * 10 + wallet.score / 5);
 
-    console.error(`[ACCUMULATION] ✅ SIGNAL DETECTED! buyCount=${buyCount}, strength=${strength}, confidence=${confidence}`);
     return {
       type: 'accumulation',
       strength,
@@ -988,8 +979,6 @@ export class AdvancedSignalsService {
             
             // Pro accumulation signály: seskupit do jednoho embedu (debounce 1 minuta)
             if (signal.type === 'accumulation') {
-              console.error(`[ACCUMULATION] ===== DETECTED ACCUMULATION SIGNAL =====`);
-              console.error(`[ACCUMULATION] Token: ${token?.symbol}, Wallet: ${wallet?.label || wallet?.address}`);
               const key = `${token.id}-${wallet.id}`;
               const existing = this.pendingAccumulationSignals.get(key);
               
@@ -1008,11 +997,10 @@ export class AdvancedSignalsService {
                   this.pendingAccumulationSignals.delete(key);
                 }, this.ACCUMULATION_GROUP_WINDOW_MS);
                 
-                console.error(`[ACCUMULATION] Updated pending signal for ${token.symbol} - ${wallet.label || wallet.address.substring(0, 8)}... (waiting for more trades)`);
+                console.log(`📦 [Accumulation] Updated pending signal for ${token.symbol} - ${wallet.label || wallet.address.substring(0, 8)}... (waiting for more trades)`);
                 continue; // Pokračuj na další signál
               } else {
                 // Nový accumulation signál - přidej do pending a nastav timeout
-                console.error(`[ACCUMULATION] Creating NEW pending signal for ${token.symbol} - ${wallet.label || wallet.address.substring(0, 8)}...`);
                 const pending: PendingAccumulationSignal = {
                   tokenId: token.id,
                   walletId: wallet.id,
@@ -1028,13 +1016,12 @@ export class AdvancedSignalsService {
                 };
                 
                 pending.timeoutId = setTimeout(() => {
-                  console.error(`[ACCUMULATION] TIMEOUT TRIGGERED - calling sendAccumulationNotification`);
                   this.sendAccumulationNotification(pending);
                   this.pendingAccumulationSignals.delete(key);
                 }, this.ACCUMULATION_GROUP_WINDOW_MS);
                 
                 this.pendingAccumulationSignals.set(key, pending);
-                console.error(`[ACCUMULATION] Created pending signal for ${token.symbol} - ${wallet.label || wallet.address.substring(0, 8)}... (will send in 1 minute if no more trades)`);
+                console.log(`📦 [Accumulation] Created pending signal for ${token.symbol} - ${wallet.label || wallet.address.substring(0, 8)}... (will send in 1 minute if no more trades)`);
                 continue; // Pokračuj na další signál
               }
             }
@@ -1168,7 +1155,7 @@ export class AdvancedSignalsService {
    * Pošle seskupený accumulation signál do Discordu
    */
   private async sendAccumulationNotification(pending: PendingAccumulationSignal): Promise<void> {
-    console.error(`[ACCUMULATION] ===== sendAccumulationNotification CALLED =====`);
+    console.error(`[ACCUMULATION] ========== sendAccumulationNotification START ==========`);
     console.error(`[ACCUMULATION] Token: ${pending.tokenSymbol}, Wallet: ${pending.wallet?.label || pending.wallet?.address}`);
     try {
       const { token, wallet, baseToken, marketData, signal } = pending;
