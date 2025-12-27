@@ -62,29 +62,12 @@ export class WalletCorrelationService {
         }
         // Continue with Prisma wallets...
         console.log(`   Found ${wallets.length} active wallets (via Prisma)`);
-        return { correlationsFound: 0, groupsDetected: 0 }; // TODO: Implement full Prisma version
-      }
-      
-      // 1. Načti všechny aktivní wallety (použij Prisma)
-      const wallets = await prisma.smartWallet.findMany({
-        where: {
-          // Note: isActive field doesn't exist in Prisma schema, so we'll get all wallets
-          // You can add filtering later if needed
-        },
-        select: {
-          id: true,
-          address: true,
-          score: true,
-          winRate: true,
-        },
-        take: 100,
-      });
-
-      if (!wallets || wallets.length < 2) {
-        return { correlationsFound: 0, groupsDetected: 0 };
-      }
-
-      console.log(`   Found ${wallets.length} active wallets`);
+        // Use Prisma wallets for correlation analysis
+        console.log(`   Found ${wallets.length} active wallets (via Prisma)`);
+        
+        if (wallets.length < 2) {
+          return { correlationsFound: 0, groupsDetected: 0 };
+        }
 
       // 2. Pro každý pár walletů spočítej korelaci
       const correlations: WalletCorrelation[] = [];
