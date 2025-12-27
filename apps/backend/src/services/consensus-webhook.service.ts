@@ -280,6 +280,7 @@ export class ConsensusWebhookService {
             }
 
               // Načti market cap pro tento trade z TradeFeature (fdvUsd) nebo z Trade.meta
+              // Pokud není k dispozici, necháme undefined (zobrazí se "- MCap")
               let marketCapUsd: number | undefined = undefined;
               
               // 1. Zkus načíst z TradeFeature (nejpřesnější - market cap v době trade)
@@ -289,7 +290,7 @@ export class ConsensusWebhookService {
                   marketCapUsd = tradeFeature.fdvUsd;
                 }
               } catch (error: any) {
-                // TradeFeature neexistuje, zkus fallback
+                // TradeFeature neexistuje, zkus fallback na Trade.meta
               }
               
               // 2. Fallback: zkus načíst z Trade.meta (pokud tam byl uložen při vytvoření trade)
@@ -303,6 +304,8 @@ export class ConsensusWebhookService {
                   marketCapUsd = Number(meta.marketCap);
                 }
               }
+              
+              // Pokud nemáme market cap, necháme undefined (zobrazí se "- MCap")
 
             return {
               ...w,

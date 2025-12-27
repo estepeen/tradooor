@@ -1111,8 +1111,7 @@ export class AdvancedSignalsService {
                   });
                   
                   // Načti market cap pro každý trade z TradeFeature (fdvUsd) nebo z Trade.meta
-                  // Pokud není k dispozici historický market cap, použijeme globální market cap z signálu
-                  const globalMarketCap = marketData?.marketCap;
+                  // Pokud není k dispozici, necháme null (ne fallback na globální market cap)
                   const buyResults = await Promise.all(
                     validBuys.map(async (buy) => {
                       let marketCapUsd: number | undefined = undefined;
@@ -1124,7 +1123,7 @@ export class AdvancedSignalsService {
                           marketCapUsd = tradeFeature.fdvUsd;
                         }
                       } catch (error: any) {
-                        // TradeFeature neexistuje, zkus fallback
+                        // TradeFeature neexistuje, zkus fallback na Trade.meta
                       }
                       
                       // 2. Fallback: zkus načíst z Trade.meta (pokud tam byl uložen při vytvoření trade)
@@ -1139,11 +1138,7 @@ export class AdvancedSignalsService {
                         }
                       }
                       
-                      // 3. Pokud stále nemáme market cap, použijeme globální market cap z signálu
-                      // (lepší než zobrazit null nebo nic)
-                      if (!marketCapUsd && globalMarketCap) {
-                        marketCapUsd = globalMarketCap;
-                      }
+                      // Pokud nemáme market cap, necháme undefined (zobrazí se "- MCap")
                       
                       return {
                         amountBase: Number(buy.amountBase),

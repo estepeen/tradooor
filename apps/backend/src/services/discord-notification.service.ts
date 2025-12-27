@@ -418,9 +418,11 @@ export class DiscordNotificationService {
             const parts = [`${this.formatNumber(amountBase, 2)} ${baseToken} ($${this.formatNumber(amountUsd, 0)})`];
             
             // Market cap a čas pro každý nákup - použij market cap z doby nákupu, pokud je k dispozici
-            const buyMarketCap = buy.marketCapUsd ?? data.marketCapUsd;
-            if (buyMarketCap) {
-              parts.push(`@ $${this.formatNumber(buyMarketCap, 0)} MCap`);
+            // Pokud není k dispozici, nezobrazujeme ho (ne fallback na globální)
+            if (buy.marketCapUsd) {
+              parts.push(`@ $${this.formatNumber(buy.marketCapUsd, 0)} MCap`);
+            } else {
+              parts.push(`@ - MCap`); // Zobraz mínus, pokud data nejsou k dispozici
             }
             if (buy.timestamp) {
               const time = new Date(buy.timestamp);
@@ -446,10 +448,12 @@ export class DiscordNotificationService {
         }
           
           // Za @ chceme zobrazit MarketCap - použij market cap z doby trade, pokud je k dispozici
-          const tradeMarketCap = w.marketCapUsd ?? data.marketCapUsd;
-          if (tradeMarketCap) {
-            parts.push(`@ $${this.formatNumber(tradeMarketCap, 0)} MCap`);
-        }
+          // Pokud není k dispozici, zobrazíme mínus (ne fallback na globální)
+          if (w.marketCapUsd) {
+            parts.push(`@ $${this.formatNumber(w.marketCapUsd, 0)} MCap`);
+          } else {
+            parts.push(`@ - MCap`); // Zobraz mínus, pokud data nejsou k dispozici
+          }
         if (w.tradeTime) {
           const time = new Date(w.tradeTime);
             const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
