@@ -569,6 +569,7 @@ export class AdvancedSignalsService {
     token: any,
     context: SignalContext
   ): Promise<AdvancedSignal | null> {
+    console.error(`[ACCUMULATION] detectAccumulation CALLED for token ${token?.symbol}, wallet ${wallet?.label || wallet?.address?.substring(0, 8)}`);
     const sixHoursAgo = new Date(Date.now() - THRESHOLDS.ACCUMULATION_TIME_WINDOW_HOURS * 60 * 60 * 1000);
 
     // Najdi všechny BUY trades této wallet na tento token v posledních 6h
@@ -588,7 +589,9 @@ export class AdvancedSignalsService {
       orderBy: { timestamp: 'asc' },
     });
 
+    console.error(`[ACCUMULATION] Found ${recentBuys?.length || 0} recent buys (min required: ${THRESHOLDS.ACCUMULATION_MIN_BUYS})`);
     if (!recentBuys || recentBuys.length < THRESHOLDS.ACCUMULATION_MIN_BUYS) {
+      console.error(`[ACCUMULATION] Not enough buys, returning null`);
       return null;
     }
 
@@ -605,7 +608,10 @@ export class AdvancedSignalsService {
     
     const validBuys = recentBuys.filter(t => {
       const amountBase = Number(t.amountBase) || 0;
-      if (amountBase <= 0) return false;
+      if (amountBase <= 0) {
+        console.error(`[ACCUMULATION] Trade ${t.id}: amountBase is 0 or negative, skipping`);
+        return false;
+      }
       
       // Získej base token z meta
       const meta = t.meta as any;
