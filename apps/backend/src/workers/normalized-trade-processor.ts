@@ -95,14 +95,16 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       secondaryTokenMint: null, // Už nepoužíváme token-to-token swapy
     });
 
-    // Načti market cap v době trade (pro historické zobrazení v signálech)
+    // Načti aktuální market cap v době trade (pro zobrazení v signálech)
+    // POZNÁMKA: Načítáme aktuální data v době trade, ne historická data
     let marketCapAtTradeTime: number | null = null;
     try {
       const token = await tokenRepo.findById(record.tokenId);
       if (token?.mintAddress) {
         const { TokenMarketDataService } = await import('../services/token-market-data.service.js');
         const tokenMarketDataService = new TokenMarketDataService();
-        const marketData = await tokenMarketDataService.getMarketData(token.mintAddress, record.timestamp);
+        // Načti aktuální market cap (bez timestamp - API vrací aktuální data)
+        const marketData = await tokenMarketDataService.getMarketData(token.mintAddress);
         if (marketData?.marketCap) {
           marketCapAtTradeTime = marketData.marketCap;
         }
