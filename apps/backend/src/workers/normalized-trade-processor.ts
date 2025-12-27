@@ -93,6 +93,23 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       secondaryTokenMint: null, // Už nepoužíváme token-to-token swapy
     });
 
+    // Načti market cap v době trade (pro historické zobrazení v signálech)
+    let marketCapAtTradeTime: number | null = null;
+    try {
+      const token = await tokenRepo.findById(record.tokenId);
+      if (token?.mintAddress) {
+        const { TokenMarketDataService } = await import('../services/token-market-data.service.js');
+        const tokenMarketDataService = new TokenMarketDataService();
+        const marketData = await tokenMarketDataService.getMarketData(token.mintAddress, record.timestamp);
+        if (marketData?.marketCap) {
+          marketCapAtTradeTime = marketData.marketCap;
+        }
+      }
+    } catch (error: any) {
+      // Pokud se nepodaří načíst market cap, pokračujeme bez něj (není kritické)
+      console.warn(`⚠️  Failed to fetch market cap for trade ${record.id}: ${error.message}`);
+    }
+
     // #region agent log - Debug amountBase storage
     fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'normalized-trade-processor.ts:91',message:'BEFORE TRADE CREATE',data:{baseToken:record.baseToken,amountBaseRaw:record.amountBaseRaw,valuationAmountBaseUsd:valuation.amountBaseUsd,valuationSource:valuation.source},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
     // #endregion
@@ -117,6 +134,10 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
         amountBaseRaw: record.amountBaseRaw,
         priceBasePerTokenRaw: record.priceBasePerTokenRaw,
         valuationSource: valuation.source,
+        // Ulož market cap v době trade pro historické zobrazení v signálech
+        marketCapUsd: marketCapAtTradeTime,
+        fdvUsd: marketCapAtTradeTime, // Alias pro kompatibilitu
+        marketCap: marketCapAtTradeTime, // Další alias
       },
     });
 
