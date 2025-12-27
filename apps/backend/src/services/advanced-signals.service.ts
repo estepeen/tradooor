@@ -635,7 +635,9 @@ export class AdvancedSignalsService {
     });
 
     // Musí být alespoň ACCUMULATION_MIN_BUYS nákupů s minimálně 0.3 SOL každý
+    console.error(`[ACCUMULATION] Valid buys after filtering: ${validBuys.length} (min required: ${THRESHOLDS.ACCUMULATION_MIN_BUYS})`);
     if (validBuys.length < THRESHOLDS.ACCUMULATION_MIN_BUYS) {
+      console.error(`[ACCUMULATION] Not enough valid buys (>=0.3 SOL each), returning null`);
       return null;
     }
 
@@ -645,6 +647,7 @@ export class AdvancedSignalsService {
     const strength = buyCount >= 5 ? 'strong' : buyCount >= 4 ? 'medium' : 'weak';
     const confidence = Math.min(85, 40 + buyCount * 10 + wallet.score / 5);
 
+    console.error(`[ACCUMULATION] ✅ SIGNAL DETECTED! buyCount=${buyCount}, strength=${strength}, confidence=${confidence}`);
     return {
       type: 'accumulation',
       strength,
