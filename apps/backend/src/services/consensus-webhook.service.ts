@@ -259,25 +259,25 @@ export class ConsensusWebhookService {
           // Spoj wallet info s trade info a načti market cap pro každý trade
           walletsData = await Promise.all(
             wallets.map(async (w) => {
-              const trade = sortedBuys.find(b => b.walletId === w.id);
-              if (!trade) {
-                return {
-                  ...w,
-                  tradeAmountUsd: undefined,
-                  tradePrice: undefined,
-                  tradeTime: undefined,
+            const trade = sortedBuys.find(b => b.walletId === w.id);
+            if (!trade) {
+              return {
+                ...w,
+                tradeAmountUsd: undefined,
+                tradePrice: undefined,
+                tradeTime: undefined,
                   marketCapUsd: undefined,
-                };
-              }
-              
-              const amountToken = Number(trade.amountToken || 0);
-              const valueUsd = Number(trade.valueUsd || 0);
-              let priceUsdPerToken = 0;
-              if (amountToken > 0 && valueUsd > 0) {
-                priceUsdPerToken = valueUsd / amountToken;
-              } else {
-                priceUsdPerToken = Number(trade.priceBasePerToken || 0);
-              }
+              };
+            }
+            
+            const amountToken = Number(trade.amountToken || 0);
+            const valueUsd = Number(trade.valueUsd || 0);
+            let priceUsdPerToken = 0;
+            if (amountToken > 0 && valueUsd > 0) {
+              priceUsdPerToken = valueUsd / amountToken;
+            } else {
+              priceUsdPerToken = Number(trade.priceBasePerToken || 0);
+            }
 
               // Načti market cap pro tento trade z TradeFeature (fdvUsd)
               let marketCapUsd: number | undefined = undefined;
@@ -290,15 +290,15 @@ export class ConsensusWebhookService {
                 // Pokud TradeFeature neexistuje, použijeme undefined (fallback na globální market cap)
               }
 
-              return {
-                ...w,
-                // Velikost pozice v base tokenu (SOL/USDC/USDT)
-                tradeAmountUsd: Number(trade.amountBase || 0),
-                // Cena v USD za 1 token
-                tradePrice: priceUsdPerToken || undefined,
-                tradeTime: trade.timestamp.toISOString(),
+            return {
+              ...w,
+              // Velikost pozice v base tokenu (SOL/USDC/USDT)
+              tradeAmountUsd: Number(trade.amountBase || 0),
+              // Cena v USD za 1 token
+              tradePrice: priceUsdPerToken || undefined,
+              tradeTime: trade.timestamp.toISOString(),
                 marketCapUsd, // Market cap v době trade
-              };
+            };
             })
           );
           

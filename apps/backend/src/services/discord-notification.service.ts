@@ -412,6 +412,7 @@ export class DiscordNotificationService {
         // Pro accumulation signál: zobraz jméno a pod ním všechny nákupy (jako u consensus)
         if (data.signalType === 'accumulation' && w.accumulationBuys && w.accumulationBuys.length > 0) {
           const buys = w.accumulationBuys;
+          console.log(`📊 [Discord] Building accumulation embed for ${data.tokenSymbol} - ${buys.length} buys, marketCaps: ${buys.map(b => b.marketCapUsd || 'null').join(', ')}`);
           const buyLines = buys.map(buy => {
             const amountBase = buy.amountBase;
             const amountUsd = amountBase * solPriceUsd;
@@ -419,6 +420,7 @@ export class DiscordNotificationService {
             
             // Market cap a čas pro každý nákup - použij market cap z doby nákupu, pokud je k dispozici
             const buyMarketCap = buy.marketCapUsd ?? data.marketCapUsd;
+            console.log(`   📊 [Discord] Buy ${buy.timestamp}: buy.marketCapUsd=${buy.marketCapUsd}, data.marketCapUsd=${data.marketCapUsd}, using=${buyMarketCap}`);
             if (buyMarketCap) {
               parts.push(`@ $${this.formatNumber(buyMarketCap, 0)} MCap`);
             }
@@ -449,7 +451,7 @@ export class DiscordNotificationService {
           const tradeMarketCap = w.marketCapUsd ?? data.marketCapUsd;
           if (tradeMarketCap) {
             parts.push(`@ $${this.formatNumber(tradeMarketCap, 0)} MCap`);
-          }
+        }
         if (w.tradeTime) {
           const time = new Date(w.tradeTime);
             const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });

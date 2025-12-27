@@ -1256,6 +1256,8 @@ export class AdvancedSignalsService {
       };
       
       console.log(`📦 [Accumulation] Sending grouped accumulation signal for ${pending.tokenSymbol} - ${wallet.label || wallet.address.substring(0, 8)}... (${validBuys.length} buys)`);
+      console.log(`   📊 [Accumulation] Market caps in buyResults: ${buyResults.map(b => `${b.marketCapUsd || 'null'}`).join(', ')}`);
+      console.log(`   📊 [Accumulation] accumulationBuys in notification: ${JSON.stringify(notificationData.wallets?.[0]?.accumulationBuys?.map(b => ({ amountBase: b.amountBase, marketCapUsd: b.marketCapUsd })))}`);
       await this.discordNotification.sendSignalNotification(notificationData);
     } catch (error: any) {
       console.error(`❌ Error sending accumulation notification: ${error.message}`);
