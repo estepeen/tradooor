@@ -65,14 +65,22 @@ export class WalletCorrelationService {
         return { correlationsFound: 0, groupsDetected: 0 }; // TODO: Implement full Prisma version
       }
       
-      // 1. Načti všechny aktivní wallety
-      const { data: wallets, error } = await supabase
-        .from(TABLES.SMART_WALLET)
-        .select('id, address, score, winRate')
-        .eq('isActive', true)
-        .limit(100);
+      // 1. Načti všechny aktivní wallety (použij Prisma)
+      const wallets = await prisma.smartWallet.findMany({
+        where: {
+          // Note: isActive field doesn't exist in Prisma schema, so we'll get all wallets
+          // You can add filtering later if needed
+        },
+        select: {
+          id: true,
+          address: true,
+          score: true,
+          winRate: true,
+        },
+        take: 100,
+      });
 
-      if (error || !wallets || wallets.length < 2) {
+      if (!wallets || wallets.length < 2) {
         return { correlationsFound: 0, groupsDetected: 0 };
       }
 
