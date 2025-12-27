@@ -10,6 +10,7 @@ import { MetricsHistoryRepository } from '../repositories/metrics-history.reposi
 import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
 import { AdvancedSignalsService } from '../services/advanced-signals.service.js';
 import { PositionMonitorService } from '../services/position-monitor.service.js';
+import { TokenRepository } from '../repositories/token.repository.js';
 
 // Log environment variables status
 console.log(`🔍 [NormalizedTradeWorker] Environment check:`);
@@ -18,6 +19,7 @@ console.log(`   ENABLE_ADVANCED_SIGNALS: ${process.env.ENABLE_ADVANCED_SIGNALS !
 
 const normalizedTradeRepo = new NormalizedTradeRepository();
 const tradeRepo = new TradeRepository();
+const tokenRepo = new TokenRepository();
 const walletQueueRepo = new WalletProcessingQueueRepository();
 const valuationService = new TradeValuationService();
 const consensusService = new ConsensusWebhookService();
