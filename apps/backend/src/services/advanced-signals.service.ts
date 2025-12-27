@@ -1155,8 +1155,6 @@ export class AdvancedSignalsService {
    * Pošle seskupený accumulation signál do Discordu
    */
   private async sendAccumulationNotification(pending: PendingAccumulationSignal): Promise<void> {
-    console.error(`[ACCUMULATION] ========== sendAccumulationNotification START ==========`);
-    console.error(`[ACCUMULATION] Token: ${pending.tokenSymbol}, Wallet: ${pending.wallet?.label || pending.wallet?.address}`);
     try {
       const { token, wallet, baseToken, marketData, signal } = pending;
       
@@ -1206,12 +1204,8 @@ export class AdvancedSignalsService {
             const tradeFeature = await this.tradeFeatureRepo.findByTradeId(buy.id);
             if (tradeFeature?.fdvUsd) {
               marketCapUsd = tradeFeature.fdvUsd;
-              console.error(`[ACCUMULATION] Trade ${buy.id}: marketCap=${marketCapUsd} from TradeFeature`);
-            } else {
-              console.error(`[ACCUMULATION] Trade ${buy.id}: TradeFeature exists but fdvUsd is ${tradeFeature?.fdvUsd || 'null/undefined'}`);
             }
           } catch (error: any) {
-            console.error(`[ACCUMULATION] Trade ${buy.id}: TradeFeature not found - ${error.message}`);
             // Pokud TradeFeature neexistuje, použijeme undefined (fallback na globální market cap)
           }
           
@@ -1222,8 +1216,6 @@ export class AdvancedSignalsService {
           };
         })
       );
-      
-      console.error(`[ACCUMULATION] buyResults marketCaps: ${buyResults.map(b => b.marketCapUsd || 'null').join(', ')}`);
       
       const notificationData: SignalNotificationData = {
         tokenSymbol: pending.tokenSymbol,
@@ -1259,9 +1251,6 @@ export class AdvancedSignalsService {
         }],
       };
       
-      console.error(`[ACCUMULATION] Sending signal for ${pending.tokenSymbol} - ${wallet.label || wallet.address.substring(0, 8)}... (${validBuys.length} buys)`);
-      console.error(`[ACCUMULATION] buyResults: ${JSON.stringify(buyResults.map(b => ({ amountBase: b.amountBase, marketCapUsd: b.marketCapUsd })))}`);
-      console.error(`[ACCUMULATION] notificationData.wallets[0].accumulationBuys: ${JSON.stringify(notificationData.wallets?.[0]?.accumulationBuys?.map(b => ({ amountBase: b.amountBase, marketCapUsd: b.marketCapUsd })))}`);
       await this.discordNotification.sendSignalNotification(notificationData);
     } catch (error: any) {
       console.error(`❌ Error sending accumulation notification: ${error.message}`);

@@ -173,16 +173,6 @@ export class DiscordNotificationService {
    * Vytvoří embed pro signál
    */
   private async buildSignalEmbed(data: SignalNotificationData): Promise<DiscordEmbed> {
-    if (data.signalType === 'accumulation') {
-      console.error(`[ACCUMULATION DEBUG] buildSignalEmbed called for ${data.tokenSymbol}`);
-      console.error(`[ACCUMULATION DEBUG] wallets count: ${data.wallets?.length || 0}`);
-      if (data.wallets?.[0]?.accumulationBuys) {
-        console.error(`[ACCUMULATION DEBUG] accumulationBuys count: ${data.wallets[0].accumulationBuys.length}`);
-        console.error(`[ACCUMULATION DEBUG] accumulationBuys data: ${JSON.stringify(data.wallets[0].accumulationBuys.map(b => ({ amountBase: b.amountBase, marketCapUsd: b.marketCapUsd })))}`);
-      } else {
-        console.error(`[ACCUMULATION DEBUG] NO accumulationBuys in wallets[0]!`);
-      }
-    }
     const birdeyeUrl = `https://birdeye.so/token/${data.tokenMint}?chain=solana`;
     const baseToken = (data.baseToken || 'SOL').toUpperCase();
 
@@ -422,24 +412,15 @@ export class DiscordNotificationService {
         // Pro accumulation signál: zobraz jméno a pod ním všechny nákupy (jako u consensus)
         if (data.signalType === 'accumulation' && w.accumulationBuys && w.accumulationBuys.length > 0) {
           const buys = w.accumulationBuys;
-          // Debug: zobraz market caps přímo v embedu (dočasně)
-          const marketCapsDebug = buys.map(b => b.marketCapUsd || 'null').join(', ');
-          console.error(`[ACCUMULATION DEBUG] ${data.tokenSymbol}: ${buys.length} buys, marketCaps=[${marketCapsDebug}], globalMCap=${data.marketCapUsd || 'null'}`);
-          
-          const buyLines = buys.map((buy, index) => {
+          const buyLines = buys.map(buy => {
             const amountBase = buy.amountBase;
             const amountUsd = amountBase * solPriceUsd;
             const parts = [`${this.formatNumber(amountBase, 2)} ${baseToken} ($${this.formatNumber(amountUsd, 0)})`];
             
             // Market cap a čas pro každý nákup - použij market cap z doby nákupu, pokud je k dispozici
             const buyMarketCap = buy.marketCapUsd ?? data.marketCapUsd;
-            console.error(`[ACCUMULATION DEBUG] Buy #${index + 1} (${buy.timestamp}): buy.marketCapUsd=${buy.marketCapUsd || 'null'}, data.marketCapUsd=${data.marketCapUsd || 'null'}, using=${buyMarketCap || 'null'}`);
-            
             if (buyMarketCap) {
               parts.push(`@ $${this.formatNumber(buyMarketCap, 0)} MCap`);
-            } else {
-              // Debug: pokud nemáme market cap, přidej poznámku
-              parts.push(`@ [NO MCAP]`);
             }
             if (buy.timestamp) {
               const time = new Date(buy.timestamp);
@@ -484,18 +465,6 @@ export class DiscordNotificationService {
         value: walletDetails || 'No wallet data',
         inline: false,
       });
-      
-      // DEBUG: Přidej dočasné debug pole pro accumulation signály
-      if (data.signalType === 'accumulation' && data.wallets?.[0]?.accumulationBuys) {
-        const debugInfo = data.wallets[0].accumulationBuys.map((b, i) => 
-          `Buy ${i + 1}: MCap=${b.marketCapUsd || 'null'}`
-        ).join(' | ');
-        fields.push({
-          name: '🔍 DEBUG (temporary)',
-          value: `MarketCaps: ${debugInfo} | Global: ${data.marketCapUsd || 'null'}`,
-          inline: false,
-        });
-      }
     }
 
     // AI Reasoning (if available)
