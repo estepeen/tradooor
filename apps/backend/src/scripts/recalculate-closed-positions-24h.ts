@@ -52,19 +52,17 @@ async function recalculateClosedPositions24h() {
         console.log(`  Processing wallet: ${wallet.address.substring(0, 8)}...`);
 
         // 3. Zkontroluj, jestli má wallet trades za posledních 24h
-        const { data: recentTrades, error: tradesError } = await supabase
-          .from(TABLES.TRADE)
-          .select('id')
-          .eq('walletId', wallet.id)
-          .gte('timestamp', last24h.toISOString())
-          .neq('side', 'void')
-          .limit(1);
-
-        if (tradesError) {
-          console.warn(`    ⚠️  Error checking trades: ${tradesError.message}`);
-          errorCount++;
-          continue;
-        }
+        const recentTrades = await prisma.trade.findMany({
+          where: {
+            walletId: wallet.id,
+            timestamp: { gte: last24h },
+            side: { not: 'void' },
+          },
+          select: {
+            id: true,
+          },
+          take: 1,
+        });
 
         if (!recentTrades || recentTrades.length === 0) {
           console.log(`    ⏭️  No trades in last 24h, skipping`);
