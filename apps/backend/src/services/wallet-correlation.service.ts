@@ -423,9 +423,6 @@ export class WalletCorrelationService {
       
       // For now, return default values since trustScore doesn't exist
       if (!wallets || wallets.length === 0) {
-        .from(TABLES.SMART_WALLET)
-        .select('id, score, trustScore, isSuspectedShill, correlationGroupId')
-        .in('id', walletIds);
 
       if (!wallets || wallets.length === 0) {
         return {
