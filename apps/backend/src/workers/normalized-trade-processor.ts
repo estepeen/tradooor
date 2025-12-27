@@ -127,6 +127,25 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
     // DŮLEŽITÉ: amountBase musí být vždy v base měně (SOL/USDC/USDT) z TX, NIKDY v USD!
     // valuation.amountBaseUsd je USD hodnota pro valueUsd, ale amountBase musí být v base měně
     // Použij record.amountBaseRaw (původní hodnota z TX v base měně), ne valuation.amountBaseUsd
+    const tradeMeta = {
+      ...record.meta,
+      normalizedTradeId: record.id,
+      amountBaseRaw: record.amountBaseRaw,
+      priceBasePerTokenRaw: record.priceBasePerTokenRaw,
+      valuationSource: valuation.source,
+      // Ulož market cap v době trade pro historické zobrazení v signálech
+      marketCapUsd: marketCapAtTradeTime,
+      fdvUsd: marketCapAtTradeTime, // Alias pro kompatibilitu
+      marketCap: marketCapAtTradeTime, // Další alias
+    };
+    
+    // Debug: log co ukládáme do meta
+    if (marketCapAtTradeTime) {
+      console.log(`[MARKETCAP] Storing market cap ${marketCapAtTradeTime} in Trade.meta for trade ${record.id}`);
+    } else {
+      console.warn(`[MARKETCAP] WARNING: No market cap to store for trade ${record.id} - will show "- MCap" in signals`);
+    }
+    
     const trade = await tradeRepo.create({
       txSignature: record.txSignature,
       walletId: record.walletId,
@@ -138,18 +157,22 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       timestamp: record.timestamp,
       dex: record.dex,
       valueUsd: valuation.amountBaseUsd, // USD hodnota pro zobrazení
-      meta: {
-        ...record.meta,
-        normalizedTradeId: record.id,
-        amountBaseRaw: record.amountBaseRaw,
-        priceBasePerTokenRaw: record.priceBasePerTokenRaw,
-        valuationSource: valuation.source,
-        // Ulož market cap v době trade pro historické zobrazení v signálech
-        marketCapUsd: marketCapAtTradeTime,
-        fdvUsd: marketCapAtTradeTime, // Alias pro kompatibilitu
-        marketCap: marketCapAtTradeTime, // Další alias
-      },
+      meta: tradeMeta,
     });
+    
+    // Debug: ověř, že se market cap skutečně uložil
+    if (trade.meta && typeof trade.meta === 'object') {
+      const savedMeta = trade.meta as any;
+      if (savedMeta.marketCapUsd || savedMeta.fdvUsd || savedMeta.marketCap) {
+        console.log(`[MARKETCAP] Verified: Market cap stored in DB for trade ${trade.id}:`, {
+          marketCapUsd: savedMeta.marketCapUsd,
+          fdvUsd: savedMeta.fdvUsd,
+          marketCap: savedMeta.marketCap
+        });
+      } else {
+        console.error(`[MARKETCAP] ERROR: Market cap NOT stored in DB for trade ${trade.id}! Meta:`, JSON.stringify(savedMeta));
+      }
+    }
 
     // #region agent log - Debug amountBase storage
     fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'normalized-trade-processor.ts:110',message:'AFTER TRADE CREATE',data:{tradeId:trade.id,amountBase:trade.amountBase,priceBasePerToken:trade.priceBasePerToken,valueUsd:trade.valueUsd,baseToken:record.baseToken},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H1'})}).catch(()=>{});
