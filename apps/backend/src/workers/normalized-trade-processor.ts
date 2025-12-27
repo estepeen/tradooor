@@ -97,27 +97,33 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
 
     // Načti aktuální market cap v době trade (pro zobrazení v signálech)
     // POZNÁMKA: Načítáme aktuální data v době trade, ne historická data
+    // OPTIMALIZACE: Načítáme market cap jen pro BUY trades (pro SELL a VOID není potřeba)
     let marketCapAtTradeTime: number | null = null;
-    try {
-      const token = await tokenRepo.findById(record.tokenId);
-      if (token?.mintAddress) {
-        console.log(`[MARKETCAP] Fetching market cap for trade ${record.id}, token ${token.symbol || token.mintAddress.substring(0, 8)}...`);
-        const { TokenMarketDataService } = await import('../services/token-market-data.service.js');
-        const tokenMarketDataService = new TokenMarketDataService();
-        // Načti aktuální market cap (bez timestamp - API vrací aktuální data)
-        const marketData = await tokenMarketDataService.getMarketData(token.mintAddress);
-        if (marketData?.marketCap) {
-          marketCapAtTradeTime = marketData.marketCap;
-          console.log(`[MARKETCAP] Market cap fetched: $${marketCapAtTradeTime.toLocaleString()} for trade ${record.id}`);
+    if (record.side === 'buy') {
+      try {
+        const token = await tokenRepo.findById(record.tokenId);
+        if (token?.mintAddress) {
+          console.log(`[MARKETCAP] Fetching market cap for BUY trade ${record.id}, token ${token.symbol || token.mintAddress.substring(0, 8)}...`);
+          const { TokenMarketDataService } = await import('../services/token-market-data.service.js');
+          const tokenMarketDataService = new TokenMarketDataService();
+          // Načti aktuální market cap (bez timestamp - API vrací aktuální data)
+          // Cache v TokenMarketDataService by měl zabránit zbytečným API voláním
+          const marketData = await tokenMarketDataService.getMarketData(token.mintAddress);
+          if (marketData?.marketCap) {
+            marketCapAtTradeTime = marketData.marketCap;
+            console.log(`[MARKETCAP] Market cap fetched: $${marketCapAtTradeTime.toLocaleString()} for trade ${record.id}`);
+          } else {
+            console.warn(`[MARKETCAP] No market cap in response for trade ${record.id}, marketData:`, JSON.stringify(marketData));
+          }
         } else {
-          console.warn(`[MARKETCAP] No market cap in response for trade ${record.id}, marketData:`, JSON.stringify(marketData));
+          console.warn(`[MARKETCAP] No mintAddress for token ${record.tokenId} in trade ${record.id}`);
         }
-      } else {
-        console.warn(`[MARKETCAP] No mintAddress for token ${record.tokenId} in trade ${record.id}`);
+      } catch (error: any) {
+        // Pokud se nepodaří načíst market cap, pokračujeme bez něj (není kritické)
+        console.error(`[MARKETCAP] Failed to fetch market cap for trade ${record.id}: ${error.message}`, error.stack);
       }
-    } catch (error: any) {
-      // Pokud se nepodaří načíst market cap, pokračujeme bez něj (není kritické)
-      console.error(`[MARKETCAP] Failed to fetch market cap for trade ${record.id}: ${error.message}`, error.stack);
+    } else {
+      console.log(`[MARKETCAP] Skipping market cap fetch for ${record.side} trade ${record.id} (only needed for BUY trades)`);
     }
 
     // #region agent log - Debug amountBase storage
