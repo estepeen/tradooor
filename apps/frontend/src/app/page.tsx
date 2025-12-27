@@ -553,14 +553,10 @@ export default function Home() {
                       </td>
                       <td className={`px-4 py-3 text-right text-sm font-medium ${
                         (() => {
-                          // DŮLEŽITÉ: Použij recentPnl30dBase a recentPnl30dPercent z backendu
-                          // Backend endpoint /api/smart-wallets teď počítá PnL stejným způsobem jako /pnl endpoint:
-                          // 1. Načte všechny ClosedLot pro wallet
-                          // 2. Filtruje podle exitTime >= 30d ago
-                          // 3. Sečte realizedPnl z těchto ClosedLot
-                          // Toto je IDENTICKÝ výpočet jako v detailu tradera
-                          const pnlPercent = wallet.recentPnl30dPercent ?? 0;
-                          return pnlPercent >= 0 ? 'text-green-600' : 'text-red-600';
+                          // DŮLEŽITÉ: Barva se určuje podle pnlBase (SOL hodnota), ne podle procent
+                          // Použij recentPnl30dBase z backendu (stejný výpočet jako detail)
+                          const pnlBase = wallet.recentPnl30dBase ?? 0; // PnL v SOL (z ClosedLot, stejný výpočet jako detail)
+                          return pnlBase >= 0 ? 'text-green-600' : 'text-red-600';
                         })()
                       }`}>
                         {(() => {
@@ -575,11 +571,12 @@ export default function Home() {
                             console.warn(`⚠️  [Homepage] Wallet ${wallet.address}: pnlBase=${pnlBase} but pnlUsdValue=${pnlUsdValue} (missing USD conversion)`);
                           }
                           
-                          const formattedPnl = formatNumber(Math.abs(pnlBase), 2);
-                          const formattedUsd = formatNumber(Math.abs(pnlUsdValue), 0);
+                          // Formátuj s oddělovačem tisíců - použij původní hodnotu (ne abs), aby formatNumber správně formátoval
+                          const formattedPnl = formatNumber(pnlBase, 2);
+                          const formattedUsd = formatNumber(pnlUsdValue, 0);
                           
                           // If USD value is 0 but we have SOL value, calculate it manually (fallback)
-                          const displayUsd = pnlUsdValue > 0 ? formattedUsd : (Math.abs(pnlBase) * 150).toFixed(0); // Fallback to ~150 USD per SOL
+                          const displayUsd = pnlUsdValue !== 0 ? formattedUsd : formatNumber(Math.abs(pnlBase) * 150, 0); // Fallback to ~150 USD per SOL
                           
                           return (
                             <>

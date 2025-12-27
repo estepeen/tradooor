@@ -26,14 +26,21 @@ export function formatNumber(value: number | null | undefined, decimals = 2): st
     return '0.00';
   }
   try {
+    // Handle negative numbers - preserve sign
+    const isNegative = value < 0;
+    const absValue = Math.abs(value);
+    
     // Use toFixed for precise decimal control, then add thousand separators
-    const fixed = Number(value).toFixed(decimals);
+    const fixed = absValue.toFixed(decimals);
     // Add thousand separators
     const parts = fixed.split('.');
     if (parts[0]) {
       parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
     }
-    return parts.join('.');
+    const formatted = parts.join('.');
+    
+    // Add minus sign back if negative
+    return isNegative ? `-${formatted}` : formatted;
   } catch (error) {
     // Fallback to simple toFixed if anything goes wrong
     return Number(value).toFixed(decimals);
