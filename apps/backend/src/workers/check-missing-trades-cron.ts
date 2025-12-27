@@ -19,7 +19,7 @@
 import 'dotenv/config';
 import cron from 'node-cron';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { supabase, TABLES } from '../lib/supabase.js';
+import { prisma } from '../lib/prisma.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
@@ -69,13 +69,12 @@ async function checkMissingTrades() {
     const connection = new Connection(rpcUrl, 'confirmed');
 
     // 2. Get all wallets
-    const { data: wallets, error } = await supabase
-      .from(TABLES.SMART_WALLET)
-      .select('id, address');
-
-    if (error) {
-      throw new Error(`Failed to fetch wallets: ${error.message}`);
-    }
+    const wallets = await prisma.smartWallet.findMany({
+      select: {
+        id: true,
+        address: true,
+      },
+    });
 
     const walletList = wallets ?? [];
     

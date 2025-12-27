@@ -9,7 +9,7 @@
  */
 
 import 'dotenv/config';
-import { supabase, TABLES } from '../lib/supabase.js';
+import { prisma } from '../lib/prisma.js';
 import { SmartWalletRepository } from '../repositories/smart-wallet.repository.js';
 import { LotMatchingService } from '../services/lot-matching.service.js';
 import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
@@ -31,15 +31,13 @@ async function recalculateClosedPositions24h() {
 
   try {
     // 1. Najdi všechny wallets
-    const { data: wallets, error: walletsError } = await supabase
-      .from(TABLES.SMART_WALLET)
-      .select('id, address, createdAt');
-
-    if (walletsError) {
-      throw new Error(`Failed to fetch wallets: ${walletsError.message}`);
-    }
-
-    const walletList = wallets || [];
+    const walletList = await prisma.smartWallet.findMany({
+      select: {
+        id: true,
+        address: true,
+        createdAt: true,
+      },
+    });
     console.log(`📊 Found ${walletList.length} wallets to process\n`);
 
     let successCount = 0;
