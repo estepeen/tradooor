@@ -1090,6 +1090,8 @@ export class AdvancedSignalsService {
                     orderBy: { timestamp: 'asc' },
                   });
                   
+                  console.log(`[ACCUMULATION] Found ${recentBuys.length} recent buys for ${token.symbol}, checking meta for market cap...`);
+                  
                   // Filtruj podle 0.3 SOL minimum (stejná logika jako v detectAccumulation)
                   let solPriceUsd = 125.0;
                   try {
