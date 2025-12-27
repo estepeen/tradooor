@@ -1204,12 +1204,12 @@ export class AdvancedSignalsService {
             const tradeFeature = await this.tradeFeatureRepo.findByTradeId(buy.id);
             if (tradeFeature?.fdvUsd) {
               marketCapUsd = tradeFeature.fdvUsd;
-              console.log(`   📊 [Accumulation] Trade ${buy.id}: marketCap=${marketCapUsd} from TradeFeature`);
+              console.error(`[ACCUMULATION] Trade ${buy.id}: marketCap=${marketCapUsd} from TradeFeature`);
             } else {
-              console.log(`   ⚠️  [Accumulation] Trade ${buy.id}: TradeFeature exists but fdvUsd is null/undefined`);
+              console.error(`[ACCUMULATION] Trade ${buy.id}: TradeFeature exists but fdvUsd is ${tradeFeature?.fdvUsd || 'null/undefined'}`);
             }
           } catch (error: any) {
-            console.log(`   ⚠️  [Accumulation] Trade ${buy.id}: TradeFeature not found - ${error.message}`);
+            console.error(`[ACCUMULATION] Trade ${buy.id}: TradeFeature not found - ${error.message}`);
             // Pokud TradeFeature neexistuje, použijeme undefined (fallback na globální market cap)
           }
           
@@ -1220,6 +1220,8 @@ export class AdvancedSignalsService {
           };
         })
       );
+      
+      console.error(`[ACCUMULATION] buyResults marketCaps: ${buyResults.map(b => b.marketCapUsd || 'null').join(', ')}`);
       
       const notificationData: SignalNotificationData = {
         tokenSymbol: pending.tokenSymbol,
@@ -1255,9 +1257,9 @@ export class AdvancedSignalsService {
         }],
       };
       
-      console.log(`📦 [Accumulation] Sending grouped accumulation signal for ${pending.tokenSymbol} - ${wallet.label || wallet.address.substring(0, 8)}... (${validBuys.length} buys)`);
-      console.log(`   📊 [Accumulation] Market caps in buyResults: ${buyResults.map(b => `${b.marketCapUsd || 'null'}`).join(', ')}`);
-      console.log(`   📊 [Accumulation] accumulationBuys in notification: ${JSON.stringify(notificationData.wallets?.[0]?.accumulationBuys?.map(b => ({ amountBase: b.amountBase, marketCapUsd: b.marketCapUsd })))}`);
+      console.error(`[ACCUMULATION] Sending signal for ${pending.tokenSymbol} - ${wallet.label || wallet.address.substring(0, 8)}... (${validBuys.length} buys)`);
+      console.error(`[ACCUMULATION] buyResults: ${JSON.stringify(buyResults.map(b => ({ amountBase: b.amountBase, marketCapUsd: b.marketCapUsd })))}`);
+      console.error(`[ACCUMULATION] notificationData.wallets[0].accumulationBuys: ${JSON.stringify(notificationData.wallets?.[0]?.accumulationBuys?.map(b => ({ amountBase: b.amountBase, marketCapUsd: b.marketCapUsd })))}`);
       await this.discordNotification.sendSignalNotification(notificationData);
     } catch (error: any) {
       console.error(`❌ Error sending accumulation notification: ${error.message}`);
