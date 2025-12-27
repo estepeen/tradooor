@@ -1129,21 +1129,21 @@ export class AdvancedSignalsService {
                       // 2. Fallback: zkus načíst z Trade.meta (pokud tam byl uložen při vytvoření trade)
                       if (!marketCapUsd && buy.meta) {
                         const meta = buy.meta as any;
-                        console.log(`🔍 [Accumulation] Trade ${buy.id} meta:`, JSON.stringify({ marketCapUsd: meta.marketCapUsd, fdvUsd: meta.fdvUsd, marketCap: meta.marketCap }));
+                        console.log(`[ACCUMULATION] Trade ${buy.id} meta:`, JSON.stringify({ marketCapUsd: meta.marketCapUsd, fdvUsd: meta.fdvUsd, marketCap: meta.marketCap }));
                         if (meta.marketCapUsd !== null && meta.marketCapUsd !== undefined) {
                           marketCapUsd = Number(meta.marketCapUsd);
-                          console.log(`✅ [Accumulation] Found marketCapUsd in meta: ${marketCapUsd} for trade ${buy.id}`);
+                          console.log(`[ACCUMULATION] Found marketCapUsd in meta: ${marketCapUsd} for trade ${buy.id}`);
                         } else if (meta.fdvUsd !== null && meta.fdvUsd !== undefined) {
                           marketCapUsd = Number(meta.fdvUsd);
-                          console.log(`✅ [Accumulation] Found fdvUsd in meta: ${marketCapUsd} for trade ${buy.id}`);
+                          console.log(`[ACCUMULATION] Found fdvUsd in meta: ${marketCapUsd} for trade ${buy.id}`);
                         } else if (meta.marketCap !== null && meta.marketCap !== undefined) {
                           marketCapUsd = Number(meta.marketCap);
-                          console.log(`✅ [Accumulation] Found marketCap in meta: ${marketCapUsd} for trade ${buy.id}`);
+                          console.log(`[ACCUMULATION] Found marketCap in meta: ${marketCapUsd} for trade ${buy.id}`);
                         } else {
-                          console.warn(`⚠️  [Accumulation] No market cap found in meta for trade ${buy.id}`);
+                          console.warn(`[ACCUMULATION] No market cap found in meta for trade ${buy.id}`);
                         }
                       } else if (!buy.meta) {
-                        console.warn(`⚠️  [Accumulation] No meta object for trade ${buy.id}`);
+                        console.warn(`[ACCUMULATION] No meta object for trade ${buy.id}`);
                       }
                       
                       // Pokud nemáme market cap, necháme undefined (zobrazí se "- MCap")
@@ -1237,21 +1237,21 @@ export class AdvancedSignalsService {
           // 2. Fallback: zkus načíst z Trade.meta (pokud tam byl uložen při vytvoření trade)
           if (!marketCapUsd && buy.meta) {
             const meta = buy.meta as any;
-            console.log(`🔍 [Accumulation-send] Trade ${buy.id} meta:`, JSON.stringify({ marketCapUsd: meta.marketCapUsd, fdvUsd: meta.fdvUsd, marketCap: meta.marketCap }));
+            console.log(`[ACCUMULATION-SEND] Trade ${buy.id} meta:`, JSON.stringify({ marketCapUsd: meta.marketCapUsd, fdvUsd: meta.fdvUsd, marketCap: meta.marketCap }));
             if (meta.marketCapUsd !== null && meta.marketCapUsd !== undefined) {
               marketCapUsd = Number(meta.marketCapUsd);
-              console.log(`✅ [Accumulation-send] Found marketCapUsd in meta: ${marketCapUsd} for trade ${buy.id}`);
+              console.log(`[ACCUMULATION-SEND] Found marketCapUsd in meta: ${marketCapUsd} for trade ${buy.id}`);
             } else if (meta.fdvUsd !== null && meta.fdvUsd !== undefined) {
               marketCapUsd = Number(meta.fdvUsd);
-              console.log(`✅ [Accumulation-send] Found fdvUsd in meta: ${marketCapUsd} for trade ${buy.id}`);
+              console.log(`[ACCUMULATION-SEND] Found fdvUsd in meta: ${marketCapUsd} for trade ${buy.id}`);
             } else if (meta.marketCap !== null && meta.marketCap !== undefined) {
               marketCapUsd = Number(meta.marketCap);
-              console.log(`✅ [Accumulation-send] Found marketCap in meta: ${marketCapUsd} for trade ${buy.id}`);
+              console.log(`[ACCUMULATION-SEND] Found marketCap in meta: ${marketCapUsd} for trade ${buy.id}`);
             } else {
-              console.warn(`⚠️  [Accumulation-send] No market cap found in meta for trade ${buy.id}`);
+              console.warn(`[ACCUMULATION-SEND] No market cap found in meta for trade ${buy.id}`);
             }
           } else if (!buy.meta) {
-            console.warn(`⚠️  [Accumulation-send] No meta object for trade ${buy.id}`);
+            console.warn(`[ACCUMULATION-SEND] No meta object for trade ${buy.id}`);
           }
           
           return {
