@@ -136,21 +136,30 @@ export class WalletCorrelationService {
       // Načti trades obou walletů za posledních 30 dní
       const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       
-      const [trades1Result, trades2Result] = await Promise.all([
-        supabase
-          .from(TABLES.TRADE)
-          .select('tokenId, side, timestamp')
-          .eq('walletId', walletId1)
-          .gte('timestamp', since.toISOString()),
-        supabase
-          .from(TABLES.TRADE)
-          .select('tokenId, side, timestamp')
-          .eq('walletId', walletId2)
-          .gte('timestamp', since.toISOString()),
+      const [trades1, trades2] = await Promise.all([
+        prisma.trade.findMany({
+          where: {
+            walletId: walletId1,
+            timestamp: { gte: since },
+          },
+          select: {
+            tokenId: true,
+            side: true,
+            timestamp: true,
+          },
+        }),
+        prisma.trade.findMany({
+          where: {
+            walletId: walletId2,
+            timestamp: { gte: since },
+          },
+          select: {
+            tokenId: true,
+            side: true,
+            timestamp: true,
+          },
+        }),
       ]);
-
-      const trades1 = trades1Result.data || [];
-      const trades2 = trades2Result.data || [];
 
       if (trades1.length === 0 || trades2.length === 0) {
         return null;
@@ -381,18 +390,10 @@ export class WalletCorrelationService {
           updatedAt: new Date().toISOString(),
         });
 
-      // Update wallets in group
-      const isShill = group.groupType === 'shill_network';
-      const trustScore = group.avgWalletScore * group.trustMultiplier;
-
-      await supabase
-        .from(TABLES.SMART_WALLET)
-        .update({
-          correlationGroupId: group.id,
-          isSuspectedShill: isShill,
-          trustScore,
-        })
-        .in('id', group.walletIds);
+      // Update wallets in group (skip - fields don't exist in Prisma schema yet)
+      // Note: correlationGroupId, isSuspectedShill, trustScore fields don't exist in Prisma schema
+      // For now, skip updating wallets until schema is updated
+      console.warn(`⚠️  [WalletCorrelation] Skipping wallet update - fields not in Prisma schema yet`);
     }
   }
 
@@ -407,8 +408,21 @@ export class WalletCorrelationService {
     hasShillRisk: boolean;
   }> {
     try {
-      // Načti wallet info s trust scores
-      const { data: wallets } = await supabase
+      // Načti wallet info s trust scores (použij Prisma)
+      const wallets = await prisma.smartWallet.findMany({
+        where: {
+          id: { in: walletIds },
+        },
+        select: {
+          id: true,
+          score: true,
+          winRate: true,
+          // Note: trustScore, correlationGroupId, isSuspectedShill don't exist in Prisma schema yet
+        },
+      });
+      
+      // For now, return default values since trustScore doesn't exist
+      if (!wallets || wallets.length === 0) {
         .from(TABLES.SMART_WALLET)
         .select('id, score, trustScore, isSuspectedShill, correlationGroupId')
         .in('id', walletIds);
