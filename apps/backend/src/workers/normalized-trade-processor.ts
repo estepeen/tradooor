@@ -12,6 +12,7 @@ import { AdvancedSignalsService } from '../services/advanced-signals.service.js'
 import { PositionMonitorService } from '../services/position-monitor.service.js';
 import { TokenRepository } from '../repositories/token.repository.js';
 import { TokenMarketDataService } from '../services/token-market-data.service.js';
+import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 
 // Log environment variables status
 console.log(`🔍 [NormalizedTradeWorker] Environment check:`);
@@ -21,6 +22,7 @@ console.log(`   ENABLE_ADVANCED_SIGNALS: ${process.env.ENABLE_ADVANCED_SIGNALS !
 const normalizedTradeRepo = new NormalizedTradeRepository();
 const tradeRepo = new TradeRepository();
 const tokenRepo = new TokenRepository();
+const tradeFeatureRepo = new TradeFeatureRepository();
 const walletQueueRepo = new WalletProcessingQueueRepository();
 const valuationService = new TradeValuationService();
 const consensusService = new ConsensusWebhookService();
@@ -159,17 +161,33 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       meta: tradeMeta,
     });
     
+    // Ulož market cap také do TradeFeature.fdvUsd (pokud TradeFeature existuje nebo se vytvoří)
+    if (marketCapAtTradeTime !== null && (record.side === 'buy' || record.side === 'sell')) {
+      try {
+        // Zkus aktualizovat nebo vytvořit TradeFeature s fdvUsd
+        await tradeFeatureRepo.upsertBaseFeature({
+          tradeId: trade.id,
+          walletId: record.walletId,
+          tokenId: record.tokenId,
+          fdvUsd: marketCapAtTradeTime, // Ulož market cap do TradeFeature.fdvUsd
+        });
+      } catch (error: any) {
+        // Pokud se nepodaří uložit do TradeFeature, není to kritické (máme to v Trade.meta)
+        // TradeFeature se možná vytváří jinde nebo ještě neexistuje
+      }
+    }
+    
     // Debug: ověř, že se market cap skutečně uložil
     if (trade.meta && typeof trade.meta === 'object') {
       const savedMeta = trade.meta as any;
       if (savedMeta.marketCapUsd || savedMeta.fdvUsd || savedMeta.marketCap) {
-        console.log(`[MARKETCAP] Verified: Market cap stored in DB for trade ${trade.id}:`, {
+        console.log(`[MARKETCAP] Verified: Market cap stored in Trade.meta for trade ${trade.id}:`, {
           marketCapUsd: savedMeta.marketCapUsd,
           fdvUsd: savedMeta.fdvUsd,
           marketCap: savedMeta.marketCap
         });
       } else {
-        console.error(`[MARKETCAP] ERROR: Market cap NOT stored in DB for trade ${trade.id}! Meta:`, JSON.stringify(savedMeta));
+        console.error(`[MARKETCAP] ERROR: Market cap NOT stored in Trade.meta for trade ${trade.id}! Meta:`, JSON.stringify(savedMeta));
       }
     }
 
