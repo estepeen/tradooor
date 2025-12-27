@@ -187,21 +187,23 @@ export class ConsensusWebhookService {
         let marketDataResult: any = null;
         let walletsData: any[] = [];
         
-        try {
-          // Check if GROQ_API_KEY is set
-          const hasGroqKey = !!process.env.GROQ_API_KEY;
-          if (!hasGroqKey) {
-            console.warn(`   ⚠️  GROQ_API_KEY not set - AI decisions will use fallback rules`);
-          } else {
-            console.log(`   🤖 Calling AI decision service...`);
-          }
-          
-          aiDecisionResult = await this.evaluateSignalWithAI(
-            signal,
-            tradeToUse,
-            uniqueWallets.size,
-            sortedBuys
-          );
+        // AI evaluace pouze pokud je povolená
+        if (process.env.ENABLE_AI_DECISIONS === 'true') {
+          try {
+            // Check if GROQ_API_KEY is set
+            const hasGroqKey = !!process.env.GROQ_API_KEY;
+            if (!hasGroqKey) {
+              console.warn(`   ⚠️  GROQ_API_KEY not set - AI decisions will use fallback rules`);
+            } else {
+              console.log(`   🤖 Calling AI decision service...`);
+            }
+            
+            aiDecisionResult = await this.evaluateSignalWithAI(
+              signal,
+              tradeToUse,
+              uniqueWallets.size,
+              sortedBuys
+            );
           
           if (aiDecisionResult && !aiDecisionResult.isFallback) {
             const model = aiDecisionResult.model || 'unknown';
@@ -225,9 +227,12 @@ export class ConsensusWebhookService {
           } else {
             console.warn(`   ⚠️  AI evaluation returned null - AI not available`);
           }
-        } catch (aiError: any) {
-          console.error(`   ❌ AI evaluation failed: ${aiError.message}`);
-          console.error(`   Stack: ${aiError.stack}`);
+          } catch (aiError: any) {
+            console.error(`   ❌ AI evaluation failed: ${aiError.message}`);
+            console.error(`   Stack: ${aiError.stack}`);
+          }
+        } else {
+          console.log(`   ⏭️  AI decision layer disabled (ENABLE_AI_DECISIONS != 'true') - skipping AI evaluation`);
         }
 
         // 5c. Pošli Discord notifikaci
