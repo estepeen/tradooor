@@ -101,17 +101,23 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
     try {
       const token = await tokenRepo.findById(record.tokenId);
       if (token?.mintAddress) {
+        console.log(`📊 [MarketCap] Fetching market cap for trade ${record.id}, token ${token.symbol || token.mintAddress.substring(0, 8)}...`);
         const { TokenMarketDataService } = await import('../services/token-market-data.service.js');
         const tokenMarketDataService = new TokenMarketDataService();
         // Načti aktuální market cap (bez timestamp - API vrací aktuální data)
         const marketData = await tokenMarketDataService.getMarketData(token.mintAddress);
         if (marketData?.marketCap) {
           marketCapAtTradeTime = marketData.marketCap;
+          console.log(`✅ [MarketCap] Market cap fetched: $${marketCapAtTradeTime.toLocaleString()} for trade ${record.id}`);
+        } else {
+          console.warn(`⚠️  [MarketCap] No market cap in response for trade ${record.id}, marketData:`, JSON.stringify(marketData));
         }
+      } else {
+        console.warn(`⚠️  [MarketCap] No mintAddress for token ${record.tokenId} in trade ${record.id}`);
       }
     } catch (error: any) {
       // Pokud se nepodaří načíst market cap, pokračujeme bez něj (není kritické)
-      console.warn(`⚠️  Failed to fetch market cap for trade ${record.id}: ${error.message}`);
+      console.error(`❌ [MarketCap] Failed to fetch market cap for trade ${record.id}: ${error.message}`, error.stack);
     }
 
     // #region agent log - Debug amountBase storage
