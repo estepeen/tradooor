@@ -288,24 +288,37 @@ export class ConsensusWebhookService {
                 const tradeFeature = await this.tradeFeatureRepo.findByTradeId(trade.id);
                 if (tradeFeature?.fdvUsd !== null && tradeFeature?.fdvUsd !== undefined) {
                   marketCapUsd = tradeFeature.fdvUsd;
+                  console.log(`[CONSENSUS] Found marketCap in TradeFeature: ${marketCapUsd} for trade ${trade.id}`);
                 }
               } catch (error: any) {
                 // TradeFeature neexistuje, zkus fallback na Trade.meta
+                console.log(`[CONSENSUS] TradeFeature not found for trade ${trade.id}, trying meta...`);
               }
               
               // 2. Fallback: zkus načíst z Trade.meta (pokud tam byl uložen při vytvoření trade)
               if (!marketCapUsd && trade.meta) {
                 const meta = trade.meta as any;
+                console.log(`[CONSENSUS] Trade ${trade.id} meta keys:`, Object.keys(meta || {}));
                 if (meta.marketCapUsd !== null && meta.marketCapUsd !== undefined) {
                   marketCapUsd = Number(meta.marketCapUsd);
+                  console.log(`[CONSENSUS] ✅ Found marketCapUsd in meta: ${marketCapUsd} for trade ${trade.id}`);
                 } else if (meta.fdvUsd !== null && meta.fdvUsd !== undefined) {
                   marketCapUsd = Number(meta.fdvUsd);
+                  console.log(`[CONSENSUS] ✅ Found fdvUsd in meta: ${marketCapUsd} for trade ${trade.id}`);
                 } else if (meta.marketCap !== null && meta.marketCap !== undefined) {
                   marketCapUsd = Number(meta.marketCap);
+                  console.log(`[CONSENSUS] ✅ Found marketCap in meta: ${marketCapUsd} for trade ${trade.id}`);
+                } else {
+                  console.warn(`[CONSENSUS] ⚠️  No market cap found in meta for trade ${trade.id}, full meta:`, JSON.stringify(meta).substring(0, 200));
                 }
+              } else if (!trade.meta) {
+                console.warn(`[CONSENSUS] ⚠️  No meta object for trade ${trade.id}`);
               }
               
               // Pokud nemáme market cap, necháme undefined (zobrazí se "- MCap")
+              if (!marketCapUsd) {
+                console.warn(`[CONSENSUS] ⚠️  Final result: NO market cap for trade ${trade.id} - will show "- MCap"`);
+              }
 
             return {
               ...w,

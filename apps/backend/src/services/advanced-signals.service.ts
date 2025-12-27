@@ -1087,7 +1087,7 @@ export class AdvancedSignalsService {
                       meta: true,
                       valueUsd: true, // Pro fallback market cap z meta
                     },
-                    orderBy: { timestamp: 'asc' },
+                    orderBy: { timestamp: 'desc' }, // Od nejnovějšího po nejstarší
                   });
                   
                   console.log(`[ACCUMULATION] Found ${recentBuys.length} recent buys for ${token.symbol}, checking meta for market cap...`);

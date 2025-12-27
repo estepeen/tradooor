@@ -288,6 +288,7 @@ export class TradeRepository {
       },
       select: {
         id: true,
+        meta: true, // Přidej meta pro načtení market cap
         walletId: true,
         tokenId: true,
         timestamp: true,
