@@ -330,42 +330,30 @@ export class WalletCorrelationService {
    * Ulož korelace do DB
    */
   private async saveCorrelations(correlations: WalletCorrelation[]): Promise<void> {
-    // Delete old correlations
-    await supabase
-      .from('WalletCorrelation')
-      .delete()
-      .not('id', 'is', null);
-
-    // Insert new
-    const records = correlations.map(c => ({
-      id: generateId(),
-      walletId1: c.walletId1,
-      walletId2: c.walletId2,
-      correlationScore: c.correlationScore,
-      sharedTokensCount: c.sharedTokensCount,
-      sameDirectionPercent: c.sameDirectionPercent,
-      avgTimeDifferenceMinutes: c.avgTimeDifferenceMinutes,
-      suspectedGroup: c.suspectedGroup,
-      lastCalculatedAt: new Date().toISOString(),
-    }));
-
-    // Batch insert
-    const batchSize = 100;
-    for (let i = 0; i < records.length; i += batchSize) {
-      const batch = records.slice(i, i + batchSize);
-      await supabase.from('WalletCorrelation').insert(batch);
+    // Skip if no correlations
+    if (correlations.length === 0) {
+      return;
     }
+
+    // Note: WalletCorrelation table doesn't exist in Prisma schema yet
+    // For now, skip saving correlations until table is added
+    console.warn(`⚠️  [WalletCorrelation] Skipping saveCorrelations - table not in Prisma schema yet`);
+    return;
   }
 
   /**
    * Ulož skupiny a aktualizuj wallety
    */
   private async saveGroups(groups: WalletGroup[]): Promise<void> {
-    // Delete old groups
-    await supabase
-      .from('WalletGroup')
-      .delete()
-      .not('id', 'is', null);
+    // Skip if no groups
+    if (groups.length === 0) {
+      return;
+    }
+
+    // Note: WalletGroup table doesn't exist in Prisma schema yet
+    // For now, skip saving groups until table is added
+    console.warn(`⚠️  [WalletCorrelation] Skipping saveGroups - table not in Prisma schema yet`);
+    return;
 
     // Insert new groups
     for (const group of groups) {
