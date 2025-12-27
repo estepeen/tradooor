@@ -100,10 +100,10 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
 
     // Načti aktuální market cap v době trade (pro zobrazení v signálech)
     // POZNÁMKA: Načítáme aktuální data v době trade, ne historická data
-    // OPTIMALIZACE: Načítáme market cap jen pro BUY trades (pro SELL a VOID není potřeba)
+    // Ukládáme market cap pro BUY i SELL trades (ne pro VOID)
     // Používáme sdílenou instanci tokenMarketDataService pro cache mezi všemi trades
     let marketCapAtTradeTime: number | null = null;
-    if (record.side === 'buy') {
+    if (record.side === 'buy' || record.side === 'sell') {
       try {
         const token = await tokenRepo.findById(record.tokenId);
         if (token?.mintAddress) {
