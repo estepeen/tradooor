@@ -423,8 +423,6 @@ export class WalletCorrelationService {
       
       // For now, return default values since trustScore doesn't exist
       if (!wallets || wallets.length === 0) {
-
-      if (!wallets || wallets.length === 0) {
         return {
           rawCount: walletIds.length,
           weightedCount: walletIds.length,
@@ -433,20 +431,17 @@ export class WalletCorrelationService {
         };
       }
 
-      // Calculate weighted count
+      // Calculate weighted count (using score since trustScore doesn't exist yet)
       let weightedSum = 0;
       let shillCount = 0;
 
       for (const wallet of wallets) {
-        const weight = wallet.trustScore
-          ? wallet.trustScore / 100
-          : (wallet.score || 50) / 100;
-        
+        // Use score as weight (since trustScore doesn't exist in Prisma schema yet)
+        const weight = (Number(wallet.score) || 50) / 100;
         weightedSum += weight;
         
-        if (wallet.isSuspectedShill) {
-          shillCount++;
-        }
+        // Note: isSuspectedShill doesn't exist in Prisma schema yet, so shillCount will always be 0
+        // shillCount++;
       }
 
       const hasShillRisk = shillCount >= wallets.length * 0.5;
