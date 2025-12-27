@@ -366,7 +366,7 @@ export class TradeFeatureRepository {
       liquidityUsd: row.liquidityUsd ? Number(row.liquidityUsd) : null,
       volume1hUsd: row.volume1hUsd ? Number(row.volume1hUsd) : null,
       volume24hUsd: row.volume24hUsd ? Number(row.volume24hUsd) : null,
-      fdvUsd: row.fdvUsd ? Number(row.fdvUsd) : null,
+      fdvUsd: row.fdvUsd !== null && row.fdvUsd !== undefined ? Number(row.fdvUsd) : null,
       trend5mPercent: row.trend5mPercent ? Number(row.trend5mPercent) : null,
       trend30mPercent: row.trend30mPercent ? Number(row.trend30mPercent) : null,
       solPriceUsd: row.solPriceUsd ? Number(row.solPriceUsd) : null,

@@ -1085,6 +1085,7 @@ export class AdvancedSignalsService {
                       amountBase: true,
                       timestamp: true,
                       meta: true,
+                      valueUsd: true, // Pro fallback market cap z meta
                     },
                     orderBy: { timestamp: 'asc' },
                   });
@@ -1109,17 +1110,31 @@ export class AdvancedSignalsService {
                     return amountInSol >= 0.3;
                   });
                   
-                  // Načti market cap pro každý trade z TradeFeature (fdvUsd)
+                  // Načti market cap pro každý trade z TradeFeature (fdvUsd) nebo z Trade.meta
                   const buyResults = await Promise.all(
                     validBuys.map(async (buy) => {
                       let marketCapUsd: number | undefined = undefined;
+                      
+                      // 1. Zkus načíst z TradeFeature (nejpřesnější - market cap v době trade)
                       try {
                         const tradeFeature = await this.tradeFeatureRepo.findByTradeId(buy.id);
-                        if (tradeFeature?.fdvUsd) {
+                        if (tradeFeature?.fdvUsd !== null && tradeFeature?.fdvUsd !== undefined) {
                           marketCapUsd = tradeFeature.fdvUsd;
                         }
                       } catch (error: any) {
-                        // Pokud TradeFeature neexistuje, použijeme undefined (fallback na globální market cap)
+                        // TradeFeature neexistuje, zkus fallback
+                      }
+                      
+                      // 2. Fallback: zkus načíst z Trade.meta (pokud tam byl uložen při vytvoření trade)
+                      if (!marketCapUsd && buy.meta) {
+                        const meta = buy.meta as any;
+                        if (meta.marketCapUsd !== null && meta.marketCapUsd !== undefined) {
+                          marketCapUsd = Number(meta.marketCapUsd);
+                        } else if (meta.fdvUsd !== null && meta.fdvUsd !== undefined) {
+                          marketCapUsd = Number(meta.fdvUsd);
+                        } else if (meta.marketCap !== null && meta.marketCap !== undefined) {
+                          marketCapUsd = Number(meta.marketCap);
+                        }
                       }
                       
                       return {
@@ -1168,6 +1183,7 @@ export class AdvancedSignalsService {
           amountBase: true,
           timestamp: true,
           meta: true,
+          valueUsd: true, // Pro fallback market cap z meta
         },
         orderBy: { timestamp: 'asc' },
       });
@@ -1192,17 +1208,31 @@ export class AdvancedSignalsService {
         return amountInSol >= 0.3;
       });
       
-      // Načti market cap pro každý trade z TradeFeature (fdvUsd)
+      // Načti market cap pro každý trade z TradeFeature (fdvUsd) nebo z Trade.meta
       const buyResults = await Promise.all(
         validBuys.map(async (buy) => {
           let marketCapUsd: number | undefined = undefined;
+          
+          // 1. Zkus načíst z TradeFeature (nejpřesnější - market cap v době trade)
           try {
             const tradeFeature = await this.tradeFeatureRepo.findByTradeId(buy.id);
-            if (tradeFeature?.fdvUsd) {
+            if (tradeFeature?.fdvUsd !== null && tradeFeature?.fdvUsd !== undefined) {
               marketCapUsd = tradeFeature.fdvUsd;
             }
           } catch (error: any) {
-            // Pokud TradeFeature neexistuje, použijeme undefined (fallback na globální market cap)
+            // TradeFeature neexistuje, zkus fallback
+          }
+          
+          // 2. Fallback: zkus načíst z Trade.meta (pokud tam byl uložen při vytvoření trade)
+          if (!marketCapUsd && buy.meta) {
+            const meta = buy.meta as any;
+            if (meta.marketCapUsd !== null && meta.marketCapUsd !== undefined) {
+              marketCapUsd = Number(meta.marketCapUsd);
+            } else if (meta.fdvUsd !== null && meta.fdvUsd !== undefined) {
+              marketCapUsd = Number(meta.fdvUsd);
+            } else if (meta.marketCap !== null && meta.marketCap !== undefined) {
+              marketCapUsd = Number(meta.marketCap);
+            }
           }
           
           return {

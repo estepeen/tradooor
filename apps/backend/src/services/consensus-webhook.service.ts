@@ -279,15 +279,29 @@ export class ConsensusWebhookService {
               priceUsdPerToken = Number(trade.priceBasePerToken || 0);
             }
 
-              // Načti market cap pro tento trade z TradeFeature (fdvUsd)
+              // Načti market cap pro tento trade z TradeFeature (fdvUsd) nebo z Trade.meta
               let marketCapUsd: number | undefined = undefined;
+              
+              // 1. Zkus načíst z TradeFeature (nejpřesnější - market cap v době trade)
               try {
                 const tradeFeature = await this.tradeFeatureRepo.findByTradeId(trade.id);
-                if (tradeFeature?.fdvUsd) {
+                if (tradeFeature?.fdvUsd !== null && tradeFeature?.fdvUsd !== undefined) {
                   marketCapUsd = tradeFeature.fdvUsd;
                 }
               } catch (error: any) {
-                // Pokud TradeFeature neexistuje, použijeme undefined (fallback na globální market cap)
+                // TradeFeature neexistuje, zkus fallback
+              }
+              
+              // 2. Fallback: zkus načíst z Trade.meta (pokud tam byl uložen při vytvoření trade)
+              if (!marketCapUsd && trade.meta) {
+                const meta = trade.meta as any;
+                if (meta.marketCapUsd !== null && meta.marketCapUsd !== undefined) {
+                  marketCapUsd = Number(meta.marketCapUsd);
+                } else if (meta.fdvUsd !== null && meta.fdvUsd !== undefined) {
+                  marketCapUsd = Number(meta.fdvUsd);
+                } else if (meta.marketCap !== null && meta.marketCap !== undefined) {
+                  marketCapUsd = Number(meta.marketCap);
+                }
               }
 
             return {
