@@ -1117,12 +1117,8 @@ export class AdvancedSignalsService {
                         const tradeFeature = await this.tradeFeatureRepo.findByTradeId(buy.id);
                         if (tradeFeature?.fdvUsd) {
                           marketCapUsd = tradeFeature.fdvUsd;
-                          console.log(`   📊 [Accumulation] Trade ${buy.id}: marketCap=${marketCapUsd} from TradeFeature`);
-                        } else {
-                          console.log(`   ⚠️  [Accumulation] Trade ${buy.id}: TradeFeature exists but fdvUsd is null/undefined`);
                         }
                       } catch (error: any) {
-                        console.log(`   ⚠️  [Accumulation] Trade ${buy.id}: TradeFeature not found - ${error.message}`);
                         // Pokud TradeFeature neexistuje, použijeme undefined (fallback na globální market cap)
                       }
                       
