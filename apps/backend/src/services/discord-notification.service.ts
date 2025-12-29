@@ -66,6 +66,7 @@ export interface SignalNotificationData {
     tradeAmountUsd?: number;
     tradePrice?: number;
     tradeTime?: string;
+    marketCapUsd?: number; // Market cap v době trade (pro consensus/conviction signals)
     // Pro accumulation signál: všechny nákupy tradera
     accumulationBuys?: Array<{
       amountBase: number;
@@ -257,35 +258,33 @@ export class DiscordNotificationService {
       inline: true,
     });
 
-    // Price Info - Entry je nyní Market Cap místo ceny tokenu
+    // Token Info - sloučené Price & Market + Token Info do jedné sekce
     console.log(`📨 [Discord] Building embed for ${data.tokenSymbol} - baseToken: ${baseToken}, wallets: ${data.wallets?.length || 0}, walletIds: ${data.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}`);
-    const priceInfo = [];
-    // Entry je nyní Market Cap (místo ceny tokenu)
-    if (data.marketCapUsd) {
-      priceInfo.push(`**Entry:** $${this.formatNumber(data.marketCapUsd, 0)} MCap`);
-    } else {
-      // Fallback: pokud nemáme market cap, použijeme cenu tokenu
-      priceInfo.push(`**Entry:** $${this.formatNumber(data.entryPriceUsd, 8)}`);
-    }
-    if (data.liquidityUsd) priceInfo.push(`**Liq:** $${this.formatNumber(data.liquidityUsd, 0)}`);
-    
-    fields.push({
-      name: '💰 Price & Market',
-      value: priceInfo.join('\n'),
-      inline: true,
-    });
-
-    // Token Info
     const tokenInfo = [];
+
+    // Market Cap (Entry)
+    if (data.marketCapUsd) {
+      tokenInfo.push(`**MCap:** $${this.formatNumber(data.marketCapUsd, 0)}`);
+    }
+
+    // Liquidity
+    if (data.liquidityUsd) {
+      tokenInfo.push(`**Liq:** $${this.formatNumber(data.liquidityUsd, 0)}`);
+    }
+
+    // 24h Volume
+    if (data.volume24hUsd) {
+      tokenInfo.push(`**24h Vol:** $${this.formatNumber(data.volume24hUsd, 0)}`);
+    }
+
+    // Token Age
     if (data.tokenAgeMinutes !== undefined) {
-      const ageStr = data.tokenAgeMinutes >= 60 
-        ? `${Math.round(data.tokenAgeMinutes / 60)}h` 
+      const ageStr = data.tokenAgeMinutes >= 60
+        ? `${Math.round(data.tokenAgeMinutes / 60)}h`
         : `${data.tokenAgeMinutes}m`;
       tokenInfo.push(`**Age:** ${ageStr}`);
     }
-    if (data.volume24hUsd) tokenInfo.push(`**24h Vol:** $${this.formatNumber(data.volume24hUsd, 0)}`);
-    tokenInfo.push(`**Avg Score:** ${data.avgWalletScore.toFixed(0)}/100`);
-    
+
     fields.push({
       name: '🪙 Token Info',
       value: tokenInfo.join('\n'),
@@ -425,7 +424,14 @@ export class DiscordNotificationService {
         console.warn(`⚠️  Failed to fetch SOL price for Discord notification, using fallback: $${solPriceUsd}`);
       }
       
-      const walletDetails = data.wallets.map((w) => {
+      // Sort wallets by trade time (oldest first)
+      const sortedWallets = [...data.wallets].sort((a, b) => {
+        const timeA = a.tradeTime ? new Date(a.tradeTime).getTime() : 0;
+        const timeB = b.tradeTime ? new Date(b.tradeTime).getTime() : 0;
+        return timeA - timeB;
+      });
+
+      const walletDetails = sortedWallets.map((w) => {
         const name = w.label || `${w.address.substring(0, 6)}...`;
         
         // Prefer URL s reálnou wallet address (přehlednější než interní ID)
