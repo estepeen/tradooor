@@ -293,7 +293,9 @@ export class TradeRepository {
         tokenId: true,
         timestamp: true,
         amountBase: true,
+        amountToken: true, // Needed for consensus signal calculations
         priceBasePerToken: true,
+        valueUsd: true, // Needed for consensus signal calculations
         side: true,
       },
       orderBy: { timestamp: 'asc' },
@@ -319,8 +321,11 @@ export class TradeRepository {
       tokenId: t.tokenId,
       timestamp: t.timestamp,
       amountBase: safeToNumber(t.amountBase),
+      amountToken: safeToNumber(t.amountToken),
       priceBasePerToken: safeToNumber(t.priceBasePerToken),
+      valueUsd: safeToNumber(t.valueUsd),
       side: t.side,
+      meta: t.meta,
     }));
   }
 }
