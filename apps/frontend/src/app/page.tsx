@@ -553,33 +553,7 @@ export default function Home() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right text-sm font-medium">
-                        <div className="flex flex-col items-end gap-1">
-                          <span>{formatNumber(wallet.score, 1)}</span>
-                          {wallet.advancedStats?.scoreBreakdown && (
-                            <div className="flex flex-wrap justify-end gap-1 text-[10px] text-muted-foreground">
-                              {[
-                                { label: 'P', value: wallet.advancedStats.scoreBreakdown.profitabilityScore },
-                                { label: 'C', value: wallet.advancedStats.scoreBreakdown.consistencyScore },
-                                { label: 'R', value: wallet.advancedStats.scoreBreakdown.riskScore },
-                                { label: 'B', value: wallet.advancedStats.scoreBreakdown.behaviourScore },
-                              ].map((item) => (
-                                <span
-                                  key={item.label}
-                                  className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-semibold"
-                                  title={SCORE_TOOLTIPS[item.label] || ''}
-                                >
-                                  {item.label}:{Math.round(item.value)}
-                                </span>
-                              ))}
-                              <span
-                                className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-semibold"
-                                title={SCORE_TOOLTIPS.SF}
-                              >
-                                SF:{(wallet.advancedStats.scoreBreakdown.sampleFactor || 0).toFixed(2)}
-                              </span>
-                            </div>
-                          )}
-                        </div>
+                        <span>{formatNumber(wallet.score, 1)}</span>
                       </td>
                       <td className="px-4 py-3 text-right text-sm font-medium">
                         <span title="Score based on last 7 days performance (70% weight in hybrid score)">{formatNumber(wallet.score7d || 0, 1)}</span>
