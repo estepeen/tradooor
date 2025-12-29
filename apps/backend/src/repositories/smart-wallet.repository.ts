@@ -8,7 +8,7 @@ export class SmartWalletRepository {
     minScore?: number;
     tags?: string[];
     search?: string;
-    sortBy?: 'score' | 'winRate' | 'recentPnl30dBase' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address';
+    sortBy?: 'score' | 'score7d' | 'score30d' | 'winRate' | 'recentPnl30dBase' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address';
     sortOrder?: 'asc' | 'desc';
   }) {
     const page = params?.page ?? 1;

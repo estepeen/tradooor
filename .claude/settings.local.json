@@ -21,7 +21,15 @@
       "Bash(pnpm build:*)",
       "Bash(cat:*)",
       "Bash(curl:*)",
-      "Bash(pnpm --filter backend build:*)"
+      "Bash(pnpm --filter backend build:*)",
+      "Bash(ssh-keyscan:*)",
+      "Bash(~/.ssh/known_hosts)",
+      "Bash(ping:*)",
+      "Bash(ls:*)",
+      "Bash(chmod:*)",
+      "Bash(nc:*)",
+      "Bash(ssh -i ~/.ssh/claude_assistant -o ConnectTimeout=10 root@157.180.41.49 \"echo ''Connected!'' && hostname && uptime\")",
+      "Bash(ssh -i ~/.ssh/claude_assistant root@157.180.41.49:*)"
     ]
   }
 }
