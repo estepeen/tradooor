@@ -707,22 +707,22 @@ export class MetricsCalculatorService {
       console.log(`   💰 [Metrics] Wallet ${wallet.address.substring(0, 8)}...: avgTradeSizeSol=${avgTradeSizeSol.toFixed(4)} SOL`);
     }
 
-    // Calculate score7d (optimized for recent memecoin performance)
+    // Calculate score7d (uses only 7d recent performance)
     const score7d = this.calculateScore({
       totalTrades,
       winRate,
       avgPnlPercent,
-      recentPnl7dPercent, // Use 7d performance
+      recentPnlPercent: recentPnl7dPercent, // Use 7d performance only
       avgRr,
       avgTradeSize: avgTradeSizeSol,
     });
 
-    // Calculate score30d (longer term view)
+    // Calculate score30d (uses only 30d recent performance)
     const score30d = this.calculateScore({
       totalTrades,
       winRate,
       avgPnlPercent,
-      recentPnl30dPercent, // Use 30d performance
+      recentPnlPercent: recentPnl30dPercent, // Use 30d performance only
       avgRr,
       avgTradeSize: avgTradeSizeSol,
     });
@@ -1103,8 +1103,7 @@ export class MetricsCalculatorService {
     totalTrades: number;
     winRate: number;
     avgPnlPercent: number;
-    recentPnl7dPercent?: number;  // Optional - for 7d score
-    recentPnl30dPercent?: number; // Optional - for 30d score
+    recentPnlPercent?: number;  // Recent PnL percentage (7d or 30d)
     avgRr: number;
     avgTradeSize?: number; // In SOL
   }): number {
@@ -1112,8 +1111,7 @@ export class MetricsCalculatorService {
       totalTrades,
       winRate,
       avgPnlPercent,
-      recentPnl7dPercent,
-      recentPnl30dPercent,
+      recentPnlPercent,
       avgRr,
       avgTradeSize
     } = params;
@@ -1125,21 +1123,13 @@ export class MetricsCalculatorService {
     const winRateScore = (winRate * 30) * (0.3 + 0.7 * sampleConfidence);
 
     // 2. Recent Performance (0-25 points)
-    // 70% weight on 7d, 30% weight on 30d (if both available)
-    // Otherwise use whichever is available
+    // Use 30% target for 7d, 50% target for 30d (caller decides which to pass)
     let recentScore = 0;
-    if (recentPnl7dPercent !== undefined && recentPnl30dPercent !== undefined) {
-      // Hybrid scoring: 7d gets 70% weight, 30d gets 30% weight
-      const recent7dScore = Math.min(Math.max((recentPnl7dPercent / 30) * 25, 0), 25);
-      const recent30dScore = Math.min(Math.max((recentPnl30dPercent / 50) * 25, 0), 25);
-      recentScore = recent7dScore * 0.7 + recent30dScore * 0.3;
-    } else if (recentPnl7dPercent !== undefined) {
-      // Only 7d available
-      recentScore = Math.min(Math.max((recentPnl7dPercent / 30) * 25, 0), 25);
-    } else if (recentPnl30dPercent !== undefined) {
-      // Only 30d available (legacy fallback)
-      recentScore = Math.min(Math.max((recentPnl30dPercent / 50) * 25, 0), 25);
+    if (recentPnlPercent !== undefined) {
+      // Scale: 30% PnL = 25 points (max)
+      recentScore = Math.min(Math.max((recentPnlPercent / 30) * 25, 0), 25);
     }
+    // If undefined, recentScore stays 0
 
     // 3. Avg PnL per Trade (0-20 points) - DECREASED from 30
     // Targeting 30-50% profit → optimized

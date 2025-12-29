@@ -455,7 +455,7 @@ export class DiscordNotificationService {
             }
             if (buy.timestamp) {
               const time = new Date(buy.timestamp);
-              const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+              const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Europe/Prague' });
               parts.push(`• ${timeStr}`);
             }
             
@@ -485,7 +485,7 @@ export class DiscordNotificationService {
           }
         if (w.tradeTime) {
           const time = new Date(w.tradeTime);
-            const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+            const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Europe/Prague' });
           parts.push(`• ${timeStr}`);
         }
         
