@@ -733,12 +733,9 @@ export class MetricsCalculatorService {
     // Legacy score for backward compatibility (kept in scoreBreakdown)
     const legacyScore = score;
 
-    const shouldFallbackToLegacy =
-      rollingInsights.scores.sampleFactor === 0 &&
-      rollingInsights.rolling['90d']?.numClosedTrades === 0;
-    const finalScore = shouldFallbackToLegacy
-      ? score // Use new hybrid score even for fallback
-      : rollingInsights.scores.smartScore ?? score;
+    // Always use the new hybrid score (70% 7d, 30% 30d)
+    // Old smartScore from rollingInsights is kept in scoreBreakdown for reference
+    const finalScore = score;
     const enhancedScore = rollingInsights.scores.enhancedScore ?? finalScore;
 
     // Extract component scores (safe fallbacks)
