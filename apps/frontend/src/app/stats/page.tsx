@@ -346,7 +346,7 @@ export default function StatsPage() {
                           rollingKey = period; // Pro 7d a 30d použij přímo
                         }
                         const rollingData = rolling?.[rollingKey];
-                        const pnlBase = rollingData?.realizedPnl ?? wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0; // PnL v SOL
+                        const pnlBase = rollingData?.realizedPnl ?? wallet.recentPnl30dBase ?? 0; // PnL v SOL
                         const pnlPercent = rollingData?.realizedRoiPercent ?? wallet.recentPnl30dPercent ?? 0;
                         
                         return (
@@ -428,7 +428,7 @@ export default function StatsPage() {
                           {/* STEJNÁ LOGIKA JAKO NA HOMEPAGE: použij advancedStats.rolling['30d'] pokud je dostupné */}
                           {(() => {
                             const rolling30d = (wallet.advancedStats as any)?.rolling?.['30d'];
-                            const pnlBase = rolling30d?.realizedPnl ?? wallet.recentPnl30dBase ?? wallet.recentPnl30dUsd ?? 0; // PnL v SOL
+                            const pnlBase = rolling30d?.realizedPnl ?? wallet.recentPnl30dBase ?? 0; // PnL v SOL
                             return `${formatNumber(pnlBase, 2)} SOL`;
                           })()}
                         </div>

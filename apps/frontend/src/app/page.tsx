@@ -52,7 +52,7 @@ export default function Home() {
   const [minScore, setMinScore] = useState<number | undefined>();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<'score' | 'winRate' | 'recentPnl30dUsd' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address'>('recentPnl30dUsd');
+  const [sortBy, setSortBy] = useState<'score' | 'winRate' | 'recentPnl30dBase' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address'>('recentPnl30dBase');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -364,17 +364,17 @@ export default function Home() {
                   <th 
                     className="px-4 py-3 text-right text-sm font-medium cursor-pointer hover:bg-muted/80 select-none"
                     onClick={() => {
-                      if (sortBy === 'recentPnl30dUsd') {
+                      if (sortBy === 'recentPnl30dBase') {
                         setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
                       } else {
-                        setSortBy('recentPnl30dUsd');
+                        setSortBy('recentPnl30dBase');
                         setSortOrder('desc');
                       }
                     }}
                   >
                     <div className="flex items-center justify-end gap-2">
                       Recent PnL (30d)
-                      {sortBy === 'recentPnl30dUsd' && (
+                      {sortBy === 'recentPnl30dBase' && (
                         <span className="text-xs">{sortOrder === 'asc' ? '↑' : '↓'}</span>
                       )}
                     </div>
@@ -411,7 +411,7 @@ export default function Home() {
                       const bVal = bTime || 0;
                       return sortOrder === 'asc' ? aVal - bVal : bVal - aVal;
                     }
-                    if (sortBy === 'recentPnl30dUsd') {
+                    if (sortBy === 'recentPnl30dBase') {
                       // DŮLEŽITÉ: Použij recentPnl30dBase z backendu (stejný výpočet jako detail)
                       // Backend endpoint /api/smart-wallets teď počítá PnL stejným způsobem jako /pnl endpoint
                       const getPnlBase = (w: any) => {
@@ -464,7 +464,7 @@ export default function Home() {
                   .map((wallet, walletIndex) => {
                     // DEBUG: Log values during render
                     if (process.env.NODE_ENV === 'development' && wallet.address === '4BdKaxN8G6ka4GYtQQWk4G4dZRUTX2vQH9GcXdBREFUk') {
-                      console.log(`🎨 [Render] jijo_exe: recentPnl30dUsd=${wallet.recentPnl30dUsd}, recentPnl30dPercent=${wallet.recentPnl30dPercent}, formatted=${formatNumber(Math.abs(wallet.recentPnl30dUsd || 0), 2)}, percentFormatted=${formatPercent((wallet.recentPnl30dPercent || 0) / 100)}`);
+                      console.log(`🎨 [Render] jijo_exe: recentPnl30dBase=${wallet.recentPnl30dBase}, recentPnl30dPercent=${wallet.recentPnl30dPercent}, formatted=${formatNumber(Math.abs(wallet.recentPnl30dBase || 0), 2)}, percentFormatted=${formatPercent((wallet.recentPnl30dPercent || 0) / 100)}`);
                     }
                     
                     return (
