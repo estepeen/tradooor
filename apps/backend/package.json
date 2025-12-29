@@ -71,6 +71,7 @@
     "reprocess:trades-from-rpc": "tsx src/scripts/reprocess-trades-from-rpc.ts",
     "worker:normalized-trades": "tsx src/workers/normalized-trade-processor.ts",
     "calculate-token-pnl": "tsx src/scripts/calculate-token-pnl.ts",
+    "calculate-token-pnl-prisma": "tsx src/scripts/calculate-token-pnl-prisma.ts",
     "check-missing-trades": "tsx src/scripts/check-missing-trades.ts",
     "check-missing-trades:cron": "tsx src/workers/check-missing-trades-cron.ts",
     "enrich:closed-lots-market-data": "tsx src/workers/enrich-closed-lots-market-data.ts",

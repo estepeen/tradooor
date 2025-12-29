@@ -423,12 +423,17 @@ export default function WalletDetailPage() {
             }, 0);
             
             // Calculate total cost for percentage calculation
-            // Use realizedPnlBase and realizedPnlPercent to calculate totalCost for each position
+            // DŮLEŽITÉ: Použij totalCostBase přímo z backendu (správná hodnota)
+            // Backend už má správně vypočítaný totalCostBase ze součtu costBasis ze všech ClosedLots
             const totalCost = closedPositions.reduce((sum: number, p: any) => {
-              const pnl = p.realizedPnlBase ?? p.closedPnlBase ?? p.closedPnl ?? 0; // PnL v SOL
+              // Použij totalCostBase z backendu (v SOL) - toto je správná hodnota
+              const costBase = p.totalCostBase ?? p.totalCostUsd ?? 0;
+              if (typeof costBase === 'number' && costBase > 0) {
+                return sum + costBase;
+              }
+              // Fallback: pokud totalCostBase není k dispozici, zkus vypočítat z PnL a procent
+              const pnl = p.realizedPnlBase ?? p.closedPnlBase ?? p.closedPnl ?? 0;
               const pnlPercent = p.realizedPnlPercent ?? p.closedPnlPercent ?? 0;
-              
-              // Calculate cost from PnL and PnL percent: cost = pnl / (pnlPercent / 100)
               if (pnlPercent !== 0 && typeof pnl === 'number' && typeof pnlPercent === 'number') {
                 const cost = pnl / (pnlPercent / 100);
                 return sum + Math.abs(cost);
