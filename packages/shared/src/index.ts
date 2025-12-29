@@ -86,6 +86,8 @@ export interface SmartWallet {
   label: string | null;
   tags: string[];
   score: number;
+  score7d?: number;
+  score30d?: number;
   totalTrades: number;
   winRate: number;
   avgRr: number;
