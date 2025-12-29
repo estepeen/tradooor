@@ -1,14 +1,16 @@
 /**
  * Advanced Signals Service
- * 
- * Generuje různé typy signálů nad rámec základního consensus:
- * - Whale Entry: Top trader nakoupí velkou pozici
- * - Early Sniper: Smart wallet jako první koupí nový token
- * - Momentum: Price/volume spike + smart wallet entry
- * - Re-entry: Wallet znovu kupuje token kde předtím profitovala
- * - Exit Warning: Více wallets začne prodávat
- * - Hot Token: 3+ wallets s avg score >70 koupí stejný token
- * - Accumulation: Wallet postupně akumuluje pozici
+ *
+ * ACTIVE SIGNAL TYPES (Core Signals Only):
+ * - 💪 Conviction Buy: Trader nakupuje 2-5x+ více než obvykle (STRONG/MEDIUM/EXTREME tiers)
+ * - 📈 Accumulation: Wallet postupně akumuluje pozici přes čas (2-4+ nákupy)
+ * - 🚨 Exit Warning: 2-3+ smart wallets prodává stejný token (CRITICAL/WARNING tiers)
+ *
+ * CONSENSUS signals are handled separately in consensus-webhook.service.ts
+ *
+ * DEPRECATED (not actively used):
+ * - Whale Entry, Early Sniper, Momentum, Re-entry, Hot Token, Volume Spike
+ * These detectors remain in code for potential future use but are not called.
  */
 
 import { SignalRepository, SignalRecord } from '../repositories/signal.repository.js';
@@ -23,20 +25,15 @@ import { DiscordNotificationService, SignalNotificationData } from './discord-no
 import { SolPriceCacheService } from './sol-price-cache.service.js';
 import { prisma } from '../lib/prisma.js';
 
-// Signal type definitions
-export type AdvancedSignalType = 
-  | 'whale-entry'
-  | 'early-sniper'
-  | 'momentum'
-  | 're-entry'
-  | 'exit-warning'
-  | 'hot-token'
-  | 'accumulation'
-  | 'consensus'
-  | 'conviction-buy'    // Trader buys >2x their average trade size
-  | 'large-position'    // Trader has significant % of supply
-  | 'volume-spike'      // Token has unusual high volume
-  | 'consensus-update'; // New wallet joined existing consensus
+// Signal type definitions - Core signals + deprecated (for backward compatibility)
+export type AdvancedSignalType =
+  | 'accumulation'      // Wallet gradually accumulates position over time
+  | 'consensus'         // 2+ wallets bought same token within time window
+  | 'conviction-buy'    // Trader buys significantly larger than average
+  | 'exit-warning'      // 2+ wallets selling same token (warning signal)
+  | 'consensus-update'  // New wallet joined existing consensus
+  // Deprecated types (not actively used, kept for backward compatibility)
+  | 'whale-entry' | 'early-sniper' | 'momentum' | 're-entry' | 'hot-token' | 'volume-spike' | 'large-position';
 
 export interface SignalContext {
   walletScore: number;
@@ -77,26 +74,110 @@ export interface AdvancedSignal {
   aiDecision?: AIDecision;
 }
 
-// Thresholds for signal generation (relaxed for more signals)
+// Tier system for signal strength classification
+const SIGNAL_TIERS = {
+  CONSENSUS: {
+    STRONG: {
+      minWallets: 3,
+      minAvgScore: 70,
+      timeWindowHours: 1,
+      positionSizePercent: [15, 20],
+    },
+    MEDIUM: {
+      minWallets: 2,
+      minAvgScore: 65,
+      timeWindowHours: 2,
+      positionSizePercent: [10, 15],
+    },
+    WEAK: {
+      minWallets: 2,
+      minAvgScore: 55,
+      timeWindowHours: 4,
+      positionSizePercent: [5, 10],
+    },
+  },
+  ACCUMULATION: {
+    STRONG: {
+      minBuys: 4,
+      timeWindowHours: 24,
+      minSizePerBuy: 0.5,      // SOL
+      minTotalSize: 2.5,       // SOL total
+      minWalletScore: 70,
+      positionSizePercent: [10, 15],
+    },
+    MEDIUM: {
+      minBuys: 3,
+      timeWindowHours: 18,
+      minSizePerBuy: 0.3,
+      minTotalSize: 1.5,
+      minWalletScore: 60,
+      positionSizePercent: [7, 12],
+    },
+    WEAK: {
+      minBuys: 2,
+      timeWindowHours: 12,
+      minSizePerBuy: 0.3,
+      minTotalSize: 0.8,
+      minWalletScore: 55,
+      positionSizePercent: [5, 8],
+    },
+  },
+  CONVICTION: {
+    EXTREME: {
+      multiplier: 5,           // 5x+ average
+      minWalletScore: 75,
+      minAbsoluteSize: 5,      // SOL minimum absolute size
+      positionSizePercent: [20, 25],
+    },
+    STRONG: {
+      multiplier: 3,
+      minWalletScore: 70,
+      minAbsoluteSize: 2,
+      positionSizePercent: [15, 20],
+    },
+    MEDIUM: {
+      multiplier: 2,
+      minWalletScore: 65,
+      minAbsoluteSize: 1,
+      positionSizePercent: [10, 15],
+    },
+  },
+  EXIT_WARNING: {
+    CRITICAL: {
+      minWallets: 3,
+      timeWindowHours: 2,
+      minAvgScore: 70,
+      action: 'SELL_IMMEDIATELY',
+    },
+    WARNING: {
+      minWallets: 2,
+      timeWindowHours: 4,
+      minAvgScore: 65,
+      action: 'REDUCE_POSITION_50',
+    },
+  },
+};
+
+// Legacy thresholds (kept for backward compatibility with deprecated detectors)
 const THRESHOLDS = {
-  WHALE_MIN_SCORE: 70,                    // Was 80
-  WHALE_MIN_POSITION_MULTIPLIER: 1.5,     // Was 2 - 1.5x their average position
-  EARLY_SNIPER_MAX_TOKEN_AGE_MINUTES: 60, // Was 30 - up to 1 hour old
-  EARLY_SNIPER_MIN_WALLET_SCORE: 55,      // Was 65
-  MOMENTUM_MIN_PRICE_CHANGE_5M: 5,        // Was 10% - 5% price change
-  MOMENTUM_MIN_VOLUME_SPIKE: 2,           // Was 3 - 2x normal volume
-  REENTRY_MIN_PREVIOUS_PNL: 10,           // Was 20% - 10% profit on previous trade
   EXIT_WARNING_MIN_SELLERS: 2,
+  ACCUMULATION_MIN_BUYS: 2,
+  ACCUMULATION_TIME_WINDOW_HOURS: 12,
+  CONVICTION_BUY_MULTIPLIER: 2,
+  CONVICTION_MIN_WALLET_SCORE: 65,
+  CONVICTION_MIN_ABSOLUTE_SIZE: 1,  // Minimum 1 SOL absolute size
+  // Deprecated detector thresholds (not actively used)
+  WHALE_MIN_SCORE: 70,
+  WHALE_MIN_POSITION_MULTIPLIER: 1.5,
+  EARLY_SNIPER_MAX_TOKEN_AGE_MINUTES: 60,
+  EARLY_SNIPER_MIN_WALLET_SCORE: 55,
+  MOMENTUM_MIN_PRICE_CHANGE_5M: 5,
+  MOMENTUM_MIN_VOLUME_SPIKE: 2,
+  REENTRY_MIN_PREVIOUS_PNL: 10,
   HOT_TOKEN_MIN_WALLETS: 3,
-  HOT_TOKEN_MIN_AVG_SCORE: 60,            // Was 70
-  ACCUMULATION_MIN_BUYS: 2,               // Was 3
-  ACCUMULATION_TIME_WINDOW_HOURS: 12,     // Was 6
-  // New thresholds
-  CONVICTION_BUY_MULTIPLIER: 2,           // Trade size >2x average = conviction
-  CONVICTION_MIN_WALLET_SCORE: 60,        // Wallet must have decent score
-  VOLUME_SPIKE_MULTIPLIER: 5,             // 5x normal volume = spike
-  VOLUME_SPIKE_MIN_USD: 50000,            // Minimum $50k volume to trigger
-  LARGE_POSITION_MIN_USD: 1000,           // $1000+ position
+  HOT_TOKEN_MIN_AVG_SCORE: 60,
+  VOLUME_SPIKE_MULTIPLIER: 5,
+  VOLUME_SPIKE_MIN_USD: 50000,
 };
 
 interface PendingAccumulationSignal {
@@ -181,52 +262,18 @@ export class AdvancedSignalsService {
         positionSizeUsd: Number(trade.amountBase || 0),
       };
 
-      // Spusť všechny detektory paralelně
+      // Run only core signal detectors in parallel
       if (trade.side === 'buy') {
         const [
-          whaleSignal,
-          sniperSignal,
-          momentumSignal,
-          reentrySignal,
-          hotTokenSignal,
           accumulationSignal,
           convictionSignal,
-          volumeSpikeSignal,
         ] = await Promise.all([
-          this.detectWhaleEntry(trade, wallet, context),
-          this.detectEarlySniper(trade, wallet, token, context),
-          this.detectMomentum(trade, wallet, token, context),
-          this.detectReentry(trade, wallet, token, context),
-          this.detectHotToken(trade, token, context),
           this.detectAccumulation(trade, wallet, token, context),
           this.detectConvictionBuy(trade, wallet, token, context),
-          this.detectVolumeSpike(trade, wallet, token, context),
         ]);
 
-        // Re-entry signál odstraněn - uživatel nechce
-        // if (reentrySignal) signals.push(reentrySignal);
-        
-        // Sjednocení whale-entry a conviction-buy do conviction-buy
-        // Pokud máme oba signály, použijeme ten s vyšším multiplikátorem
-        if (whaleSignal && convictionSignal) {
-          // Použijeme conviction-buy (má lepší logiku)
-          signals.push(convictionSignal);
-        } else if (whaleSignal) {
-          // Převést whale-entry na conviction-buy
-          signals.push({
-            ...whaleSignal,
-            type: 'conviction-buy',
-            reasoning: whaleSignal.reasoning.replace('🐋 Whale Entry', '💪 Conviction Buy'),
-          });
-        } else if (convictionSignal) {
-          signals.push(convictionSignal);
-        }
-        
-        if (sniperSignal) signals.push(sniperSignal);
-        if (momentumSignal) signals.push(momentumSignal);
-        if (hotTokenSignal) signals.push(hotTokenSignal);
         if (accumulationSignal) signals.push(accumulationSignal);
-        if (volumeSpikeSignal) signals.push(volumeSpikeSignal);
+        if (convictionSignal) signals.push(convictionSignal);
       } else if (trade.side === 'sell') {
         const exitSignal = await this.detectExitWarning(trade, token, context);
         if (exitSignal) signals.push(exitSignal);
@@ -448,45 +495,78 @@ export class AdvancedSignalsService {
   }
 
   /**
-   * 📉 Exit Warning Detection
-   * Více smart wallets začne prodávat stejný token
+   * 🚨 Exit Warning Detection (Enhanced with tier system)
+   * Více smart wallets začne prodávat stejný token = warning
    */
   private async detectExitWarning(
     trade: any,
     token: any,
     context: SignalContext
   ): Promise<AdvancedSignal | null> {
-    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
-
-    // Najdi všechny SELL trades na tento token v posledních 2h
+    // Find all SELL trades for this token in recent time window
     const recentSells = await prisma.trade.findMany({
       where: {
         tokenId: token.id,
         side: 'sell',
-        timestamp: { gte: twoHoursAgo },
+        timestamp: {
+          gte: new Date(Date.now() - SIGNAL_TIERS.EXIT_WARNING.WARNING.timeWindowHours * 60 * 60 * 1000),
+        },
       },
-      select: { walletId: true },
+      include: {
+        wallet: {
+          select: {
+            id: true,
+            score: true,
+          },
+        },
+      },
     });
 
-    if (!recentSells) {
+    if (!recentSells || recentSells.length === 0) {
       return null;
     }
 
-    const uniqueSellers = new Set(recentSells.map(t => t.walletId));
-    const sellerCount = uniqueSellers.size;
+    // Count unique sellers and calculate average score
+    const sellerMap = new Map<string, number>();
+    for (const sell of recentSells) {
+      if (sell.wallet) {
+        sellerMap.set(sell.walletId, sell.wallet.score || 0);
+      }
+    }
 
-    if (sellerCount < THRESHOLDS.EXIT_WARNING_MIN_SELLERS) {
+    const sellerCount = sellerMap.size;
+    const avgScore = Array.from(sellerMap.values()).reduce((sum, score) => sum + score, 0) / sellerCount;
+
+    // Determine tier based on seller count and avg score
+    let tier: 'CRITICAL' | 'WARNING' | null = null;
+    let tierConfig: any;
+
+    if (
+      sellerCount >= SIGNAL_TIERS.EXIT_WARNING.CRITICAL.minWallets &&
+      avgScore >= SIGNAL_TIERS.EXIT_WARNING.CRITICAL.minAvgScore
+    ) {
+      tier = 'CRITICAL';
+      tierConfig = SIGNAL_TIERS.EXIT_WARNING.CRITICAL;
+    } else if (
+      sellerCount >= SIGNAL_TIERS.EXIT_WARNING.WARNING.minWallets &&
+      avgScore >= SIGNAL_TIERS.EXIT_WARNING.WARNING.minAvgScore
+    ) {
+      tier = 'WARNING';
+      tierConfig = SIGNAL_TIERS.EXIT_WARNING.WARNING;
+    }
+
+    if (!tier) {
       return null;
     }
 
-    const strength = sellerCount >= 4 ? 'strong' : sellerCount >= 3 ? 'medium' : 'weak';
-    const confidence = Math.min(85, 40 + sellerCount * 15);
+    const strength = tier === 'CRITICAL' ? 'strong' : 'medium';
+    const confidence = Math.min(90, 50 + sellerCount * 12 + avgScore / 10);
 
     return {
       type: 'exit-warning',
       strength,
       confidence,
-      reasoning: `📉 Exit Warning: ${sellerCount} smart wallets prodává ${token.symbol || 'token'} v posledních 2h`,
+      reasoning: `🚨 Exit Warning (${tier}): ${sellerCount} smart wallets (avg score ${avgScore.toFixed(0)}) prodává ${token.symbol || 'token'} → ${tierConfig.action.replace('_', ' ')}`,
       context,
       suggestedAction: 'sell',
       riskLevel: 'high',
@@ -652,8 +732,8 @@ export class AdvancedSignalsService {
   }
 
   /**
-   * 💪 Conviction Buy Detection
-   * Trader nakupuje >2x více než je jeho průměr = vysoká conviction
+   * 💪 Conviction Buy Detection (Enhanced with tier system)
+   * Trader nakupuje významně více než obvykle = vysoká conviction
    */
   private async detectConvictionBuy(
     trade: any,
@@ -661,11 +741,7 @@ export class AdvancedSignalsService {
     token: any,
     context: SignalContext
   ): Promise<AdvancedSignal | null> {
-    if (wallet.score < THRESHOLDS.CONVICTION_MIN_WALLET_SCORE) {
-      return null;
-    }
-
-    // Získej průměrnou velikost trade této wallet
+    // Get average trade size from recent history
     const recentTrades = await prisma.trade.findMany({
       where: {
         walletId: wallet.id,
@@ -684,27 +760,54 @@ export class AdvancedSignalsService {
     const currentTradeSize = Number(trade.amountBase);
     const multiplier = avgTradeSize > 0 ? currentTradeSize / avgTradeSize : 0;
 
-    if (multiplier < THRESHOLDS.CONVICTION_BUY_MULTIPLIER) {
+    // Determine tier based on multiplier, score, and absolute size
+    let tier: 'EXTREME' | 'STRONG' | 'MEDIUM' | null = null;
+    let tierConfig: any;
+
+    if (
+      multiplier >= SIGNAL_TIERS.CONVICTION.EXTREME.multiplier &&
+      wallet.score >= SIGNAL_TIERS.CONVICTION.EXTREME.minWalletScore &&
+      currentTradeSize >= SIGNAL_TIERS.CONVICTION.EXTREME.minAbsoluteSize
+    ) {
+      tier = 'EXTREME';
+      tierConfig = SIGNAL_TIERS.CONVICTION.EXTREME;
+    } else if (
+      multiplier >= SIGNAL_TIERS.CONVICTION.STRONG.multiplier &&
+      wallet.score >= SIGNAL_TIERS.CONVICTION.STRONG.minWalletScore &&
+      currentTradeSize >= SIGNAL_TIERS.CONVICTION.STRONG.minAbsoluteSize
+    ) {
+      tier = 'STRONG';
+      tierConfig = SIGNAL_TIERS.CONVICTION.STRONG;
+    } else if (
+      multiplier >= SIGNAL_TIERS.CONVICTION.MEDIUM.multiplier &&
+      wallet.score >= SIGNAL_TIERS.CONVICTION.MEDIUM.minWalletScore &&
+      currentTradeSize >= SIGNAL_TIERS.CONVICTION.MEDIUM.minAbsoluteSize
+    ) {
+      tier = 'MEDIUM';
+      tierConfig = SIGNAL_TIERS.CONVICTION.MEDIUM;
+    }
+
+    if (!tier) {
       return null;
     }
 
-    // Přidej do context
-    // Používejme base token (SOL/USDC/USDT), ne USD
+    // Add to context
     context.walletAvgPositionUsd = avgTradeSize;
     context.positionSizeUsd = currentTradeSize;
 
-    const strength = multiplier >= 5 ? 'strong' : multiplier >= 3 ? 'medium' : 'weak';
+    const strength = tier === 'EXTREME' ? 'strong' : tier === 'STRONG' ? 'strong' : 'medium';
     const confidence = Math.min(95, 55 + multiplier * 8 + wallet.score / 5);
+    const [minPos, maxPos] = tierConfig.positionSizePercent;
 
     return {
       type: 'conviction-buy',
       strength,
       confidence,
-      reasoning: `💪 Conviction Buy: ${wallet.label || 'Trader'} (score ${wallet.score.toFixed(0)}) nakoupil ${multiplier.toFixed(1)}x více než obvykle (${currentTradeSize.toFixed(2)} SOL vs avg ${avgTradeSize.toFixed(2)} SOL)`,
+      reasoning: `💪 Conviction Buy (${tier}): ${wallet.label || 'Trader'} (score ${wallet.score.toFixed(0)}) nakoupil ${multiplier.toFixed(1)}x více než obvykle (${currentTradeSize.toFixed(2)} SOL vs avg ${avgTradeSize.toFixed(2)} SOL)`,
       context,
       suggestedAction: 'buy',
-      suggestedPositionPercent: Math.min(20, strength === 'strong' ? 15 : strength === 'medium' ? 10 : 7),
-      riskLevel: multiplier >= 4 ? 'low' : 'medium', // Vysoká conviction = nižší risk
+      suggestedPositionPercent: Math.floor((minPos + maxPos) / 2), // Average of range
+      riskLevel: tier === 'EXTREME' ? 'low' : tier === 'STRONG' ? 'low' : 'medium',
     };
   }
 
@@ -961,11 +1064,15 @@ export class AdvancedSignalsService {
       if (saved) {
         savedCount++;
         
-        // Send Discord notification for BUY signals
-        // POZOR: Posíláme jen 3 hlavní typy signálů: consensus, accumulation, conviction-buy
-        // (whale-entry a large-position jsou sjednoceny do conviction-buy)
-        const allowedDiscordSignalTypes = ['consensus', 'consensus-update', 'accumulation', 'conviction-buy'];
-        if (signal.suggestedAction === 'buy' && allowedDiscordSignalTypes.includes(signal.type)) {
+        // Send Discord notification for core signals only
+        // ACTIVE TYPES: consensus, accumulation, conviction-buy (BUY signals), exit-warning (SELL signal)
+        // All other signal types are deprecated and not sent to Discord
+        const allowedDiscordSignalTypes = ['consensus', 'consensus-update', 'accumulation', 'conviction-buy', 'exit-warning'];
+        const shouldSendDiscord =
+          (signal.suggestedAction === 'buy' && ['consensus', 'consensus-update', 'accumulation', 'conviction-buy'].includes(signal.type)) ||
+          (signal.suggestedAction === 'sell' && signal.type === 'exit-warning');
+
+        if (shouldSendDiscord) {
           try {
             // Get base token from trade meta (default SOL)
             // Try multiple ways to get baseToken
