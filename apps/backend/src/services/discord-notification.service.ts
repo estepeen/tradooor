@@ -16,7 +16,11 @@ export interface SignalNotificationData {
   strength: 'weak' | 'medium' | 'strong';
   walletCount: number;
   avgWalletScore: number;
-  
+
+  // Cluster info (for cluster-consensus signals)
+  clusterStrength?: number; // 0-100 cluster strength score
+  clusterPerformance?: number; // Historical success rate %
+
   // Prices
   entryPriceUsd: number;
   marketCapUsd?: number;
@@ -186,6 +190,9 @@ export class DiscordNotificationService {
     if (data.signalType === 'accumulation') {
       // Accumulation → oranžovo-žlutá čára (méně křiklavá než čistá žlutá)
       color = 0xffc107;
+    } else if (data.signalType === 'cluster-consensus') {
+      // 💎💎 CLUSTER → modrá čára (stejná jako consensus)
+      color = 0x0099ff;
     } else if (data.signalType === 'consensus' || data.signalType === 'consensus-update') {
       // Consensus → modrá čára
       color = 0x0099ff;
@@ -208,6 +215,8 @@ export class DiscordNotificationService {
     let title: string;
     if (data.signalType === 'accumulation') {
       title = `⚡ ACCUMULATION Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
+    } else if (data.signalType === 'cluster-consensus') {
+      title = `💎💎 CLUSTER Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
     } else if (data.signalType === 'consensus' || data.signalType === 'consensus-update') {
       title = `💎 CONSENSUS Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
     } else if (
@@ -228,9 +237,23 @@ export class DiscordNotificationService {
     const fields: DiscordEmbed['fields'] = [];
 
     // Signal Info
+    const signalInfo = [
+      `**Type:** ${data.signalType}`,
+      `**Strength:** ${data.strength.toUpperCase()}`,
+      `**Wallets:** ${data.walletCount}`,
+    ];
+
+    // Add cluster info if this is a cluster signal
+    if (data.signalType === 'cluster-consensus' && data.clusterStrength) {
+      signalInfo.push(`**Cluster:** ${data.clusterStrength}/100`);
+      if (data.clusterPerformance !== undefined) {
+        signalInfo.push(`**Success:** ${data.clusterPerformance}%`);
+      }
+    }
+
     fields.push({
       name: '📊 Signal',
-      value: `**Type:** ${data.signalType}\n**Strength:** ${data.strength.toUpperCase()}\n**Wallets:** ${data.walletCount}`,
+      value: signalInfo.join('\n'),
       inline: true,
     });
 

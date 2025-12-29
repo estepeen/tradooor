@@ -20,9 +20,11 @@ import { DiscordNotificationService, SignalNotificationData } from './discord-no
 import { RugCheckService } from './rugcheck.service.js';
 import { PositionMonitorService } from './position-monitor.service.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
+import { WalletCorrelationService } from './wallet-correlation.service.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
+const CLUSTER_STRENGTH_THRESHOLD = 70; // Minimum cluster strength for 💎💎 CLUSTER signal
 
 export class ConsensusWebhookService {
   private paperTradeService: PaperTradeService;
@@ -38,6 +40,7 @@ export class ConsensusWebhookService {
   private rugCheck: RugCheckService;
   private positionMonitor: PositionMonitorService;
   private tradeFeatureRepo: TradeFeatureRepository;
+  private walletCorrelation: WalletCorrelationService;
 
   constructor() {
     this.paperTradeService = new PaperTradeService();
@@ -53,6 +56,7 @@ export class ConsensusWebhookService {
     this.rugCheck = new RugCheckService();
     this.positionMonitor = new PositionMonitorService();
     this.tradeFeatureRepo = new TradeFeatureRepository();
+    this.walletCorrelation = new WalletCorrelationService();
   }
 
   /**
@@ -96,6 +100,22 @@ export class ConsensusWebhookService {
       const uniqueWallets = new Set(recentBuys.map(t => t.walletId));
       if (uniqueWallets.size < 2) {
         return { consensusFound: false };
+      }
+
+      // 3b. Check if wallets are correlated (cluster detection)
+      const walletIds = Array.from(uniqueWallets);
+      let clusterData: { isCorrelated: boolean; avgStrength: number; pairs: any[] } | null = null;
+      let clusterPerformance: number | null = null;
+
+      try {
+        clusterData = await this.walletCorrelation.checkCluster(walletIds, CLUSTER_STRENGTH_THRESHOLD);
+
+        if (clusterData.isCorrelated) {
+          clusterPerformance = await this.walletCorrelation.getClusterPerformance(walletIds);
+          console.log(`   💎💎 [Cluster] CLUSTER DETECTED! ${walletIds.length} wallets, avg strength: ${clusterData.avgStrength}, historical success: ${clusterPerformance}%`);
+        }
+      } catch (clusterError: any) {
+        console.warn(`   ⚠️  Cluster check failed: ${clusterError.message}`);
       }
 
       // 4. Najdi druhý nákup - použij cenu druhého nákupu pro paper trade
@@ -394,13 +414,24 @@ export class ConsensusWebhookService {
             new Date(b.tradeTime || 0).getTime() - new Date(a.tradeTime || 0).getTime()
           )[0];
 
+          // Determine signal type based on cluster detection
+          let signalType: 'consensus' | 'consensus-update' | 'cluster-consensus' =
+            isUpdate ? 'consensus-update' : 'consensus';
+
+          if (clusterData?.isCorrelated && !isUpdate) {
+            signalType = 'cluster-consensus';
+          }
+
           const notificationData: SignalNotificationData = {
             tokenSymbol: token?.symbol || 'Unknown',
             tokenMint: token?.mintAddress || '',
-            signalType: isUpdate ? 'consensus-update' : 'consensus',
+            signalType,
             strength: uniqueWallets.size >= 4 ? 'strong' : uniqueWallets.size >= 3 ? 'medium' : 'weak',
             walletCount: uniqueWallets.size,
             avgWalletScore,
+            // Add cluster metadata if detected
+            clusterStrength: clusterData?.isCorrelated ? clusterData.avgStrength : undefined,
+            clusterPerformance: clusterPerformance !== null ? clusterPerformance : undefined,
             entryPriceUsd: entryPrice,
             marketCapUsd: marketDataResult?.marketCap,
             liquidityUsd: marketDataResult?.liquidity,
