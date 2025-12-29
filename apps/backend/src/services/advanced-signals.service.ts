@@ -103,22 +103,25 @@ const SIGNAL_TIERS = {
       minSizePerBuy: 0.5,      // SOL
       minTotalSize: 2.5,       // SOL total
       minWalletScore: 70,
+      minMarketCap: 30000,     // Minimum $30K market cap
       positionSizePercent: [10, 15],
     },
     MEDIUM: {
       minBuys: 3,
       timeWindowHours: 18,
-      minSizePerBuy: 0.3,
-      minTotalSize: 1.5,
-      minWalletScore: 60,
+      minSizePerBuy: 0.5,      // 0.3 → 0.5 SOL (vyšší jednotlivé nákupy)
+      minTotalSize: 2.0,       // 1.5 → 2.0 SOL (celkově větší akumulace)
+      minWalletScore: 65,      // 60 → 65 (vyšší kvalita)
+      minMarketCap: 30000,     // Minimum $30K market cap
       positionSizePercent: [7, 12],
     },
     WEAK: {
-      minBuys: 2,
-      timeWindowHours: 12,
-      minSizePerBuy: 0.3,
-      minTotalSize: 0.8,
-      minWalletScore: 55,
+      minBuys: 3,              // 2 → 3 (více důkazů o akumulaci)
+      timeWindowHours: 24,     // 12 → 24 (delší sledování)
+      minSizePerBuy: 0.5,      // 0.3 → 0.5 SOL (vyšší jednotlivé nákupy)
+      minTotalSize: 2.0,       // 0.8 → 2.0 SOL (celkově minimálně ~$250)
+      minWalletScore: 65,      // 55 → 65 (vyšší kvalita)
+      minMarketCap: 30000,     // Minimum $30K market cap (filtr proti rugs)
       positionSizePercent: [5, 8],
     },
   },
@@ -127,18 +130,21 @@ const SIGNAL_TIERS = {
       multiplier: 5,           // 5x+ average
       minWalletScore: 75,
       minAbsoluteSize: 5,      // SOL minimum absolute size
+      minMarketCap: 30000,     // Minimum $30K market cap
       positionSizePercent: [20, 25],
     },
     STRONG: {
       multiplier: 3,
       minWalletScore: 70,
       minAbsoluteSize: 2,
+      minMarketCap: 30000,     // Minimum $30K market cap
       positionSizePercent: [15, 20],
     },
     MEDIUM: {
       multiplier: 2,
       minWalletScore: 65,
       minAbsoluteSize: 1,
+      minMarketCap: 30000,     // Minimum $30K market cap
       positionSizePercent: [10, 15],
     },
   },
@@ -640,8 +646,8 @@ export class AdvancedSignalsService {
   }
 
   /**
-   * 📦 Accumulation Detection
-   * Wallet postupně akumuluje pozici (3+ nákupy během 6h)
+   * 📦 Accumulation Detection (Enhanced with tier system and market cap filter)
+   * Wallet postupně akumuluje pozici - používá tier prahy (WEAK/MEDIUM/STRONG)
    */
   private async detectAccumulation(
     trade: any,
@@ -649,90 +655,132 @@ export class AdvancedSignalsService {
     token: any,
     context: SignalContext
   ): Promise<AdvancedSignal | null> {
-    const sixHoursAgo = new Date(Date.now() - THRESHOLDS.ACCUMULATION_TIME_WINDOW_HOURS * 60 * 60 * 1000);
+    // Fetch token market data first for market cap filtering
+    let marketData = {
+      marketCap: null as number | null,
+      liquidity: null as number | null,
+      volume24h: null as number | null,
+    };
 
-    // Najdi všechny BUY trades této wallet na tento token v posledních 6h
-    const recentBuys = await prisma.trade.findMany({
-      where: {
-        walletId: wallet.id,
-        tokenId: token.id,
-        side: 'buy',
-        timestamp: { gte: sixHoursAgo },
-      },
-      select: {
-        id: true,
-        amountBase: true,
-        timestamp: true,
-        meta: true, // Potřebujeme baseToken pro převod USDC/USDT na SOL
-      },
-      orderBy: { timestamp: 'asc' },
-    });
-
-    if (!recentBuys || recentBuys.length < THRESHOLDS.ACCUMULATION_MIN_BUYS) {
-      return null;
+    if (token?.mintAddress) {
+      try {
+        marketData = await this.tokenMarketData.getMarketData(token.mintAddress);
+      } catch (e) {
+        console.warn(`   ⚠️  [Accumulation] Failed to fetch market data for ${token.symbol || token.mintAddress}`);
+      }
     }
 
-    // DŮLEŽITÉ: Každý jednotlivý nákup musí mít minimálně 0.3 SOL (ne součet!)
-    // Filtrujeme pouze nákupy, které mají amountBase >= 0.3 SOL
-    // POZOR: amountBase může být v SOL, USDC nebo USDT - musíme zkontrolovat base token a převést na SOL
-    // Získej aktuální SOL cenu pro převod USDC/USDT na SOL
+    // Get SOL price for USDC/USDT conversion
     let solPriceUsd = 125.0; // Fallback
     try {
       solPriceUsd = await this.solPriceCacheService.getCurrentSolPrice();
     } catch (error: any) {
-      console.warn(`   ⚠️  Failed to fetch SOL price for accumulation check, using fallback: $${solPriceUsd}`);
-    }
-    
-    const validBuys = recentBuys.filter(t => {
-      const amountBase = Number(t.amountBase) || 0;
-      if (amountBase <= 0) return false;
-      
-      // Získej base token z meta
-      const meta = t.meta as any;
-      const baseToken = (meta?.baseToken || 'SOL').toUpperCase();
-      
-      // Převod na SOL: pokud je trade v USDC/USDT, musíme převést na SOL
-      let amountInSol = amountBase;
-      if (baseToken === 'USDC' || baseToken === 'USDT') {
-        // USDC/USDT: přibližně 1:1 s USD, převedeme na SOL pomocí aktuální ceny
-        amountInSol = amountBase / solPriceUsd;
-      }
-      // Pro SOL: amountInSol = amountBase (už je v SOL)
-      
-      // Minimum je 0.3 SOL pro všechny base tokeny
-      if (amountInSol < 0.3) {
-        console.log(`   ⚠️  [Accumulation] Skipping buy: amountBase=${amountBase.toFixed(4)} ${baseToken} (${amountInSol.toFixed(4)} SOL) < 0.3 SOL minimum`);
-        return false;
-      }
-      
-      return true;
-    });
-
-    // Musí být alespoň ACCUMULATION_MIN_BUYS nákupů s minimálně 0.3 SOL každý
-    if (validBuys.length < THRESHOLDS.ACCUMULATION_MIN_BUYS) {
-      return null;
+      console.warn(`   ⚠️  [Accumulation] Failed to fetch SOL price, using fallback: $${solPriceUsd}`);
     }
 
-    const totalAmount = validBuys.reduce((sum, t) => sum + Number(t.amountBase), 0);
-    const buyCount = validBuys.length;
+    // Try each tier from strongest to weakest
+    const tiers: Array<{ name: 'STRONG' | 'MEDIUM' | 'WEAK'; config: any }> = [
+      { name: 'STRONG', config: SIGNAL_TIERS.ACCUMULATION.STRONG },
+      { name: 'MEDIUM', config: SIGNAL_TIERS.ACCUMULATION.MEDIUM },
+      { name: 'WEAK', config: SIGNAL_TIERS.ACCUMULATION.WEAK },
+    ];
 
-    const strength = buyCount >= 5 ? 'strong' : buyCount >= 4 ? 'medium' : 'weak';
-    const confidence = Math.min(85, 40 + buyCount * 10 + wallet.score / 5);
+    for (const { name: tierName, config } of tiers) {
+      // Check wallet score threshold
+      if (wallet.score < config.minWalletScore) {
+        continue; // Try next (weaker) tier
+      }
 
-    return {
-      type: 'accumulation',
-      strength,
-      confidence,
-      reasoning: `📦 Accumulation: Wallet (score ${wallet.score.toFixed(0)}) akumuluje ${token.symbol || 'token'} - ${buyCount} nákupů za ${THRESHOLDS.ACCUMULATION_TIME_WINDOW_HOURS}h`,
-      context,
-      suggestedAction: 'buy',
-      suggestedPositionPercent: strength === 'strong' ? 10 : 7,
-      riskLevel: 'medium',
-    };
+      // Check market cap threshold (filter out low market cap tokens)
+      if (marketData.marketCap !== null && marketData.marketCap < config.minMarketCap) {
+        console.log(`   ⚠️  [Accumulation] Token ${token.symbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K < $${(config.minMarketCap / 1000).toFixed(0)}K minimum - FILTERED OUT`);
+        return null; // Don't try weaker tiers - market cap is absolute filter
+      }
+
+      // Find all BUY trades for this wallet+token in time window
+      const timeWindowMs = config.timeWindowHours * 60 * 60 * 1000;
+      const cutoffTime = new Date(Date.now() - timeWindowMs);
+
+      const recentBuys = await prisma.trade.findMany({
+        where: {
+          walletId: wallet.id,
+          tokenId: token.id,
+          side: 'buy',
+          timestamp: { gte: cutoffTime },
+        },
+        select: {
+          id: true,
+          amountBase: true,
+          timestamp: true,
+          meta: true,
+        },
+        orderBy: { timestamp: 'asc' },
+      });
+
+      if (!recentBuys || recentBuys.length < config.minBuys) {
+        continue; // Try next tier
+      }
+
+      // Filter buys by minimum size per buy (convert to SOL if needed)
+      const validBuys = recentBuys.filter(t => {
+        const amountBase = Number(t.amountBase) || 0;
+        if (amountBase <= 0) return false;
+
+        const meta = t.meta as any;
+        const baseToken = (meta?.baseToken || 'SOL').toUpperCase();
+
+        let amountInSol = amountBase;
+        if (baseToken === 'USDC' || baseToken === 'USDT') {
+          amountInSol = amountBase / solPriceUsd;
+        }
+
+        return amountInSol >= config.minSizePerBuy;
+      });
+
+      if (validBuys.length < config.minBuys) {
+        continue; // Try next tier
+      }
+
+      // Calculate total amount in SOL
+      const totalAmountSol = validBuys.reduce((sum, t) => {
+        const amountBase = Number(t.amountBase) || 0;
+        const meta = t.meta as any;
+        const baseToken = (meta?.baseToken || 'SOL').toUpperCase();
+        let amountInSol = amountBase;
+        if (baseToken === 'USDC' || baseToken === 'USDT') {
+          amountInSol = amountBase / solPriceUsd;
+        }
+        return sum + amountInSol;
+      }, 0);
+
+      if (totalAmountSol < config.minTotalSize) {
+        continue; // Try next tier
+      }
+
+      // This tier matches! Generate signal
+      const buyCount = validBuys.length;
+      const strength = tierName === 'STRONG' ? 'strong' : tierName === 'MEDIUM' ? 'medium' : 'weak';
+      const confidence = Math.min(90, 50 + buyCount * 8 + wallet.score / 5);
+      const [minPos, maxPos] = config.positionSizePercent;
+
+      return {
+        type: 'accumulation',
+        strength,
+        confidence,
+        reasoning: `📦 Accumulation (${tierName}): ${wallet.label || 'Wallet'} (score ${wallet.score.toFixed(0)}) akumuluje ${token.symbol || 'token'} - ${buyCount} nákupů (${totalAmountSol.toFixed(2)} SOL total) za ${config.timeWindowHours}h${marketData.marketCap ? `, MCap $${(marketData.marketCap / 1000).toFixed(0)}K` : ''}`,
+        context,
+        suggestedAction: 'buy',
+        suggestedPositionPercent: Math.floor((minPos + maxPos) / 2),
+        riskLevel: tierName === 'STRONG' ? 'low' : tierName === 'MEDIUM' ? 'medium' : 'medium',
+      };
+    }
+
+    // No tier matched
+    return null;
   }
 
   /**
-   * 💪 Conviction Buy Detection (Enhanced with tier system)
+   * 💪 Conviction Buy Detection (Enhanced with tier system and market cap filter)
    * Trader nakupuje významně více než obvykle = vysoká conviction
    */
   private async detectConvictionBuy(
@@ -741,6 +789,19 @@ export class AdvancedSignalsService {
     token: any,
     context: SignalContext
   ): Promise<AdvancedSignal | null> {
+    // Fetch token market data for market cap filtering
+    let marketData = {
+      marketCap: null as number | null,
+    };
+
+    if (token?.mintAddress) {
+      try {
+        marketData = await this.tokenMarketData.getMarketData(token.mintAddress);
+      } catch (e) {
+        console.warn(`   ⚠️  [ConvictionBuy] Failed to fetch market data for ${token.symbol || token.mintAddress}`);
+      }
+    }
+
     // Get average trade size from recent history
     const recentTrades = await prisma.trade.findMany({
       where: {
@@ -788,6 +849,12 @@ export class AdvancedSignalsService {
     }
 
     if (!tier) {
+      return null;
+    }
+
+    // Check market cap threshold (filter out low market cap tokens)
+    if (marketData.marketCap !== null && marketData.marketCap < tierConfig.minMarketCap) {
+      console.log(`   ⚠️  [ConvictionBuy] Token ${token.symbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K < $${(tierConfig.minMarketCap / 1000).toFixed(0)}K minimum - FILTERED OUT`);
       return null;
     }
 
@@ -1085,10 +1152,16 @@ export class AdvancedSignalsService {
             }
             
             // Pro accumulation signály: seskupit do jednoho embedu (debounce 1 minuta)
+            // FILTER: Odešli pouze MEDIUM a STRONG accumulation do Discordu
             if (signal.type === 'accumulation') {
+              if (signal.strength === 'weak') {
+                console.log(`   📦 [Accumulation] WEAK signal - NOT sending to Discord (${wallet.label || wallet.address.substring(0, 8)}... buying ${token.symbol})`);
+                continue; // Přeskoč Discord notifikaci pro WEAK accumulation
+              }
+
               const key = `${token.id}-${wallet.id}`;
               const existing = this.pendingAccumulationSignals.get(key);
-              
+
               if (existing) {
                 // Aktualizuj existující pending signál
                 existing.lastTradeTime = trade.timestamp;
