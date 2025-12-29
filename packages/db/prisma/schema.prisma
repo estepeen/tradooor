@@ -14,45 +14,48 @@ datasource db {
 
 /// Reprezentuje trackovanou adresu (smart wallet) na Solaně
 model SmartWallet {
-  id                        String   @id @default(cuid())
-  address                   String   @unique // Solana wallet address
-  label                     String?  // Volitelné jméno/label (např. "Trader X", "Call channel Y")
-  tags                      String[] @default([]) // Tagy pro kategorizaci (např. ["degen", "sniper", "calls"])
-  twitterUrl                String?  // Twitter/X profil URL (např. "https://x.com/username")
+  id                        String    @id @default(cuid())
+  address                   String    @unique // Solana wallet address
+  label                     String? // Volitelné jméno/label (např. "Trader X", "Call channel Y")
+  tags                      String[]  @default([]) // Tagy pro kategorizaci (např. ["degen", "sniper", "calls"])
+  twitterUrl                String? // Twitter/X profil URL (např. "https://x.com/username")
   lastPumpfunTradeTimestamp DateTime? // Poslední Pump.fun trade (pro backfill a monitoring)
-  
+
   // Metriky (průběžně přepočítávané)
-  score                 Float    @default(0) // Celkové skóre kvality tradera (0-100)
-  enhancedScore         Float    @default(0) // Enhanced skóre podle pokročilého modelu (0-100)
-  percentileRankWinRate Float    @default(0) // Percentil win rate (0-1)
-  percentileRankRoi     Float    @default(0) // Percentil ROI (0-1)
-  positionDisciplineScore Float  @default(0) // Skóre disciplíny velikosti pozic (0-100)
-  timingIntelligenceScore Float  @default(0) // Skóre timingu vstupů/výstupů (0-100)
-  categorySpecializationBonus Float @default(0) // Bonus za specializaci v kategorii (0-15)
-  marketRegime          String?        // 'bull' | 'bear' | 'sideways' (současný tržní režim při výpočtu skóre)
-  totalTrades           Int      @default(0) // Celkový počet tradeů
-  winRate               Float    @default(0) // Win rate (0-1, např. 0.65 = 65%)
-  avgRr                 Float    @default(0) // Průměrný risk/reward poměr
-  avgPnlPercent         Float    @default(0) // Průměrné % na trade
-  pnlTotalBase          Float    @default(0) // Celkový PnL v base měně (SOL/USDC/USDT)
-  avgHoldingTimeMin     Float    @default(0) // Průměrná doba držení pozice v minutách
-  maxDrawdownPercent    Float    @default(0) // Maximální drawdown v %
-  recentPnl30dPercent   Float    @default(0) // PnL za posledních 30 dní v %
-  recentPnl30dBase      Float    @default(0) // PnL for last 30 days in base currency (SOL/USDC/USDT)
-  advancedStats         Json?    // Cached advanced stats (profit factor, streaks, etc.)
-  
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
-  
-  trades                Trade[]
-  tradeFeatures         TradeFeature[]
-  metricsHistory        SmartWalletMetricsHistory[]
-  processingJobs        WalletProcessingQueue[]
-  tradeSequences        TradeSequence[]
-  tradeOutcomes         TradeOutcome[]
-  normalizedTrades      NormalizedTrade[]
-  closedLots            ClosedLot[]
-  signals               Signal[]
+  score                       Float   @default(0) // Celkové skóre kvality tradera (0-100)
+  enhancedScore               Float   @default(0) // Enhanced skóre podle pokročilého modelu (0-100)
+  percentileRankWinRate       Float   @default(0) // Percentil win rate (0-1)
+  percentileRankRoi           Float   @default(0) // Percentil ROI (0-1)
+  positionDisciplineScore     Float   @default(0) // Skóre disciplíny velikosti pozic (0-100)
+  timingIntelligenceScore     Float   @default(0) // Skóre timingu vstupů/výstupů (0-100)
+  categorySpecializationBonus Float   @default(0) // Bonus za specializaci v kategorii (0-15)
+  marketRegime                String? // 'bull' | 'bear' | 'sideways' (současný tržní režim při výpočtu skóre)
+  totalTrades                 Int     @default(0) // Celkový počet tradeů
+  winRate                     Float   @default(0) // Win rate (0-1, např. 0.65 = 65%)
+  avgRr                       Float   @default(0) // Průměrný risk/reward poměr
+  avgPnlPercent               Float   @default(0) // Průměrné % na trade
+  pnlTotalBase                Float   @default(0) // Celkový PnL v base měně (SOL/USDC/USDT)
+  avgHoldingTimeMin           Float   @default(0) // Průměrná doba držení pozice v minutách
+  maxDrawdownPercent          Float   @default(0) // Maximální drawdown v %
+  recentPnl30dPercent         Float   @default(0) // PnL za posledních 30 dní v %
+  recentPnl30dBase            Float   @default(0) // PnL for last 30 days in base currency (SOL/USDC/USDT)
+  advancedStats               Json? // Cached advanced stats (profit factor, streaks, etc.)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trades           Trade[]
+  tradeFeatures    TradeFeature[]
+  metricsHistory   SmartWalletMetricsHistory[]
+  processingJobs   WalletProcessingQueue[]
+  tradeSequences   TradeSequence[]
+  tradeOutcomes    TradeOutcome[]
+  normalizedTrades NormalizedTrade[]
+  closedLots       ClosedLot[]
+  signals          Signal[]
+  correlationsAsA  WalletCorrelation[]         @relation("CorrelationA")
+  correlationsAsB  WalletCorrelation[]         @relation("CorrelationB")
+
   @@index([address])
   @@index([score])
   @@index([updatedAt])
@@ -60,24 +63,24 @@ model SmartWallet {
 
 /// Základní informace o tokenech, které se v obchodech objevují
 model Token {
-  id                    String   @id @default(cuid())
-  mintAddress           String   @unique // Solana token mint address
-  symbol                String?  // Symbol tokenu (např. "SOL", "USDC")
-  name                  String?  // Název tokenu
-  decimals              Int      @default(9) // Počet desetinných míst
-  firstSeenAt           DateTime @default(now()) // Kdy byl token poprvé viděn v systému
-  updatedAt             DateTime @updatedAt
-  
-  trades                Trade[]
-  tradeFeatures         TradeFeature[]
-  marketSnapshots       TokenMarketSnapshot[]
-  tradeSequences        TradeSequence[]
-  tradeOutcomes         TradeOutcome[]
-  normalizedTrades      NormalizedTrade[]
-  consensusSignals      ConsensusSignal[]
-  closedLots            ClosedLot[]
-  signals               Signal[]
-  
+  id          String   @id @default(cuid())
+  mintAddress String   @unique // Solana token mint address
+  symbol      String? // Symbol tokenu (např. "SOL", "USDC")
+  name        String? // Název tokenu
+  decimals    Int      @default(9) // Počet desetinných míst
+  firstSeenAt DateTime @default(now()) // Kdy byl token poprvé viděn v systému
+  updatedAt   DateTime @updatedAt
+
+  trades           Trade[]
+  tradeFeatures    TradeFeature[]
+  marketSnapshots  TokenMarketSnapshot[]
+  tradeSequences   TradeSequence[]
+  tradeOutcomes    TradeOutcome[]
+  normalizedTrades NormalizedTrade[]
+  consensusSignals ConsensusSignal[]
+  closedLots       ClosedLot[]
+  signals          Signal[]
+
   @@index([mintAddress])
   @@index([symbol])
 }
@@ -88,7 +91,7 @@ model Trade {
   txSignature           String   @unique // Solana transaction signature
   walletId              String
   tokenId               String
-  side                  String   // 'buy' | 'sell'
+  side                  String // 'buy' | 'sell'
   amountToken           Decimal  @db.Decimal(36, 18) // Množství tokenů
   amountBase            Decimal  @db.Decimal(36, 18) // Hodnota v SOL nebo jiném base assetu (USDC/USDT)
   priceBasePerToken     Decimal  @db.Decimal(36, 18) // Cena v base měně za 1 token
@@ -97,17 +100,17 @@ model Trade {
   pnlPercent            Decimal? @db.Decimal(36, 18) // Realizovaný PnL v %
   positionChangePercent Decimal? @db.Decimal(36, 18) // Změna velikosti pozice (pro analytiku)
   timestamp             DateTime // Čas transakce
-  dex                   String   // Identifikace DEXu (např. "pumpfun", "raydium", "jupiter", "orca")
-  positionId            String?  // Volitelné - FK na logickou pozici (pro budoucí rozšíření)
-  meta                  Json?    // Doplňkové údaje v JSON formátu
-  
-  wallet                SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  token                 Token        @relation(fields: [tokenId], references: [id], onDelete: Cascade)
-  features              TradeFeature?
-  sequence              TradeSequence?
-  outcome               TradeOutcome?
-  normalizedTrades      NormalizedTrade[]
-  
+  dex                   String // Identifikace DEXu (např. "pumpfun", "raydium", "jupiter", "orca")
+  positionId            String? // Volitelné - FK na logickou pozici (pro budoucí rozšíření)
+  meta                  Json? // Doplňkové údaje v JSON formátu
+
+  wallet           SmartWallet       @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  token            Token             @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  features         TradeFeature?
+  sequence         TradeSequence?
+  outcome          TradeOutcome?
+  normalizedTrades NormalizedTrade[]
+
   @@index([walletId])
   @@index([tokenId])
   @@index([timestamp])
@@ -117,18 +120,18 @@ model Trade {
 /// Snapshot trhu pro daný token v čase (agregace v intervalech, např. 1 minuta / 5 minut)
 /// Volitelné, ale užitečné pro analýzu trhu
 model TokenMarketSnapshot {
-  id                    String   @id @default(cuid())
-  tokenId               String
-  timestamp             DateTime // Čas snapshotu
-  price                 Decimal  @db.Decimal(36, 18) // Cena tokenu v base měně
-  liquidity             Decimal  @db.Decimal(36, 18) // Velikost LP (liquidity pool)
-  volume1m              Decimal  @db.Decimal(36, 18) // Objem za 1 minutu
-  volume5m              Decimal  @db.Decimal(36, 18) // Objem za 5 minut
-  holdersCount          Int?     // Počet holderů (volitelné, pokud bude možné získat)
-  smartWalletHolders    Int      @default(0) // Kolik z našich smart wallets ten token aktuálně drží
-  
-  token                 Token    @relation(fields: [tokenId], references: [id], onDelete: Cascade)
-  
+  id                 String   @id @default(cuid())
+  tokenId            String
+  timestamp          DateTime // Čas snapshotu
+  price              Decimal  @db.Decimal(36, 18) // Cena tokenu v base měně
+  liquidity          Decimal  @db.Decimal(36, 18) // Velikost LP (liquidity pool)
+  volume1m           Decimal  @db.Decimal(36, 18) // Objem za 1 minutu
+  volume5m           Decimal  @db.Decimal(36, 18) // Objem za 5 minut
+  holdersCount       Int? // Počet holderů (volitelné, pokud bude možné získat)
+  smartWalletHolders Int      @default(0) // Kolik z našich smart wallets ten token aktuálně drží
+
+  token Token @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+
   @@index([tokenId])
   @@index([timestamp])
   @@index([tokenId, timestamp])
@@ -137,81 +140,81 @@ model TokenMarketSnapshot {
 /// Verzování metrik v čase - historické hodnoty metrik wallet
 /// Přepočítáváno periodicky (např. 1x denně) pro grafy v dashboardu
 model SmartWalletMetricsHistory {
-  id                    String   @id @default(cuid())
-  walletId              String
-  timestamp             DateTime // Čas přepočtu metrik
-  score                 Float    // Celkové skóre kvality tradera (0-100)
-  totalTrades           Int      // Celkový počet tradeů
-  winRate               Float    // Win rate (0-1)
-  avgRr                 Float    // Průměrný risk/reward poměr
-  avgPnlPercent         Float    // Průměrné % na trade
-  pnlTotalBase          Float    // Celkový PnL v base měně
-  avgHoldingTimeMin     Float    // Průměrná doba držení pozice v minutách
-  maxDrawdownPercent    Float    // Maximální drawdown v %
-  recentPnl30dPercent   Float    // PnL za posledních 30 dní v %
-  
-  wallet                SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  
+  id                  String   @id @default(cuid())
+  walletId            String
+  timestamp           DateTime // Čas přepočtu metrik
+  score               Float // Celkové skóre kvality tradera (0-100)
+  totalTrades         Int // Celkový počet tradeů
+  winRate             Float // Win rate (0-1)
+  avgRr               Float // Průměrný risk/reward poměr
+  avgPnlPercent       Float // Průměrné % na trade
+  pnlTotalBase        Float // Celkový PnL v base měně
+  avgHoldingTimeMin   Float // Průměrná doba držení pozice v minutách
+  maxDrawdownPercent  Float // Maximální drawdown v %
+  recentPnl30dPercent Float // PnL za posledních 30 dní v %
+
+  wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
   @@index([walletId])
   @@index([timestamp])
   @@index([walletId, timestamp])
 }
 
 model TradeFeature {
-  id                           String   @id @default(cuid())
-  tradeId                      String   @unique
+  id                           String    @id @default(cuid())
+  tradeId                      String    @unique
   walletId                     String
   tokenId                      String
-  sizeToken                    Decimal? @db.Decimal(36, 18)
-  sizeUsd                      Decimal? @db.Decimal(36, 18)
-  priceUsd                     Decimal? @db.Decimal(36, 18)
+  sizeToken                    Decimal?  @db.Decimal(36, 18)
+  sizeUsd                      Decimal?  @db.Decimal(36, 18)
+  priceUsd                     Decimal?  @db.Decimal(36, 18)
   slippageBps                  Int?
   dex                          String?
   txTimestamp                  DateTime?
-  positionSizeBeforeToken      Decimal? @db.Decimal(36, 18)
-  positionSizeBeforeUsd        Decimal? @db.Decimal(36, 18)
-  positionSizeAfterToken       Decimal? @db.Decimal(36, 18)
-  positionSizeAfterUsd         Decimal? @db.Decimal(36, 18)
-  positionSizeChangeMultiplier Decimal? @db.Decimal(36, 18)
-  avgEntryPriceBeforeUsd       Decimal? @db.Decimal(36, 18)
-  avgEntryPriceAfterUsd        Decimal? @db.Decimal(36, 18)
-  realizedPnlUsd               Decimal? @db.Decimal(36, 18)
-  realizedPnlPercent           Decimal? @db.Decimal(36, 18)
+  positionSizeBeforeToken      Decimal?  @db.Decimal(36, 18)
+  positionSizeBeforeUsd        Decimal?  @db.Decimal(36, 18)
+  positionSizeAfterToken       Decimal?  @db.Decimal(36, 18)
+  positionSizeAfterUsd         Decimal?  @db.Decimal(36, 18)
+  positionSizeChangeMultiplier Decimal?  @db.Decimal(36, 18)
+  avgEntryPriceBeforeUsd       Decimal?  @db.Decimal(36, 18)
+  avgEntryPriceAfterUsd        Decimal?  @db.Decimal(36, 18)
+  realizedPnlUsd               Decimal?  @db.Decimal(36, 18)
+  realizedPnlPercent           Decimal?  @db.Decimal(36, 18)
   holdTimeSeconds              Int?
   tokenAgeSeconds              Int?
-  liquidityUsd                 Decimal? @db.Decimal(36, 18)
-  volume1hUsd                  Decimal? @db.Decimal(36, 18)
-  volume24hUsd                 Decimal? @db.Decimal(36, 18)
-  fdvUsd                       Decimal? @db.Decimal(36, 18)
-  trend5mPercent               Decimal? @db.Decimal(36, 18)
-  trend30mPercent              Decimal? @db.Decimal(36, 18)
-  solPriceUsd                  Decimal? @db.Decimal(36, 18)
+  liquidityUsd                 Decimal?  @db.Decimal(36, 18)
+  volume1hUsd                  Decimal?  @db.Decimal(36, 18)
+  volume24hUsd                 Decimal?  @db.Decimal(36, 18)
+  fdvUsd                       Decimal?  @db.Decimal(36, 18)
+  trend5mPercent               Decimal?  @db.Decimal(36, 18)
+  trend30mPercent              Decimal?  @db.Decimal(36, 18)
+  solPriceUsd                  Decimal?  @db.Decimal(36, 18)
   hourOfDay                    Int?
   dayOfWeek                    Int?
   baseTokenSymbol              String?
   meta                         Json?
-  createdAt                    DateTime @default(now())
-  updatedAt                    DateTime @updatedAt
+  createdAt                    DateTime  @default(now())
+  updatedAt                    DateTime  @updatedAt
 
   // Enhanced scoring features
-  entryRankPercentile          Decimal? @db.Decimal(36, 18) // Kdy wallet vstoupila relativně k ostatním (0-1, lower = earlier)
-  exitEfficiency               Decimal? @db.Decimal(36, 18) // Jak blízko k lokálnímu maximu/minimu exitoval trade (0-1)
-  tokenCategory                String?  // Např. 'meme', 'defi', 'nft' – pro category specialization
+  entryRankPercentile Decimal? @db.Decimal(36, 18) // Kdy wallet vstoupila relativně k ostatním (0-1, lower = earlier)
+  exitEfficiency      Decimal? @db.Decimal(36, 18) // Jak blízko k lokálnímu maximu/minimu exitoval trade (0-1)
+  tokenCategory       String? // Např. 'meme', 'defi', 'nft' – pro category specialization
 
   // Market context features (pro AI/ML)
-  priceMomentum1mPercent        Decimal? @db.Decimal(36, 18) // Změna ceny 1 min před trade
-  priceMomentum5mPercent        Decimal? @db.Decimal(36, 18) // Změna ceny 5 min před trade
-  priceMomentum15mPercent      Decimal? @db.Decimal(36, 18) // Změna ceny 15 min před trade
-  priceMomentum1hPercent        Decimal? @db.Decimal(36, 18) // Změna ceny 1h před trade
-  volumeSpike1hMultiplier       Decimal? @db.Decimal(36, 18) // Násobek průměrného objemu (1h)
-  volumeSpike24hMultiplier      Decimal? @db.Decimal(36, 18) // Násobek průměrného objemu (24h)
-  marketRegime                 String?  // 'bull' | 'bear' | 'sideways' (na základě SOL price)
-  otherSmartWalletsTradingCount Int?     // Kolik dalších smart wallets tradeuje stejný token
-  otherSmartWalletsTradingSameTokenCount Int? // Total count of other smart wallets trading same token
-  otherSmartWalletsTradingSameTokenWithin1h Int? // Count within 1 hour
+  priceMomentum1mPercent                     Decimal? @db.Decimal(36, 18) // Změna ceny 1 min před trade
+  priceMomentum5mPercent                     Decimal? @db.Decimal(36, 18) // Změna ceny 5 min před trade
+  priceMomentum15mPercent                    Decimal? @db.Decimal(36, 18) // Změna ceny 15 min před trade
+  priceMomentum1hPercent                     Decimal? @db.Decimal(36, 18) // Změna ceny 1h před trade
+  volumeSpike1hMultiplier                    Decimal? @db.Decimal(36, 18) // Násobek průměrného objemu (1h)
+  volumeSpike24hMultiplier                   Decimal? @db.Decimal(36, 18) // Násobek průměrného objemu (24h)
+  marketRegime                               String? // 'bull' | 'bear' | 'sideways' (na základě SOL price)
+  otherSmartWalletsTradingCount              Int? // Kolik dalších smart wallets tradeuje stejný token
+  otherSmartWalletsTradingSameTokenCount     Int? // Total count of other smart wallets trading same token
+  otherSmartWalletsTradingSameTokenWithin1h  Int? // Count within 1 hour
   otherSmartWalletsTradingSameTokenWithin24h Int? // Count within 24 hours
-  avgTimeSinceOtherTradersTradeSeconds Int? // Average time since other traders traded same token
-  copyTraderScore              Decimal? @db.Decimal(5, 4) // Copy trading score (0-1)
+  avgTimeSinceOtherTradersTradeSeconds       Int? // Average time since other traders traded same token
+  copyTraderScore                            Decimal? @db.Decimal(5, 4) // Copy trading score (0-1)
 
   trade  Trade       @relation(fields: [tradeId], references: [id], onDelete: Cascade)
   wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
@@ -223,17 +226,17 @@ model TradeFeature {
 }
 
 model WalletProcessingQueue {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   walletId      String
-  jobType       String   @default("metrics")
-  status        String   @default("pending")
-  priority      Int      @default(0)
-  attempts      Int      @default(0)
+  jobType       String    @default("metrics")
+  status        String    @default("pending")
+  priority      Int       @default(0)
+  attempts      Int       @default(0)
   lastAttemptAt DateTime?
-  nextRunAt     DateTime @default(now())
+  nextRunAt     DateTime  @default(now())
   error         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
@@ -245,32 +248,32 @@ model WalletProcessingQueue {
 /// Sequence data pro AI/ML - pořadí tradeů, time between trades, patterns
 /// SEPAROVÁNO od současných fungujících věcí - pouze pro AI/ML trénink
 model TradeSequence {
-  id                    String   @id @default(cuid())
-  tradeId               String   @unique
-  walletId              String
-  tokenId               String
-  
+  id       String @id @default(cuid())
+  tradeId  String @unique
+  walletId String
+  tokenId  String
+
   // Sequence context
-  sequenceIndex         Int?     // Pořadí tradeu v sekvenci (1, 2, 3, ...)
-  sequenceLength        Int?     // Celková délka sekvence tradeů
-  timeSinceLastTradeSeconds Int? // Čas od posledního tradeu (v sekundách)
+  sequenceIndex                  Int? // Pořadí tradeu v sekvenci (1, 2, 3, ...)
+  sequenceLength                 Int? // Celková délka sekvence tradeů
+  timeSinceLastTradeSeconds      Int? // Čas od posledního tradeu (v sekundách)
   timeSinceLastTokenTradeSeconds Int? // Čas od posledního tradeu se stejným tokenem
-  
+
   // Token switching patterns
-  isTokenSwitch         Boolean? @default(false) // Změnil trader token?
-  previousTokenId       String?  // Předchozí token (pokud se změnil)
-  tokensInSequence      Int?     // Kolik různých tokenů v sekvenci
-  
+  isTokenSwitch    Boolean? @default(false) // Změnil trader token?
+  previousTokenId  String? // Předchozí token (pokud se změnil)
+  tokensInSequence Int? // Kolik různých tokenů v sekvenci
+
   // Position sizing patterns
   positionSizeChangePercent Decimal? @db.Decimal(36, 18) // Změna velikosti pozice vs. předchozí trade
-  avgPositionSizeUsd    Decimal? @db.Decimal(36, 18) // Průměrná velikost pozice v sekvenci
-  
+  avgPositionSizeUsd        Decimal? @db.Decimal(36, 18) // Průměrná velikost pozice v sekvenci
+
   // Trading frequency
-  tradesInLastHour      Int?     // Počet tradeů v poslední hodině
-  tradesInLastDay       Int?     // Počet tradeů v posledním dni
-  
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  tradesInLastHour Int? // Počet tradeů v poslední hodině
+  tradesInLastDay  Int? // Počet tradeů v posledním dni
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   trade  Trade       @relation(fields: [tradeId], references: [id], onDelete: Cascade)
   wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
@@ -284,32 +287,32 @@ model TradeSequence {
 /// Outcome labels pro AI/ML - explicitní labely pro supervised learning
 /// SEPAROVÁNO od současných fungujících věcí - pouze pro AI/ML trénink
 model TradeOutcome {
-  id                    String   @id @default(cuid())
-  tradeId               String   @unique
-  walletId              String
-  tokenId               String
-  
+  id       String @id @default(cuid())
+  tradeId  String @unique
+  walletId String
+  tokenId  String
+
   // Trade outcome (pro BUY trades)
-  outcomeType           String?  // 'win' | 'loss' | 'breakeven' | 'unknown'
-  outcomeCategory       String?  // 'big_win' | 'small_win' | 'small_loss' | 'big_loss' | 'breakeven'
-  realizedPnlUsd       Decimal? @db.Decimal(36, 18) // Realizovaný PnL (pro SELL trades)
-  realizedPnlPercent    Decimal? @db.Decimal(36, 18) // Realizovaný PnL % (pro SELL trades)
-  
+  outcomeType        String? // 'win' | 'loss' | 'breakeven' | 'unknown'
+  outcomeCategory    String? // 'big_win' | 'small_win' | 'small_loss' | 'big_loss' | 'breakeven'
+  realizedPnlUsd     Decimal? @db.Decimal(36, 18) // Realizovaný PnL (pro SELL trades)
+  realizedPnlPercent Decimal? @db.Decimal(36, 18) // Realizovaný PnL % (pro SELL trades)
+
   // Token outcome (jak dopadl token po trade)
-  tokenPriceChange1hPercent   Decimal? @db.Decimal(36, 18) // Změna ceny tokenu 1h po trade
-  tokenPriceChange24hPercent  Decimal? @db.Decimal(36, 18) // Změna ceny tokenu 24h po trade
-  tokenPriceChange7dPercent   Decimal? @db.Decimal(36, 18) // Změna ceny tokenu 7d po trade
-  tokenOutcome                String?  // 'pump' | 'dump' | 'sideways' | 'unknown'
-  
+  tokenPriceChange1hPercent  Decimal? @db.Decimal(36, 18) // Změna ceny tokenu 1h po trade
+  tokenPriceChange24hPercent Decimal? @db.Decimal(36, 18) // Změna ceny tokenu 24h po trade
+  tokenPriceChange7dPercent  Decimal? @db.Decimal(36, 18) // Změna ceny tokenu 7d po trade
+  tokenOutcome               String? // 'pump' | 'dump' | 'sideways' | 'unknown'
+
   // Position outcome (celkový výsledek pozice)
-  positionClosedAt      DateTime? // Kdy byla pozice uzavřena (pokud už byla)
-  positionHoldTimeSeconds Int?   // Jak dlouho byla pozice držena
-  positionFinalPnlUsd   Decimal? @db.Decimal(36, 18) // Finální PnL pozice
-  positionFinalPnlPercent Decimal? @db.Decimal(36, 18) // Finální PnL % pozice
-  
+  positionClosedAt        DateTime? // Kdy byla pozice uzavřena (pokud už byla)
+  positionHoldTimeSeconds Int? // Jak dlouho byla pozice držena
+  positionFinalPnlUsd     Decimal?  @db.Decimal(36, 18) // Finální PnL pozice
+  positionFinalPnlPercent Decimal?  @db.Decimal(36, 18) // Finální PnL % pozice
+
   // Labels calculated at
-  calculatedAt          DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  calculatedAt DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   trade  Trade       @relation(fields: [tradeId], references: [id], onDelete: Cascade)
   wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
@@ -323,37 +326,37 @@ model TradeOutcome {
 }
 
 model NormalizedTrade {
-  id                    String   @id @default(cuid())
+  id                    String    @id @default(cuid())
   txSignature           String
   walletId              String
   tokenId               String
   tokenMint             String
   side                  String
-  amountToken           Decimal  @db.Decimal(36, 18)
-  amountBaseRaw         Decimal  @db.Decimal(36, 18)
+  amountToken           Decimal   @db.Decimal(36, 18)
+  amountBaseRaw         Decimal   @db.Decimal(36, 18)
   baseToken             String
-  priceBasePerTokenRaw  Decimal  @db.Decimal(36, 18)
+  priceBasePerTokenRaw  Decimal   @db.Decimal(36, 18)
   timestamp             DateTime
   dex                   String
   positionChangePercent Float?
   balanceBefore         Float?
   balanceAfter          Float?
-  status                String   @default("pending")
+  status                String    @default("pending")
   error                 String?
   meta                  Json?
   rawPayload            Json?
-  amountBaseUsd         Decimal? @db.Decimal(36, 18)
-  priceUsdPerToken      Decimal? @db.Decimal(36, 18)
+  amountBaseUsd         Decimal?  @db.Decimal(36, 18)
+  priceUsdPerToken      Decimal?  @db.Decimal(36, 18)
   valuationSource       String?
   valuationTimestamp    DateTime?
   processedAt           DateTime?
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
   tradeId               String?
 
-  trade  Trade?       @relation(fields: [tradeId], references: [id], onDelete: SetNull)
-  wallet SmartWallet  @relation(fields: [walletId], references: [id], onDelete: Cascade)
-  token  Token        @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  trade  Trade?      @relation(fields: [tradeId], references: [id], onDelete: SetNull)
+  wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  token  Token       @relation(fields: [tokenId], references: [id], onDelete: Cascade)
 
   @@unique([txSignature, walletId, side])
   @@index([status, timestamp])
@@ -362,17 +365,17 @@ model NormalizedTrade {
 
 /// Consensus trading signals - when 2+ wallets buy the same token within 2 hours
 model ConsensusSignal {
-  id                    String   @id @default(cuid())
-  tokenId               String
-  walletCount           Int      // Number of unique wallets in consensus
-  firstTradeTime        DateTime // Time of first trade in consensus
-  latestTradeTime       DateTime // Time of latest trade in consensus
-  trades                Json     // Array of trade data (wallet, amount, price, timestamp, etc.)
-  tokenSecurity         Json?    // Token security data (honeypot, tax, marketcap, etc.)
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  id              String   @id @default(cuid())
+  tokenId         String
+  walletCount     Int // Number of unique wallets in consensus
+  firstTradeTime  DateTime // Time of first trade in consensus
+  latestTradeTime DateTime // Time of latest trade in consensus
+  trades          Json // Array of trade data (wallet, amount, price, timestamp, etc.)
+  tokenSecurity   Json? // Token security data (honeypot, tax, marketcap, etc.)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  token                 Token    @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  token Token @relation(fields: [tokenId], references: [id], onDelete: Cascade)
 
   @@index([tokenId])
   @@index([latestTradeTime])
@@ -382,53 +385,53 @@ model ConsensusSignal {
 
 /// Realized closed lots (uzavřené pozice) pro detailní PnL analýzu
 model ClosedLot {
-  id                    String   @id @default(cuid())
-  walletId              String
-  tokenId               String
-  size                  Decimal  @db.Decimal(36, 18)
-  entryPrice            Decimal  @db.Decimal(36, 18)
-  exitPrice             Decimal  @db.Decimal(36, 18)
-  entryTime             DateTime
-  exitTime              DateTime
-  holdTimeMinutes       Float
-  costBasis             Decimal  @db.Decimal(36, 18)
-  proceeds              Decimal  @db.Decimal(36, 18)
-  realizedPnl           Decimal  @db.Decimal(36, 18)
-  realizedPnlPercent    Decimal  @db.Decimal(36, 18)
-  realizedPnlUsd        Decimal? @db.Decimal(36, 18)
-  buyTradeId            String?
-  sellTradeId           String?  // Should be nullable - if Trade doesn't exist, use NULL
-  isPreHistory          Boolean  @default(false)
-  costKnown             Boolean  @default(true)
-  sequenceNumber        Int?
+  id                        String   @id @default(cuid())
+  walletId                  String
+  tokenId                   String
+  size                      Decimal  @db.Decimal(36, 18)
+  entryPrice                Decimal  @db.Decimal(36, 18)
+  exitPrice                 Decimal  @db.Decimal(36, 18)
+  entryTime                 DateTime
+  exitTime                  DateTime
+  holdTimeMinutes           Float
+  costBasis                 Decimal  @db.Decimal(36, 18)
+  proceeds                  Decimal  @db.Decimal(36, 18)
+  realizedPnl               Decimal  @db.Decimal(36, 18)
+  realizedPnlPercent        Decimal  @db.Decimal(36, 18)
+  realizedPnlUsd            Decimal? @db.Decimal(36, 18)
+  buyTradeId                String?
+  sellTradeId               String? // Should be nullable - if Trade doesn't exist, use NULL
+  isPreHistory              Boolean  @default(false)
+  costKnown                 Boolean  @default(true)
+  sequenceNumber            Int?
   // Timing
-  entryHourOfDay        Int?
-  entryDayOfWeek        Int?
-  exitHourOfDay         Int?
-  exitDayOfWeek         Int?
+  entryHourOfDay            Int?
+  entryDayOfWeek            Int?
+  exitHourOfDay             Int?
+  exitDayOfWeek             Int?
   // Market conditions
-  entryMarketCap        Decimal? @db.Decimal(36, 18)
-  exitMarketCap         Decimal? @db.Decimal(36, 18)
-  entryLiquidity        Decimal? @db.Decimal(36, 18)
-  exitLiquidity         Decimal? @db.Decimal(36, 18)
-  entryVolume24h        Decimal? @db.Decimal(36, 18)
-  exitVolume24h         Decimal? @db.Decimal(36, 18)
-  tokenAgeAtEntryMinutes Float?
+  entryMarketCap            Decimal? @db.Decimal(36, 18)
+  exitMarketCap             Decimal? @db.Decimal(36, 18)
+  entryLiquidity            Decimal? @db.Decimal(36, 18)
+  exitLiquidity             Decimal? @db.Decimal(36, 18)
+  entryVolume24h            Decimal? @db.Decimal(36, 18)
+  exitVolume24h             Decimal? @db.Decimal(36, 18)
+  tokenAgeAtEntryMinutes    Float?
   // Exit detection
-  exitReason            String?
-  maxProfitPercent      Decimal? @db.Decimal(36, 18)
-  maxDrawdownPercent    Decimal? @db.Decimal(36, 18)
-  timeToMaxProfitMinutes Float?
+  exitReason                String?
+  maxProfitPercent          Decimal? @db.Decimal(36, 18)
+  maxDrawdownPercent        Decimal? @db.Decimal(36, 18)
+  timeToMaxProfitMinutes    Float?
   // DCA
-  dcaEntryCount         Int?
-  dcaTimeSpanMinutes    Float?
+  dcaEntryCount             Int?
+  dcaTimeSpanMinutes        Float?
   // Re-entry patterns
-  reentryTimeMinutes    Float?
+  reentryTimeMinutes        Float?
   reentryPriceChangePercent Decimal? @db.Decimal(36, 18)
-  previousCyclePnl      Decimal? @db.Decimal(36, 18)
+  previousCyclePnl          Decimal? @db.Decimal(36, 18)
   // Timestamps
-  createdAt             DateTime @default(now())
-  updatedAt             DateTime @updatedAt
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 
   wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
   token  Token       @relation(fields: [tokenId], references: [id], onDelete: Cascade)
@@ -440,57 +443,57 @@ model ClosedLot {
 
 /// Paper trading trades (simulované obchody)
 model PaperTrade {
-  id                String   @id @default(cuid())
-  walletId          String
-  tokenId           String
-  originalTradeId   String?
-  side              String
-  amountToken       Decimal  @db.Decimal(36, 18)
-  amountBase        Decimal  @db.Decimal(36, 18)
-  priceBasePerToken Decimal  @db.Decimal(36, 18)
-  timestamp         DateTime
-  status            String   @default("open")
-  realizedPnl       Decimal? @db.Decimal(36, 18)
-  realizedPnlPercent Decimal? @db.Decimal(36, 18)
-  closedAt          DateTime?
-  meta              Json?
+  id                 String    @id @default(cuid())
+  walletId           String
+  tokenId            String
+  originalTradeId    String?
+  side               String
+  amountToken        Decimal   @db.Decimal(36, 18)
+  amountBase         Decimal   @db.Decimal(36, 18)
+  priceBasePerToken  Decimal   @db.Decimal(36, 18)
+  timestamp          DateTime
+  status             String    @default("open")
+  realizedPnl        Decimal?  @db.Decimal(36, 18)
+  realizedPnlPercent Decimal?  @db.Decimal(36, 18)
+  closedAt           DateTime?
+  meta               Json?
 }
 
 /// Paper trading portfolio snapshots
 model PaperPortfolio {
-  id               String   @id @default(cuid())
-  timestamp        DateTime @default(now())
-  totalValueUsd    Decimal  @db.Decimal(36, 18)
-  totalCostUsd     Decimal  @db.Decimal(36, 18)
-  totalPnlUsd      Decimal  @db.Decimal(36, 18)
-  totalPnlPercent  Decimal  @db.Decimal(36, 18)
-  openPositions    Int
-  closedPositions  Int
-  winRate          Decimal? @db.Decimal(36, 18)
-  totalTrades      Int
-  meta             Json?
+  id              String   @id @default(cuid())
+  timestamp       DateTime @default(now())
+  totalValueUsd   Decimal  @db.Decimal(36, 18)
+  totalCostUsd    Decimal  @db.Decimal(36, 18)
+  totalPnlUsd     Decimal  @db.Decimal(36, 18)
+  totalPnlPercent Decimal  @db.Decimal(36, 18)
+  openPositions   Int
+  closedPositions Int
+  winRate         Decimal? @db.Decimal(36, 18)
+  totalTrades     Int
+  meta            Json?
 }
 
 /// Obecné signály (buy/sell) pro AI, consensus atd.
 model Signal {
-  id                String   @id @default(cuid())
-  type              String   // 'buy' | 'sell'
+  id                String    @id @default(cuid())
+  type              String // 'buy' | 'sell'
   walletId          String
   tokenId           String
   originalTradeId   String?
-  priceBasePerToken Decimal  @db.Decimal(36, 18)
-  amountBase        Decimal? @db.Decimal(36, 18)
-  amountToken       Decimal? @db.Decimal(36, 18)
+  priceBasePerToken Decimal   @db.Decimal(36, 18)
+  amountBase        Decimal?  @db.Decimal(36, 18)
+  amountToken       Decimal?  @db.Decimal(36, 18)
   timestamp         DateTime
-  status            String   @default("active") // 'active' | 'executed' | 'expired' | 'cancelled'
+  status            String    @default("active") // 'active' | 'executed' | 'expired' | 'cancelled'
   expiresAt         DateTime?
-  qualityScore      Decimal? @db.Decimal(36, 18)
+  qualityScore      Decimal?  @db.Decimal(36, 18)
   riskLevel         String?
-  model             String?  // 'smart-copy' | 'consensus' | 'ai' | ...
+  model             String? // 'smart-copy' | 'consensus' | 'ai' | ...
   reasoning         String?
   meta              Json?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
   token  Token       @relation(fields: [tokenId], references: [id], onDelete: Cascade)
@@ -504,10 +507,75 @@ model Signal {
 /// Cache pro aktuální cenu SOL (aktualizováno každých 10 minut z Binance API)
 model SolPriceCache {
   id        String   @id @default("current")
-  priceUsd  Float    // Aktuální cena SOL v USD
-  updatedAt DateTime @updatedAt @default(now())
+  priceUsd  Float // Aktuální cena SOL v USD
+  updatedAt DateTime @default(now()) @updatedAt
   source    String   @default("binance") // Zdroj ceny (např. "binance")
-  
+
   @@index([updatedAt])
 }
 
+/// Wallet Correlation - Tracks trading correlation between pairs of wallets
+/// Used for detecting cluster consensus signals (when correlated traders buy together)
+model WalletCorrelation {
+  id        String @id @default(cuid())
+  walletAId String
+  walletBId String
+
+  // Shared trading metrics
+  sharedTrades   Int   @default(0) // Number of same tokens traded by both
+  totalTradesA   Int   @default(0) // Total trades by wallet A
+  totalTradesB   Int   @default(0) // Total trades by wallet B
+  overlapPercent Float @default(0) // Percentage of shared trades
+
+  // Timing correlation
+  avgTimeDiffMinutes Int @default(0) // Average time difference between their trades
+
+  // Performance correlation
+  jointSuccessRate  Float @default(0) // Success rate when both trade same token
+  profitCorrelation Float @default(0) // Pearson correlation of PnL (-1 to 1)
+
+  // Overall cluster strength (0-100 score)
+  clusterStrength Int @default(0)
+
+  // Metadata
+  lastCalculated DateTime @default(now())
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  walletA SmartWallet @relation("CorrelationA", fields: [walletAId], references: [id], onDelete: Cascade)
+  walletB SmartWallet @relation("CorrelationB", fields: [walletBId], references: [id], onDelete: Cascade)
+
+  @@unique([walletAId, walletBId])
+  @@index([clusterStrength(sort: Desc)])
+  @@index([walletAId])
+  @@index([walletBId])
+  @@index([lastCalculated])
+}
+
+/// Shared Trade Index - Fast lookup for shared trades between wallet pairs
+/// This is a denormalized table for performance (avoids expensive joins)
+model SharedTradeIndex {
+  id        String @id @default(cuid())
+  walletAId String
+  walletBId String
+  tokenId   String
+
+  // Trade timestamps
+  tradeAId        String
+  tradeBId        String
+  tradeATimestamp DateTime
+  tradeBTimestamp DateTime
+  timeDiffMinutes Int // Difference in minutes (can be negative)
+
+  // Trade outcomes (for correlation calculation)
+  tradeAPnl Float? // PnL of wallet A's trade
+  tradeBPnl Float? // PnL of wallet B's trade
+
+  createdAt DateTime @default(now())
+
+  @@unique([tradeAId, tradeBId])
+  @@index([walletAId, walletBId])
+  @@index([tokenId])
+  @@index([tradeATimestamp])
+}
