@@ -148,7 +148,7 @@ export class DiscordNotificationService {
       console.log(`📨 [Discord] Embed built - title: ${embed.title}, fields: ${embed.fields?.length || 0}, traders field: ${tradersField ? tradersField.value.substring(0, 100) + '...' : 'none'}`);
       
       const payload: DiscordWebhookPayload = {
-        username: 'Tradooor Signals',
+        username: 'Spectre',
         embeds: [embed],
       };
 
@@ -189,11 +189,11 @@ export class DiscordNotificationService {
     // Determine color based on high-level signal type (bar color on the left)
     let color: number;
     if (data.signalType === 'accumulation') {
-      // Accumulation → oranžovo-žlutá čára (méně křiklavá než čistá žlutá)
-      color = 0xffc107;
+      // Accumulation → zelená čára
+      color = 0x00ff00;
     } else if (data.signalType === 'cluster-consensus') {
-      // 💎💎 CLUSTER → modrá čára (stejná jako consensus)
-      color = 0x0099ff;
+      // 💎💎 CLUSTER → fialová čára
+      color = 0x9b59b6;
     } else if (data.signalType === 'consensus' || data.signalType === 'consensus-update') {
       // Consensus → modrá čára
       color = 0x0099ff;
@@ -202,8 +202,8 @@ export class DiscordNotificationService {
       data.signalType === 'conviction-buy' ||
       data.signalType === 'large-position'
     ) {
-      // Conviction / whale → červená čára
-      color = 0xff0000;
+      // Conviction / whale → oranžová čára
+      color = 0xff9500;
     } else if (data.aiDecision) {
       // Fallback: podle AI rozhodnutí
       color = COLORS[data.aiDecision] || COLORS[data.strength] || COLORS.medium;
@@ -518,12 +518,14 @@ export class DiscordNotificationService {
       fields,
       footer: {
         text: (() => {
+          // Convert to Prague timezone (UTC+1, or UTC+2 during DST)
           const now = new Date();
-          const day = String(now.getDate()).padStart(2, '0');
-          const month = String(now.getMonth() + 1).padStart(2, '0');
-          const year = now.getFullYear();
-          const hours = String(now.getHours()).padStart(2, '0');
-          const minutes = String(now.getMinutes()).padStart(2, '0');
+          const pragueTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Prague' }));
+          const day = String(pragueTime.getDate()).padStart(2, '0');
+          const month = String(pragueTime.getMonth() + 1).padStart(2, '0');
+          const year = pragueTime.getFullYear();
+          const hours = String(pragueTime.getHours()).padStart(2, '0');
+          const minutes = String(pragueTime.getMinutes()).padStart(2, '0');
           return `⚡ Powered by STPNGPT • ${day}/${month}/${year}, ${hours}:${minutes}`;
         })(),
       },

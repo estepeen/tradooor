@@ -114,7 +114,7 @@ export class NotificationService {
             inline: true,
           },
         ],
-        footer: { text: 'Tradooor Bot' },
+        footer: { text: 'Spectre' },
         timestamp: new Date().toISOString(),
       };
 
@@ -200,7 +200,7 @@ export class NotificationService {
             inline: true,
           },
         ],
-        footer: { text: 'Tradooor Bot' },
+        footer: { text: 'Spectre' },
         timestamp: new Date().toISOString(),
       };
 
@@ -259,7 +259,7 @@ export class NotificationService {
             inline: true,
           },
         ],
-        footer: { text: 'Tradooor Bot - Daily Report' },
+        footer: { text: 'Spectre - Daily Report' },
         timestamp: new Date().toISOString(),
       };
 
