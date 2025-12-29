@@ -106,10 +106,10 @@ async function backfillLast2Minutes() {
       // If wallet has no trades in last 2 minutes, skip RPC call
       // (This is a quick DB check before expensive RPC call)
       if (recentTrades.length === 0) {
-        // Still check RPC, but with smaller limit
+        // Still check RPC, but with normal limit to catch all trades
         const signatures = await connection.getSignaturesForAddress(
           walletPubkey,
-          { limit: 10 }, // Smaller limit for inactive wallets
+          { limit: 50 }, // Normal limit even for wallets without recent trades
           'confirmed'
         );
 

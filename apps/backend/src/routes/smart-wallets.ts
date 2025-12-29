@@ -102,20 +102,19 @@ router.get('/', async (req, res) => {
     }
     
     // DŮLEŽITÉ: Použij hodnoty PnL PŘÍMO z databáze
-    // recentPnl30dUsd obsahuje PnL v SOL (vypočítané z ClosedLot v metrics-calculator.service.ts)
+    // recentPnl30dBase obsahuje PnL v base currency (SOL) (vypočítané z ClosedLot v metrics-calculator.service.ts)
     // recentPnl30dPercent obsahuje ROI v % (vypočítané z ClosedLot v metrics-calculator.service.ts)
     // Tyto hodnoty se aktualizují při každém výpočtu metrik, takže jsou vždy aktuální
     const walletsWithPnl = result.wallets.map((wallet: any) => {
-      // recentPnl30dUsd obsahuje PnL v SOL (sloupec se jmenuje Usd ale obsahuje SOL)
-      // recentPnl30dBase je mapováno z recentPnl30dUsd v repository
+      // recentPnl30dBase obsahuje PnL v SOL
       const pnl30dSol = wallet.recentPnl30dBase ?? 0;
-      const pnl30dUsd = pnl30dSol * solPriceUsd; // Přepočet SOL → USD
-      
+      const pnl30dUsd = pnl30dSol * solPriceUsd; // Přepočet SOL → USD pro zobrazení
+
       return {
         ...wallet,
-        // recentPnl30dBase je už mapováno v repository z recentPnl30dUsd
-        // recentPnl30dPercent je už v wallet z DB
-        recentPnl30dUsdValue: pnl30dUsd, // USD hodnota pro zobrazení (místo procent)
+        // recentPnl30dBase je již v base currency (SOL)
+        // recentPnl30dPercent je již v wallet z DB
+        recentPnl30dUsdValue: pnl30dUsd, // USD hodnota pro zobrazení
       };
     });
     
@@ -132,8 +131,8 @@ router.get('/', async (req, res) => {
       if (specificWallet) {
         console.log(`   🔍 [DEBUG CyaE1Vxv] Wallet found in response:`);
         console.log(`      address: ${specificWallet.address}`);
-        console.log(`      recentPnl30dBase: ${specificWallet.recentPnl30dBase}`);
-        console.log(`      recentPnl30dUsd (from DB): ${specificWallet.recentPnl30dUsd}`);
+        console.log(`      recentPnl30dBase (SOL): ${specificWallet.recentPnl30dBase}`);
+        console.log(`      recentPnl30dUsdValue: ${specificWallet.recentPnl30dUsdValue}`);
         console.log(`      recentPnl30dPercent: ${specificWallet.recentPnl30dPercent}`);
       } else {
         // Wallet not in current page - log all addresses to see what's in response
@@ -1074,10 +1073,10 @@ router.get('/:id/portfolio', async (req, res) => {
     const closedPositionsFromLots: any[] = [];
     if (closedLots && closedLots.length > 0) {
       console.log(`   📊 [Portfolio] Found ${closedLots.length} ClosedLots for wallet ${wallet.id}`);
-      // DŮLEŽITÉ: Seskupujeme ClosedLots podle tokenId (ne podle sequenceNumber nebo sellTradeId)
-      // Tím zajistíme, že všechny ClosedLots pro stejný token se sečtou do jedné closed position
-      // a PnL se počítá správně bez duplicit
-      const lotsByToken = new Map<string, any[]>();
+      // DŮLEŽITÉ: Seskupujeme ClosedLots podle sellTradeId (nebo sequenceNumber) pro každý BUY-SELL cyklus
+      // Každý SELL trade může uzavřít více BUY trades (FIFO), takže seskupujeme podle sellTradeId
+      // Pokud nemáme sellTradeId, použijeme sequenceNumber nebo fallback na tokenId
+      const lotsBySellTrade = new Map<string, any[]>(); // Key: sellTradeId nebo tokenId-sequenceNumber
       const seenLotIds = new Set<string>(); // Kontrola duplicit podle ID
       const seenLotKeys = new Set<string>(); // Kontrola duplicit podle klíče (tokenId + entryTime + exitTime + size)
       
@@ -1098,13 +1097,22 @@ router.get('/:id/portfolio', async (req, res) => {
         }
         seenLotKeys.add(lotKey);
         
-        // Seskupíme podle tokenId (všechny ClosedLots pro stejný token do jedné skupiny)
-        const tokenId = lot.tokenId;
-        
-        if (!lotsByToken.has(tokenId)) {
-          lotsByToken.set(tokenId, []);
+        // Seskupíme podle sellTradeId (jeden SELL trade může uzavřít více BUY trades)
+        // Pokud nemáme sellTradeId, použijeme sequenceNumber nebo fallback na tokenId
+        let groupKey: string;
+        if (lot.sellTradeId) {
+          groupKey = lot.sellTradeId;
+        } else if (lot.sequenceNumber !== null && lot.sequenceNumber !== undefined) {
+          groupKey = `${lot.tokenId}-seq-${lot.sequenceNumber}`;
+        } else {
+          // Fallback: seskupíme podle tokenId + exitTime (pokud nemáme sellTradeId ani sequenceNumber)
+          groupKey = `${lot.tokenId}-exit-${lot.exitTime}`;
         }
-        lotsByToken.get(tokenId)!.push(lot);
+        
+        if (!lotsBySellTrade.has(groupKey)) {
+          lotsBySellTrade.set(groupKey, []);
+        }
+        lotsBySellTrade.get(groupKey)!.push(lot);
       }
       
       // DEBUG: Log grouping for UNDERSTAND token
@@ -1129,8 +1137,9 @@ router.get('/:id/portfolio', async (req, res) => {
         console.warn(`   ⚠️  Failed to fetch SOL price, using fallback: $${solPriceUsd}`);
       }
       
-      // Pro každý token vytvoříme jednu closed position se součtem všech ClosedLots
-      for (const [tokenId, lotsForToken] of lotsByToken.entries()) {
+      // Pro každý SELL trade (nebo cyklus) vytvoříme jednu closed position
+      // Tím zajistíme, že každý BUY-SELL cyklus je samostatná pozice
+      for (const [groupKey, lotsForGroup] of lotsBySellTrade.entries()) {
         if (lotsForToken.length === 0) continue;
         
         // Seřadíme ClosedLots podle entryTime a exitTime

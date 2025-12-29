@@ -875,16 +875,16 @@ export class LotMatchingService {
         // Get current wallet to update PnL incrementally
         const wallet = await prisma.smartWallet.findUnique({
           where: { id: walletId },
-          select: { recentPnl30dUsd: true }, // Sloupec se jmenuje Usd ale obsahuje SOL hodnoty
+          select: { recentPnl30dBase: true }, // PnL in base currency (SOL)
         });
 
         if (wallet) {
-          const currentPnlSol = Number(wallet.recentPnl30dUsd || 0);
+          const currentPnlSol = Number(wallet.recentPnl30dBase || 0);
           const newPnlSol = currentPnlSol + totalNewPnlSol;
 
           await prisma.smartWallet.update({
             where: { id: walletId },
-            data: { recentPnl30dUsd: newPnlSol }, // Sloupec se jmenuje Usd ale obsahuje SOL hodnoty
+            data: { recentPnl30dBase: newPnlSol }, // PnL in base currency (SOL)
           });
 
           console.log(`   💰 Incrementally updated PnL: ${currentPnlSol.toFixed(6)} → ${newPnlSol.toFixed(6)} SOL (+${totalNewPnlSol.toFixed(6)} SOL from ${newLotsForPnlUpdate.length} new lots)`);

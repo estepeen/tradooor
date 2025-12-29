@@ -38,7 +38,7 @@ model SmartWallet {
   avgHoldingTimeMin     Float    @default(0) // Průměrná doba držení pozice v minutách
   maxDrawdownPercent    Float    @default(0) // Maximální drawdown v %
   recentPnl30dPercent   Float    @default(0) // PnL za posledních 30 dní v %
-  recentPnl30dUsd       Float    @default(0) // Cached USD PnL for last 30 days
+  recentPnl30dBase      Float    @default(0) // PnL for last 30 days in base currency (SOL/USDC/USDT)
   advancedStats         Json?    // Cached advanced stats (profit factor, streaks, etc.)
   
   createdAt             DateTime @default(now())

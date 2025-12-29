@@ -8,7 +8,7 @@ export class SmartWalletRepository {
     minScore?: number;
     tags?: string[];
     search?: string;
-    sortBy?: 'score' | 'winRate' | 'recentPnl30dUsd' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address';
+    sortBy?: 'score' | 'winRate' | 'recentPnl30dBase' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address';
     sortOrder?: 'asc' | 'desc';
   }) {
     const page = params?.page ?? 1;
@@ -40,7 +40,7 @@ export class SmartWalletRepository {
     let orderBy: Prisma.SmartWalletOrderByWithRelationInput = {};
     
     // Apply DB sorting for fields that exist in the database
-    if (sortBy === 'recentPnl30dUsd' || sortBy === 'recentPnl30dPercent') {
+    if (sortBy === 'recentPnl30dBase' || sortBy === 'recentPnl30dPercent') {
       // These fields exist in DB, so we can sort by them
       orderBy = { [sortBy]: sortOrder };
     } else if (sortBy !== 'lastTradeTimestamp') {
@@ -93,10 +93,10 @@ export class SmartWalletRepository {
       }
     }
 
-    // Map recentPnl30dUsd (DB) to recentPnl30dBase (SOL) for all wallets
+    // recentPnl30dBase is already in the database after migration
     const mappedWallets = wallets.map((wallet: any) => ({
       ...wallet,
-      recentPnl30dBase: wallet.recentPnl30dUsd ?? 0,
+      recentPnl30dBase: wallet.recentPnl30dBase ?? 0,
     }));
 
     // DEBUG: Log specific wallet if present (CyaE1VxvBrahnPWkqm5VsdCvyS2QmNht2UFrKJHga54o)
@@ -104,8 +104,7 @@ export class SmartWalletRepository {
     if (specificWallet) {
       console.log(`   🔍 [Repository DEBUG CyaE1Vxv] Wallet found in DB query (page ${page}, pageSize ${pageSize}):`);
       console.log(`      address: ${specificWallet.address}`);
-      console.log(`      recentPnl30dUsd (from DB): ${specificWallet.recentPnl30dUsd}`);
-      console.log(`      recentPnl30dBase (mapped): ${specificWallet.recentPnl30dBase}`);
+      console.log(`      recentPnl30dBase (from DB): ${specificWallet.recentPnl30dBase}`);
       console.log(`      recentPnl30dPercent: ${specificWallet.recentPnl30dPercent}`);
       console.log(`      id: ${specificWallet.id}`);
     } else {
@@ -150,16 +149,13 @@ export class SmartWalletRepository {
       return null;
     }
 
-    return {
-      ...wallet,
-      recentPnl30dBase: wallet.recentPnl30dUsd ?? 0,
-    };
+    return wallet;
   }
 
   async findByAddress(address: string) {
     try {
       console.log(`🔍 SmartWalletRepository.findByAddress - Searching: ${address}`);
-      
+
       const result = await prisma.smartWallet.findUnique({
         where: { address },
       });
@@ -170,10 +166,7 @@ export class SmartWalletRepository {
       }
 
       console.log(`✅ SmartWalletRepository.findByAddress - Found: yes`);
-      return {
-        ...result,
-        recentPnl30dBase: result.recentPnl30dUsd ?? 0,
-      };
+      return result;
     } catch (error: any) {
       console.error('❌ SmartWalletRepository.findByAddress - Error:', error?.message);
       throw error;
@@ -229,7 +222,7 @@ export class SmartWalletRepository {
     avgHoldingTimeMin: number;
     maxDrawdownPercent: number;
     recentPnl30dPercent: number;
-    recentPnl30dUsd: number;
+    recentPnl30dBase: number;
     advancedStats: Record<string, any> | null;
   }>) {
     // Validate advancedStats JSON

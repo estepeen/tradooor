@@ -620,7 +620,12 @@ export function normalizeQuickNodeSwap(
       liquidityType: isLiquidityOperation && liquidityType ? liquidityType : undefined,
     };
   } catch (err: any) {
-    console.warn('⚠️  Error normalizing QuickNode tx:', err?.message || err);
+    console.warn('⚠️  [QuickNode] Error normalizing transaction:', err?.message || err);
+    console.warn(`   Wallet: ${walletAddress.substring(0, 8)}...`);
+    console.warn(`   Signature: ${tx.transaction?.signatures?.[0]?.substring(0, 16) || 'unknown'}...`);
+    if (err?.stack) {
+      console.warn(`   Stack: ${err.stack.split('\n').slice(0, 3).join('\n')}`);
+    }
     return null;
   }
 }

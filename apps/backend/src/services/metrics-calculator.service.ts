@@ -657,7 +657,7 @@ export class MetricsCalculatorService {
         avgHoldingTimeMin: 0,
         maxDrawdownPercent: 0,
         recentPnl30dPercent: 0,
-        recentPnl30dUsd: 0, // Reset SOL PnL (nyní v SOL, ne v USD)
+        recentPnl30dBase: 0, // Reset PnL in base currency (SOL)
       });
       return;
     }
@@ -767,7 +767,7 @@ export class MetricsCalculatorService {
       avgHoldingTimeMin,
       maxDrawdownPercent,
       recentPnl30dPercent,
-      recentPnl30dUsd: recentPnl30dSol, // PnL v SOL (všechny hodnoty jsou v SOL, sloupec se jmenuje Usd ale obsahuje SOL)
+      recentPnl30dBase: recentPnl30dSol, // PnL in base currency (SOL)
       advancedStats,
     });
 
@@ -796,7 +796,7 @@ export class MetricsCalculatorService {
       avgHoldingTimeMin,
       maxDrawdownPercent,
       recentPnl30dPercent,
-      recentPnl30dUsd: recentPnl30dSol, // PnL v SOL (všechny hodnoty jsou v SOL, sloupec se jmenuje Usd ale obsahuje SOL)
+      recentPnl30dBase: recentPnl30dSol, // PnL in base currency (SOL)
       advancedStats,
     };
   }
