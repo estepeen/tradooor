@@ -207,6 +207,8 @@ export class SmartWalletRepository {
     tags: string[];
     twitterUrl: string | null;
     score: number;
+    score7d: number;
+    score30d: number;
     enhancedScore: number;
     percentileRankWinRate: number;
     percentileRankRoi: number;
@@ -221,6 +223,8 @@ export class SmartWalletRepository {
     pnlTotalBase: number;
     avgHoldingTimeMin: number;
     maxDrawdownPercent: number;
+    recentPnl7dPercent: number;
+    recentPnl7dBase: number;
     recentPnl30dPercent: number;
     recentPnl30dBase: number;
     advancedStats: Record<string, any> | null;

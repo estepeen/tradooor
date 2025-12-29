@@ -16,7 +16,12 @@
       "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: Add database schema for wallet correlation clusters\n\nAdd WalletCorrelation and SharedTradeIndex tables for detecting trading clusters.\nThis enables enhanced consensus signals when correlated traders buy together.\n\nSCHEMA CHANGES:\n- WalletCorrelation table: Tracks correlation metrics between wallet pairs\n  * sharedTrades, overlapPercent, avgTimeDiffMinutes\n  * jointSuccessRate, profitCorrelation\n  * clusterStrength \\(0-100 composite score\\)\n  \n- SharedTradeIndex table: Denormalized fast lookup for shared trades\n  * Avoids expensive joins when calculating correlations\n  * Stores trade pairs with timing and PnL data\n\n- SmartWallet model: Added correlationsAsA/B relations\n\nMIGRATION:\n- migrations/add_wallet_correlation_tables.sql\n- Creates tables with proper indexes and foreign keys\n- Ready for incremental correlation updates\n\nNEXT STEPS:\n- Implement WalletCorrelationService \\(incremental updates\\)\n- Add cluster detection to consensus signals\n- Create 💎💎 CLUSTER Signal type \\(blue Discord embed\\)\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git commit:*)",
       "Bash(pnpm --filter backend tsc:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(ssh:*)",
+      "Bash(pnpm build:*)",
+      "Bash(cat:*)",
+      "Bash(curl:*)",
+      "Bash(pnpm --filter backend build:*)"
     ]
   }
 }

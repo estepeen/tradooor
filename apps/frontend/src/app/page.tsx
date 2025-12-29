@@ -52,7 +52,7 @@ export default function Home() {
   const [minScore, setMinScore] = useState<number | undefined>();
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [availableTags, setAvailableTags] = useState<string[]>([]);
-  const [sortBy, setSortBy] = useState<'score' | 'winRate' | 'recentPnl30dBase' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address'>('recentPnl30dBase');
+  const [sortBy, setSortBy] = useState<'score' | 'score7d' | 'score30d' | 'winRate' | 'recentPnl30dBase' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address'>('recentPnl30dBase');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
@@ -307,7 +307,7 @@ export default function Home() {
                       )}
                     </div>
                   </th>
-                  <th 
+                  <th
                     className="px-4 py-3 text-right text-sm font-medium cursor-pointer hover:bg-muted/80 select-none"
                     onClick={() => {
                       if (sortBy === 'score') {
@@ -325,7 +325,43 @@ export default function Home() {
                       )}
                     </div>
                   </th>
-                  <th 
+                  <th
+                    className="px-4 py-3 text-right text-sm font-medium cursor-pointer hover:bg-muted/80 select-none"
+                    onClick={() => {
+                      if (sortBy === 'score7d') {
+                        setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortBy('score7d');
+                        setSortOrder('desc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-end gap-2">
+                      Score 7d
+                      {sortBy === 'score7d' && (
+                        <span className="text-xs">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th
+                    className="px-4 py-3 text-right text-sm font-medium cursor-pointer hover:bg-muted/80 select-none"
+                    onClick={() => {
+                      if (sortBy === 'score30d') {
+                        setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+                      } else {
+                        setSortBy('score30d');
+                        setSortOrder('desc');
+                      }
+                    }}
+                  >
+                    <div className="flex items-center justify-end gap-2">
+                      Score 30d
+                      {sortBy === 'score30d' && (
+                        <span className="text-xs">{sortOrder === 'asc' ? '↑' : '↓'}</span>
+                      )}
+                    </div>
+                  </th>
+                  <th
                     className="px-4 py-3 text-right text-sm font-medium cursor-pointer hover:bg-muted/80 select-none"
                     onClick={() => {
                       if (sortBy === 'totalTrades') {
@@ -544,6 +580,12 @@ export default function Home() {
                             </div>
                           )}
                         </div>
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-medium">
+                        <span title="Score based on last 7 days performance (70% weight in hybrid score)">{formatNumber(wallet.score7d || 0, 1)}</span>
+                      </td>
+                      <td className="px-4 py-3 text-right text-sm font-medium">
+                        <span title="Score based on last 30 days performance (30% weight in hybrid score)">{formatNumber(wallet.score30d || 0, 1)}</span>
                       </td>
                       <td className="px-4 py-3 text-right text-sm">
                         {wallet.totalTrades}

@@ -369,6 +369,10 @@ export default function WalletDetailPage() {
           <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
             <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Score</div>
             <div style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }} className="text-white">{formatNumber(wallet.score, 1)}</div>
+            <div style={{ fontSize: '0.75rem', color: '#999', marginTop: '0.5rem' }} className="flex gap-3">
+              <span title="Score based on last 7 days performance">7d: {formatNumber(wallet.score7d || 0, 1)}</span>
+              <span title="Score based on last 30 days performance">30d: {formatNumber(wallet.score30d || 0, 1)}</span>
+            </div>
           </div>
           <div style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
             <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">Total Trades</div>

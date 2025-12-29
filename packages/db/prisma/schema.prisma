@@ -23,6 +23,8 @@ model SmartWallet {
 
   // Metriky (průběžně přepočítávané)
   score                       Float   @default(0) // Celkové skóre kvality tradera (0-100)
+  score7d                     Float   @default(0) // Skóre založené na posledních 7 dnech (0-100)
+  score30d                    Float   @default(0) // Skóre založené na posledních 30 dnech (0-100)
   enhancedScore               Float   @default(0) // Enhanced skóre podle pokročilého modelu (0-100)
   percentileRankWinRate       Float   @default(0) // Percentil win rate (0-1)
   percentileRankRoi           Float   @default(0) // Percentil ROI (0-1)
@@ -37,6 +39,8 @@ model SmartWallet {
   pnlTotalBase                Float   @default(0) // Celkový PnL v base měně (SOL/USDC/USDT)
   avgHoldingTimeMin           Float   @default(0) // Průměrná doba držení pozice v minutách
   maxDrawdownPercent          Float   @default(0) // Maximální drawdown v %
+  recentPnl7dPercent          Float   @default(0) // PnL za posledních 7 dní v %
+  recentPnl7dBase             Float   @default(0) // PnL for last 7 days in base currency (SOL/USDC/USDT)
   recentPnl30dPercent         Float   @default(0) // PnL za posledních 30 dní v %
   recentPnl30dBase            Float   @default(0) // PnL for last 30 days in base currency (SOL/USDC/USDT)
   advancedStats               Json? // Cached advanced stats (profit factor, streaks, etc.)

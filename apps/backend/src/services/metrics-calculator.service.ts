@@ -676,37 +676,70 @@ export class MetricsCalculatorService {
 
     const legacyAdvancedStats = await this.calculateAdvancedStats(walletId);
     const rollingInsights = await this.computeRollingStatsAndScores(walletId);
-    
+
     // OPTIMALIZACE: PnL se počítá POUZE ze sloupce realizedPnl v ClosedLot
-    // NEPŘEPOČÍTÁVÁME vše znovu - jen sčítáme realizedPnl z ClosedLot za posledních 30 dní
+    // NEPŘEPOČÍTÁVÁME vše znovu - jen sčítáme realizedPnl z ClosedLot za posledních 7/30 dní
     // Toto zajišťuje konzistenci a optimalizaci - PnL se aktualizuje inkrementálně při nových closed trades
     // DŮLEŽITÉ: PnL je nyní v SOL (všechny hodnoty jsou v SOL)
+    const rolling7d = rollingInsights.rolling['7d'];
     const rolling30d = rollingInsights.rolling['30d'];
+
+    const recentPnl7dSol = rolling7d?.realizedPnl ?? 0; // PnL v SOL - součet realizedPnl z ClosedLot za 7d
+    const recentPnl7dPercent = rolling7d?.realizedRoiPercent ?? 0;
     const recentPnl30dSol = rolling30d?.realizedPnl ?? 0; // PnL v SOL - součet realizedPnl z ClosedLot za 30d
     const recentPnl30dPercent = rolling30d?.realizedRoiPercent ?? 0;
-    
+
+    // Get average trade size from rolling stats (convert from USD to SOL approximation)
+    const avgTradeSizeUsd = rolling30d?.avgTradeSizeUsd ?? 0;
+    let avgTradeSizeSol = 0;
+    try {
+      const solPriceUsd = await this.binancePriceService.getCurrentSolPrice();
+      avgTradeSizeSol = avgTradeSizeUsd / solPriceUsd;
+    } catch (error) {
+      avgTradeSizeSol = avgTradeSizeUsd / 150; // Fallback to $150/SOL
+    }
+
     // DEBUG: Log PnL values before saving to database
     const wallet = await this.smartWalletRepo.findById(walletId);
     if (wallet) {
-      console.log(`   💰 [Metrics] Wallet ${wallet.address.substring(0, 8)}...: recentPnl30dSol=${recentPnl30dSol.toFixed(4)} SOL, recentPnl30dPercent=${recentPnl30dPercent.toFixed(2)}%`);
-      console.log(`   💰 [Metrics] Wallet ${wallet.address.substring(0, 8)}...: rolling30d.numClosedTrades=${rolling30d?.numClosedTrades ?? 0}, rolling30d.realizedPnl=${rolling30d?.realizedPnl?.toFixed(4) ?? 'N/A'}`);
-      console.log(`   🔍 [Metrics] Wallet ${wallet.address.substring(0, 8)}...: rollingInsights.rolling['30d']=${JSON.stringify(rollingInsights.rolling['30d'])}`);
+      console.log(`   💰 [Metrics] Wallet ${wallet.address.substring(0, 8)}...: recentPnl7dSol=${recentPnl7dSol.toFixed(4)} SOL (${recentPnl7dPercent.toFixed(2)}%), recentPnl30dSol=${recentPnl30dSol.toFixed(4)} SOL (${recentPnl30dPercent.toFixed(2)}%)`);
+      console.log(`   💰 [Metrics] Wallet ${wallet.address.substring(0, 8)}...: rolling7d.numClosedTrades=${rolling7d?.numClosedTrades ?? 0}, rolling30d.numClosedTrades=${rolling30d?.numClosedTrades ?? 0}`);
+      console.log(`   💰 [Metrics] Wallet ${wallet.address.substring(0, 8)}...: avgTradeSizeSol=${avgTradeSizeSol.toFixed(4)} SOL`);
     }
 
-    const legacyScore = this.calculateScore({
+    // Calculate score7d (optimized for recent memecoin performance)
+    const score7d = this.calculateScore({
       totalTrades,
       winRate,
       avgPnlPercent,
-      recentPnl30dPercent,
+      recentPnl7dPercent, // Use 7d performance
       avgRr,
+      avgTradeSize: avgTradeSizeSol,
     });
+
+    // Calculate score30d (longer term view)
+    const score30d = this.calculateScore({
+      totalTrades,
+      winRate,
+      avgPnlPercent,
+      recentPnl30dPercent, // Use 30d performance
+      avgRr,
+      avgTradeSize: avgTradeSizeSol,
+    });
+
+    // Calculate hybrid score (70% 7d, 30% 30d)
+    const score = score7d * 0.7 + score30d * 0.3;
+
+    // Legacy score for backward compatibility (kept in scoreBreakdown)
+    const legacyScore = score;
+
     const shouldFallbackToLegacy =
       rollingInsights.scores.sampleFactor === 0 &&
       rollingInsights.rolling['90d']?.numClosedTrades === 0;
-    const score = shouldFallbackToLegacy
-      ? legacyScore
-      : rollingInsights.scores.smartScore ?? legacyScore;
-    const enhancedScore = rollingInsights.scores.enhancedScore ?? score;
+    const finalScore = shouldFallbackToLegacy
+      ? score // Use new hybrid score even for fallback
+      : rollingInsights.scores.smartScore ?? score;
+    const enhancedScore = rollingInsights.scores.enhancedScore ?? finalScore;
 
     // Extract component scores (safe fallbacks)
     const enhancedBreakdown = rollingInsights.scores.enhancedBreakdown as
@@ -754,7 +787,9 @@ export class MetricsCalculatorService {
 
     // Update wallet metrics
     await this.smartWalletRepo.update(walletId, {
-      score,
+      score: finalScore, // Hybrid score (70% 7d, 30% 30d)
+      score7d, // NEW - 7d score
+      score30d, // NEW - 30d score
       enhancedScore,
       positionDisciplineScore,
       timingIntelligenceScore,
@@ -766,6 +801,8 @@ export class MetricsCalculatorService {
       pnlTotalBase,
       avgHoldingTimeMin,
       maxDrawdownPercent,
+      recentPnl7dPercent, // NEW - 7d PnL %
+      recentPnl7dBase: recentPnl7dSol, // NEW - 7d PnL in SOL
       recentPnl30dPercent,
       recentPnl30dBase: recentPnl30dSol, // PnL in base currency (SOL)
       advancedStats,
@@ -787,7 +824,9 @@ export class MetricsCalculatorService {
     });
 
     return {
-      score,
+      score: finalScore,
+      score7d,
+      score30d,
       totalTrades,
       winRate,
       avgRr,
@@ -795,8 +834,10 @@ export class MetricsCalculatorService {
       pnlTotalBase,
       avgHoldingTimeMin,
       maxDrawdownPercent,
+      recentPnl7dPercent,
+      recentPnl7dBase: recentPnl7dSol, // NEW - PnL in base currency (SOL) for 7d
       recentPnl30dPercent,
-      recentPnl30dBase: recentPnl30dSol, // PnL in base currency (SOL)
+      recentPnl30dBase: recentPnl30dSol, // PnL in base currency (SOL) for 30d
       advancedStats,
     };
   }
@@ -1042,26 +1083,90 @@ export class MetricsCalculatorService {
     return obj;
   }
 
+  /**
+   * NEW SCORING FORMULA (Optimized for memecoin trading)
+   *
+   * Key improvements:
+   * - 7d/30d hybrid tracking (70%/30% weight) for memecoin volatility
+   * - Sample confidence penalty for low trade counts
+   * - Position size factor (bonus/penalty based on avg trade size)
+   * - Win rate prioritization (30 points, optimized for 30-50% profit target)
+   *
+   * Formula breakdown:
+   * 1. Win Rate (0-30 points) - with sample confidence penalty
+   * 2. Recent Performance (0-25 points) - 70% weight on 7d, 30% on 30d
+   * 3. Avg PnL per Trade (0-20 points) - optimized for 30-50% profit
+   * 4. Risk-Reward (0-15 points)
+   * 5. Volume/Experience (0-10 points) - logarithmic scale
+   * 6. Position Size Factor (±5 points) - bonus for larger positions
+   *
+   * Total: 100 points max
+   */
   private calculateScore(params: {
     totalTrades: number;
     winRate: number;
     avgPnlPercent: number;
-    recentPnl30dPercent: number;
+    recentPnl7dPercent?: number;  // Optional - for 7d score
+    recentPnl30dPercent?: number; // Optional - for 30d score
     avgRr: number;
+    avgTradeSize?: number; // In SOL
   }): number {
-    // Simple scoring formula (0-100)
-    // Can be improved with more sophisticated logic
-    
-    const { totalTrades, winRate, avgPnlPercent, recentPnl30dPercent, avgRr } = params;
+    const {
+      totalTrades,
+      winRate,
+      avgPnlPercent,
+      recentPnl7dPercent,
+      recentPnl30dPercent,
+      avgRr,
+      avgTradeSize
+    } = params;
 
-    // Normalize values
-    const winRateScore = winRate * 30; // Max 30 points
-    const avgPnlScore = Math.min(Math.max(avgPnlPercent / 2, 0), 30); // Max 30 points (2% avg = 30 points)
-    const recentPnlScore = Math.min(Math.max(recentPnl30dPercent / 2, 0), 30); // Max 30 points
-    const volumeScore = Math.min(totalTrades / 10, 10); // Max 10 points (100 trades = 10 points)
+    // 1. Win Rate Score (0-30 points) - INCREASED from 25
+    // But with PENALTY for small sample size
+    const baseTrades = Math.min(totalTrades, 100);
+    const sampleConfidence = Math.min(baseTrades / 20, 1); // 20 trades = 100% confidence
+    const winRateScore = (winRate * 30) * (0.3 + 0.7 * sampleConfidence);
 
-    const score = winRateScore + avgPnlScore + recentPnlScore + volumeScore;
-    return Math.min(Math.max(score, 0), 100); // Clamp to 0-100
+    // 2. Recent Performance (0-25 points)
+    // 70% weight on 7d, 30% weight on 30d (if both available)
+    // Otherwise use whichever is available
+    let recentScore = 0;
+    if (recentPnl7dPercent !== undefined && recentPnl30dPercent !== undefined) {
+      // Hybrid scoring: 7d gets 70% weight, 30d gets 30% weight
+      const recent7dScore = Math.min(Math.max((recentPnl7dPercent / 30) * 25, 0), 25);
+      const recent30dScore = Math.min(Math.max((recentPnl30dPercent / 50) * 25, 0), 25);
+      recentScore = recent7dScore * 0.7 + recent30dScore * 0.3;
+    } else if (recentPnl7dPercent !== undefined) {
+      // Only 7d available
+      recentScore = Math.min(Math.max((recentPnl7dPercent / 30) * 25, 0), 25);
+    } else if (recentPnl30dPercent !== undefined) {
+      // Only 30d available (legacy fallback)
+      recentScore = Math.min(Math.max((recentPnl30dPercent / 50) * 25, 0), 25);
+    }
+
+    // 3. Avg PnL per Trade (0-20 points) - DECREASED from 30
+    // Targeting 30-50% profit → optimized
+    const avgPnlScore = Math.min(Math.max((avgPnlPercent / 40) * 20, 0), 20);
+
+    // 4. Risk-Reward (0-15 points)
+    const rrScore = Math.min(Math.max(avgRr * 7.5, 0), 15);
+
+    // 5. Volume/Experience (0-10 points)
+    // Logarithmic scale - diminishing returns for high trade counts
+    const volumeScore = Math.min(Math.log10(totalTrades + 1) * 3.3, 10);
+
+    // 6. Position Size Factor (bonus up to +5, penalty down to -5)
+    let sizeFactor = 0;
+    if (avgTradeSize !== undefined) {
+      if (avgTradeSize > 2.0) { // > 2 SOL average
+        sizeFactor = Math.min((avgTradeSize - 2) * 2, 5);
+      } else if (avgTradeSize < 0.5) { // < 0.5 SOL average
+        sizeFactor = Math.max((avgTradeSize - 0.5) * 10, -5);
+      }
+    }
+
+    const rawScore = winRateScore + recentScore + avgPnlScore + rrScore + volumeScore + sizeFactor;
+    return Math.min(Math.max(rawScore, 0), 100); // Clamp to 0-100
   }
 
   private async computeRollingStatsAndScores(walletId: string) {
