@@ -59,6 +59,7 @@ model SmartWallet {
   signals          Signal[]
   correlationsAsA  WalletCorrelation[]         @relation("CorrelationA")
   correlationsAsB  WalletCorrelation[]         @relation("CorrelationB")
+  positionActivities PositionWalletActivity[]
 
   @@index([address])
   @@index([score])
@@ -75,15 +76,18 @@ model Token {
   firstSeenAt DateTime @default(now()) // Kdy byl token poprvé viděn v systému
   updatedAt   DateTime @updatedAt
 
-  trades           Trade[]
-  tradeFeatures    TradeFeature[]
-  marketSnapshots  TokenMarketSnapshot[]
-  tradeSequences   TradeSequence[]
-  tradeOutcomes    TradeOutcome[]
-  normalizedTrades NormalizedTrade[]
-  consensusSignals ConsensusSignal[]
-  closedLots       ClosedLot[]
-  signals          Signal[]
+  trades             Trade[]
+  tradeFeatures      TradeFeature[]
+  marketSnapshots    TokenMarketSnapshot[]
+  tradeSequences     TradeSequence[]
+  tradeOutcomes      TradeOutcome[]
+  normalizedTrades   NormalizedTrade[]
+  consensusSignals   ConsensusSignal[]
+  closedLots         ClosedLot[]
+  signals            Signal[]
+  signalPerformances SignalPerformance[]
+  virtualPositions   VirtualPosition[]
+  exitSignals        ExitSignal[]
 
   @@index([mintAddress])
   @@index([symbol])
@@ -502,6 +506,10 @@ model Signal {
   wallet SmartWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
   token  Token       @relation(fields: [tokenId], references: [id], onDelete: Cascade)
 
+  // Signal performance tracking
+  performance       SignalPerformance?
+  virtualPositions  VirtualPosition[]
+
   @@index([walletId])
   @@index([tokenId])
   @@index([timestamp])
@@ -582,4 +590,229 @@ model SharedTradeIndex {
   @@index([walletAId, walletBId])
   @@index([tokenId])
   @@index([tradeATimestamp])
+}
+
+// ============================================================================
+// SIGNAL PERFORMANCE TRACKING SYSTEM
+// ============================================================================
+
+/// Tracks performance of each signal over time - price milestones, max/min, exit analysis
+model SignalPerformance {
+  id                String   @id @default(cuid())
+  signalId          String   @unique
+  tokenId           String
+
+  // Entry data
+  entryPriceUsd     Decimal  @db.Decimal(36, 18)
+  entryMarketCapUsd Decimal? @db.Decimal(36, 18)
+  entryLiquidityUsd Decimal? @db.Decimal(36, 18)
+  entryTimestamp    DateTime
+
+  // Price tracking
+  currentPriceUsd   Decimal? @db.Decimal(36, 18)
+  highestPriceUsd   Decimal? @db.Decimal(36, 18)
+  lowestPriceUsd    Decimal? @db.Decimal(36, 18)
+  highestPriceTime  DateTime?
+  lowestPriceTime   DateTime?
+
+  // PnL tracking
+  currentPnlPercent Decimal? @db.Decimal(36, 18)
+  maxPnlPercent     Decimal? @db.Decimal(36, 18)
+  minPnlPercent     Decimal? @db.Decimal(36, 18)
+  drawdownFromPeak  Decimal? @db.Decimal(36, 18) // % down from ATH
+
+  // Milestone snapshots (JSON - prices at key intervals)
+  // { "5m": 0.001, "15m": 0.0012, "1h": 0.002, ... }
+  priceSnapshots    Json?
+  pnlSnapshots      Json?    // { "5m": 10.5, "15m": 25.2, "1h": 100.5, ... }
+
+  // Timing analysis
+  timeToPeakMinutes   Int?   // How long until max price
+  timeToTroughMinutes Int?   // How long until min price
+
+  // Outcome
+  status             String  @default("active") // active, closed, expired
+  exitReason         String? // sl_hit, tp_hit, trailing_stop, ai_exit, time_based, wallet_exit
+  exitPriceUsd       Decimal? @db.Decimal(36, 18)
+  exitTimestamp      DateTime?
+  realizedPnlPercent Decimal? @db.Decimal(36, 18)
+
+  // Optimal exit analysis (calculated post-close)
+  optimalExitPrice   Decimal? @db.Decimal(36, 18)
+  optimalExitTime    DateTime?
+  missedPnlPercent   Decimal? @db.Decimal(36, 18) // max - actual
+
+  lastUpdated DateTime @default(now()) @updatedAt
+  createdAt   DateTime @default(now())
+
+  signal Signal @relation(fields: [signalId], references: [id], onDelete: Cascade)
+  token  Token  @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+
+  @@index([signalId])
+  @@index([tokenId])
+  @@index([status])
+  @@index([entryTimestamp])
+}
+
+/// Virtual positions created from consensus signals - tracks active holdings
+model VirtualPosition {
+  id                  String   @id @default(cuid())
+  tokenId             String
+  signalId            String?
+  consensusSignalId   String?
+
+  // Entry data
+  entryPriceUsd       Decimal  @db.Decimal(36, 18)
+  entryTimestamp      DateTime
+  entryWalletCount    Int      @default(1)
+  entryMarketCapUsd   Decimal? @db.Decimal(36, 18)
+  entryLiquidityUsd   Decimal? @db.Decimal(36, 18)
+
+  // Position tracking
+  positionSizeUsd     Decimal? @db.Decimal(36, 18)
+  currentPriceUsd     Decimal? @db.Decimal(36, 18)
+  lastPriceUpdate     DateTime?
+
+  // PnL tracking
+  unrealizedPnlPercent Decimal? @db.Decimal(36, 18)
+  unrealizedPnlUsd     Decimal? @db.Decimal(36, 18)
+
+  // Price extremes
+  highestPriceUsd     Decimal? @db.Decimal(36, 18)
+  lowestPriceUsd      Decimal? @db.Decimal(36, 18)
+  drawdownFromPeak    Decimal? @db.Decimal(36, 18)
+
+  // Wallet tracking
+  walletIds           String[] // Array of wallet IDs holding this position
+  activeWalletCount   Int      @default(0)
+  exitedWalletCount   Int      @default(0)
+
+  // Exit strategy
+  suggestedStopLoss   Decimal? @db.Decimal(36, 18)
+  suggestedTakeProfit Decimal? @db.Decimal(36, 18)
+  trailingStopPercent Decimal? @db.Decimal(36, 18)
+  trailingStopPrice   Decimal? @db.Decimal(36, 18) // Dynamic trailing stop price
+
+  // AI exit tracking
+  lastAiDecision      String?
+  lastAiConfidence    Int?
+  lastAiReasoning     String?
+  lastAiEvaluation    DateTime?
+
+  // Status
+  status              String   @default("open") // open, partial_exit, closed, stopped
+  exitReason          String?
+  exitPriceUsd        Decimal? @db.Decimal(36, 18)
+  exitTimestamp       DateTime?
+  realizedPnlPercent  Decimal? @db.Decimal(36, 18)
+  realizedPnlUsd      Decimal? @db.Decimal(36, 18)
+
+  // Notifications
+  lastNotificationSent DateTime?
+  notificationCount    Int     @default(0)
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  token               Token    @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+  signal              Signal?  @relation(fields: [signalId], references: [id], onDelete: SetNull)
+  exitSignals         ExitSignal[]
+  walletActivities    PositionWalletActivity[]
+
+  @@index([tokenId])
+  @@index([signalId])
+  @@index([status])
+  @@index([entryTimestamp])
+}
+
+/// Exit signals generated for virtual positions
+model ExitSignal {
+  id                String   @id @default(cuid())
+  positionId        String
+  tokenId           String
+
+  // Signal type
+  type              String   // wallet_exit, stop_loss, take_profit, trailing_stop, ai_recommendation, time_based, momentum_loss, volume_drop
+  strength          String   // weak, medium, strong
+  recommendation    String   // hold, partial_exit_25, partial_exit_50, partial_exit_75, full_exit
+
+  // Context at signal time
+  priceAtSignal     Decimal? @db.Decimal(36, 18)
+  pnlPercentAtSignal Decimal? @db.Decimal(36, 18)
+  drawdownAtSignal  Decimal? @db.Decimal(36, 18)
+
+  // Wallet exit context
+  walletsExitedCount Int?
+  walletsHoldingCount Int?
+  triggerWalletId    String?
+  triggerTradeId     String?
+  triggerReason      String?
+
+  // AI context
+  aiDecision         String?
+  aiConfidence       Int?
+  aiReasoning        String?
+
+  // Market context
+  marketCapAtSignal  Decimal? @db.Decimal(36, 18)
+  liquidityAtSignal  Decimal? @db.Decimal(36, 18)
+  volume1hAtSignal   Decimal? @db.Decimal(36, 18)
+
+  // Notification
+  notificationSent   Boolean  @default(false)
+  notificationSentAt DateTime?
+  discordMessageId   String?
+
+  // Outcome (filled when position closes)
+  wasActedOn         Boolean? // Did user act on this signal?
+  pnlIfActed         Decimal? @db.Decimal(36, 18) // Hypothetical PnL if acted
+  pnlActual          Decimal? @db.Decimal(36, 18) // Actual PnL at position close
+
+  createdAt          DateTime @default(now())
+
+  position           VirtualPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  token              Token    @relation(fields: [tokenId], references: [id], onDelete: Cascade)
+
+  @@index([positionId])
+  @@index([tokenId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+/// Tracks individual wallet activity within a virtual position
+model PositionWalletActivity {
+  id             String   @id @default(cuid())
+  positionId     String
+  walletId       String
+
+  // Entry data
+  entryTradeId   String?
+  entryPriceUsd  Decimal? @db.Decimal(36, 18)
+  entryAmountUsd Decimal? @db.Decimal(36, 18)
+  entryTimestamp DateTime?
+
+  // Exit data
+  exitTradeId    String?
+  exitPriceUsd   Decimal? @db.Decimal(36, 18)
+  exitAmountUsd  Decimal? @db.Decimal(36, 18)
+  exitTimestamp  DateTime?
+
+  // Status
+  status         String   @default("holding") // holding, partial_exit, full_exit
+  holdingPercent Decimal  @default(100) @db.Decimal(36, 18)
+
+  // PnL
+  realizedPnlPercent Decimal? @db.Decimal(36, 18)
+  realizedPnlUsd     Decimal? @db.Decimal(36, 18)
+
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  position       VirtualPosition @relation(fields: [positionId], references: [id], onDelete: Cascade)
+  wallet         SmartWallet     @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@unique([positionId, walletId])
+  @@index([positionId])
+  @@index([walletId])
+  @@index([status])
 }

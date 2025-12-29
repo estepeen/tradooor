@@ -19,6 +19,7 @@ import { TokenMarketDataService } from './token-market-data.service.js';
 import { DiscordNotificationService, SignalNotificationData } from './discord-notification.service.js';
 import { RugCheckService } from './rugcheck.service.js';
 import { PositionMonitorService } from './position-monitor.service.js';
+import { SignalPerformanceService } from './signal-performance.service.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 import { WalletCorrelationService } from './wallet-correlation.service.js';
 
@@ -40,6 +41,7 @@ export class ConsensusWebhookService {
   private discordNotification: DiscordNotificationService;
   private rugCheck: RugCheckService;
   private positionMonitor: PositionMonitorService;
+  private signalPerformance: SignalPerformanceService;
   private tradeFeatureRepo: TradeFeatureRepository;
   private walletCorrelation: WalletCorrelationService;
 
@@ -56,6 +58,7 @@ export class ConsensusWebhookService {
     this.discordNotification = new DiscordNotificationService();
     this.rugCheck = new RugCheckService();
     this.positionMonitor = new PositionMonitorService();
+    this.signalPerformance = new SignalPerformanceService();
     this.tradeFeatureRepo = new TradeFeatureRepository();
     this.walletCorrelation = new WalletCorrelationService();
   }
@@ -199,8 +202,19 @@ export class ConsensusWebhookService {
             console.warn(`   ⚠️  Failed to create consensus signal`);
             return { consensusFound: true };
           }
-          
+
           console.log(`   📊 Consensus signal created: ${signal.id.substring(0, 16)}... (${uniqueWallets.size} wallets)`);
+
+          // Vytvoř signal performance tracking record
+          try {
+            await this.signalPerformance.createPerformanceRecord(
+              signal.id,
+              tokenId,
+              tradeToUsePrice
+            );
+          } catch (perfError: any) {
+            console.warn(`   ⚠️  Signal performance record creation failed: ${perfError.message}`);
+          }
         }
 
         // 5b. AI Evaluace signálu
@@ -481,11 +495,12 @@ export class ConsensusWebhookService {
           try {
             const walletIdsList = Array.from(uniqueWallets);
             await this.positionMonitor.createPositionFromConsensus(
-              signal.id,
+              signal.id, // consensusSignalId
               tokenId,
+              signal.id, // signalId (same as consensus signal in this case)
               entryPrice,
               walletIdsList as string[],
-              { marketCap: marketDataResult?.marketCap, liquidity: marketDataResult?.liquidity }
+              { marketCapUsd: marketDataResult?.marketCap, liquidityUsd: marketDataResult?.liquidity }
             );
           } catch (posError: any) {
             console.warn(`   ⚠️  Position creation failed: ${posError.message}`);
@@ -540,20 +555,47 @@ export class ConsensusWebhookService {
   }
 
   /**
-   * Zpracuje SELL trade z webhooku - uzavře odpovídající paper trade
+   * Zpracuje SELL trade z webhooku - uzavře odpovídající paper trade a detekuje wallet exit
    */
-  async processSellTrade(sellTradeId: string): Promise<{ closed: boolean }> {
+  async processSellTrade(sellTradeId: string): Promise<{ closed: boolean; exitSignal?: any }> {
     try {
+      // 1. Načti trade pro wallet exit detection
+      const trade = await this.tradeRepo.findById(sellTradeId);
+
+      // 2. Detekuj wallet exit pro virtual positions
+      let exitSignal: any = undefined;
+      if (trade) {
+        try {
+          const exitPriceUsd = Number(trade.valueUsd || 0) / Number(trade.amountToken || 1);
+          const exitAmountUsd = Number(trade.valueUsd || 0);
+
+          exitSignal = await this.positionMonitor.recordWalletExit(
+            sellTradeId,
+            trade.walletId,
+            trade.tokenId,
+            exitPriceUsd,
+            exitAmountUsd
+          );
+
+          if (exitSignal) {
+            console.log(`   🚨 Exit signal generated: ${exitSignal.type} - ${exitSignal.recommendation}`);
+          }
+        } catch (exitError: any) {
+          console.warn(`   ⚠️  Wallet exit detection failed: ${exitError.message}`);
+        }
+      }
+
+      // 3. Zavři paper trade
       const config: PaperTradingConfig = {
         enabled: true,
         copyAllTrades: false,
       };
 
       const closed = await this.paperTradeService.closePaperTrade(sellTradeId, config);
-      
+
       if (closed) {
         console.log(`   ✅ Paper trade closed for SELL: ${sellTradeId.substring(0, 16)}...`);
-        
+
         // Vytvoř SELL signál
         try {
           await this.signalService.generateSellSignal(sellTradeId, {});
@@ -562,7 +604,7 @@ export class ConsensusWebhookService {
         }
       }
 
-      return { closed: !!closed };
+      return { closed: !!closed, exitSignal };
     } catch (error: any) {
       console.error(`❌ Error processing SELL trade:`, error.message);
       return { closed: false };

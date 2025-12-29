@@ -7,6 +7,7 @@ import { ConsensusSignalRepository } from '../repositories/consensus-signal.repo
 import { TokenMarketDataService } from '../services/token-market-data.service.js';
 import { DiscordNotificationService } from '../services/discord-notification.service.js';
 import { RugCheckService } from '../services/rugcheck.service.js';
+import { SignalPerformanceService } from '../services/signal-performance.service.js';
 import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
@@ -18,6 +19,7 @@ const consensusSignalRepo = new ConsensusSignalRepository();
 const tokenMarketData = new TokenMarketDataService();
 const discordNotification = new DiscordNotificationService();
 const rugCheck = new RugCheckService();
+const signalPerformance = new SignalPerformanceService();
 
 /**
  * GET /api/signals/unified
@@ -849,6 +851,115 @@ router.post('/discord/test', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to send Discord test notification',
+    });
+  }
+});
+
+// ============================================
+// Signal Performance Endpoints
+// ============================================
+
+/**
+ * GET /api/signals/performance/active
+ * Získá aktivní signály s jejich performance daty
+ */
+router.get('/performance/active', async (req, res) => {
+  try {
+    const { limit = 50 } = req.query;
+
+    const signalsWithPerformance = await signalPerformance.getSignalsWithPerformance({
+      status: 'active',
+      limit: Number(limit),
+    });
+
+    res.json({
+      success: true,
+      signals: signalsWithPerformance,
+      count: signalsWithPerformance.length,
+    });
+  } catch (error: any) {
+    console.error('❌ Error fetching active signal performances:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch signal performances',
+    });
+  }
+});
+
+/**
+ * GET /api/signals/performance/analytics
+ * Získá agregované analytics pro signály
+ */
+router.get('/performance/analytics', async (req, res) => {
+  try {
+    const { days = 7, tokenId } = req.query;
+
+    const analytics = await signalPerformance.getAnalytics({
+      days: Number(days),
+      tokenId: tokenId as string | undefined,
+    });
+
+    res.json({
+      success: true,
+      analytics,
+    });
+  } catch (error: any) {
+    console.error('❌ Error fetching signal analytics:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch signal analytics',
+    });
+  }
+});
+
+/**
+ * GET /api/signals/:id/performance
+ * Získá performance data pro konkrétní signál
+ */
+router.get('/:id/performance', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const performance = await signalPerformance.getPerformance(id);
+
+    if (!performance) {
+      return res.status(404).json({
+        success: false,
+        error: 'Signal performance record not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      performance,
+    });
+  } catch (error: any) {
+    console.error('❌ Error fetching signal performance:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch signal performance',
+    });
+  }
+});
+
+/**
+ * POST /api/signals/performance/update
+ * Ručně spustit update všech aktivních signal performances
+ */
+router.post('/performance/update', async (req, res) => {
+  try {
+    const stats = await signalPerformance.updateAllActivePerformances();
+
+    res.json({
+      success: true,
+      message: 'Signal performance update triggered',
+      stats,
+    });
+  } catch (error: any) {
+    console.error('❌ Error updating signal performances:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to update signal performances',
     });
   }
 });

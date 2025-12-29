@@ -1,18 +1,23 @@
 /**
  * Positions API Routes
- * 
+ *
  * Endpointy pro správu virtuálních pozic a exit signálů
  */
 
 import express from 'express';
-import { supabase, TABLES } from '../lib/supabase.js';
 import { prisma } from '../lib/prisma.js';
 import { PositionMonitorService } from '../services/position-monitor.service.js';
 import { TokenMarketDataService } from '../services/token-market-data.service.js';
+import { SignalPerformanceService } from '../services/signal-performance.service.js';
+import { VirtualPositionRepository } from '../repositories/virtual-position.repository.js';
+import { ExitSignalRepository } from '../repositories/exit-signal.repository.js';
 
 const router = express.Router();
 const positionMonitor = new PositionMonitorService();
 const tokenMarketData = new TokenMarketDataService();
+const signalPerformance = new SignalPerformanceService();
+const positionRepo = new VirtualPositionRepository();
+const exitSignalRepo = new ExitSignalRepository();
 
 /**
  * GET /api/positions
@@ -21,49 +26,32 @@ const tokenMarketData = new TokenMarketDataService();
 router.get('/', async (req, res) => {
   try {
     const { status = 'open', limit = 50 } = req.query;
-    
-    // Check if Supabase is available
-    if (!supabase || typeof supabase.from !== 'function') {
-      // Return empty result if Supabase is not available
-      return res.json({
-        success: true,
-        positions: [],
-        count: 0,
-      });
-    }
-    
-    let query = supabase
-      .from('VirtualPosition')
-      .select(`
-        *,
-        token:tokenId(symbol, mintAddress)
-      `)
-      .order('entryTime', { ascending: false })
-      .limit(Number(limit));
 
-    if (status !== 'all') {
-      query = query.eq('status', status);
-    }
+    const positions = await positionRepo.findOpen({
+      status: status !== 'all' ? (status as 'open' | 'closed' | 'partial_exit') : undefined,
+      limit: Number(limit),
+    });
 
-    const { data: positions, error } = await query;
+    // Get token info
+    const tokenIds = [...new Set(positions.map(p => p.tokenId))];
+    const tokens = await prisma.token.findMany({
+      where: { id: { in: tokenIds } },
+      select: { id: true, symbol: true, mintAddress: true },
+    });
+    const tokenMap = new Map(tokens.map(t => [t.id, t]));
 
-    if (error) {
-      throw error;
-    }
+    // Enrich positions
+    const enrichedPositions = positions.map(pos => {
+      const token = tokenMap.get(pos.tokenId);
+      const holdTimeMinutes = (Date.now() - pos.entryTimestamp.getTime()) / (1000 * 60);
 
-    // Enrich with current price if needed
-    const enrichedPositions = await Promise.all(
-      (positions || []).map(async (pos: any) => {
-        // Calculate hold time
-        const holdTimeMinutes = (Date.now() - new Date(pos.entryTime).getTime()) / (1000 * 60);
-        
-        return {
-          ...pos,
-          holdTimeMinutes: Math.round(holdTimeMinutes),
-          holdTimeFormatted: formatHoldTime(holdTimeMinutes),
-        };
-      })
-    );
+      return {
+        ...pos,
+        token: token || null,
+        holdTimeMinutes: Math.round(holdTimeMinutes),
+        holdTimeFormatted: formatHoldTime(holdTimeMinutes),
+      };
+    });
 
     res.json({
       success: true,
@@ -85,65 +73,27 @@ router.get('/', async (req, res) => {
  */
 router.get('/stats', async (req, res) => {
   try {
-    // Check if Supabase is available
-    if (!supabase || typeof supabase.from !== 'function') {
-      // Return empty stats if Supabase is not available
-      return res.json({
-        success: true,
-        stats: {
-          openPositions: 0,
-          closedPositions: 0,
-          avgOpenPnlPercent: 0,
-          avgClosedPnlPercent: 0,
-          winRate: 0,
-          exitSignals24h: 0,
-          signalsByType: {},
-        },
-      });
-    }
-    
-    const { data: openPositions } = await supabase
-      .from('VirtualPosition')
-      .select('unrealizedPnlPercent, unrealizedPnlUsd, activeWalletCount, exitedWalletCount')
-      .eq('status', 'open');
+    const stats = await positionRepo.getStats();
 
-    const { data: closedPositions } = await supabase
-      .from('VirtualPosition')
-      .select('realizedPnlPercent, realizedPnlUsd, exitReason')
-      .eq('status', 'closed');
+    // Get exit signals from last 24h
+    const exitSignals = await exitSignalRepo.findRecent({ hours: 24, limit: 1000 });
 
-    const { data: exitSignals } = await supabase
-      .from('ExitSignal')
-      .select('type, recommendation')
-      .gte('createdAt', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
-
-    const open = openPositions || [];
-    const closed = closedPositions || [];
-    const signals = exitSignals || [];
-
-    // Calculate stats
-    const totalOpenPnl = open.reduce((sum, p) => sum + (Number(p.unrealizedPnlPercent) || 0), 0);
-    const avgOpenPnl = open.length > 0 ? totalOpenPnl / open.length : 0;
-
-    const totalClosedPnl = closed.reduce((sum, p) => sum + (Number(p.realizedPnlPercent) || 0), 0);
-    const avgClosedPnl = closed.length > 0 ? totalClosedPnl / closed.length : 0;
-
-    const profitableCount = closed.filter(p => (Number(p.realizedPnlPercent) || 0) > 0).length;
-    const winRate = closed.length > 0 ? (profitableCount / closed.length) * 100 : 0;
+    // Group by type
+    const signalsByType = exitSignals.reduce((acc: any, s) => {
+      acc[s.type] = (acc[s.type] || 0) + 1;
+      return acc;
+    }, {});
 
     res.json({
       success: true,
       stats: {
-        openPositions: open.length,
-        closedPositions: closed.length,
-        avgOpenPnlPercent: avgOpenPnl,
-        avgClosedPnlPercent: avgClosedPnl,
-        winRate,
-        exitSignals24h: signals.length,
-        signalsByType: signals.reduce((acc: any, s) => {
-          acc[s.type] = (acc[s.type] || 0) + 1;
-          return acc;
-        }, {}),
+        openPositions: stats.totalOpen,
+        closedPositions: stats.totalClosed,
+        avgOpenPnlPercent: stats.avgOpenPnlPercent,
+        avgClosedPnlPercent: stats.avgClosedPnlPercent,
+        winRate: stats.winRate,
+        exitSignals24h: exitSignals.length,
+        signalsByType,
       },
     });
   } catch (error: any) {
@@ -194,20 +144,8 @@ router.post('/:id/close', async (req, res) => {
     const { id } = req.params;
     const { exitReason = 'manual', exitPriceUsd } = req.body;
 
-    // Check if Supabase is available
-    if (!supabase || typeof supabase.from !== 'function') {
-      return res.status(503).json({
-        success: false,
-        error: 'Position management is not available (Supabase not configured)',
-      });
-    }
-
     // Get position
-    const { data: position } = await supabase
-      .from('VirtualPosition')
-      .select('*, token:tokenId(mintAddress)')
-      .eq('id', id)
-      .single();
+    const position = await positionRepo.findById(id);
 
     if (!position) {
       return res.status(404).json({
@@ -223,18 +161,24 @@ router.post('/:id/close', async (req, res) => {
       });
     }
 
+    // Get token info for price lookup
+    const token = await prisma.token.findUnique({
+      where: { id: position.tokenId },
+      select: { mintAddress: true },
+    });
+
     // Get current price if not provided
     let closePrice = exitPriceUsd;
-    if (!closePrice && position.token?.mintAddress) {
+    if (!closePrice && token?.mintAddress) {
       try {
-        const marketData = await tokenMarketData.getMarketData(position.token.mintAddress);
+        const marketData = await tokenMarketData.getMarketData(token.mintAddress);
         closePrice = marketData?.price || position.currentPriceUsd;
       } catch (e) {
         closePrice = position.currentPriceUsd;
       }
     }
 
-    await positionMonitor.closePosition(id, exitReason, closePrice);
+    await positionMonitor.closePosition(id, exitReason, closePrice || 0);
 
     res.json({
       success: true,
@@ -271,53 +215,151 @@ router.post('/update-all', async (req, res) => {
 });
 
 /**
- * GET /api/positions/exit-signals
+ * GET /api/positions/exit-signals/recent
  * Získá exit signály
  */
 router.get('/exit-signals/recent', async (req, res) => {
   try {
     const { hours = 24, limit = 50 } = req.query;
-    
-    // Check if Supabase is available
-    if (!supabase || typeof supabase.from !== 'function') {
-      // Return empty result if Supabase is not available
-      return res.json({
-        success: true,
-        signals: [],
-        count: 0,
-      });
-    }
-    
-    const { data: signals, error } = await supabase
-      .from('ExitSignal')
-      .select(`
-        *,
-        position:positionId(
-          entryPriceUsd,
-          entryTime,
-          activeWalletCount,
-          exitedWalletCount,
-          token:tokenId(symbol, mintAddress)
-        )
-      `)
-      .gte('createdAt', new Date(Date.now() - Number(hours) * 60 * 60 * 1000).toISOString())
-      .order('createdAt', { ascending: false })
-      .limit(Number(limit));
 
-    if (error) {
-      throw error;
-    }
+    const signals = await exitSignalRepo.findRecent({
+      hours: Number(hours),
+      limit: Number(limit),
+    });
+
+    // Get position and token info
+    const positionIds = [...new Set(signals.map(s => s.positionId))];
+    const positions = await prisma.virtualPosition.findMany({
+      where: { id: { in: positionIds } },
+      include: {
+        token: {
+          select: { id: true, symbol: true, mintAddress: true },
+        },
+      },
+    });
+    const positionMap = new Map(positions.map(p => [p.id, p]));
+
+    // Enrich signals
+    const enrichedSignals = signals.map(signal => {
+      const position = positionMap.get(signal.positionId);
+      return {
+        ...signal,
+        position: position ? {
+          entryPriceUsd: Number(position.entryPriceUsd),
+          entryTimestamp: position.entryTimestamp,
+          activeWalletCount: position.activeWalletCount,
+          exitedWalletCount: position.exitedWalletCount,
+          token: position.token,
+        } : null,
+      };
+    });
 
     res.json({
       success: true,
-      signals: signals || [],
-      count: (signals || []).length,
+      signals: enrichedSignals,
+      count: enrichedSignals.length,
     });
   } catch (error: any) {
     console.error('Error fetching exit signals:', error);
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to fetch exit signals',
+    });
+  }
+});
+
+/**
+ * POST /api/positions/:id/set-trailing-stop
+ * Nastaví trailing stop procento pro pozici
+ */
+router.post('/:id/set-trailing-stop', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { trailingStopPercent } = req.body;
+
+    if (typeof trailingStopPercent !== 'number' || trailingStopPercent < 0 || trailingStopPercent > 100) {
+      return res.status(400).json({
+        success: false,
+        error: 'trailingStopPercent must be a number between 0 and 100',
+      });
+    }
+
+    const position = await positionMonitor.setTrailingStop(id, trailingStopPercent);
+
+    if (!position) {
+      return res.status(404).json({
+        success: false,
+        error: 'Position not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      position,
+      message: `Trailing stop set to ${trailingStopPercent}%`,
+    });
+  } catch (error: any) {
+    console.error('Error setting trailing stop:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to set trailing stop',
+    });
+  }
+});
+
+/**
+ * GET /api/positions/:id/performance
+ * Získá performance metriky pro pozici
+ */
+router.get('/:id/performance', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const position = await positionRepo.findById(id);
+    if (!position) {
+      return res.status(404).json({
+        success: false,
+        error: 'Position not found',
+      });
+    }
+
+    // Get signal performance if linked
+    let signalPerf = null;
+    if (position.signalId) {
+      signalPerf = await signalPerformance.getPerformance(position.signalId);
+    }
+
+    // Calculate additional metrics
+    const holdTimeMinutes = (Date.now() - position.entryTimestamp.getTime()) / (1000 * 60);
+    const pnlPerMinute = holdTimeMinutes > 0 ? (position.unrealizedPnlPercent || 0) / holdTimeMinutes : 0;
+
+    res.json({
+      success: true,
+      performance: {
+        position: {
+          id: position.id,
+          status: position.status,
+          entryPriceUsd: position.entryPriceUsd,
+          currentPriceUsd: position.currentPriceUsd,
+          highestPriceUsd: position.highestPriceUsd,
+          lowestPriceUsd: position.lowestPriceUsd,
+          unrealizedPnlPercent: position.unrealizedPnlPercent,
+          drawdownFromPeak: position.drawdownFromPeak,
+          holdTimeMinutes: Math.round(holdTimeMinutes),
+          pnlPerMinute,
+          trailingStopPercent: position.trailingStopPercent,
+          trailingStopPrice: position.trailingStopPrice,
+          lastAiDecision: position.lastAiDecision,
+          lastAiConfidence: position.lastAiConfidence,
+        },
+        signal: signalPerf,
+      },
+    });
+  } catch (error: any) {
+    console.error('Error fetching position performance:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch position performance',
     });
   }
 });

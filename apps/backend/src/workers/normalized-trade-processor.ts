@@ -307,12 +307,14 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       // Detect if this sell is from a tracked position (exit signal)
       setImmediate(async () => {
         try {
-          const exitSignal = await positionMonitor.detectWalletExit(
+          const exitPriceUsd = Number(trade.priceBasePerToken || 0);
+          const exitAmountUsd = Number(trade.amountBase || 0) * exitPriceUsd;
+          const exitSignal = await positionMonitor.recordWalletExit(
             trade.id,
             record.walletId,
             record.tokenId,
-            Number(trade.amountBase || 0),
-            Number(trade.priceBasePerToken || 0)
+            exitPriceUsd,
+            exitAmountUsd
           );
           if (exitSignal) {
             console.log(`🚨 [ExitSignal] ${exitSignal.type} detected for position - ${exitSignal.recommendation}`);

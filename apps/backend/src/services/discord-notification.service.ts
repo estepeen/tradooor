@@ -76,6 +76,40 @@ export interface SignalNotificationData {
   }>;
 }
 
+/**
+ * Data pro exit signál notifikaci
+ */
+export interface ExitSignalNotificationData {
+  tokenSymbol: string;
+  tokenMint: string;
+
+  // Exit signal info
+  exitType: 'wallet_exit' | 'stop_loss' | 'take_profit' | 'trailing_stop' | 'ai_recommendation' | 'time_based' | 'momentum_loss' | 'volume_drop';
+  strength: 'weak' | 'medium' | 'strong';
+  recommendation: 'hold' | 'partial_exit_25' | 'partial_exit_50' | 'partial_exit_75' | 'full_exit';
+
+  // Position info
+  entryPriceUsd: number;
+  currentPriceUsd: number;
+  pnlPercent: number;
+  drawdownFromPeak?: number;
+  holdTimeMinutes: number;
+
+  // Wallet activity
+  entryWalletCount: number;
+  activeWalletCount: number;
+  exitedWalletCount: number;
+
+  // Trigger info
+  triggerReason?: string;
+  triggerWalletLabel?: string;
+
+  // AI info
+  aiDecision?: string;
+  aiConfidence?: number;
+  aiReasoning?: string;
+}
+
 interface DiscordEmbed {
   title?: string;
   description?: string;
@@ -564,6 +598,195 @@ export class DiscordNotificationService {
       return (value / 1_000).toFixed(2) + 'K';
     }
     return value.toFixed(decimals);
+  }
+
+/**
+   * Pošle notifikaci o exit signálu
+   */
+  async sendExitSignalNotification(data: ExitSignalNotificationData): Promise<boolean> {
+    if (!this.enabled) {
+      return false;
+    }
+
+    try {
+      const embed = this.buildExitSignalEmbed(data);
+
+      const payload: DiscordWebhookPayload = {
+        username: 'Spectre Exit Alerts',
+        embeds: [embed],
+      };
+
+      const response = await fetch(this.webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ Discord webhook error: ${response.status} - ${errorText}`);
+        return false;
+      }
+
+      console.log(`📨 Discord exit notification sent for ${data.tokenSymbol}`);
+      return true;
+    } catch (error: any) {
+      console.error(`❌ Failed to send Discord exit notification: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Vytvoří embed pro exit signál
+   */
+  private buildExitSignalEmbed(data: ExitSignalNotificationData): DiscordEmbed {
+    const birdeyeUrl = `https://birdeye.so/token/${data.tokenMint}?chain=solana`;
+
+    // Determine color based on recommendation
+    let color: number;
+    if (data.recommendation === 'full_exit') {
+      color = 0xff0000; // Red
+    } else if (data.recommendation.startsWith('partial_exit')) {
+      color = 0xffa500; // Orange
+    } else {
+      color = 0xffff00; // Yellow for hold
+    }
+
+    // Build title
+    const exitEmoji = this.getExitEmoji(data.exitType);
+    const pnlEmoji = data.pnlPercent >= 0 ? '📈' : '📉';
+    const pnlStr = `${data.pnlPercent >= 0 ? '+' : ''}${data.pnlPercent.toFixed(1)}%`;
+    const title = `${exitEmoji} EXIT Signal – ${data.tokenSymbol} (${pnlStr})`;
+
+    // Build fields
+    const fields: DiscordEmbed['fields'] = [];
+
+    // Exit Type and Recommendation
+    fields.push({
+      name: '🚨 Exit Signal',
+      value: [
+        `**Type:** ${data.exitType.replace(/_/g, ' ').toUpperCase()}`,
+        `**Strength:** ${data.strength.toUpperCase()}`,
+        `**Recommendation:** ${data.recommendation.replace(/_/g, ' ').toUpperCase()}`,
+      ].join('\n'),
+      inline: true,
+    });
+
+    // Position Info
+    const holdTimeStr = data.holdTimeMinutes >= 60
+      ? `${Math.floor(data.holdTimeMinutes / 60)}h ${Math.round(data.holdTimeMinutes % 60)}m`
+      : `${Math.round(data.holdTimeMinutes)}m`;
+
+    fields.push({
+      name: `${pnlEmoji} Position`,
+      value: [
+        `**Entry:** $${this.formatNumber(data.entryPriceUsd, 8)}`,
+        `**Current:** $${this.formatNumber(data.currentPriceUsd, 8)}`,
+        `**PnL:** ${pnlStr}`,
+        `**Hold Time:** ${holdTimeStr}`,
+      ].join('\n'),
+      inline: true,
+    });
+
+    // Drawdown (if applicable)
+    if (data.drawdownFromPeak && data.drawdownFromPeak > 0) {
+      fields.push({
+        name: '📉 From Peak',
+        value: [
+          `**Drawdown:** -${data.drawdownFromPeak.toFixed(1)}%`,
+        ].join('\n'),
+        inline: true,
+      });
+    }
+
+    // Wallet Activity
+    const exitPercent = data.entryWalletCount > 0
+      ? ((data.exitedWalletCount / data.entryWalletCount) * 100).toFixed(0)
+      : 0;
+
+    fields.push({
+      name: '👛 Wallet Activity',
+      value: [
+        `**Original:** ${data.entryWalletCount}`,
+        `**Holding:** ${data.activeWalletCount}`,
+        `**Exited:** ${data.exitedWalletCount} (${exitPercent}%)`,
+      ].join('\n'),
+      inline: true,
+    });
+
+    // AI Decision (if available)
+    if (data.aiDecision && data.aiConfidence) {
+      fields.push({
+        name: '🤖 AI Analysis',
+        value: [
+          `**Decision:** ${data.aiDecision.replace(/_/g, ' ').toUpperCase()}`,
+          `**Confidence:** ${data.aiConfidence}%`,
+        ].join('\n'),
+        inline: true,
+      });
+    }
+
+    // Trigger Reason
+    if (data.triggerReason) {
+      let triggerValue = data.triggerReason;
+      if (data.triggerWalletLabel) {
+        triggerValue = `${data.triggerWalletLabel}: ${triggerValue}`;
+      }
+      fields.push({
+        name: '⚡ Trigger',
+        value: triggerValue.length > 200 ? triggerValue.substring(0, 200) + '...' : triggerValue,
+        inline: false,
+      });
+    }
+
+    // AI Reasoning
+    if (data.aiReasoning) {
+      fields.push({
+        name: '💭 AI Reasoning',
+        value: data.aiReasoning.length > 200
+          ? data.aiReasoning.substring(0, 200) + '...'
+          : data.aiReasoning,
+        inline: false,
+      });
+    }
+
+    return {
+      title,
+      url: birdeyeUrl,
+      color,
+      fields,
+      footer: {
+        text: (() => {
+          const now = new Date();
+          const pragueTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Prague' }));
+          const day = String(pragueTime.getDate()).padStart(2, '0');
+          const month = String(pragueTime.getMonth() + 1).padStart(2, '0');
+          const year = pragueTime.getFullYear();
+          const hours = String(pragueTime.getHours()).padStart(2, '0');
+          const minutes = String(pragueTime.getMinutes()).padStart(2, '0');
+          return `🚨 Exit Alert • ${day}/${month}/${year}, ${hours}:${minutes}`;
+        })(),
+      },
+    };
+  }
+
+  /**
+   * Emoji pro typ exit signálu
+   */
+  private getExitEmoji(exitType: string): string {
+    const emojis: Record<string, string> = {
+      'wallet_exit': '👛',
+      'stop_loss': '🛑',
+      'take_profit': '🎯',
+      'trailing_stop': '📉',
+      'ai_recommendation': '🤖',
+      'time_based': '⏰',
+      'momentum_loss': '📊',
+      'volume_drop': '💧',
+    };
+    return emojis[exitType] || '🚨';
   }
 
   /**
