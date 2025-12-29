@@ -79,19 +79,22 @@ const SIGNAL_TIERS = {
   CONSENSUS: {
     STRONG: {
       minWallets: 3,
-      minAvgScore: 70,
+      minAvgScore: 55,      // 70 → 55 (adjusted for new scoring system)
+      minMarketCap: 30000,  // Minimum $30K market cap
       timeWindowHours: 1,
       positionSizePercent: [15, 20],
     },
     MEDIUM: {
       minWallets: 2,
-      minAvgScore: 65,
+      minAvgScore: 50,      // 65 → 50 (adjusted for new scoring system)
+      minMarketCap: 30000,  // Minimum $30K market cap
       timeWindowHours: 2,
       positionSizePercent: [10, 15],
     },
     WEAK: {
       minWallets: 2,
-      minAvgScore: 55,
+      minAvgScore: 45,      // 55 → 45 (adjusted for new scoring system)
+      minMarketCap: 30000,  // Minimum $30K market cap
       timeWindowHours: 4,
       positionSizePercent: [5, 10],
     },

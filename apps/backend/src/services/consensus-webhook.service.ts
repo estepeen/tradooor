@@ -25,6 +25,7 @@ import { WalletCorrelationService } from './wallet-correlation.service.js';
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
 const CLUSTER_STRENGTH_THRESHOLD = 70; // Minimum cluster strength for 💎💎 CLUSTER signal
+const MIN_MARKET_CAP_USD = 30000; // Global minimum market cap filter ($30K)
 
 export class ConsensusWebhookService {
   private paperTradeService: PaperTradeService;
@@ -265,6 +266,14 @@ export class ConsensusWebhookService {
             marketDataResult = await this.tokenMarketData.getMarketData(token?.mintAddress || '');
           } catch (e) {
             // ignoruj
+          }
+
+          // Check minimum market cap filter
+          if (marketDataResult?.marketCap !== null && marketDataResult?.marketCap !== undefined) {
+            if (marketDataResult.marketCap < MIN_MARKET_CAP_USD) {
+              console.log(`   ⚠️  [Consensus] Token ${token?.symbol} market cap $${(marketDataResult.marketCap / 1000).toFixed(1)}K < $${(MIN_MARKET_CAP_USD / 1000).toFixed(0)}K minimum - FILTERED OUT`);
+              return { consensusFound: true }; // Signal was found but filtered
+            }
           }
 
           // Načti wallet info
