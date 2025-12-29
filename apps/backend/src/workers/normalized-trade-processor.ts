@@ -13,6 +13,7 @@ import { PositionMonitorService } from '../services/position-monitor.service.js'
 import { TokenRepository } from '../repositories/token.repository.js';
 import { TokenMarketDataService } from '../services/token-market-data.service.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
+import { WalletCorrelationService } from '../services/wallet-correlation.service.js';
 
 // Log environment variables status
 console.log(`🔍 [NormalizedTradeWorker] Environment check:`);
@@ -32,6 +33,7 @@ const metricsHistoryRepo = new MetricsHistoryRepository();
 const metricsCalculator = new MetricsCalculatorService(smartWalletRepo, tradeRepo, metricsHistoryRepo);
 const advancedSignals = new AdvancedSignalsService();
 const positionMonitor = new PositionMonitorService();
+const walletCorrelation = new WalletCorrelationService();
 // Sdílená instance TokenMarketDataService pro cache mezi všemi trades
 const tokenMarketDataService = new TokenMarketDataService();
 
@@ -341,6 +343,18 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
     // DŮLEŽITÉ: Po vytvoření BUY trade zkontroluj consensus (2+ wallets, stejný token, 2h okno)
     // Paper trade se vytvoří při ceně druhého nákupu
     if (trade.side === 'buy') {
+      // Update wallet correlations for cluster detection (incremental)
+      setImmediate(async () => {
+        try {
+          const updatedPairs = await walletCorrelation.updateCorrelationsForTrade(trade.id);
+          if (updatedPairs > 0) {
+            console.log(`💎 [Correlation] Updated ${updatedPairs} wallet correlations for trade ${trade.id.substring(0, 8)}...`);
+          }
+        } catch (correlationError: any) {
+          console.warn(`⚠️  Error updating correlations for trade ${trade.id}:`, correlationError.message);
+        }
+      });
+
       setImmediate(async () => {
         try {
           console.log(`🔍 [NormalizedTradeWorker] Checking consensus for trade ${trade.id.substring(0, 16)}... (token: ${trade.tokenId.substring(0, 16)}..., wallet: ${trade.walletId.substring(0, 16)}...)`);

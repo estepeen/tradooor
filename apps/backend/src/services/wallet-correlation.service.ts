@@ -28,7 +28,7 @@ export class WalletCorrelationService {
           lte: new Date(trade.timestamp.getTime() + timeWindow),
         },
       },
-      select: { id: true, walletId: true, timestamp: true, pnlPercent: true },
+      select: { id: true, walletId: true, tokenId: true, timestamp: true, pnlPercent: true },
       distinct: ['walletId'],
     });
 
