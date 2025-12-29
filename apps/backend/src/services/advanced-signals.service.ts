@@ -1177,7 +1177,7 @@ export class AdvancedSignalsService {
                 })(),
                 tradeTime: trade.timestamp.toISOString(),
                 // Pro accumulation signál: všechny nákupy tradera
-                accumulationBuys: signal.type === 'accumulation' ? await (async () => {
+                accumulationBuys: (signal.type as string) === 'accumulation' ? await (async () => {
                   // Načti všechny validní nákupy pro accumulation signál
                   const sixHoursAgo = new Date(Date.now() - THRESHOLDS.ACCUMULATION_TIME_WINDOW_HOURS * 60 * 60 * 1000);
                   const recentBuys = await prisma.trade.findMany({

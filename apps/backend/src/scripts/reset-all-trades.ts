@@ -59,7 +59,7 @@ async function resetAllTrades() {
       avgHoldingTimeMin: 0,
       maxDrawdownPercent: 0,
       recentPnl30dPercent: 0,
-      recentPnl30dUsd: 0,
+      recentPnl30dBase: 0,
       advancedStats: null,
     },
   });

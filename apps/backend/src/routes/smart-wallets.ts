@@ -76,7 +76,7 @@ router.get('/', async (req, res) => {
     const minScore = req.query.minScore ? parseFloat(req.query.minScore as string) : undefined;
     const tags = req.query.tags ? (req.query.tags as string).split(',') : undefined;
     const search = req.query.search as string | undefined;
-    const sortBy = req.query.sortBy as 'score' | 'winRate' | 'recentPnl30dUsd' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address' | undefined;
+    const sortBy = req.query.sortBy as 'score' | 'winRate' | 'recentPnl30dBase' | 'recentPnl30dPercent' | 'totalTrades' | 'lastTradeTimestamp' | 'label' | 'address' | undefined;
     const sortOrder = (req.query.sortOrder as 'asc' | 'desc') || 'desc';
 
     console.log(`🔍 Fetching wallets - page: ${page}, pageSize: ${pageSize}`);
@@ -1140,29 +1140,31 @@ router.get('/:id/portfolio', async (req, res) => {
       // Pro každý SELL trade (nebo cyklus) vytvoříme jednu closed position
       // Tím zajistíme, že každý BUY-SELL cyklus je samostatná pozice
       for (const [groupKey, lotsForGroup] of lotsBySellTrade.entries()) {
-        if (lotsForToken.length === 0) continue;
-        
+        if (lotsForGroup.length === 0) continue;
+
         // Seřadíme ClosedLots podle entryTime a exitTime
-        const sortedLots = lotsForToken.sort((a: any, b: any) => {
+        const sortedLots = lotsForGroup.sort((a: any, b: any) => {
           const aEntry = new Date(a.entryTime).getTime();
           const bEntry = new Date(b.entryTime).getTime();
           if (aEntry !== bEntry) return aEntry - bEntry;
           return new Date(a.exitTime).getTime() - new Date(b.exitTime).getTime();
         });
-        
+
         const firstLot = sortedLots[0];
         const lastLot = sortedLots[sortedLots.length - 1];
-        
+
+        // Extract tokenId from the first lot in this group
+        const tokenId = firstLot.tokenId;
         const token = tokenDataMap.get(tokenId);
         
         // Sečteme všechny ClosedLots pro tento token do jedné closed position
-        const totalRealizedPnl = lotsForToken.reduce((sum: number, lot: any) => {
+        const totalRealizedPnl = lotsForGroup.reduce((sum: number, lot: any) => {
           const pnl = lot.realizedPnl !== null && lot.realizedPnl !== undefined ? Number(lot.realizedPnl) : 0;
           return sum + pnl;
         }, 0);
-        
-        const totalCostBase = lotsForToken.reduce((sum: number, lot: any) => sum + (Number(lot.costBasis) || 0), 0);
-        const totalProceedsBase = lotsForToken.reduce((sum: number, lot: any) => sum + (Number(lot.proceeds) || 0), 0);
+
+        const totalCostBase = lotsForGroup.reduce((sum: number, lot: any) => sum + (Number(lot.costBasis) || 0), 0);
+        const totalProceedsBase = lotsForGroup.reduce((sum: number, lot: any) => sum + (Number(lot.proceeds) || 0), 0);
         const effectiveCostBase = totalCostBase > 0 ? totalCostBase : (totalProceedsBase - totalRealizedPnl);
         const realizedPnlPercent = effectiveCostBase > 0 ? (totalRealizedPnl / effectiveCostBase) * 100 : 0;
         
@@ -1184,9 +1186,9 @@ router.get('/:id/portfolio', async (req, res) => {
         // DEBUG: Log for UNDERSTAND token
         const tokenSymbol = token?.symbol?.toUpperCase();
         if (tokenSymbol === 'UNDERSTAND' && wallet.id) {
-          console.log(`   🔍 [DEBUG UNDERSTAND] Created closed position: tokenId=${tokenId}, totalRealizedPnl=${totalRealizedPnl.toFixed(4)} SOL (from ${lotsForToken.length} unique lots), totalCostBase=${totalCostBase.toFixed(4)}, totalProceedsBase=${totalProceedsBase.toFixed(4)}`);
+          console.log(`   🔍 [DEBUG UNDERSTAND] Created closed position: tokenId=${tokenId}, totalRealizedPnl=${totalRealizedPnl.toFixed(4)} SOL (from ${lotsForGroup.length} unique lots), totalCostBase=${totalCostBase.toFixed(4)}, totalProceedsBase=${totalProceedsBase.toFixed(4)}`);
         }
-        
+
         closedPositionsFromLots.push({
           tokenId,
           token: token || null,
@@ -1201,8 +1203,8 @@ router.get('/:id/portfolio', async (req, res) => {
           totalCostUsd: totalCostUsdValue, // V SOL (kompatibilita - obsahuje SOL hodnoty)
           totalProceedsUsd: totalProceedsUsdValue, // V SOL (kompatibilita - obsahuje SOL hodnoty)
           averageBuyPrice: 0,
-          buyCount: lotsForToken.length, // Počet lots
-          sellCount: new Set(lotsForToken.map((lot: any) => lot.sellTradeId)).size, // Počet unikátních SELL trades
+          buyCount: lotsForGroup.length, // Počet lots
+          sellCount: new Set(lotsForGroup.map((lot: any) => lot.sellTradeId)).size, // Počet unikátních SELL trades
           removeCount: 0,
           lastBuyPrice: 0,
           lastSellPrice: 0,
@@ -1230,7 +1232,7 @@ router.get('/:id/portfolio', async (req, res) => {
           totalCostBaseUsd: totalCostBaseUsd, // USD hodnota cost
         });
         
-        console.log(`   ✅ Created closed position: tokenId=${tokenId}, symbol=${token?.symbol || 'N/A'}, realizedPnlBase=${totalRealizedPnl.toFixed(4)} SOL (from ${lotsForToken.length} lots), holdTime=${holdTimeMinutes}min`);
+        console.log(`   ✅ Created closed position: tokenId=${tokenId}, symbol=${token?.symbol || 'N/A'}, realizedPnlBase=${totalRealizedPnl.toFixed(4)} SOL (from ${lotsForGroup.length} lots), holdTime=${holdTimeMinutes}min`);
       }
     }
     
@@ -1661,7 +1663,7 @@ router.delete('/:id/positions/:tokenId', async (req, res) => {
       throw new Error('Failed to fetch updated wallet data');
     }
 
-    console.log(`   ✅ Metrics updated: totalTrades=${updatedWallet.totalTrades}, recentPnl30dUsd=${updatedWallet.recentPnl30dUsd}`);
+    console.log(`   ✅ Metrics updated: totalTrades=${updatedWallet.totalTrades}, recentPnl30dBase=${updatedWallet.recentPnl30dBase}`);
 
     res.json({
       success: true,
@@ -1669,7 +1671,7 @@ router.delete('/:id/positions/:tokenId', async (req, res) => {
       deletedClosedLots: deletedClosedLots || 0,
       updatedMetrics: {
         totalTrades: updatedWallet.totalTrades,
-        recentPnl30dUsd: updatedWallet.recentPnl30dUsd,
+        recentPnl30dBase: updatedWallet.recentPnl30dBase,
         recentPnl30dPercent: updatedWallet.recentPnl30dPercent,
         score: updatedWallet.score,
       },
@@ -1732,7 +1734,7 @@ router.post('/:id/recalculate', async (req, res) => {
         score: updatedWallet?.score ?? 0,
         totalTrades: updatedWallet?.totalTrades ?? 0,
         winRate: updatedWallet?.winRate ?? 0,
-        recentPnl30dUsd: updatedWallet?.recentPnl30dUsd ?? 0,
+        recentPnl30dBase: updatedWallet?.recentPnl30dBase ?? 0,
         recentPnl30dPercent: updatedWallet?.recentPnl30dPercent ?? 0,
       },
     });

@@ -17,7 +17,7 @@ async function checkWalletPnl(walletAddress: string) {
       id: true,
       address: true,
       label: true,
-      recentPnl30dUsd: true,
+      recentPnl30dBase: true,
       recentPnl30dPercent: true,
     },
   });
@@ -28,7 +28,7 @@ async function checkWalletPnl(walletAddress: string) {
   }
 
   console.log(`✅ Found wallet: ${wallet.label || wallet.address}`);
-  console.log(`   Current recentPnl30dUsd: ${wallet.recentPnl30dUsd?.toFixed(2) || 0} USD\n`);
+  console.log(`   Current recentPnl30dBase: ${wallet.recentPnl30dBase?.toFixed(2) || 0} USD\n`);
 
   // Get all closed lots for this wallet
   const closedLotRepo = new ClosedLotRepository();
@@ -49,8 +49,8 @@ async function checkWalletPnl(walletAddress: string) {
   }, 0);
 
   console.log(`💰 Calculated PnL from closed lots: ${totalPnlUsd.toFixed(2)} USD`);
-  console.log(`   Current wallet PnL: ${wallet.recentPnl30dUsd?.toFixed(2) || 0} USD`);
-  console.log(`   Difference: ${(totalPnlUsd - (wallet.recentPnl30dUsd || 0)).toFixed(2)} USD\n`);
+  console.log(`   Current wallet PnL: ${wallet.recentPnl30dBase?.toFixed(2) || 0} USD`);
+  console.log(`   Difference: ${(totalPnlUsd - (wallet.recentPnl30dBase || 0)).toFixed(2)} USD\n`);
 
   // Check for suspicious values
   const solPriceService = new SolPriceService();

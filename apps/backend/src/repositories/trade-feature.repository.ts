@@ -232,6 +232,9 @@ export class TradeFeatureRepository {
     otherSmartWalletsTradingSameTokenWithin1h?: number | null;
     otherSmartWalletsTradingSameTokenWithin24h?: number | null;
     avgTimeSinceOtherTradersTradeSeconds?: number | null;
+    entryRankPercentile?: number | null;
+    exitEfficiency?: number | null;
+    tokenCategory?: string | null;
     copyTraderScore?: string | null;
   }) {
     const updateData: any = {};
@@ -375,6 +378,10 @@ export class TradeFeatureRepository {
       baseTokenSymbol: row.baseTokenSymbol ?? null,
       meta: row.meta as any,
       side: row.trade?.side ?? null,
+      // Enhanced scoring features
+      entryRankPercentile: row.entryRankPercentile ? Number(row.entryRankPercentile) : null,
+      exitEfficiency: row.exitEfficiency ? Number(row.exitEfficiency) : null,
+      tokenCategory: row.tokenCategory ?? null,
     };
   }
 }

@@ -81,12 +81,15 @@ async function checkMissingTrades() {
     // OPTIMALIZACE: Filtruj pouze aktivní wallets (měly trades v posledních 7 dnech)
     // Tím snížíme RPC volání pro neaktivní wallets
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const { data: recentTrades } = await supabase
-      .from(TABLES.TRADE)
-      .select('walletId')
-      .gte('timestamp', sevenDaysAgo.toISOString());
-    
-    const activeWalletIds = new Set((recentTrades || []).map(t => t.walletId));
+    const recentTrades = await prisma.trade.findMany({
+      where: {
+        timestamp: { gte: sevenDaysAgo },
+      },
+      select: { walletId: true },
+      distinct: ['walletId'],
+    });
+
+    const activeWalletIds = new Set(recentTrades.map(t => t.walletId));
     const activeWallets = walletList.filter(w => activeWalletIds.has(w.id));
     
     console.log(`📊 Total wallets: ${walletList.length}, Active (7d): ${activeWallets.length}`);

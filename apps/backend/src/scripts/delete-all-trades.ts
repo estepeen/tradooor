@@ -74,7 +74,7 @@ async function deleteAllTrades() {
         avgHoldingTimeMin: 0,
         maxDrawdownPercent: 0,
         recentPnl30dPercent: 0,
-        recentPnl30dUsd: 0, // Important for homepage PnL display
+        recentPnl30dBase: 0, // Important for homepage PnL display
         advancedStats: null, // Important for homepage score and rolling stats
         tags: [], // Reset all tags (auto-generated and user-defined)
       },

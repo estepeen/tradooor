@@ -230,7 +230,7 @@ async function calculateWalletPnL(walletAddress: string, daysBack: number = 7) {
 
   // 8. Compare with cached value from SmartWallet
   console.log(`🔍 Comparison with cached values:`);
-  console.log(`   Cached recentPnl30dUsd: $${wallet.recentPnl30dUsd?.toFixed(2) || '0.00'}`);
+  console.log(`   Cached recentPnl30dBase: $${wallet.recentPnl30dBase?.toFixed(2) || '0.00'}`);
   console.log(`   Calculated PnL (${daysBack}d): $${totalPnlUsd.toFixed(2)}`);
   if (daysBack === 7) {
     console.log(`   ⚠️  Note: Cached value is for 30 days, this is for 7 days`);

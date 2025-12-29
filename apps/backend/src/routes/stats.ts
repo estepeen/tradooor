@@ -33,7 +33,7 @@ router.get('/overview', async (req, res) => {
         winRate: true,
         pnlTotalBase: true,
         recentPnl30dPercent: true,
-        recentPnl30dUsd: true,
+        recentPnl30dBase: true,
         advancedStats: true,
         avgHoldingTimeMin: true,
         avgRr: true,
@@ -79,10 +79,10 @@ router.get('/overview', async (req, res) => {
     const walletsWithBase = (wallets || []).map((w: any) => {
       const pnl = walletPnLMap.get(w.id);
       // Preferuj recentPnl30dBase z DB (je to precomputed a přesnější), jinak vypočítej z trades
-      // Mapujeme recentPnl30dUsd (DB sloupec) na recentPnl30dBase (SOL hodnota)
+      // Mapujeme recentPnl30dBase (DB sloupec) na recentPnl30dBase (SOL hodnota)
       // DŮLEŽITÉ: Všechny hodnoty jsou nyní v SOL, žádný přepočet!
-      const recentPnl30dBase = w.recentPnl30dUsd !== null && w.recentPnl30dUsd !== undefined
-        ? Number(w.recentPnl30dUsd) // V DB je to SOL hodnota (i když se jmenuje Usd)
+      const recentPnl30dBase = w.recentPnl30dBase !== null && w.recentPnl30dBase !== undefined
+        ? Number(w.recentPnl30dBase) // V DB je to SOL hodnota (i když se jmenuje Usd)
         : 0; // Pokud není v DB, použij 0 (ne přepočítávej z trades)
       return {
         ...w,
@@ -207,11 +207,11 @@ router.get('/overview', async (req, res) => {
         } else {
           // Fallback: použij recentPnl30dBase/recentPnl30dPercent (stejně jako homepage)
           if (period.label === '30d' || period.rollingKey === '30d') {
-            pnlBase = wallet.recentPnl30dBase || wallet.recentPnl30dUsd || 0; // PnL v SOL
+            pnlBase = wallet.recentPnl30dBase || wallet.recentPnl30dBase || 0; // PnL v SOL
             pnlPercent = wallet.recentPnl30dPercent || 0;
           } else if (period.rollingKey === '7d') {
             // Pro 7d a 1d použij 30d jako fallback, pokud není 7d rolling data
-            pnlBase = wallet.recentPnl30dBase || wallet.recentPnl30dUsd || 0; // PnL v SOL
+            pnlBase = wallet.recentPnl30dBase || wallet.recentPnl30dBase || 0; // PnL v SOL
             pnlPercent = wallet.recentPnl30dPercent || 0;
           }
         }
@@ -232,7 +232,7 @@ router.get('/overview', async (req, res) => {
           address: w.address,
           label: w.label,
           totalTrades: w.totalTrades,
-          recentPnl30dBase: w.periodPnlBase, // PnL v SOL (změněno z recentPnl30dUsd)
+          recentPnl30dBase: w.periodPnlBase, // PnL v SOL (změněno z recentPnl30dBase)
           recentPnl30dPercent: w.periodPnlPercent, // Použij periodPnlPercent pro zobrazení
           advancedStats: w.advancedStats, // Keep for frontend - frontend použije rolling stats přímo
         }));
@@ -507,7 +507,7 @@ router.get('/overview', async (req, res) => {
         winRate: true,
         pnlTotalBase: true,
         recentPnl30dPercent: true,
-        recentPnl30dUsd: true,
+        recentPnl30dBase: true,
         advancedStats: true,
         avgHoldingTimeMin: true,
         avgRr: true,
@@ -607,9 +607,9 @@ router.get('/overview', async (req, res) => {
     });
     
     // Performance distribution
-    const profitableWallets = walletList.filter((w) => (w.recentPnl30dUsd || 0) > 0).length;
-    const losingWallets = walletList.filter((w) => (w.recentPnl30dUsd || 0) < 0).length;
-    const breakEvenWallets = walletList.filter((w) => (w.recentPnl30dUsd || 0) === 0).length;
+    const profitableWallets = walletList.filter((w) => (w.recentPnl30dBase || 0) > 0).length;
+    const losingWallets = walletList.filter((w) => (w.recentPnl30dBase || 0) < 0).length;
+    const breakEvenWallets = walletList.filter((w) => (w.recentPnl30dBase || 0) === 0).length;
     
     // Top performers by period
     const topPerformers = {
@@ -620,7 +620,7 @@ router.get('/overview', async (req, res) => {
           address: w.address,
           label: w.label,
           score: w.score,
-          pnl: (w.advancedStats as any).rolling?.['30d']?.realizedPnl ?? w.recentPnl30dUsd ?? 0,
+          pnl: (w.advancedStats as any).rolling?.['30d']?.realizedPnl ?? w.recentPnl30dBase ?? 0,
           pnlPercent: (w.advancedStats as any).rolling?.['30d']?.realizedRoiPercent ?? w.recentPnl30dPercent ?? 0,
         }))
         .sort((a, b) => b.score - a.score)

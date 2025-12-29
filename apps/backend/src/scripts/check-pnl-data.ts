@@ -84,17 +84,17 @@ async function main() {
 
   // 4. Check wallet database values
   console.log('💾 Checking wallet database values:');
-  console.log(`   wallet.recentPnl30dUsd: ${wallet.recentPnl30dUsd ?? 'null'}`);
+  console.log(`   wallet.recentPnl30dBase: ${wallet.recentPnl30dBase ?? 'null'}`);
   console.log(`   wallet.recentPnl30dPercent: ${wallet.recentPnl30dPercent ?? 'null'}`);
   console.log(`   wallet.advancedStats?.rolling?.['30d']?.realizedPnl: ${(wallet.advancedStats as any)?.rolling?.['30d']?.realizedPnl ?? 'null'}\n`);
 
   // 5. Compare
-  const dbPnl = wallet.recentPnl30dUsd ?? 0;
+  const dbPnl = wallet.recentPnl30dBase ?? 0;
   const rollingPnl = rolling30d?.realizedPnl ?? 0;
   const diff = Math.abs(dbPnl - rollingPnl);
   
   console.log('🔍 COMPARISON:');
-  console.log(`   Database recentPnl30dUsd: ${dbPnl.toFixed(2)} SOL`);
+  console.log(`   Database recentPnl30dBase: ${dbPnl.toFixed(2)} SOL`);
   console.log(`   Calculated rolling['30d'].realizedPnl: ${rollingPnl.toFixed(2)} SOL`);
   console.log(`   Difference: ${diff.toFixed(2)} USD`);
   

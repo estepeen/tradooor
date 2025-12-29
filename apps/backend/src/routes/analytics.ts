@@ -223,11 +223,13 @@ router.get('/backtest/:id', async (req, res) => {
 /**
  * POST /api/analytics/correlations/analyze
  * Spustí analýzu korelací
+ * DEPRECATED: Old correlation system - not used with new incremental WalletCorrelationService
  */
+/*
 router.post('/correlations/analyze', async (req, res) => {
   try {
     const result = await correlationService.analyzeAllCorrelations();
-    
+
     res.json({
       success: true,
       ...result,
@@ -236,15 +238,18 @@ router.post('/correlations/analyze', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+*/
 
 /**
  * GET /api/analytics/correlations/groups
  * Získá detekované skupiny walletů
+ * DEPRECATED: Old correlation system - not used with new incremental WalletCorrelationService
  */
+/*
 router.get('/correlations/groups', async (req, res) => {
   try {
     const groups = await correlationService.getGroups();
-    
+
     res.json({
       success: true,
       groups,
@@ -254,15 +259,18 @@ router.get('/correlations/groups', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+*/
 
 /**
  * GET /api/analytics/correlations/wallet/:id
  * Získá korelace pro konkrétní wallet
+ * DEPRECATED: Old correlation system - not used with new incremental WalletCorrelationService
  */
+/*
 router.get('/correlations/wallet/:id', async (req, res) => {
   try {
     const correlations = await correlationService.getCorrelationsForWallet(req.params.id);
-    
+
     res.json({
       success: true,
       correlations,
@@ -272,24 +280,27 @@ router.get('/correlations/wallet/:id', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+*/
 
 /**
  * POST /api/analytics/correlations/weighted-consensus
  * Spočítá weighted consensus score
+ * DEPRECATED: Old correlation system - not used with new incremental WalletCorrelationService
  */
+/*
 router.post('/correlations/weighted-consensus', async (req, res) => {
   try {
     const { tokenId, walletIds } = req.body;
-    
+
     if (!tokenId || !walletIds || !Array.isArray(walletIds)) {
       return res.status(400).json({
         success: false,
         error: 'tokenId and walletIds array are required',
       });
     }
-    
+
     const result = await correlationService.getWeightedConsensusScore(tokenId, walletIds);
-    
+
     res.json({
       success: true,
       ...result,
@@ -298,6 +309,7 @@ router.post('/correlations/weighted-consensus', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+*/
 
 // ============================================
 // TOKEN RISK

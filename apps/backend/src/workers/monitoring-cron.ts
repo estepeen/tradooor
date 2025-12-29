@@ -92,6 +92,9 @@ async function runMonitoringTasks() {
   }
 
   // 5. Wallet correlation analysis (once per day)
+  // DEPRECATED: Old batch correlation analysis - now using incremental updates
+  // Correlations are updated automatically when new trades arrive (see normalized-trade-processor.ts)
+  /*
   if (now - lastCorrelationAnalysis >= CORRELATION_INTERVAL) {
     lastCorrelationAnalysis = now;
     try {
@@ -102,6 +105,7 @@ async function runMonitoringTasks() {
       console.error('   ❌ Correlation analysis error:', error.message);
     }
   }
+  */
 
   // 6. Process pending notifications
   try {
