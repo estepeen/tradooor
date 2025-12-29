@@ -63,7 +63,7 @@ const normalizeTradeSide = (side?: string | null): 'buy' | 'sell' => {
 
 
 // GET /api/smart-wallets - List all smart wallets with pagination and filters
-// DŮLEŽITÉ: PnL se bere PŘÍMO z databáze (recentPnl30dUsd a recentPnl30dPercent)
+// DŮLEŽITÉ: PnL se bere PŘÍMO z databáze (recentPnl30dBase a recentPnl30dPercent)
 // Tyto hodnoty se ukládají do DB při výpočtu metrik (metrics-calculator.service.ts)
 // NEPŘEPOČÍTÁVÁME to znovu - použijeme hodnoty z DB, které jsou správně vypočítané
 router.get('/', async (req, res) => {
@@ -583,7 +583,7 @@ router.get('/:id', async (req, res) => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const metricsHistory = await metricsHistoryRepo.findByWalletId(wallet.id, thirtyDaysAgo);
-    const recentPnl30dBase = Number(wallet.recentPnl30dBase || wallet.recentPnl30dUsd || 0); // PnL v SOL
+    const recentPnl30dBase = Number(wallet.recentPnl30dBase || 0); // PnL v SOL
 
     console.log(`✅ Returning wallet details with ${metricsHistory.length} history records`);
     res.json({
