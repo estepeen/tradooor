@@ -1269,6 +1269,13 @@ export class AdvancedSignalsService {
                   return Number(trade.priceBasePerToken || 0);
                 })(),
                 tradeTime: trade.timestamp.toISOString(),
+                // Pro conviction signál: průměrná velikost a multiplier
+                avgTradeSize: signal.type === 'conviction-buy' ? signal.context.walletAvgPositionUsd : undefined,
+                convictionMultiplier: signal.type === 'conviction-buy' ? (
+                  signal.context.walletAvgPositionUsd && signal.context.walletAvgPositionUsd > 0
+                    ? signal.context.positionSizeUsd! / signal.context.walletAvgPositionUsd
+                    : undefined
+                ) : undefined,
                 // Pro accumulation signál: všechny nákupy tradera
                 accumulationBuys: (signal.type as string) === 'accumulation' ? await (async () => {
                   // Načti všechny validní nákupy pro accumulation signál

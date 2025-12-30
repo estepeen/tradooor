@@ -67,6 +67,9 @@ export interface SignalNotificationData {
     tradePrice?: number;
     tradeTime?: string;
     marketCapUsd?: number; // Market cap v době trade (pro consensus/conviction signals)
+    // Pro conviction signál: průměrná velikost nákupu a multiplier
+    avgTradeSize?: number; // Průměrná velikost nákupu v base tokenu
+    convictionMultiplier?: number; // Kolikrát větší je tento trade oproti průměru
     // Pro accumulation signál: všechny nákupy tradera
     accumulationBuys?: Array<{
       amountBase: number;
@@ -489,7 +492,13 @@ export class DiscordNotificationService {
             }
             if (buy.timestamp) {
               const time = new Date(buy.timestamp);
-              const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Europe/Prague' });
+              const formatter = new Intl.DateTimeFormat('cs-CZ', {
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false,
+                timeZone: 'Europe/Prague',
+              });
+              const timeStr = formatter.format(time);
               parts.push(`• ${timeStr}`);
             }
             
@@ -501,13 +510,19 @@ export class DiscordNotificationService {
         } else {
           // Pro ostatní signály: zobraz jen aktuální trade (stejný formát jako consensus)
         const parts = [nameWithLink];
-        
+
           // Velikost obchodu v base tokenu (např. SOL) + USD hodnota
           // POZOR: tradeAmountUsd je ve skutečnosti v SOL (název je zavádějící)
         if (w.tradeAmountUsd) {
             const amountBase = w.tradeAmountUsd; // Ve skutečnosti v SOL
             const amountUsd = amountBase * solPriceUsd; // Přepočet na USD
             parts.push(`${this.formatNumber(amountBase, 2)} ${baseToken} ($${this.formatNumber(amountUsd, 0)})`);
+
+            // Pro conviction signál: zobraz kolikrát větší trade oproti průměru
+            if (w.convictionMultiplier && w.avgTradeSize) {
+              const avgUsd = w.avgTradeSize * solPriceUsd;
+              parts.push(`(${w.convictionMultiplier.toFixed(1)}x avg ${this.formatNumber(w.avgTradeSize, 2)} ${baseToken})`);
+            }
         }
           
           // Za @ chceme zobrazit MarketCap - použij market cap z doby trade, pokud je k dispozici
@@ -519,7 +534,14 @@ export class DiscordNotificationService {
           }
         if (w.tradeTime) {
           const time = new Date(w.tradeTime);
-            const timeStr = time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Europe/Prague' });
+          // Format time in Prague timezone
+          const formatter = new Intl.DateTimeFormat('cs-CZ', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: 'Europe/Prague',
+          });
+          const timeStr = formatter.format(time);
           parts.push(`• ${timeStr}`);
         }
         
