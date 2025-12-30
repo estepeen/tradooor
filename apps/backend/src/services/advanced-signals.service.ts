@@ -541,9 +541,9 @@ export class AdvancedSignalsService {
     console.log(`🔍 [ExitWarning] Checking sell for ${token.symbol || token.id.substring(0, 8)}...`);
 
     // 0. Fetch market data and filter by market cap
-    // Exit warnings are only relevant for LOW market cap tokens (< $20K)
-    // High market cap tokens are more stable, exit warnings less critical
-    const MAX_MARKET_CAP_FOR_EXIT_WARNING = 20000; // $20K
+    // Exit warnings are relevant for tokens with MINIMUM market cap ($20K+)
+    // Below that, tokens are too small/volatile for meaningful exit signals
+    const MIN_MARKET_CAP_FOR_EXIT_WARNING = 20000; // $20K minimum
 
     let marketData = { marketCap: null as number | null };
     if (token?.mintAddress) {
@@ -560,13 +560,13 @@ export class AdvancedSignalsService {
       return null;
     }
 
-    // Only care about exit warnings for LOW market cap tokens (under $20K)
-    if (marketData.marketCap >= MAX_MARKET_CAP_FOR_EXIT_WARNING) {
-      console.log(`   ⏭️  [ExitWarning] Token ${token.symbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K >= $${(MAX_MARKET_CAP_FOR_EXIT_WARNING / 1000).toFixed(0)}K - skipping (only low mcap tokens)`);
+    // Only care about exit warnings for tokens ABOVE minimum market cap ($20K+)
+    if (marketData.marketCap < MIN_MARKET_CAP_FOR_EXIT_WARNING) {
+      console.log(`   ⏭️  [ExitWarning] Token ${token.symbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K < $${(MIN_MARKET_CAP_FOR_EXIT_WARNING / 1000).toFixed(0)}K minimum - skipping (too small)`);
       return null;
     }
 
-    console.log(`   ✅ [ExitWarning] Token ${token.symbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K < $${(MAX_MARKET_CAP_FOR_EXIT_WARNING / 1000).toFixed(0)}K - checking for sellers...`);
+    console.log(`   ✅ [ExitWarning] Token ${token.symbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K >= $${(MIN_MARKET_CAP_FOR_EXIT_WARNING / 1000).toFixed(0)}K - checking for sellers...`);
 
     // 1. Najdi všechny wallety, které token NAKOUPILY (v posledních 7 dnech)
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
