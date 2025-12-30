@@ -1421,7 +1421,13 @@ export class AdvancedSignalsService {
             };
 
             console.log(`📨 [AdvancedSignals] About to send Discord notification - baseToken: ${notificationData.baseToken || 'MISSING'}, walletIds: ${notificationData.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}, aiDecision: ${notificationData.aiDecision || 'undefined'}`);
-            await this.discordNotification.sendSignalNotification(notificationData);
+
+            // Exit-warning signály jdou do separátního exit kanálu
+            if (signal.type === 'exit-warning') {
+              await this.discordNotification.sendSignalToExitChannel(notificationData);
+            } else {
+              await this.discordNotification.sendSignalNotification(notificationData);
+            }
           } catch (discordError: any) {
             console.warn(`⚠️  Discord notification failed: ${discordError.message}`);
           }

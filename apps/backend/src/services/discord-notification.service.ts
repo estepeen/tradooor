@@ -219,6 +219,48 @@ export class DiscordNotificationService {
   }
 
   /**
+   * Pošle signál do exit kanálu (pro exit-warning signály)
+   * Používá stejný formát jako sendSignalNotification, ale jde do exit webhooku
+   */
+  async sendSignalToExitChannel(data: SignalNotificationData): Promise<boolean> {
+    if (!this.exitEnabled) {
+      console.warn('⚠️  Exit channel notification skipped: DISCORD_EXIT_WEBHOOK_URL not set');
+      return false;
+    }
+
+    try {
+      console.log(`📨 [Discord] sendSignalToExitChannel called for ${data.tokenSymbol} (${data.signalType})`);
+
+      const embed = await this.buildSignalEmbed(data);
+
+      const payload: DiscordWebhookPayload = {
+        username: 'Spectre Exit Alerts',
+        embeds: [embed],
+      };
+
+      const response = await fetch(this.exitWebhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ Discord exit channel webhook error: ${response.status} - ${errorText}`);
+        return false;
+      }
+
+      console.log(`📨 Discord exit channel notification sent for ${data.tokenSymbol}`);
+      return true;
+    } catch (error: any) {
+      console.error(`❌ Failed to send Discord exit channel notification: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
    * Vytvoří embed pro signál
    */
   private async buildSignalEmbed(data: SignalNotificationData): Promise<DiscordEmbed> {
