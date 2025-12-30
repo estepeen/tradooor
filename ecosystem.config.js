@@ -70,6 +70,9 @@ module.exports = {
       max_restarts: 10,
       min_uptime: '10s',
     },
+    // BACKFILL CRON - záloha pro trades které webhook nezachytil
+    // S optimalizovaným webhookem by měl být většinou zbytečný
+    // Frekvence snížena z 2 min na 10 min pro úsporu RPC requestů
     {
       name: 'tradooor-backfill-cron',
       script: 'pnpm',
@@ -77,8 +80,8 @@ module.exports = {
       cwd: process.cwd(),
       env: {
         NODE_ENV: 'production',
-        BACKFILL_CRON_SCHEDULE: '*/2 * * * *', // Každé 2 minuty (kontroluje poslední 2 minuty)
-        RUN_ON_START: 'true', // Spusť hned při startu
+        BACKFILL_CRON_SCHEDULE: '0 */4 * * *', // Každé 4 hodiny (sníženo z 2 min)
+        RUN_ON_START: 'false', // Nespouštět při startu - webhook pokryje nové trades
       },
       error_file: './logs/backfill-cron-error.log',
       out_file: './logs/backfill-cron-out.log',
