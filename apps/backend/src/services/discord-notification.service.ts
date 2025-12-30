@@ -399,6 +399,15 @@ export class DiscordNotificationService {
       });
     }
 
+    // Discord requires at least one field or description - add fallback if empty
+    if (fields.length === 0) {
+      fields.push({
+        name: '📊 Info',
+        value: 'Exit warning triggered',
+        inline: false,
+      });
+    }
+
     return {
       title,
       url: birdeyeUrl,

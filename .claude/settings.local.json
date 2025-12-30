@@ -33,7 +33,8 @@
       "Bash(find:*)",
       "Bash(npx prisma generate)",
       "Bash(pnpm --filter backend build:signals:*)",
-      "Bash(ssh-add:*)"
+      "Bash(ssh-add:*)",
+      "Bash(pm2 list:*)"
     ]
   }
 }
