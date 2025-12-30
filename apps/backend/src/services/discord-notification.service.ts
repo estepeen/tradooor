@@ -418,17 +418,25 @@ export class DiscordNotificationService {
       });
     }
 
-    // SL/TP (if available) - show in USD
+    // SL/TP (if available) - show in MCap for readability, USD in small text for bot
     // Only show if we have real AI decision values
     if (data.stopLossPercent && data.stopLossPercent > 0 && data.takeProfitPercent && data.takeProfitPercent > 0) {
       const sltp = [];
-      if (data.stopLossPriceUsd && data.stopLossPercent) {
+      if (data.stopLossPercent && data.marketCapUsd) {
+        // Calculate SL MCap from entry MCap
+        const slMcap = data.marketCapUsd * (1 - data.stopLossPercent / 100);
+        sltp.push(`🛑 **SL:** $${this.formatNumber(slMcap, 0)} (-${data.stopLossPercent}%)`);
+      } else if (data.stopLossPriceUsd && data.stopLossPercent) {
         sltp.push(`🛑 **SL:** $${this.formatNumber(data.stopLossPriceUsd, 8)} (-${data.stopLossPercent}%)`);
       }
-      if (data.takeProfitPriceUsd && data.takeProfitPercent) {
+      if (data.takeProfitPercent && data.marketCapUsd) {
+        // Calculate TP MCap from entry MCap
+        const tpMcap = data.marketCapUsd * (1 + data.takeProfitPercent / 100);
+        sltp.push(`🎯 **TP:** $${this.formatNumber(tpMcap, 0)} (+${data.takeProfitPercent}%)`);
+      } else if (data.takeProfitPriceUsd && data.takeProfitPercent) {
         sltp.push(`🎯 **TP:** $${this.formatNumber(data.takeProfitPriceUsd, 8)} (+${data.takeProfitPercent}%)`);
       }
-      
+
       if (sltp.length > 0) {
         fields.push({
           name: '📈 Exit Strategy',
@@ -446,6 +454,13 @@ export class DiscordNotificationService {
     }
 
     // Security is already added above (as 3rd column after Token Info)
+
+    // Separator before Traders section
+    fields.push({
+      name: '\u200B', // Zero-width space
+      value: '───────────────────────────',
+      inline: false,
+    });
 
     // Wallets with trade details (show all) - add profile links
     if (data.wallets && data.wallets.length > 0) {
@@ -554,13 +569,18 @@ export class DiscordNotificationService {
       });
     }
 
-    // AI Reasoning (if available)
+    // Separator before AI Reasoning
     if (data.aiReasoning) {
       fields.push({
+        name: '\u200B', // Zero-width space
+        value: '───────────────────────────',
+        inline: false,
+      });
+
+      // AI Reasoning (if available) - full text, no truncation
+      fields.push({
         name: '💭 AI Reasoning',
-        value: data.aiReasoning.length > 200 
-          ? data.aiReasoning.substring(0, 200) + '...' 
-          : data.aiReasoning,
+        value: data.aiReasoning,
         inline: false,
       });
     }

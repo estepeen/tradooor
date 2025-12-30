@@ -230,8 +230,14 @@ Rules:
 - Max position: 20%
 - Always set SL: 10-50%, TP: 20-200%
 
+IMPORTANT for reasoning:
+- Be concise: 1-2 short sentences max
+- Round all percentages to 2 decimal places (e.g. 83.43% not 83.4252953906462%)
+- Focus on key factors: consensus %, trader score, token age, liquidity
+- Example: "Medium risk with 83% consensus and 45 avg trader score. Token is 1h old with $17K liquidity."
+
 JSON:
-{"decision":"buy|sell|hold|skip","confidence":0-100,"reasoning":"2-3 sentences","suggestedPositionPercent":5-20,"stopLossPercent":10-50,"takeProfitPercent":20-200,"expectedHoldTimeMinutes":5-1440,"riskScore":1-10}`;
+{"decision":"buy|sell|hold|skip","confidence":0-100,"reasoning":"1-2 SHORT sentences, round numbers to 2 decimals","suggestedPositionPercent":5-20,"stopLossPercent":10-50,"takeProfitPercent":20-200,"expectedHoldTimeMinutes":5-1440,"riskScore":1-10}`;
   }
 
   /**
@@ -564,7 +570,7 @@ JSON:
       tokenId: '',
       decision,
       confidence: Math.round(confidence),
-      reasoning: `Fallback decision based on ${signal.type} signal (${signal.strength} strength). Wallet score: ${context.walletScore.toFixed(1)}, Token age: ${context.tokenAge.toFixed(0)}min, Liquidity: ${context.tokenLiquidity ? `$${(context.tokenLiquidity / 1000).toFixed(1)}K` : 'unknown'}`,
+      reasoning: `${signal.strength.charAt(0).toUpperCase() + signal.strength.slice(1)} ${signal.type} signal. Trader score ${Math.round(context.walletScore)}, token ${context.tokenAge >= 60 ? Math.round(context.tokenAge / 60) + 'h' : Math.round(context.tokenAge) + 'm'} old${context.tokenLiquidity ? `, $${Math.round(context.tokenLiquidity / 1000)}K liq` : ''}.`,
       suggestedPositionPercent: positionPercent,
       stopLossPercent,
       takeProfitPercent,

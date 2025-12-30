@@ -32,7 +32,8 @@
       "Bash(ssh -i ~/.ssh/claude_assistant root@157.180.41.49:*)",
       "Bash(find:*)",
       "Bash(npx prisma generate)",
-      "Bash(pnpm --filter backend build:signals:*)"
+      "Bash(pnpm --filter backend build:signals:*)",
+      "Bash(ssh-add:*)"
     ]
   }
 }
