@@ -351,9 +351,8 @@ export class DiscordNotificationService {
         securityLines.push(`**LP:** No`);
       }
 
-      // Mint and Freeze on separate lines
-      securityLines.push(`**Mint:** ${sec.isMintable ? 'Yes' : 'No'}`);
-      securityLines.push(`**Freeze:** ${sec.isFreezable ? 'Yes' : 'No'}`);
+      // Mint and Freeze combined on one line
+      securityLines.push(`**Mint/Frz:** ${sec.isMintable ? 'Yes' : 'No'}/${sec.isFreezable ? 'Yes' : 'No'}`);
 
       fields.push({
         name: '🛡️ Security',
@@ -364,7 +363,7 @@ export class DiscordNotificationService {
       // Show placeholder if no security data
       fields.push({
         name: '🛡️ Security',
-        value: `**Risk:** -\n**Honey:** -\n**LP:** -\n**Mint:** -\n**Freeze:** -`,
+        value: `**Risk:** -\n**Honey:** -\n**LP:** -\n**Mint/Frz:** -`,
         inline: true,
       });
     }
