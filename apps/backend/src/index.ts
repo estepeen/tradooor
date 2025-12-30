@@ -3,12 +3,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { smartWalletRouter } from './routes/smart-wallets.js';
 import { tradesRouter } from './routes/trades.js';
-import { statsRouter } from './routes/stats.js';
 import { tokensRouter } from './routes/tokens.js';
 import webhookRouter from './routes/webhooks.js';
-import signalsRouter from './routes/signals.js';
-import analyticsRouter from './routes/analytics.js';
-import positionsRouter from './routes/positions.js';
 
 // Check if there's an error loading dotenv
 const dotenvResult = dotenv.config();
@@ -111,19 +107,13 @@ app.get('/', (req, res) => {
   res.json({
     message: 'SolBot API',
     version: '1.0.0',
-      endpoints: {
-        health: '/health',
-        smartWallets: '/api/smart-wallets',
-        smartWalletsSync: '/api/smart-wallets/sync (POST, sync from wallets.csv)',
-        smartWalletsBackfill: '/api/smart-wallets/backfill (POST, backfill historical transactions)',
-        smartWalletsPnl: '/api/smart-wallets/:id/pnl (GET, get PnL data)',
-        trades: '/api/trades',
-        tradesRecalculate: '/api/trades/recalculate-all (POST, re-process all trades with fixed logic)',
-        stats: '/api/stats',
-        tokensEnrich: '/api/tokens/enrich-symbols (POST, enrich token symbols from Helius)',
-        webhooks: '/api/webhooks/quicknode (POST, receive QuickNode webhook notifications)',
-        signals: '/api/signals (GET /, GET /:id, POST /generate, POST /:id/execute)',
-      },
+    endpoints: {
+      health: '/health',
+      smartWallets: '/api/smart-wallets',
+      trades: '/api/trades',
+      tokens: '/api/tokens',
+      webhooks: '/api/webhooks/quicknode (POST)',
+    },
   });
 });
 
@@ -170,11 +160,7 @@ app.options('*', (req, res) => {
 // API routes (webhook router is already registered above)
 app.use('/api/smart-wallets', smartWalletRouter);
 app.use('/api/trades', tradesRouter);
-app.use('/api/stats', statsRouter);
-app.use('/api/signals', signalsRouter);
 app.use('/api/tokens', tokensRouter);
-app.use('/api/analytics', analyticsRouter);
-app.use('/api/positions', positionsRouter);
 
 // Handle "route not found" errors
 app.use((req, res, next) => {
