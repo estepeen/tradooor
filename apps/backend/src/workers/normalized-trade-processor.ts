@@ -50,15 +50,17 @@ const ENABLE_ADVANCED_SIGNALS = process.env.ENABLE_ADVANCED_SIGNALS !== 'false';
 
 // Track wallets that need metrics recalculation (debounce)
 const walletMetricsDebounce = new Map<string, NodeJS.Timeout>(); // walletId -> timeout
-const METRICS_DEBOUNCE_MS = 10000; // 10 seconds debounce for metrics calculation
+const METRICS_DEBOUNCE_MS = 3000; // Reduced from 10s to 3s for faster UI updates
 
-const IDLE_DELAY_MS = Number(process.env.NORMALIZED_TRADE_WORKER_IDLE_MS || 3000); // Increased from 1500ms to 3000ms
-const BATCH_SIZE = Number(process.env.NORMALIZED_TRADE_WORKER_BATCH || 10); // Reduced from 20 to 10 for lower CPU usage
-const DELAY_BETWEEN_TRADES_MS = 200; // Add delay between processing trades
+// LATENCY OPTIMIZATION: Reduced delays for faster signal delivery
+// Previous values caused 4-8 minute delays: IDLE=3000, BATCH=10, DELAY=200
+const IDLE_DELAY_MS = Number(process.env.NORMALIZED_TRADE_WORKER_IDLE_MS || 500); // Reduced from 3000ms to 500ms
+const BATCH_SIZE = Number(process.env.NORMALIZED_TRADE_WORKER_BATCH || 50); // Increased from 10 to 50 for faster throughput
+const DELAY_BETWEEN_TRADES_MS = 50; // Reduced from 200ms to 50ms
 
 // Debounce map for closed lot recalculation - prevents recalculating same wallet multiple times in short period
 const walletClosedLotDebounce = new Map<string, number>(); // walletId -> last recalculation timestamp
-const CLOSED_LOT_DEBOUNCE_MS = 5000; // 5 seconds debounce (short enough to not delay updates, long enough to batch rapid trades)
+const CLOSED_LOT_DEBOUNCE_MS = 2000; // Reduced from 5s to 2s for faster updates while still batching rapid trades
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
