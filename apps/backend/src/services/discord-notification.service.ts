@@ -332,22 +332,14 @@ export class DiscordNotificationService {
     if (data.security) {
       const sec = data.security;
 
-      // Security section - clean format with icons only in headers
-      const riskEmoji = {
-        'safe': '✅',
-        'low': '🟢',
-        'medium': '🟡',
-        'high': '🟠',
-        'critical': '🔴',
-      }[sec.riskLevel] || '❓';
-
+      // Security section - clean format, no icons in values
       const securityLines = [
-        `**Risk:** ${riskEmoji} ${sec.riskLevel.toUpperCase()}`,
+        `**Risk:** ${sec.riskLevel.toUpperCase()}`,
       ];
 
-      // Honeypot status - red alert if yes
+      // Honeypot status - red alert icon AFTER text if yes
       if (sec.isHoneypot) {
-        securityLines.push(`**Honey:** 🚨 YES`);
+        securityLines.push(`**Honey:** YES 🚨`);
       } else {
         securityLines.push(`**Honey:** No`);
       }
@@ -359,13 +351,9 @@ export class DiscordNotificationService {
         securityLines.push(`**LP:** No`);
       }
 
-      // Flags (compact, no icons in values)
-      const flags = [];
-      if (!sec.isMintable) flags.push('Mint✓');
-      if (!sec.isFreezable) flags.push('Freeze✓');
-      if (flags.length > 0) {
-        securityLines.push(flags.join(' '));
-      }
+      // Mint and Freeze on separate lines
+      securityLines.push(`**Mint:** ${sec.isMintable ? 'Yes' : 'No'}`);
+      securityLines.push(`**Freeze:** ${sec.isFreezable ? 'Yes' : 'No'}`);
 
       fields.push({
         name: '🛡️ Security',
@@ -376,7 +364,7 @@ export class DiscordNotificationService {
       // Show placeholder if no security data
       fields.push({
         name: '🛡️ Security',
-        value: `**Risk:** -\n💸 **Tax:** -\n🔒 **LP:** -`,
+        value: `**Risk:** -\n**Honey:** -\n**LP:** -\n**Mint:** -\n**Freeze:** -`,
         inline: true,
       });
     }
@@ -409,23 +397,23 @@ export class DiscordNotificationService {
       });
     }
 
-    // SL/TP (if available) - show in MCap for readability, USD in small text for bot
+    // SL/TP (if available) - show in MCap for readability, icons AFTER text
     // Only show if we have real AI decision values
     if (data.stopLossPercent && data.stopLossPercent > 0 && data.takeProfitPercent && data.takeProfitPercent > 0) {
       const sltp = [];
       if (data.stopLossPercent && data.marketCapUsd) {
         // Calculate SL MCap from entry MCap
         const slMcap = data.marketCapUsd * (1 - data.stopLossPercent / 100);
-        sltp.push(`**SL:** $${this.formatNumber(slMcap, 0)} (-${data.stopLossPercent}%)`);
+        sltp.push(`**SL:** $${this.formatNumber(slMcap, 0)} (-${data.stopLossPercent}%) 🛑`);
       } else if (data.stopLossPriceUsd && data.stopLossPercent) {
-        sltp.push(`**SL:** $${this.formatNumber(data.stopLossPriceUsd, 8)} (-${data.stopLossPercent}%)`);
+        sltp.push(`**SL:** $${this.formatNumber(data.stopLossPriceUsd, 8)} (-${data.stopLossPercent}%) 🛑`);
       }
       if (data.takeProfitPercent && data.marketCapUsd) {
         // Calculate TP MCap from entry MCap
         const tpMcap = data.marketCapUsd * (1 + data.takeProfitPercent / 100);
-        sltp.push(`**TP:** $${this.formatNumber(tpMcap, 0)} (+${data.takeProfitPercent}%)`);
+        sltp.push(`**TP:** $${this.formatNumber(tpMcap, 0)} (+${data.takeProfitPercent}%) 🎯`);
       } else if (data.takeProfitPriceUsd && data.takeProfitPercent) {
-        sltp.push(`**TP:** $${this.formatNumber(data.takeProfitPriceUsd, 8)} (+${data.takeProfitPercent}%)`);
+        sltp.push(`**TP:** $${this.formatNumber(data.takeProfitPriceUsd, 8)} (+${data.takeProfitPercent}%) 🎯`);
       }
 
       if (sltp.length > 0) {
