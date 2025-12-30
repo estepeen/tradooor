@@ -513,7 +513,8 @@ export class AdvancedSignalsService {
 
   /**
    * 🚨 Exit Warning Detection (Enhanced with tier system)
-   * Více smart wallets začne prodávat stejný token = warning
+   * Detekuje když wallety, které NAKOUPILY token, ho začnou PRODÁVAT
+   * To je silnější signál než obecné prodeje - tito tradeři věděli co kupují
    */
   private async detectExitWarning(
     trade: any,
@@ -522,11 +523,51 @@ export class AdvancedSignalsService {
   ): Promise<AdvancedSignal | null> {
     console.log(`🔍 [ExitWarning] Checking sell for ${token.symbol || token.id.substring(0, 8)}...`);
 
-    // Find all SELL trades for this token in recent time window
+    // 1. Najdi všechny wallety, které token NAKOUPILY (v posledních 7 dnech)
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const buyersResult = await prisma.trade.findMany({
+      where: {
+        tokenId: token.id,
+        side: 'buy',
+        timestamp: { gte: sevenDaysAgo },
+      },
+      select: {
+        walletId: true,
+        wallet: {
+          select: {
+            id: true,
+            score: true,
+            label: true,
+          },
+        },
+      },
+      distinct: ['walletId'],
+    });
+
+    if (!buyersResult || buyersResult.length === 0) {
+      console.log(`   ⏭️  [ExitWarning] No buyers found for ${token.symbol} in last 7 days`);
+      return null;
+    }
+
+    // Mapa kupců: walletId -> score
+    const buyerWallets = new Map<string, { score: number; label: string | null }>();
+    for (const buy of buyersResult) {
+      if (buy.wallet) {
+        buyerWallets.set(buy.walletId, {
+          score: buy.wallet.score || 0,
+          label: buy.wallet.label || null,
+        });
+      }
+    }
+
+    console.log(`   📊 [ExitWarning] ${token.symbol}: Found ${buyerWallets.size} wallets that bought this token`);
+
+    // 2. Najdi SELL trades v posledních 4h OD TĚCH SAMÝCH WALLETS, které nakoupily
     const recentSells = await prisma.trade.findMany({
       where: {
         tokenId: token.id,
         side: 'sell',
+        walletId: { in: Array.from(buyerWallets.keys()) }, // Pouze wallety které nakoupily
         timestamp: {
           gte: new Date(Date.now() - SIGNAL_TIERS.EXIT_WARNING.WARNING.timeWindowHours * 60 * 60 * 1000),
         },
@@ -536,30 +577,39 @@ export class AdvancedSignalsService {
           select: {
             id: true,
             score: true,
+            label: true,
           },
         },
       },
     });
 
     if (!recentSells || recentSells.length === 0) {
-      console.log(`   ⏭️  [ExitWarning] No recent sells found for ${token.symbol}`);
+      console.log(`   ⏭️  [ExitWarning] No recent sells from buyers for ${token.symbol}`);
       return null;
     }
 
-    // Count unique sellers and calculate average score
-    const sellerMap = new Map<string, number>();
+    // 3. Počítej unique sellery (z těch co nakoupili) a jejich avg score
+    const sellerMap = new Map<string, { score: number; label: string | null }>();
     for (const sell of recentSells) {
-      if (sell.wallet) {
-        sellerMap.set(sell.walletId, sell.wallet.score || 0);
+      if (sell.wallet && !sellerMap.has(sell.walletId)) {
+        sellerMap.set(sell.walletId, {
+          score: sell.wallet.score || 0,
+          label: sell.wallet.label || null,
+        });
       }
     }
 
     const sellerCount = sellerMap.size;
-    const avgScore = Array.from(sellerMap.values()).reduce((sum, score) => sum + score, 0) / sellerCount;
+    const scores = Array.from(sellerMap.values()).map(w => w.score);
+    const avgScore = scores.reduce((sum, score) => sum + score, 0) / sellerCount;
+    const sellerNames = Array.from(sellerMap.values())
+      .map(w => w.label || 'unknown')
+      .slice(0, 3)
+      .join(', ');
 
-    console.log(`   📊 [ExitWarning] ${token.symbol}: ${sellerCount} unique sellers, avgScore: ${avgScore.toFixed(1)} (need: 2+ sellers, 45+ avg)`);
+    console.log(`   📊 [ExitWarning] ${token.symbol}: ${sellerCount}/${buyerWallets.size} buyers now selling, avgScore: ${avgScore.toFixed(1)} (${sellerNames})`);
 
-    // Determine tier based on seller count and avg score
+    // 4. Urči tier na základě počtu prodávajících a jejich score
     let tier: 'CRITICAL' | 'WARNING' | null = null;
     let tierConfig: any;
 
@@ -582,18 +632,25 @@ export class AdvancedSignalsService {
       return null;
     }
 
-    console.log(`   🚨 [ExitWarning] ${token.symbol}: EXIT WARNING ${tier} triggered! ${sellerCount} wallets, avgScore ${avgScore.toFixed(1)}`);
-
+    console.log(`   🚨 [ExitWarning] ${token.symbol}: EXIT WARNING ${tier} triggered! ${sellerCount} original buyers now selling, avgScore ${avgScore.toFixed(1)}`);
 
     const strength = tier === 'CRITICAL' ? 'strong' : 'medium';
     const confidence = Math.min(90, 50 + sellerCount * 12 + avgScore / 10);
+
+    // Přidej info o prodejcích do contextu
+    const exitContext = {
+      ...context,
+      exitSellerCount: sellerCount,
+      exitSellerNames: sellerNames,
+      exitTotalBuyers: buyerWallets.size,
+    };
 
     return {
       type: 'exit-warning',
       strength,
       confidence,
-      reasoning: `🚨 Exit Warning (${tier}): ${sellerCount} smart wallets (avg score ${avgScore.toFixed(0)}) prodává ${token.symbol || 'token'} → ${tierConfig.action.replace('_', ' ')}`,
-      context,
+      reasoning: `🚨 Exit Warning (${tier}): ${sellerCount}/${buyerWallets.size} original buyers (${sellerNames}) now selling ${token.symbol || 'token'} (avg score ${avgScore.toFixed(0)}) → ${tierConfig.action.replace('_', ' ')}`,
+      context: exitContext,
       suggestedAction: 'sell',
       riskLevel: 'high',
     };
