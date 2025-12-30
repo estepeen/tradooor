@@ -798,10 +798,10 @@ export class AdvancedSignalsService {
       return null;
     }
 
-    // FILTER: Quality filters (volume ratio, price momentum, holder concentration)
-    // Fetch RugCheck for holder data
+    // FILTER: Quality filters - RUGCHECK DISABLED FOR LATENCY OPTIMIZATION
+    // To re-enable: remove the `false &&` condition below
     let rugCheckReport = null;
-    if (token?.mintAddress) {
+    if (false && token?.mintAddress) {
       try {
         const rugCheckService = new RugCheckService();
         rugCheckReport = await rugCheckService.getReport(token.mintAddress);
@@ -1002,10 +1002,10 @@ export class AdvancedSignalsService {
       return null;
     }
 
-    // FILTER: Quality filters (volume ratio, price momentum, holder concentration)
-    // Fetch RugCheck for holder data
+    // FILTER: Quality filters - RUGCHECK DISABLED FOR LATENCY OPTIMIZATION
+    // To re-enable: remove the `false &&` condition below
     let rugCheckReport = null;
-    if (token?.mintAddress) {
+    if (false && token?.mintAddress) {
       try {
         const rugCheckService = new RugCheckService();
         rugCheckReport = await rugCheckService.getReport(token.mintAddress);
@@ -1226,9 +1226,10 @@ export class AdvancedSignalsService {
       }
     }
 
-      // AI Evaluation (if GROQ_API_KEY is set) - JEN PRO NEJLEPŠÍ SIGNÁL
+      // AI Evaluation - DISABLED FOR LATENCY OPTIMIZATION
+    // To re-enable: remove the `false &&` condition below
     let sharedAIDecision: any = null;
-    if (process.env.GROQ_API_KEY && bestSignalForAI && bestSignalForAI.suggestedAction === 'buy' && bestSignalForAI.confidence >= 50) {
+    if (false && process.env.GROQ_API_KEY && bestSignalForAI && bestSignalForAI.suggestedAction === 'buy' && bestSignalForAI.confidence >= 50) {
       console.log(`🤖 [AdvancedSignals] Calling AI for best signal: ${bestSignalForAI.type} (confidence: ${bestSignalForAI.confidence}%) - will reuse for all ${signals.length} signals from this trade`);
         try {
           const aiContext: AIContext = {
@@ -1250,7 +1251,7 @@ export class AdvancedSignalsService {
 
         const aiResult = await this.aiDecision.evaluateSignal(bestSignalForAI, aiContext);
         sharedAIDecision = aiResult;
-          
+
           if (aiResult && !aiResult.isFallback) {
           aiEvaluated++;
           console.log(`✅ [AdvancedSignals] AI evaluated best signal (${bestSignalForAI.type}): ${aiResult.decision} (${aiResult.confidence}% confidence) - will reuse for all signals`);
@@ -1265,7 +1266,7 @@ export class AdvancedSignalsService {
         console.error(`❌ [AdvancedSignals] AI evaluation failed: ${aiError.message}`);
         sharedAIDecision = null;
         }
-      } else if (!process.env.GROQ_API_KEY) {
+      } else if (false && !process.env.GROQ_API_KEY) {
       console.warn(`⚠️  [AdvancedSignals] GROQ_API_KEY not set - skipping AI evaluation`);
     }
 
@@ -1348,30 +1349,33 @@ export class AdvancedSignalsService {
                 continue; // Pokračuj na další signál
               } else {
                 // Nový accumulation signál - přidej do pending a nastav timeout
-                // Fetch RugCheck security data
+                // RUGCHECK DISABLED FOR LATENCY OPTIMIZATION
+                // To re-enable: remove the `false &&` condition below
                 let securityData: SignalNotificationData['security'] | undefined;
-                try {
-                  const rugReport = await this.rugCheck.getReport(token?.mintAddress || '');
-                  if (rugReport) {
-                    securityData = {
-                      riskLevel: rugReport.riskLevel,
-                      riskScore: rugReport.riskScore,
-                      isLpLocked: rugReport.isLpLocked,
-                      lpLockedPercent: rugReport.lpLockedPercent,
-                      isDexPaid: rugReport.isDexPaid,
-                      isMintable: rugReport.isMintable,
-                      isFreezable: rugReport.isFreezable,
-                      isHoneypot: rugReport.isHoneypot,
-                      honeypotReason: rugReport.honeypotReason,
-                      buyTax: rugReport.buyTax,
-                      sellTax: rugReport.sellTax,
-                      hasDangerousTax: rugReport.hasDangerousTax,
-                      risks: rugReport.risks,
-                    };
-                    console.log(`   🛡️  [Accumulation] RugCheck: ${rugReport.riskLevel} (${rugReport.riskScore}/100)${rugReport.isHoneypot ? ' 🍯 HONEYPOT!' : ''}`);
+                if (false) {
+                  try {
+                    const rugReport = await this.rugCheck.getReport(token?.mintAddress || '');
+                    if (rugReport) {
+                      securityData = {
+                        riskLevel: rugReport.riskLevel,
+                        riskScore: rugReport.riskScore,
+                        isLpLocked: rugReport.isLpLocked,
+                        lpLockedPercent: rugReport.lpLockedPercent,
+                        isDexPaid: rugReport.isDexPaid,
+                        isMintable: rugReport.isMintable,
+                        isFreezable: rugReport.isFreezable,
+                        isHoneypot: rugReport.isHoneypot,
+                        honeypotReason: rugReport.honeypotReason,
+                        buyTax: rugReport.buyTax,
+                        sellTax: rugReport.sellTax,
+                        hasDangerousTax: rugReport.hasDangerousTax,
+                        risks: rugReport.risks,
+                      };
+                      console.log(`   🛡️  [Accumulation] RugCheck: ${rugReport.riskLevel} (${rugReport.riskScore}/100)${rugReport.isHoneypot ? ' 🍯 HONEYPOT!' : ''}`);
+                    }
+                  } catch (rugError: any) {
+                    console.warn(`   ⚠️  [Accumulation] RugCheck failed: ${rugError.message}`);
                   }
-                } catch (rugError: any) {
-                  console.warn(`   ⚠️  [Accumulation] RugCheck failed: ${rugError.message}`);
                 }
 
                 const pending: PendingAccumulationSignal = {
@@ -1403,30 +1407,33 @@ export class AdvancedSignalsService {
             // Pro ostatní signály: pošli okamžitě
             console.log(`📨 [AdvancedSignals] Sending Discord notification for ${signal.type} signal - baseToken: ${baseToken}, walletId: ${wallet?.id ? 'yes' : 'no'}, walletAddress: ${wallet?.address?.substring(0, 8)}...`);
 
-            // Fetch RugCheck security data for non-accumulation signals
+            // RUGCHECK DISABLED FOR LATENCY OPTIMIZATION
+            // To re-enable: remove the `if (false)` block below
             let securityData: SignalNotificationData['security'] | undefined;
-            try {
-              const rugReport = await this.rugCheck.getReport(token?.mintAddress || '');
-              if (rugReport) {
-                securityData = {
-                  riskLevel: rugReport.riskLevel,
-                  riskScore: rugReport.riskScore,
-                  isLpLocked: rugReport.isLpLocked,
-                  lpLockedPercent: rugReport.lpLockedPercent,
-                  isDexPaid: rugReport.isDexPaid,
-                  isMintable: rugReport.isMintable,
-                  isFreezable: rugReport.isFreezable,
-                  isHoneypot: rugReport.isHoneypot,
-                  honeypotReason: rugReport.honeypotReason,
-                  buyTax: rugReport.buyTax,
-                  sellTax: rugReport.sellTax,
-                  hasDangerousTax: rugReport.hasDangerousTax,
-                  risks: rugReport.risks,
-                };
-                console.log(`   🛡️  [${signal.type}] RugCheck: ${rugReport.riskLevel} (${rugReport.riskScore}/100)${rugReport.isHoneypot ? ' 🍯 HONEYPOT!' : ''}`);
+            if (false) {
+              try {
+                const rugReport = await this.rugCheck.getReport(token?.mintAddress || '');
+                if (rugReport) {
+                  securityData = {
+                    riskLevel: rugReport.riskLevel,
+                    riskScore: rugReport.riskScore,
+                    isLpLocked: rugReport.isLpLocked,
+                    lpLockedPercent: rugReport.lpLockedPercent,
+                    isDexPaid: rugReport.isDexPaid,
+                    isMintable: rugReport.isMintable,
+                    isFreezable: rugReport.isFreezable,
+                    isHoneypot: rugReport.isHoneypot,
+                    honeypotReason: rugReport.honeypotReason,
+                    buyTax: rugReport.buyTax,
+                    sellTax: rugReport.sellTax,
+                    hasDangerousTax: rugReport.hasDangerousTax,
+                    risks: rugReport.risks,
+                  };
+                  console.log(`   🛡️  [${signal.type}] RugCheck: ${rugReport.riskLevel} (${rugReport.riskScore}/100)${rugReport.isHoneypot ? ' 🍯 HONEYPOT!' : ''}`);
+                }
+              } catch (rugError: any) {
+                console.warn(`   ⚠️  [${signal.type}] RugCheck failed: ${rugError.message}`);
               }
-            } catch (rugError: any) {
-              console.warn(`   ⚠️  [${signal.type}] RugCheck failed: ${rugError.message}`);
             }
 
             const notificationData: SignalNotificationData = {
