@@ -775,6 +775,7 @@ export class AdvancedSignalsService {
       exitSellerCount: sellerCount,
       exitSellerNames: sellerNames,
       exitTotalBuyers: buyerWallets.size,
+      currentMarketCapUsd: marketData.marketCap, // Current MCap for display
       // Detailní data o prodejcích pro Discord notifikaci
       exitSellers: sellers.map(s => ({
         walletId: s.walletId,
@@ -787,6 +788,13 @@ export class AdvancedSignalsService {
         remainingTokens: s.remainingTokens,      // Kolik zbývá
         lastSellTime: s.sells[0]?.timestamp, // Nejnovější prodej
         sellCount: s.sells.length,
+        // Individual sells for detailed Discord display
+        sells: s.sells.map(sell => ({
+          amountUsd: sell.amountUsd,
+          amountTokens: sell.amountTokens,
+          timestamp: sell.timestamp,
+          marketCapUsd: marketData.marketCap, // Use current MCap (approximation)
+        })),
       })),
     };
 

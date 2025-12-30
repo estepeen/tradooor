@@ -38,11 +38,11 @@ export const VOLUME_FILTER_CONFIG = {
  */
 export const PRICE_MOMENTUM_CONFIG = {
   // Maximum allowed price drop in 5 minutes (%)
-  // -10% in 5 min = likely dump, avoid
-  MAX_PRICE_DROP_5M: -15,
+  // -25% in 5 min = severe dump, avoid
+  MAX_PRICE_DROP_5M: -25,
 
   // Maximum allowed price drop in 1 hour (%)
-  MAX_PRICE_DROP_1H: -30,
+  MAX_PRICE_DROP_1H: -50,
 
   // If enabled, also check that price isn't at extreme pump (might be top)
   CHECK_EXTREME_PUMP: false,

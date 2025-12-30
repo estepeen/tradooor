@@ -191,17 +191,39 @@ export class RugCheckService {
                       data.isDexPaid === true ||
                       (data.markets && data.markets.some((m: any) => m.dexPaid));
 
-    // Top holders
+    // Top holders - filter out LP pools and known system wallets
     let topHolderPercent = 0;
     let top10HoldersPercent = 0;
     let holderCount = 0;
-    
-    if (data.topHolders && Array.isArray(data.topHolders)) {
-      holderCount = data.topHolders.length;
-      if (data.topHolders[0]) {
-        topHolderPercent = Number(data.topHolders[0].pct || data.topHolders[0].percentage || 0);
+
+    // Known LP/system wallet indicators
+    const isLpOrSystemWallet = (holder: any): boolean => {
+      const ownerType = (holder.owner || holder.type || holder.label || '').toLowerCase();
+      const address = (holder.address || holder.wallet || '').toLowerCase();
+
+      // Skip if marked as LP, pool, raydium, orca, bonding curve, etc.
+      const lpKeywords = ['lp', 'pool', 'raydium', 'orca', 'jupiter', 'bonding', 'curve', 'amm', 'dex', 'burn', 'dead'];
+      if (lpKeywords.some(kw => ownerType.includes(kw) || address.includes(kw))) {
+        return true;
       }
-      top10HoldersPercent = data.topHolders
+
+      // Skip if insider flag is set (dev wallet)
+      if (holder.isInsider === true || holder.insider === true) {
+        return true;
+      }
+
+      return false;
+    };
+
+    if (data.topHolders && Array.isArray(data.topHolders)) {
+      // Filter out LP and system wallets for concentration calculation
+      const realHolders = data.topHolders.filter((h: any) => !isLpOrSystemWallet(h));
+
+      holderCount = realHolders.length;
+      if (realHolders[0]) {
+        topHolderPercent = Number(realHolders[0].pct || realHolders[0].percentage || 0);
+      }
+      top10HoldersPercent = realHolders
         .slice(0, 10)
         .reduce((sum: number, h: any) => sum + Number(h.pct || h.percentage || 0), 0);
     }

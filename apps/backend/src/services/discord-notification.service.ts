@@ -90,8 +90,16 @@ export interface SignalNotificationData {
     remainingTokens: number;     // Kolik mu zbývá po prodeji
     lastSellTime: Date;
     sellCount: number;
+    // Individual sells for detailed display
+    sells?: Array<{
+      amountUsd: number;
+      amountTokens: number;
+      timestamp: Date;
+      marketCapUsd?: number;
+    }>;
   }>;
   exitTotalBuyers?: number; // Celkový počet walletů co nakoupily
+  currentMarketCapUsd?: number; // Current MCap for display
 }
 
 /**
@@ -316,7 +324,7 @@ export class DiscordNotificationService {
       });
     }
 
-    // Prodejci - detailní info
+    // Sellers - show each individual sell with MCap
     if (data.exitSellers && data.exitSellers.length > 0) {
       const sellerLines: string[] = [];
 
@@ -325,35 +333,63 @@ export class DiscordNotificationService {
         const profileUrl = `${frontendUrl}/wallet/${seller.address}`;
         const scoreStr = seller.score ? ` [${Math.round(seller.score)}]` : '';
 
-        // Kdy prodal (formátovaný čas)
-        let timeStr = '';
-        if (seller.lastSellTime) {
-          const time = new Date(seller.lastSellTime);
-          const formatter = new Intl.DateTimeFormat('cs-CZ', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: false,
-            timeZone: 'Europe/Prague',
-          });
-          timeStr = formatter.format(time);
+        // Show each individual sell
+        if (seller.sells && seller.sells.length > 0) {
+          for (const sell of seller.sells) {
+            // Format time with seconds
+            let timeStr = '';
+            if (sell.timestamp) {
+              const time = new Date(sell.timestamp);
+              const formatter = new Intl.DateTimeFormat('cs-CZ', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false,
+                timeZone: 'Europe/Prague',
+              });
+              timeStr = formatter.format(time);
+            }
+
+            // Sold amount
+            const soldStr = `$${this.formatNumber(sell.amountUsd, 0)}`;
+
+            // MCap at time of sell (or current)
+            const mcapStr = sell.marketCapUsd
+              ? `@ $${this.formatNumber(sell.marketCapUsd, 0)} MCap`
+              : '';
+
+            // Format: [Name [score]](link) - $XXX @ $XXK MCap • HH:MM:SS
+            const line = `[**${name}${scoreStr}**](${profileUrl}) - ${soldStr} ${mcapStr} • ${timeStr}`;
+            sellerLines.push(line);
+          }
+        } else {
+          // Fallback: show aggregated data if no individual sells
+          let timeStr = '';
+          if (seller.lastSellTime) {
+            const time = new Date(seller.lastSellTime);
+            const formatter = new Intl.DateTimeFormat('cs-CZ', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+              hour12: false,
+              timeZone: 'Europe/Prague',
+            });
+            timeStr = formatter.format(time);
+          }
+
+          const soldStr = `$${this.formatNumber(seller.totalSoldUsd, 0)}`;
+          let soldPercentStr = '';
+          let remainingStr = '';
+          if (seller.totalBoughtTokens && seller.totalBoughtTokens > 0) {
+            const soldPercent = (seller.totalSoldTokens / seller.totalBoughtTokens) * 100;
+            const remainingPercent = (seller.remainingTokens / seller.totalBoughtTokens) * 100;
+            soldPercentStr = ` (${soldPercent.toFixed(0)}%)`;
+            remainingStr = `, remaining ${remainingPercent.toFixed(0)}%`;
+          }
+
+          const line = `[**${name}${scoreStr}**](${profileUrl}) - ${soldStr}${soldPercentStr}${remainingStr}${timeStr ? ` • ${timeStr}` : ''}`;
+          sellerLines.push(line);
         }
-
-        // Sold amount in USD
-        const soldStr = `$${this.formatNumber(seller.totalSoldUsd, 0)}`;
-
-        // Sold percentage and remaining percentage
-        let soldPercentStr = '';
-        let remainingStr = '';
-        if (seller.totalBoughtTokens && seller.totalBoughtTokens > 0) {
-          const soldPercent = (seller.totalSoldTokens / seller.totalBoughtTokens) * 100;
-          const remainingPercent = (seller.remainingTokens / seller.totalBoughtTokens) * 100;
-          soldPercentStr = ` (${soldPercent.toFixed(0)}%)`;
-          remainingStr = `, remaining ${remainingPercent.toFixed(0)}%`;
-        }
-
-        // Format: [Name [score]](link) - $XXX (XX%), remaining XX% • HH:MM
-        const line = `[**${name}${scoreStr}**](${profileUrl}) - ${soldStr}${soldPercentStr}${remainingStr}${timeStr ? ` • ${timeStr}` : ''}`;
-        sellerLines.push(line);
       }
 
       fields.push({
