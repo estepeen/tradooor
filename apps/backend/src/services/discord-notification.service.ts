@@ -332,50 +332,46 @@ export class DiscordNotificationService {
     if (data.security) {
       const sec = data.security;
 
-      // 🍯 HONEYPOT CHECK FIRST - CRITICAL!
+      // Security section - clean format with icons only in headers
+      const riskEmoji = {
+        'safe': '✅',
+        'low': '🟢',
+        'medium': '🟡',
+        'high': '🟠',
+        'critical': '🔴',
+      }[sec.riskLevel] || '❓';
+
+      const securityLines = [
+        `**Risk:** ${riskEmoji} ${sec.riskLevel.toUpperCase()}`,
+      ];
+
+      // Honeypot status - red alert if yes
       if (sec.isHoneypot) {
-        fields.push({
-          name: '🚨🍯 HONEYPOT',
-          value: `**⛔ DO NOT BUY!**\n${sec.honeypotReason || 'Cannot sell'}`,
-          inline: true,
-        });
+        securityLines.push(`**Honey:** 🚨 YES`);
       } else {
-        const riskEmoji = {
-          'safe': '✅',
-          'low': '🟢',
-          'medium': '🟡',
-          'high': '🟠',
-          'critical': '🔴',
-        }[sec.riskLevel] || '❓';
-
-        const securityLines = [
-          `${riskEmoji} **Risk:** ${sec.riskLevel.toUpperCase()}`,
-        ];
-
-        // Honeypot status (always show - important info)
-        securityLines.push(`🍯 **Honey:** No`);
-
-        // LP Lock
-        if (sec.isLpLocked) {
-          securityLines.push(`🔒 LP: ${sec.lpLockedPercent ? `${sec.lpLockedPercent.toFixed(0)}%` : 'Yes'}`);
-        } else {
-          securityLines.push(`🔓 LP: No`);
-        }
-
-        // Flags (compact)
-        const flags = [];
-        if (!sec.isMintable) flags.push('✅Mint');
-        if (!sec.isFreezable) flags.push('✅Freeze');
-        if (flags.length > 0) {
-          securityLines.push(flags.join(' '));
-        }
-
-        fields.push({
-          name: '🛡️ Security',
-          value: securityLines.join('\n'),
-          inline: true,
-        });
+        securityLines.push(`**Honey:** No`);
       }
+
+      // LP Lock
+      if (sec.isLpLocked) {
+        securityLines.push(`**LP:** ${sec.lpLockedPercent ? `${sec.lpLockedPercent.toFixed(0)}%` : 'Yes'}`);
+      } else {
+        securityLines.push(`**LP:** No`);
+      }
+
+      // Flags (compact, no icons in values)
+      const flags = [];
+      if (!sec.isMintable) flags.push('Mint✓');
+      if (!sec.isFreezable) flags.push('Freeze✓');
+      if (flags.length > 0) {
+        securityLines.push(flags.join(' '));
+      }
+
+      fields.push({
+        name: '🛡️ Security',
+        value: securityLines.join('\n'),
+        inline: true,
+      });
     } else {
       // Show placeholder if no security data
       fields.push({
@@ -387,18 +383,16 @@ export class DiscordNotificationService {
 
     // AI Decision (if available) - show if we have AI decision (including fallback when rate limited)
     if (data.aiDecision && data.aiConfidence !== undefined && data.aiConfidence > 0) {
-      const aiEmoji = data.aiDecision === 'buy' ? '✅' : data.aiDecision === 'skip' ? '⏭️' : '❌';
       const aiInfo = [
-        `${aiEmoji} **Decision:** ${data.aiDecision.toUpperCase()}`,
+        `**Decision:** ${data.aiDecision.toUpperCase()}`,
         `**Confidence:** ${data.aiConfidence.toFixed(0)}%`,
       ];
-      
+
       if (data.aiPositionPercent) {
         aiInfo.push(`**Position:** ${data.aiPositionPercent}%`);
       }
       if (data.aiRiskScore) {
-        const riskEmoji = data.aiRiskScore <= 3 ? '🟢' : data.aiRiskScore <= 6 ? '🟡' : '🔴';
-        aiInfo.push(`${riskEmoji} **Risk:** ${data.aiRiskScore}/10`);
+        aiInfo.push(`**Risk:** ${data.aiRiskScore}/10`);
       }
 
       fields.push({
@@ -422,16 +416,16 @@ export class DiscordNotificationService {
       if (data.stopLossPercent && data.marketCapUsd) {
         // Calculate SL MCap from entry MCap
         const slMcap = data.marketCapUsd * (1 - data.stopLossPercent / 100);
-        sltp.push(`🛑 **SL:** $${this.formatNumber(slMcap, 0)} (-${data.stopLossPercent}%)`);
+        sltp.push(`**SL:** $${this.formatNumber(slMcap, 0)} (-${data.stopLossPercent}%)`);
       } else if (data.stopLossPriceUsd && data.stopLossPercent) {
-        sltp.push(`🛑 **SL:** $${this.formatNumber(data.stopLossPriceUsd, 8)} (-${data.stopLossPercent}%)`);
+        sltp.push(`**SL:** $${this.formatNumber(data.stopLossPriceUsd, 8)} (-${data.stopLossPercent}%)`);
       }
       if (data.takeProfitPercent && data.marketCapUsd) {
         // Calculate TP MCap from entry MCap
         const tpMcap = data.marketCapUsd * (1 + data.takeProfitPercent / 100);
-        sltp.push(`🎯 **TP:** $${this.formatNumber(tpMcap, 0)} (+${data.takeProfitPercent}%)`);
+        sltp.push(`**TP:** $${this.formatNumber(tpMcap, 0)} (+${data.takeProfitPercent}%)`);
       } else if (data.takeProfitPriceUsd && data.takeProfitPercent) {
-        sltp.push(`🎯 **TP:** $${this.formatNumber(data.takeProfitPriceUsd, 8)} (+${data.takeProfitPercent}%)`);
+        sltp.push(`**TP:** $${this.formatNumber(data.takeProfitPriceUsd, 8)} (+${data.takeProfitPercent}%)`);
       }
 
       if (sltp.length > 0) {
@@ -445,7 +439,7 @@ export class DiscordNotificationService {
       // Show "-" if AI is not available
       fields.push({
         name: '📈 Exit Strategy',
-        value: `🛑 **SL:** -\n🎯 **TP:** -`,
+        value: `**SL:** -\n**TP:** -`,
         inline: true,
       });
     }
