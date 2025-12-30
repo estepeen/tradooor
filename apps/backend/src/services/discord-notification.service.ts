@@ -352,17 +352,14 @@ export class DiscordNotificationService {
           `${riskEmoji} **Risk:** ${sec.riskLevel.toUpperCase()}`,
         ];
 
-        // Tax info (compact)
-        if (sec.buyTax !== undefined || sec.sellTax !== undefined) {
-          const buyStr = sec.buyTax !== undefined ? `B:${sec.buyTax}%` : '';
-          const sellStr = sec.sellTax !== undefined ? `S:${sec.sellTax}%` : '';
-          const taxWarning = (sec.buyTax && sec.buyTax > 10) || (sec.sellTax && sec.sellTax > 10) ? '⚠️' : '';
-          securityLines.push(`💸 ${taxWarning}${[buyStr, sellStr].filter(Boolean).join('/')}`);
-        }
+        // Honeypot status (always show - important info)
+        securityLines.push(`🍯 **Honey:** No`);
 
         // LP Lock
         if (sec.isLpLocked) {
-          securityLines.push(`🔒 LP: ${sec.lpLockedPercent ? `${sec.lpLockedPercent.toFixed(0)}%` : 'Locked'}`);
+          securityLines.push(`🔒 LP: ${sec.lpLockedPercent ? `${sec.lpLockedPercent.toFixed(0)}%` : 'Yes'}`);
+        } else {
+          securityLines.push(`🔓 LP: No`);
         }
 
         // Flags (compact)
@@ -571,18 +568,11 @@ export class DiscordNotificationService {
       });
     }
 
-    // Separator before AI Reasoning
+    // AI Reasoning (if available) - with separator line above
     if (data.aiReasoning) {
       fields.push({
-        name: '\u200B', // Zero-width space
-        value: '───────────────────────────',
-        inline: false,
-      });
-
-      // AI Reasoning (if available) - full text, no truncation
-      fields.push({
-        name: '💭 AI Reasoning',
-        value: data.aiReasoning,
+        name: '───────────────────────────',
+        value: `💭 **AI Reasoning**\n${data.aiReasoning}`,
         inline: false,
       });
     }

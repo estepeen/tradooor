@@ -231,13 +231,16 @@ Rules:
 - Always set SL: 10-50%, TP: 20-200%
 
 IMPORTANT for reasoning:
-- Be concise: 1-2 short sentences max
-- Round all percentages to 2 decimal places (e.g. 83.43% not 83.4252953906462%)
-- Focus on key factors: consensus %, trader score, token age, liquidity
-- Example: "Medium risk with 83% consensus and 45 avg trader score. Token is 1h old with $17K liquidity."
+- Be concise but analytical: 2-3 sentences
+- Round all numbers to max 2 decimals
+- Include insight about profitability pattern:
+  * "This setup historically profitable" or "Risky pattern - low success rate"
+  * Mention if trader combo is strong/weak
+  * Note any red/green flags (new token + high score = good, old token + low score = bad)
+- Example: "Strong setup - 2 high-score traders (avg 75) on fresh 5m token with $24K liq. This combo typically yields 30-50% gains. LP locked adds safety."
 
 JSON:
-{"decision":"buy|sell|hold|skip","confidence":0-100,"reasoning":"1-2 SHORT sentences, round numbers to 2 decimals","suggestedPositionPercent":5-20,"stopLossPercent":10-50,"takeProfitPercent":20-200,"expectedHoldTimeMinutes":5-1440,"riskScore":1-10}`;
+{"decision":"buy|sell|hold|skip","confidence":0-100,"reasoning":"2-3 analytical sentences with profitability insight","suggestedPositionPercent":5-20,"stopLossPercent":10-50,"takeProfitPercent":20-200,"expectedHoldTimeMinutes":5-1440,"riskScore":1-10}`;
   }
 
   /**
