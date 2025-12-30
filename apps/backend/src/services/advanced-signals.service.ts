@@ -996,7 +996,12 @@ export class AdvancedSignalsService {
     }
 
     // Check market cap threshold (filter out low market cap tokens)
-    if (marketData.marketCap !== null && marketData.marketCap < tierConfig.minMarketCap) {
+    // IMPORTANT: If market cap is unknown (null), don't create signal (safety first)
+    if (marketData.marketCap === null || marketData.marketCap === undefined) {
+      console.log(`   ⚠️  [ConvictionBuy] Token ${token.symbol} market cap UNKNOWN - FILTERED OUT (no signal without verified mcap)`);
+      return null;
+    }
+    if (marketData.marketCap < tierConfig.minMarketCap) {
       console.log(`   ⚠️  [ConvictionBuy] Token ${token.symbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K < $${(tierConfig.minMarketCap / 1000).toFixed(0)}K minimum - FILTERED OUT`);
       return null;
     }
