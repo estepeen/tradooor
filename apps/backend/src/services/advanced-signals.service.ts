@@ -83,21 +83,21 @@ const SIGNAL_TIERS = {
     STRONG: {
       minWallets: 3,
       minAvgScore: 55,      // 70 → 55 (adjusted for new scoring system)
-      minMarketCap: 30000,  // Minimum $30K market cap
+      minMarketCap: 20000,  // Minimum $20K market cap
       timeWindowHours: 1,
       positionSizePercent: [15, 20],
     },
     MEDIUM: {
       minWallets: 2,
       minAvgScore: 50,      // 65 → 50 (adjusted for new scoring system)
-      minMarketCap: 30000,  // Minimum $30K market cap
+      minMarketCap: 20000,  // Minimum $20K market cap
       timeWindowHours: 2,
       positionSizePercent: [10, 15],
     },
     WEAK: {
       minWallets: 2,
       minAvgScore: 45,      // 55 → 45 (adjusted for new scoring system)
-      minMarketCap: 30000,  // Minimum $30K market cap
+      minMarketCap: 20000,  // Minimum $20K market cap
       timeWindowHours: 4,
       positionSizePercent: [5, 10],
     },
@@ -109,7 +109,7 @@ const SIGNAL_TIERS = {
       minSizePerBuy: 0.5,      // SOL
       minTotalSize: 2.5,       // SOL total
       minWalletScore: 50,      // 70 → 50 (adjusted for new scoring system)
-      minMarketCap: 30000,     // Minimum $30K market cap
+      minMarketCap: 20000,     // Minimum $20K market cap
       positionSizePercent: [10, 15],
     },
     MEDIUM: {
@@ -118,7 +118,7 @@ const SIGNAL_TIERS = {
       minSizePerBuy: 0.5,      // 0.3 → 0.5 SOL (vyšší jednotlivé nákupy)
       minTotalSize: 2.0,       // 1.5 → 2.0 SOL (celkově větší akumulace)
       minWalletScore: 45,      // 65 → 45 (adjusted for new scoring system)
-      minMarketCap: 30000,     // Minimum $30K market cap
+      minMarketCap: 20000,     // Minimum $20K market cap
       positionSizePercent: [7, 12],
     },
     WEAK: {
@@ -127,7 +127,7 @@ const SIGNAL_TIERS = {
       minSizePerBuy: 0.5,      // 0.3 → 0.5 SOL (vyšší jednotlivé nákupy)
       minTotalSize: 2.0,       // 0.8 → 2.0 SOL (celkově minimálně ~$250)
       minWalletScore: 40,      // 65 → 40 (adjusted for new scoring system)
-      minMarketCap: 30000,     // Minimum $30K market cap (filtr proti rugs)
+      minMarketCap: 20000,     // Minimum $20K market cap (filtr proti rugs)
       positionSizePercent: [5, 8],
     },
   },
@@ -136,21 +136,21 @@ const SIGNAL_TIERS = {
       multiplier: 5,           // 5x+ average
       minWalletScore: 55,      // 75 → 55 (adjusted for new scoring system)
       minAbsoluteSize: 5,      // SOL minimum absolute size
-      minMarketCap: 30000,     // Minimum $30K market cap
+      minMarketCap: 20000,     // Minimum $20K market cap
       positionSizePercent: [20, 25],
     },
     STRONG: {
       multiplier: 3,
       minWalletScore: 50,      // 70 → 50 (adjusted for new scoring system)
       minAbsoluteSize: 2,
-      minMarketCap: 30000,     // Minimum $30K market cap
+      minMarketCap: 20000,     // Minimum $20K market cap
       positionSizePercent: [15, 20],
     },
     MEDIUM: {
       multiplier: 2,
       minWalletScore: 45,      // 65 → 45 (adjusted for new scoring system)
       minAbsoluteSize: 1,
-      minMarketCap: 30000,     // Minimum $30K market cap
+      minMarketCap: 20000,     // Minimum $20K market cap
       positionSizePercent: [10, 15],
     },
   },

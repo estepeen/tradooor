@@ -26,7 +26,7 @@ import { WalletCorrelationService } from './wallet-correlation.service.js';
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
 const CLUSTER_STRENGTH_THRESHOLD = 70; // Minimum cluster strength for 💎💎 CLUSTER signal
-const MIN_MARKET_CAP_USD = 30000; // Global minimum market cap filter ($30K)
+const MIN_MARKET_CAP_USD = 20000; // Global minimum market cap filter ($20K)
 
 export class ConsensusWebhookService {
   private paperTradeService: PaperTradeService;
