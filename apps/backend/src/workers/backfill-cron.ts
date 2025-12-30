@@ -7,22 +7,12 @@ import { TradeRepository } from '../repositories/trade.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
 import { WalletProcessingQueueRepository } from '../repositories/wallet-processing-queue.repository.js';
 import { NormalizedTradeRepository } from '../repositories/normalized-trade.repository.js';
-import { LotMatchingService } from '../services/lot-matching.service.js';
-import { MetricsCalculatorService } from '../services/metrics-calculator.service.js';
-import { MetricsHistoryRepository } from '../repositories/metrics-history.repository.js';
 
 const smartWalletRepo = new SmartWalletRepository();
 const tradeRepo = new TradeRepository();
 const tokenRepo = new TokenRepository();
 const walletQueueRepo = new WalletProcessingQueueRepository();
 const normalizedTradeRepo = new NormalizedTradeRepository();
-const metricsHistoryRepo = new MetricsHistoryRepository();
-const lotMatchingService = new LotMatchingService();
-const metricsCalculator = new MetricsCalculatorService(
-  smartWalletRepo,
-  tradeRepo,
-  metricsHistoryRepo
-);
 
 const collectorService = new SolanaCollectorService(
   smartWalletRepo,
@@ -230,30 +220,12 @@ async function backfillLastHours() {
     }
   }
 
-  // Recalculate positions and metrics for wallets with new trades
+  // NOTE: Trades are saved to NormalizedTrade table (pending processing).
+  // The normalize-trades worker will process them and recalculate closed lots + metrics.
+  // No need to recalculate here - it would run on stale data anyway.
   if (walletsWithNewTrades.size > 0) {
-    console.log(`\n🔄 Recalculating positions and metrics for ${walletsWithNewTrades.size} wallets with new trades...`);
-    
-    for (const walletId of walletsWithNewTrades) {
-      try {
-        const wallet = await smartWalletRepo.findById(walletId);
-        if (!wallet) continue;
-
-        // Recalculate positions
-        const trackingStartTime = wallet.createdAt ? new Date(wallet.createdAt) : undefined;
-        const closedLots = await lotMatchingService.processTradesForWallet(
-          walletId,
-          undefined,
-          trackingStartTime
-        );
-        await lotMatchingService.saveClosedLots(closedLots);
-
-        // Recalculate metrics
-        await metricsCalculator.calculateMetricsForWallet(walletId);
-      } catch (error: any) {
-        console.error(`   ❌ Error recalculating ${walletId}: ${error.message}`);
-      }
-    }
+    console.log(`\n📋 ${walletsWithNewTrades.size} wallets have new trades queued for processing.`);
+    console.log(`   The normalize-trades worker will process them and update metrics.`);
   }
 
   const duration = Date.now() - startTime;
