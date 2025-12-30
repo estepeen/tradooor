@@ -338,24 +338,20 @@ export class DiscordNotificationService {
           timeStr = formatter.format(time);
         }
 
-        // Za kolik prodal
+        // Sold amount in USD
         const soldStr = `$${this.formatNumber(seller.totalSoldUsd, 0)}`;
 
-        // Procento prodaného bagu
+        // Sold percentage and remaining percentage
         let soldPercentStr = '';
-        if (seller.totalBoughtTokens && seller.totalBoughtTokens > 0) {
-          const soldPercent = (seller.totalSoldTokens / seller.totalBoughtTokens) * 100;
-          soldPercentStr = ` (${soldPercent.toFixed(0)}% bagu)`;
-        }
-
-        // Kolik zbývá v procentech
         let remainingStr = '';
         if (seller.totalBoughtTokens && seller.totalBoughtTokens > 0) {
+          const soldPercent = (seller.totalSoldTokens / seller.totalBoughtTokens) * 100;
           const remainingPercent = (seller.remainingTokens / seller.totalBoughtTokens) * 100;
-          remainingStr = ` • zbývá ${remainingPercent.toFixed(0)}%`;
+          soldPercentStr = ` (${soldPercent.toFixed(0)}%)`;
+          remainingStr = `, remaining ${remainingPercent.toFixed(0)}%`;
         }
 
-        // Formát: [Jméno [score]](link) - $XXX (XX% bagu) • zbývá XX% • HH:MM
+        // Format: [Name [score]](link) - $XXX (XX%), remaining XX% • HH:MM
         const line = `[**${name}${scoreStr}**](${profileUrl}) - ${soldStr}${soldPercentStr}${remainingStr}${timeStr ? ` • ${timeStr}` : ''}`;
         sellerLines.push(line);
       }
