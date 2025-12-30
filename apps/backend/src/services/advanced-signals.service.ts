@@ -158,13 +158,13 @@ const SIGNAL_TIERS = {
     CRITICAL: {
       minWallets: 3,
       timeWindowHours: 2,
-      minAvgScore: 70,
+      minAvgScore: 50,      // 70 → 50 (adjusted for new scoring system)
       action: 'SELL_IMMEDIATELY',
     },
     WARNING: {
       minWallets: 2,
       timeWindowHours: 4,
-      minAvgScore: 65,
+      minAvgScore: 45,      // 65 → 45 (adjusted for new scoring system)
       action: 'REDUCE_POSITION_50',
     },
   },
@@ -520,6 +520,8 @@ export class AdvancedSignalsService {
     token: any,
     context: SignalContext
   ): Promise<AdvancedSignal | null> {
+    console.log(`🔍 [ExitWarning] Checking sell for ${token.symbol || token.id.substring(0, 8)}...`);
+
     // Find all SELL trades for this token in recent time window
     const recentSells = await prisma.trade.findMany({
       where: {
@@ -540,6 +542,7 @@ export class AdvancedSignalsService {
     });
 
     if (!recentSells || recentSells.length === 0) {
+      console.log(`   ⏭️  [ExitWarning] No recent sells found for ${token.symbol}`);
       return null;
     }
 
@@ -553,6 +556,8 @@ export class AdvancedSignalsService {
 
     const sellerCount = sellerMap.size;
     const avgScore = Array.from(sellerMap.values()).reduce((sum, score) => sum + score, 0) / sellerCount;
+
+    console.log(`   📊 [ExitWarning] ${token.symbol}: ${sellerCount} unique sellers, avgScore: ${avgScore.toFixed(1)} (need: 2+ sellers, 45+ avg)`);
 
     // Determine tier based on seller count and avg score
     let tier: 'CRITICAL' | 'WARNING' | null = null;
@@ -573,8 +578,12 @@ export class AdvancedSignalsService {
     }
 
     if (!tier) {
+      console.log(`   ⏭️  [ExitWarning] ${token.symbol}: Thresholds not met - sellerCount: ${sellerCount} (need 2+), avgScore: ${avgScore.toFixed(1)} (need 45+)`);
       return null;
     }
+
+    console.log(`   🚨 [ExitWarning] ${token.symbol}: EXIT WARNING ${tier} triggered! ${sellerCount} wallets, avgScore ${avgScore.toFixed(1)}`);
+
 
     const strength = tier === 'CRITICAL' ? 'strong' : 'medium';
     const confidence = Math.min(90, 50 + sellerCount * 12 + avgScore / 10);
