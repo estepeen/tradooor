@@ -256,10 +256,18 @@ export class DiscordNotificationService {
 
       const embed = await this.buildExitWarningEmbed(data);
 
+      // Validate embed has required fields (Discord requires title or description)
+      if (!embed.title && !embed.description) {
+        embed.description = 'Exit warning signal triggered';
+      }
+
       const payload: DiscordWebhookPayload = {
         username: 'Spectre Exit Alerts',
         embeds: [embed],
       };
+
+      // Debug log payload
+      console.log(`📨 [Discord] Exit channel payload: ${JSON.stringify(payload).substring(0, 500)}...`);
 
       const response = await fetch(this.exitWebhookUrl, {
         method: 'POST',
