@@ -899,6 +899,26 @@ export class AdvancedSignalsService {
       console.warn(`   ⚠️  [Accumulation] Failed to fetch SOL price, using fallback: $${solPriceUsd}`);
     }
 
+    // FILTER: Unknown or empty token symbol - don't send signals for unidentified tokens
+    const tokenSymbol = token?.symbol?.trim() || '';
+    if (!tokenSymbol || tokenSymbol.toLowerCase() === 'unknown') {
+      console.log(`   ⚠️  [Accumulation] Token symbol is "${tokenSymbol || 'empty'}" - FILTERED OUT`);
+      return null;
+    }
+
+    // FILTER: Require valid market cap - don't send signals for tokens with unknown MCap
+    if (marketData.marketCap === null || marketData.marketCap === undefined) {
+      console.log(`   ⚠️  [Accumulation] Token ${tokenSymbol} market cap UNKNOWN - FILTERED OUT`);
+      return null;
+    }
+
+    // FILTER: Minimum market cap threshold ($20K for all accumulation signals)
+    const MIN_MARKET_CAP = 20000;
+    if (marketData.marketCap < MIN_MARKET_CAP) {
+      console.log(`   ⚠️  [Accumulation] Token ${tokenSymbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K < $${(MIN_MARKET_CAP / 1000).toFixed(0)}K minimum - FILTERED OUT`);
+      return null;
+    }
+
     // Try each tier from strongest to weakest
     const tiers: Array<{ name: 'STRONG' | 'MEDIUM' | 'WEAK'; config: any }> = [
       { name: 'STRONG', config: SIGNAL_TIERS.ACCUMULATION.STRONG },
@@ -910,12 +930,6 @@ export class AdvancedSignalsService {
       // Check wallet score threshold
       if (wallet.score < config.minWalletScore) {
         continue; // Try next (weaker) tier
-      }
-
-      // Check market cap threshold (filter out low market cap tokens)
-      if (marketData.marketCap !== null && marketData.marketCap < config.minMarketCap) {
-        console.log(`   ⚠️  [Accumulation] Token ${token.symbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K < $${(config.minMarketCap / 1000).toFixed(0)}K minimum - FILTERED OUT`);
-        return null; // Don't try weaker tiers - market cap is absolute filter
       }
 
       // Find all BUY trades for this wallet+token in time window
@@ -1021,6 +1035,13 @@ export class AdvancedSignalsService {
       } catch (e) {
         console.warn(`   ⚠️  [ConvictionBuy] Failed to fetch market data for ${token.symbol || token.mintAddress}`);
       }
+    }
+
+    // FILTER: Unknown or empty token symbol - don't send signals for unidentified tokens
+    const tokenSymbol = token?.symbol?.trim() || '';
+    if (!tokenSymbol || tokenSymbol.toLowerCase() === 'unknown') {
+      console.log(`   ⚠️  [ConvictionBuy] Token symbol is "${tokenSymbol || 'empty'}" - FILTERED OUT`);
+      return null;
     }
 
     // Get average trade size from recent history
