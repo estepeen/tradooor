@@ -52,11 +52,11 @@ const ENABLE_ADVANCED_SIGNALS = process.env.ENABLE_ADVANCED_SIGNALS !== 'false';
 const walletMetricsDebounce = new Map<string, NodeJS.Timeout>(); // walletId -> timeout
 const METRICS_DEBOUNCE_MS = 3000; // Reduced from 10s to 3s for faster UI updates
 
-// LATENCY OPTIMIZATION: Reduced delays for faster signal delivery
-// Previous values caused 4-8 minute delays: IDLE=3000, BATCH=10, DELAY=200
-const IDLE_DELAY_MS = Number(process.env.NORMALIZED_TRADE_WORKER_IDLE_MS || 500); // Reduced from 3000ms to 500ms
-const BATCH_SIZE = Number(process.env.NORMALIZED_TRADE_WORKER_BATCH || 50); // Increased from 10 to 50 for faster throughput
-const DELAY_BETWEEN_TRADES_MS = 50; // Reduced from 200ms to 50ms
+// LATENCY OPTIMIZATION: Minimal delays for fastest signal delivery
+// Key insight: Sequential processing is the bottleneck, not batch size
+const IDLE_DELAY_MS = Number(process.env.NORMALIZED_TRADE_WORKER_IDLE_MS || 100); // Minimal idle delay
+const BATCH_SIZE = Number(process.env.NORMALIZED_TRADE_WORKER_BATCH || 20); // Moderate batch size
+const DELAY_BETWEEN_TRADES_MS = 0; // No delay between trades - process as fast as possible
 
 // Debounce map for closed lot recalculation - prevents recalculating same wallet multiple times in short period
 const walletClosedLotDebounce = new Map<string, number>(); // walletId -> last recalculation timestamp
