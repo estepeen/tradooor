@@ -7,6 +7,7 @@
 
 import { SignalPerformanceRepository, SignalPerformanceRecord, MILESTONES } from '../repositories/signal-performance.repository.js';
 import { TokenMarketDataService } from './token-market-data.service.js';
+import { DiscordNotificationService } from './discord-notification.service.js';
 import { prisma } from '../lib/prisma.js';
 
 export interface SignalWithPerformance {
@@ -30,10 +31,12 @@ export interface SignalWithPerformance {
 export class SignalPerformanceService {
   private performanceRepo: SignalPerformanceRepository;
   private tokenMarketData: TokenMarketDataService;
+  private discordNotification: DiscordNotificationService;
 
   constructor() {
     this.performanceRepo = new SignalPerformanceRepository();
     this.tokenMarketData = new TokenMarketDataService();
+    this.discordNotification = new DiscordNotificationService();
   }
 
   /**
@@ -76,13 +79,16 @@ export class SignalPerformanceService {
   /**
    * Updates all active signal performances with current prices
    * Called by cron job
+   * Now also checks for SL/TP hits and sends Discord notifications
    */
   async updateAllActivePerformances(): Promise<{
     updated: number;
     errors: number;
     expired: number;
+    slHits: number;
+    tpHits: number;
   }> {
-    const stats = { updated: 0, errors: 0, expired: 0 };
+    const stats = { updated: 0, errors: 0, expired: 0, slHits: 0, tpHits: 0 };
 
     // Get all active performances
     const activePerformances = await this.performanceRepo.findActive({ limit: 100 });
@@ -92,13 +98,21 @@ export class SignalPerformanceService {
       return stats;
     }
 
-    // Get token mint addresses
+    // Get signal IDs to fetch their meta data (contains SL/TP)
+    const signalIds = activePerformances.map(p => p.signalId);
+    const signals = await prisma.signal.findMany({
+      where: { id: { in: signalIds } },
+      select: { id: true, meta: true, type: true },
+    });
+    const signalMap = new Map(signals.map(s => [s.id, s]));
+
+    // Get token mint addresses and symbols
     const tokenIds = [...new Set(activePerformances.map(p => p.tokenId))];
     const tokens = await prisma.token.findMany({
       where: { id: { in: tokenIds } },
-      select: { id: true, mintAddress: true },
+      select: { id: true, mintAddress: true, symbol: true },
     });
-    const tokenMap = new Map(tokens.map(t => [t.id, t.mintAddress]));
+    const tokenMap = new Map(tokens.map(t => [t.id, t]));
 
     // Batch fetch prices
     const mintAddresses = tokens.map(t => t.mintAddress);
@@ -131,20 +145,94 @@ export class SignalPerformanceService {
           continue;
         }
 
-        // Get current price
-        const mint = tokenMap.get(perf.tokenId);
-        if (!mint) {
+        // Get current price and token data
+        const token = tokenMap.get(perf.tokenId);
+        if (!token) {
           stats.errors++;
           continue;
         }
 
-        const currentPrice = priceMap.get(mint);
+        const currentPrice = priceMap.get(token.mintAddress);
         if (!currentPrice) {
           stats.errors++;
           continue;
         }
 
-        // Update performance
+        // Calculate current PnL %
+        const entryPrice = perf.entryPriceUsd;
+        const currentPnlPercent = ((currentPrice - entryPrice) / entryPrice) * 100;
+
+        // Get signal meta data for SL/TP
+        const signal = signalMap.get(perf.signalId);
+        const meta = signal?.meta as Record<string, any> | null;
+        const stopLossPercent = meta?.aiStopLossPercent as number | undefined;
+        const takeProfitPercent = meta?.aiTakeProfitPercent as number | undefined;
+
+        // Check if SL hit (PnL <= -stopLossPercent)
+        if (stopLossPercent && currentPnlPercent <= -stopLossPercent) {
+          console.log(`🛑 [SignalPerf] STOP LOSS HIT for ${token.symbol}: PnL ${currentPnlPercent.toFixed(1)}% <= -${stopLossPercent}%`);
+
+          // Close the performance record
+          await this.performanceRepo.close(perf.signalId, 'stop_loss_hit', currentPrice);
+
+          // Send Discord notification
+          try {
+            await this.discordNotification.sendExitSignalNotification({
+              tokenSymbol: token.symbol || 'Unknown',
+              tokenMint: token.mintAddress,
+              exitType: 'stop_loss',
+              strength: 'strong',
+              recommendation: 'full_exit',
+              entryPriceUsd: entryPrice,
+              currentPriceUsd: currentPrice,
+              pnlPercent: currentPnlPercent,
+              holdTimeMinutes: Math.round(ageMs / 60000),
+              entryWalletCount: 1,
+              activeWalletCount: 0,
+              exitedWalletCount: 1,
+              triggerReason: `Stop loss triggered at ${currentPnlPercent.toFixed(1)}% (SL: -${stopLossPercent}%)`,
+            });
+          } catch (discordError: any) {
+            console.warn(`⚠️  Discord exit notification failed: ${discordError.message}`);
+          }
+
+          stats.slHits++;
+          continue;
+        }
+
+        // Check if TP hit (PnL >= +takeProfitPercent)
+        if (takeProfitPercent && currentPnlPercent >= takeProfitPercent) {
+          console.log(`🎯 [SignalPerf] TAKE PROFIT HIT for ${token.symbol}: PnL ${currentPnlPercent.toFixed(1)}% >= +${takeProfitPercent}%`);
+
+          // Close the performance record
+          await this.performanceRepo.close(perf.signalId, 'take_profit_hit', currentPrice);
+
+          // Send Discord notification
+          try {
+            await this.discordNotification.sendExitSignalNotification({
+              tokenSymbol: token.symbol || 'Unknown',
+              tokenMint: token.mintAddress,
+              exitType: 'take_profit',
+              strength: 'strong',
+              recommendation: 'full_exit',
+              entryPriceUsd: entryPrice,
+              currentPriceUsd: currentPrice,
+              pnlPercent: currentPnlPercent,
+              holdTimeMinutes: Math.round(ageMs / 60000),
+              entryWalletCount: 1,
+              activeWalletCount: 0,
+              exitedWalletCount: 1,
+              triggerReason: `Take profit triggered at +${currentPnlPercent.toFixed(1)}% (TP: +${takeProfitPercent}%)`,
+            });
+          } catch (discordError: any) {
+            console.warn(`⚠️  Discord exit notification failed: ${discordError.message}`);
+          }
+
+          stats.tpHits++;
+          continue;
+        }
+
+        // Update performance (no SL/TP hit)
         await this.performanceRepo.updatePriceTracking(perf.signalId, currentPrice, now);
         stats.updated++;
       } catch (error) {
@@ -153,7 +241,7 @@ export class SignalPerformanceService {
       }
     }
 
-    console.log(`✅ [SignalPerf] Updated ${stats.updated}, expired ${stats.expired}, errors ${stats.errors}`);
+    console.log(`✅ [SignalPerf] Updated ${stats.updated}, expired ${stats.expired}, SL hits ${stats.slHits}, TP hits ${stats.tpHits}, errors ${stats.errors}`);
     return stats;
   }
 

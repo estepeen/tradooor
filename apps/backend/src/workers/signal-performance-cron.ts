@@ -38,7 +38,7 @@ async function runPerformanceUpdate() {
 
     const duration = Date.now() - startTime;
     console.log(`✅ [SignalPerf] Update cycle completed in ${(duration / 1000).toFixed(1)}s`);
-    console.log(`   Updated: ${stats.updated}, Expired: ${stats.expired}, Errors: ${stats.errors}`);
+    console.log(`   Updated: ${stats.updated}, Expired: ${stats.expired}, SL hits: ${stats.slHits}, TP hits: ${stats.tpHits}, Errors: ${stats.errors}`);
   } catch (error: any) {
     console.error(`❌ [SignalPerf] Error in update cycle: ${error.message}`);
     console.error(error.stack);
