@@ -488,6 +488,7 @@ export class DiscordNotificationService {
               const formatter = new Intl.DateTimeFormat('cs-CZ', {
                 hour: '2-digit',
                 minute: '2-digit',
+                second: '2-digit',
                 hour12: false,
                 timeZone: 'Europe/Prague',
               });
@@ -531,6 +532,7 @@ export class DiscordNotificationService {
           const formatter = new Intl.DateTimeFormat('cs-CZ', {
             hour: '2-digit',
             minute: '2-digit',
+            second: '2-digit',
             hour12: false,
             timeZone: 'Europe/Prague',
           });
