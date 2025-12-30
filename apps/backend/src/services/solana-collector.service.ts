@@ -657,6 +657,222 @@ export function normalizeQuickNodeSwap(
 }
 
 /**
+ * Normalize a Helius Enhanced transaction into our internal NormalizedSwap format.
+ *
+ * Helius Enhanced webhook payload structure:
+ * {
+ *   type: "SWAP",
+ *   signature: "...",
+ *   timestamp: 1234567890,
+ *   feePayer: "...",
+ *   tokenTransfers: [{ fromUserAccount, toUserAccount, tokenAmount, mint, ... }],
+ *   nativeTransfers: [{ fromUserAccount, toUserAccount, amount (in lamports), ... }],
+ *   accountData: [{ account, nativeBalanceChange (lamports), tokenBalanceChanges: [...] }],
+ *   source: "JUPITER" | "RAYDIUM" | ...,
+ *   ...
+ * }
+ */
+export function normalizeHeliusSwap(
+  tx: any,
+  walletAddress: string
+): NormalizedSwap | null {
+  try {
+    if (tx.type !== 'SWAP') {
+      return null;
+    }
+
+    const walletLower = walletAddress.toLowerCase();
+    const sig = tx.signature?.substring(0, 16) || 'unknown';
+
+    // Base tokens
+    const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+    const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+    const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
+    const BASE_MINTS = new Set([WSOL_MINT, USDC_MINT, USDT_MINT]);
+
+    // 1) Collect token balance changes for wallet from accountData
+    // This is the most reliable source for Helius Enhanced
+    let tokenChanges: Map<string, number> = new Map(); // mint -> delta (positive = received, negative = sent)
+    let solChange = 0; // SOL/lamports change (in SOL, not lamports)
+
+    if (Array.isArray(tx.accountData)) {
+      for (const acc of tx.accountData) {
+        const accAddr = typeof acc.account === 'string' ? acc.account : '';
+        if (accAddr.toLowerCase() !== walletLower) continue;
+
+        // Native SOL change (convert from lamports to SOL)
+        if (typeof acc.nativeBalanceChange === 'number') {
+          solChange = acc.nativeBalanceChange / 1e9;
+        }
+
+        // Token balance changes
+        if (Array.isArray(acc.tokenBalanceChanges)) {
+          for (const tbc of acc.tokenBalanceChanges) {
+            const mint = tbc.mint as string | undefined;
+            if (!mint) continue;
+
+            // Parse token amount change
+            let delta = 0;
+            if (tbc.rawTokenAmount) {
+              const decimals = tbc.rawTokenAmount.decimals || 0;
+              const amount = parseFloat(tbc.rawTokenAmount.tokenAmount || '0');
+              delta = amount / Math.pow(10, decimals);
+            }
+
+            if (delta !== 0) {
+              tokenChanges.set(mint, (tokenChanges.get(mint) || 0) + delta);
+            }
+          }
+        }
+      }
+    }
+
+    // 2) Fallback: Use tokenTransfers if accountData didn't have balance changes
+    if (tokenChanges.size === 0 && Array.isArray(tx.tokenTransfers)) {
+      for (const transfer of tx.tokenTransfers) {
+        const mint = transfer.mint as string | undefined;
+        if (!mint) continue;
+
+        const fromAddr = (transfer.fromUserAccount || '').toLowerCase();
+        const toAddr = (transfer.toUserAccount || '').toLowerCase();
+        const amount = parseFloat(transfer.tokenAmount || '0');
+
+        if (fromAddr === walletLower) {
+          tokenChanges.set(mint, (tokenChanges.get(mint) || 0) - amount);
+        }
+        if (toAddr === walletLower) {
+          tokenChanges.set(mint, (tokenChanges.get(mint) || 0) + amount);
+        }
+      }
+    }
+
+    // 3) Fallback: Use nativeTransfers for SOL if accountData didn't have it
+    if (solChange === 0 && Array.isArray(tx.nativeTransfers)) {
+      for (const transfer of tx.nativeTransfers) {
+        const fromAddr = (transfer.fromUserAccount || '').toLowerCase();
+        const toAddr = (transfer.toUserAccount || '').toLowerCase();
+        const amount = (transfer.amount || 0) / 1e9; // Convert lamports to SOL
+
+        if (fromAddr === walletLower) {
+          solChange -= amount;
+        }
+        if (toAddr === walletLower) {
+          solChange += amount;
+        }
+      }
+    }
+
+    // Add WSOL as a pseudo-token for SOL changes (for unified processing)
+    if (Math.abs(solChange) > 0.0001) {
+      const existingWsol = tokenChanges.get(WSOL_MINT) || 0;
+      tokenChanges.set(WSOL_MINT, existingWsol + solChange);
+    }
+
+    // 4) Separate base tokens from other tokens
+    const baseChanges: Array<{ mint: string; symbol: string; delta: number }> = [];
+    const otherTokenChanges: Array<{ mint: string; delta: number }> = [];
+
+    for (const [mint, delta] of tokenChanges) {
+      if (mint === WSOL_MINT) {
+        baseChanges.push({ mint, symbol: 'SOL', delta });
+      } else if (mint === USDC_MINT) {
+        baseChanges.push({ mint, symbol: 'USDC', delta });
+      } else if (mint === USDT_MINT) {
+        baseChanges.push({ mint, symbol: 'USDT', delta });
+      } else {
+        otherTokenChanges.push({ mint, delta });
+      }
+    }
+
+    // 5) Determine the primary token (non-base token with largest absolute change)
+    if (otherTokenChanges.length === 0) {
+      // No non-base tokens changed - this might be a SOL<->USDC swap, skip for now
+      console.log(`   ⚠️  [Helius] No non-base tokens in swap for wallet ${walletAddress.substring(0, 8)}... sig: ${sig}`);
+      return null;
+    }
+
+    // Sort by absolute delta to find primary token
+    otherTokenChanges.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+    const primaryToken = otherTokenChanges[0];
+
+    // 6) Determine side: BUY if we received the primary token, SELL if we sent it
+    const side: 'buy' | 'sell' | 'void' = primaryToken.delta > 0 ? 'buy' : 'sell';
+    const amountToken = Math.abs(primaryToken.delta);
+
+    // 7) Determine base amount from base token changes
+    // For BUY: we spent base (negative change)
+    // For SELL: we received base (positive change)
+    let baseAmount = 0;
+    let baseToken = 'SOL';
+
+    // Sort base changes by absolute value
+    baseChanges.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+
+    if (side === 'buy') {
+      // Look for negative base change (we spent base to buy tokens)
+      const spentBase = baseChanges.find(b => b.delta < 0);
+      if (spentBase) {
+        baseAmount = Math.abs(spentBase.delta);
+        baseToken = spentBase.symbol;
+      }
+    } else {
+      // Look for positive base change (we received base for selling tokens)
+      const receivedBase = baseChanges.find(b => b.delta > 0);
+      if (receivedBase) {
+        baseAmount = receivedBase.delta;
+        baseToken = receivedBase.symbol;
+      }
+    }
+
+    // If no base amount found, mark as void (token-to-token swap)
+    if (baseAmount <= 0) {
+      console.log(`   🟣 [Helius] Token-to-token swap detected - marking as VOID (wallet ${walletAddress.substring(0, 8)}...)`);
+      return {
+        txSignature: tx.signature,
+        tokenMint: primaryToken.mint,
+        side: 'void',
+        amountToken,
+        amountBase: 0,
+        priceBasePerToken: 0,
+        baseToken: 'VOID',
+        timestamp: new Date((tx.timestamp || 0) * 1000),
+        dex: tx.source?.toLowerCase() || 'unknown',
+      };
+    }
+
+    // 8) Calculate price
+    const priceBasePerToken = baseAmount / amountToken;
+
+    // 9) Timestamp
+    const timestamp = tx.timestamp
+      ? new Date(tx.timestamp * 1000)
+      : new Date();
+
+    // 10) DEX detection from source
+    const dex = tx.source?.toLowerCase() || 'unknown';
+
+    console.log(`   📊 [Helius] Parsed swap: ${side.toUpperCase()} ${amountToken.toFixed(4)} tokens for ${baseAmount.toFixed(6)} ${baseToken} (wallet ${walletAddress.substring(0, 8)}...)`);
+
+    return {
+      txSignature: tx.signature,
+      tokenMint: primaryToken.mint,
+      side,
+      amountToken,
+      amountBase: baseAmount,
+      priceBasePerToken,
+      baseToken,
+      timestamp,
+      dex,
+    };
+  } catch (err: any) {
+    console.warn('⚠️  [Helius] Error normalizing transaction:', err?.message || err);
+    console.warn(`   Wallet: ${walletAddress.substring(0, 8)}...`);
+    console.warn(`   Signature: ${tx.signature?.substring(0, 16) || 'unknown'}...`);
+    return null;
+  }
+}
+
+/**
  * Service for processing Solana transactions from webhooks
  * This service normalizes transactions and saves them as trades
  */
@@ -850,6 +1066,121 @@ export class SolanaCollectorService {
       return { saved: false, reason: error.message || 'unknown error' };
     }
     */
+  }
+
+  /**
+   * Process a single Helius Enhanced webhook transaction.
+   * Uses the Enhanced format (tokenTransfers, nativeTransfers, accountData).
+   */
+  async processHeliusTransaction(
+    tx: any,
+    walletAddress: string
+  ): Promise<{ saved: boolean; reason?: string; normalizedTradeId?: string }> {
+    try {
+      const normalized = normalizeHeliusSwap(tx, walletAddress);
+      if (!normalized) {
+        return { saved: false, reason: 'not a swap' };
+      }
+
+      const amountBaseRaw = normalized.amountBase;
+
+      // Find wallet in DB
+      const wallet = await this.smartWalletRepo.findByAddress(walletAddress);
+      if (!wallet) {
+        return { saved: false, reason: 'wallet not found' };
+      }
+
+      // Build debug meta
+      const heliusDebugMeta: any = {
+        source: 'helius',
+        wallet: walletAddress,
+        signature: tx.signature ?? null,
+        type: tx.type ?? null,
+        heliusSource: tx.source ?? null,
+      };
+
+      // Find or create token
+      let token = await this.tokenRepo.findOrCreate({
+        mintAddress: normalized.tokenMint,
+      });
+
+      // Fetch token metadata if missing
+      if (!token || !token.symbol || !token.name) {
+        try {
+          console.log(
+            `   🔍 [Helius] Token ${normalized.tokenMint.substring(0, 8)}... missing metadata, fetching...`
+          );
+          const metadataMap = await this.tokenMetadataBatchService.getTokenMetadataBatch([
+            normalized.tokenMint,
+          ]);
+          const metadata = metadataMap.get(normalized.tokenMint);
+
+          if (metadata && (metadata.symbol || metadata.name)) {
+            const updatedToken = await this.tokenRepo.findByMintAddress(normalized.tokenMint);
+            if (updatedToken) {
+              token = updatedToken;
+              console.log(
+                `   ✅ [Helius] Token metadata fetched: ${token.symbol || 'N/A'} / ${token.name || 'N/A'}`
+              );
+            }
+          }
+        } catch (e: any) {
+          console.warn(`   ⚠️  [Helius] Failed to fetch token metadata:`, e.message);
+        }
+      }
+
+      if (!token) {
+        return { saved: false, reason: 'token not found' };
+      }
+
+      // Check for duplicate via signature
+      const existingTrade = await this.tradeRepo.findBySignature(normalized.txSignature);
+      if (existingTrade) {
+        return { saved: false, reason: 'duplicate signature (already saved)' };
+      }
+
+      // Check for duplicate in NormalizedTrade table
+      const existingNormalized = await this.normalizedTradeRepo.findBySignatureAndWallet(
+        normalized.txSignature,
+        wallet.id,
+        normalized.side
+      );
+      if (existingNormalized) {
+        return { saved: false, reason: 'duplicate signature (in normalized_trades)' };
+      }
+
+      // Calculate balance before/after (not available in Helius Enhanced format directly)
+      const balanceBefore: number | null = null;
+      const balanceAfter: number | null = null;
+
+      // Store as NormalizedTrade for async processing
+      const normalizedTrade = await this.normalizedTradeRepo.create({
+        txSignature: normalized.txSignature,
+        walletId: wallet.id,
+        tokenId: token.id,
+        tokenMint: normalized.tokenMint,
+        side: normalized.side,
+        amountToken: normalized.amountToken,
+        amountBaseRaw,
+        baseToken: normalized.baseToken,
+        priceBasePerTokenRaw: normalized.priceBasePerToken,
+        timestamp: normalized.timestamp,
+        dex: normalized.dex,
+        balanceBefore,
+        balanceAfter,
+        meta: heliusDebugMeta,
+        rawPayload: tx,
+      });
+
+      console.log(
+        `   ✅ [Helius] Normalized trade stored: ${normalizedTrade.id.substring(0, 12)}... (${normalized.side} ${normalized.amountToken.toFixed(6)} tokens, ${amountBaseRaw.toFixed(6)} ${normalized.baseToken})`
+      );
+
+      return { saved: true, normalizedTradeId: normalizedTrade.id };
+    } catch (error: any) {
+      console.error(`❌ [Helius] Error processing transaction:`, error);
+      return { saved: false, reason: error.message || 'unknown error' };
+    }
   }
 
   /**

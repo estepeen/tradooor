@@ -137,8 +137,8 @@ export async function processHeliusWebhook(body: any) {
           continue;
         }
 
-        // Process using collector service
-        const result = await collectorService.processWebhookTransaction(tx, walletAddress);
+        // Process using collector service (new Helius transaction handler)
+        const result = await collectorService.processHeliusTransaction(tx, walletAddress);
 
         if (result.saved) {
           saved++;
