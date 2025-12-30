@@ -33,19 +33,21 @@ const collectorService = new SolanaCollectorService(
 );
 
 /**
- * Backfill cron job - kontroluje posledních 2 minuty pro všechny wallets
+ * Backfill cron job - kontroluje posledních 4 hodiny pro všechny wallets
  * a automaticky přepočítává positions a metrics
- * 
- * Spouští se každé 2 minuty.
- * 
+ *
+ * Spouští se každé 4 hodiny jako záloha pro webhook.
+ * S funkčním webhookem by většina trades měla být zachycena v reálném čase.
+ *
  * Odhad requests za měsíc:
- * - 126 wallets × 30x/hodinu × 24h × 30 dní = 2,721,600 getSignaturesForAddress
- * - ~1.36M - 2.72M getTransaction (závisí na aktivitě)
- * - Celkem: ~4-5.4M requests/měsíc (stále v rámci 7.5M credits)
+ * - 126 wallets × 6x/den × 30 dní = 22,680 getSignaturesForAddress
+ * - ~11K - 23K getTransaction (závisí na aktivitě)
+ * - Celkem: ~34-46K requests/měsíc (minimální)
  */
-async function backfillLast2Minutes() {
+async function backfillLastHours() {
+  const BACKFILL_HOURS = 4;
   const startTime = Date.now();
-  console.log(`\n⏰ [${new Date().toISOString()}] Starting backfill cron (last 2 minutes)...`);
+  console.log(`\n⏰ [${new Date().toISOString()}] Starting backfill cron (last ${BACKFILL_HOURS} hours)...`);
 
   // Setup RPC
   const rpcUrl = process.env.QUICKNODE_RPC_URL || process.env.SOLANA_RPC_URL;
@@ -55,10 +57,10 @@ async function backfillLast2Minutes() {
   }
   const connection = new Connection(rpcUrl, 'confirmed');
 
-  // Time range: last 2 minutes
+  // Time range: last X hours
   const now = Date.now();
-  const twoMinutesAgo = now - (2 * 60 * 1000);
-  const twoMinutesAgoSec = Math.floor(twoMinutesAgo / 1000);
+  const hoursAgo = now - (BACKFILL_HOURS * 60 * 60 * 1000);
+  const hoursAgoSec = Math.floor(hoursAgo / 1000);
 
   // Get all wallets
   const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
@@ -100,7 +102,7 @@ async function backfillLast2Minutes() {
       // This avoids unnecessary RPC calls for inactive wallets
       const { trades: recentTrades } = await tradeRepo.findByWalletId(wallet.id, {
         pageSize: 1,
-        fromDate: new Date(twoMinutesAgo),
+        fromDate: new Date(hoursAgo),
       });
       
       // If wallet has no trades in last 2 minutes, skip RPC call
@@ -114,7 +116,7 @@ async function backfillLast2Minutes() {
         );
 
         const recentSigs = signatures.filter(sig => 
-          sig.blockTime && sig.blockTime >= twoMinutesAgoSec
+          sig.blockTime && sig.blockTime >= hoursAgoSec
         );
 
         if (recentSigs.length === 0) {
@@ -129,7 +131,7 @@ async function backfillLast2Minutes() {
         );
 
         const recentSigs = signatures.filter(sig => 
-          sig.blockTime && sig.blockTime >= twoMinutesAgoSec
+          sig.blockTime && sig.blockTime >= hoursAgoSec
         );
 
         if (recentSigs.length === 0) {
@@ -146,7 +148,7 @@ async function backfillLast2Minutes() {
 
       // Filter by time
       const recentSigs = signatures.filter(sig => 
-        sig.blockTime && sig.blockTime >= twoMinutesAgoSec
+        sig.blockTime && sig.blockTime >= hoursAgoSec
       );
 
       if (recentSigs.length === 0) {
@@ -265,22 +267,22 @@ async function backfillLast2Minutes() {
 }
 
 async function main() {
-  // Default: every 2 minutes (*/2 * * * *)
-  const cronSchedule = process.env.BACKFILL_CRON_SCHEDULE || '*/2 * * * *';
+  // Default: every 4 hours (0 */4 * * *)
+  const cronSchedule = process.env.BACKFILL_CRON_SCHEDULE || '0 */4 * * *';
 
   console.log(`🚀 Starting backfill cron job`);
-  console.log(`📅 Schedule: ${cronSchedule} (every 2 minutes)`);
+  console.log(`📅 Schedule: ${cronSchedule}`);
   console.log(`   Set BACKFILL_CRON_SCHEDULE env var to customize`);
-  console.log(`   Time window: last 2 minutes`);
+  console.log(`   Time window: last 4 hours (catches any missed trades)`);
 
   // Run once on start (optional)
   if (process.env.RUN_ON_START !== 'false') {
-    await backfillLast2Minutes();
+    await backfillLastHours();
   }
 
   // Schedule cron job
   cron.schedule(cronSchedule, async () => {
-    await backfillLast2Minutes();
+    await backfillLastHours();
   });
 
   // Keep process running
