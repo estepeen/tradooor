@@ -533,6 +533,11 @@ export class AdvancedSignalsService {
    * Detekuje když wallety, které NAKOUPILY token, ho začnou PRODÁVAT
    * To je silnější signál než obecné prodeje - tito tradeři věděli co kupují
    */
+  /**
+   * 🚨 Instant Sell Notification
+   * CHANGED: Each individual sell from a smart wallet generates its own instant notification
+   * No waiting for multiple sellers, no aggregation - immediate notification per sell
+   */
   private async detectExitWarning(
     trade: any,
     token: any,
@@ -541,8 +546,6 @@ export class AdvancedSignalsService {
     console.log(`🔍 [ExitWarning] Checking sell for ${token.symbol || token.id.substring(0, 8)}...`);
 
     // 0. Fetch market data and filter by market cap
-    // Exit warnings are relevant for tokens with MINIMUM market cap ($20K+)
-    // Below that, tokens are too small/volatile for meaningful exit signals
     const MIN_MARKET_CAP_FOR_EXIT_WARNING = 20000; // $20K minimum
 
     let marketData = { marketCap: null as number | null };
@@ -554,258 +557,125 @@ export class AdvancedSignalsService {
       }
     }
 
-    // If market cap is unknown, skip (safety)
+    // If market cap is unknown, skip
     if (marketData.marketCap === null || marketData.marketCap === undefined) {
       console.log(`   ⏭️  [ExitWarning] Token ${token.symbol} market cap UNKNOWN - skipping`);
       return null;
     }
 
-    // Only care about exit warnings for tokens ABOVE minimum market cap ($20K+)
+    // Only care about tokens ABOVE minimum market cap ($20K+)
     if (marketData.marketCap < MIN_MARKET_CAP_FOR_EXIT_WARNING) {
       console.log(`   ⏭️  [ExitWarning] Token ${token.symbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K < $${(MIN_MARKET_CAP_FOR_EXIT_WARNING / 1000).toFixed(0)}K minimum - skipping (too small)`);
       return null;
     }
 
-    console.log(`   ✅ [ExitWarning] Token ${token.symbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K >= $${(MIN_MARKET_CAP_FOR_EXIT_WARNING / 1000).toFixed(0)}K - checking for sellers...`);
+    // Get the wallet that made this sell
+    const wallet = await prisma.smartWallet.findUnique({
+      where: { id: trade.walletId },
+      select: {
+        id: true,
+        address: true,
+        score: true,
+        label: true,
+      },
+    });
 
-    // 1. Najdi všechny wallety, které token NAKOUPILY (v posledních 7 dnech)
+    if (!wallet) {
+      console.log(`   ⏭️  [ExitWarning] Wallet not found for trade ${trade.id}`);
+      return null;
+    }
+
+    // Check if this wallet bought this token before (last 7 days)
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-    const buyersResult = await prisma.trade.findMany({
+    const previousBuy = await prisma.trade.findFirst({
       where: {
+        walletId: wallet.id,
         tokenId: token.id,
         side: 'buy',
         timestamp: { gte: sevenDaysAgo },
       },
-      select: {
-        walletId: true,
-        wallet: {
-          select: {
-            id: true,
-            score: true,
-            label: true,
-          },
-        },
-      },
-      distinct: ['walletId'],
+      select: { id: true },
     });
 
-    if (!buyersResult || buyersResult.length === 0) {
-      console.log(`   ⏭️  [ExitWarning] No buyers found for ${token.symbol} in last 7 days`);
+    if (!previousBuy) {
+      console.log(`   ⏭️  [ExitWarning] Wallet ${wallet.label || wallet.address.substring(0, 8)} didn't buy ${token.symbol} recently - skipping`);
       return null;
     }
 
-    // Mapa kupců: walletId -> score
-    const buyerWallets = new Map<string, { score: number; label: string | null }>();
-    for (const buy of buyersResult) {
-      if (buy.wallet) {
-        buyerWallets.set(buy.walletId, {
-          score: buy.wallet.score || 0,
-          label: buy.wallet.label || null,
-        });
-      }
+    // Get total bought and sold for this wallet/token
+    const [buyTotal, sellTotal] = await Promise.all([
+      prisma.trade.aggregate({
+        where: { walletId: wallet.id, tokenId: token.id, side: 'buy' },
+        _sum: { amountToken: true },
+      }),
+      prisma.trade.aggregate({
+        where: { walletId: wallet.id, tokenId: token.id, side: 'sell' },
+        _sum: { amountToken: true },
+      }),
+    ]);
+
+    const totalBoughtTokens = Number(buyTotal._sum.amountToken || 0);
+    const totalSoldTokens = Number(sellTotal._sum.amountToken || 0);
+    const remainingTokens = Math.max(0, totalBoughtTokens - totalSoldTokens);
+
+    // Get MCap from trade meta if available, otherwise use current
+    let sellMcap = marketData.marketCap;
+    if (trade.meta && typeof trade.meta === 'object') {
+      const meta = trade.meta as any;
+      if (meta.marketCapUsd) sellMcap = meta.marketCapUsd;
+      else if (meta.marketCap) sellMcap = meta.marketCap;
     }
 
-    console.log(`   📊 [ExitWarning] ${token.symbol}: Found ${buyerWallets.size} wallets that bought this token`);
+    const sellAmountUsd = Number(trade.valueUsd || 0);
+    const sellAmountTokens = Number(trade.amountToken || 0);
+    const walletScore = wallet.score || 0;
 
-    // 2. Najdi SELL trades v posledních 4h OD TĚCH SAMÝCH WALLETS, které nakoupily
-    const recentSells = await prisma.trade.findMany({
-      where: {
-        tokenId: token.id,
-        side: 'sell',
-        walletId: { in: Array.from(buyerWallets.keys()) }, // Pouze wallety které nakoupily
-        timestamp: {
-          gte: new Date(Date.now() - SIGNAL_TIERS.EXIT_WARNING.WARNING.timeWindowHours * 60 * 60 * 1000),
-        },
-      },
-      select: {
-        id: true,
-        walletId: true,
-        amountBase: true,
-        amountToken: true,
-        valueUsd: true,
-        timestamp: true,
-        wallet: {
-          select: {
-            id: true,
-            address: true,
-            score: true,
-            label: true,
-          },
-        },
-      },
-      orderBy: { timestamp: 'desc' },
-    });
+    console.log(`   🚨 [ExitWarning] INSTANT SELL: ${wallet.label || wallet.address.substring(0, 8)} sold ${token.symbol} for $${sellAmountUsd.toFixed(0)} @ $${(sellMcap / 1000).toFixed(1)}K MCap (score: ${walletScore})`);
 
-    if (!recentSells || recentSells.length === 0) {
-      console.log(`   ⏭️  [ExitWarning] No recent sells from buyers for ${token.symbol}`);
-      return null;
-    }
+    // Determine strength based on wallet score and sell size
+    const isHighScoreWallet = walletScore >= 70;
+    const isSignificantSell = sellAmountUsd >= 100 || (totalBoughtTokens > 0 && sellAmountTokens / totalBoughtTokens >= 0.25);
 
-    // 3. Seskup prodeje podle walletu a spočítej celkové prodeje
-    interface SellerData {
-      walletId: string;
-      address: string;
-      score: number;
-      label: string | null;
-      totalSoldUsd: number;
-      totalSoldTokens: number;
-      totalBoughtTokens: number;  // Celkový bag
-      remainingTokens: number;    // Kolik zbývá
-      sells: Array<{ amountUsd: number; amountTokens: number; timestamp: Date }>;
-    }
+    const strength = isHighScoreWallet && isSignificantSell ? 'strong' : 'medium';
+    const confidence = Math.min(90, 50 + walletScore / 2 + (isSignificantSell ? 15 : 0));
 
-    const sellerMap = new Map<string, SellerData>();
-    for (const sell of recentSells) {
-      if (!sell.wallet) continue;
-
-      const existing = sellerMap.get(sell.walletId);
-      const sellAmountUsd = Number(sell.valueUsd || 0);
-      const sellAmountTokens = Number(sell.amountToken || 0);
-
-      if (existing) {
-        existing.totalSoldUsd += sellAmountUsd;
-        existing.totalSoldTokens += sellAmountTokens;
-        existing.sells.push({
-          amountUsd: sellAmountUsd,
-          amountTokens: sellAmountTokens,
-          timestamp: sell.timestamp,
-        });
-      } else {
-        sellerMap.set(sell.walletId, {
-          walletId: sell.walletId,
-          address: sell.wallet.address,
-          score: sell.wallet.score || 0,
-          label: sell.wallet.label || null,
-          totalSoldUsd: sellAmountUsd,
-          totalSoldTokens: sellAmountTokens,
-          totalBoughtTokens: 0,  // Bude doplněno níže
-          remainingTokens: 0,    // Bude doplněno níže
-          sells: [{
-            amountUsd: sellAmountUsd,
-            amountTokens: sellAmountTokens,
-            timestamp: sell.timestamp,
-          }],
-        });
-      }
-    }
-
-    // 3b. Načti celkové nákupy (bag) pro každého prodejce
-    const sellerWalletIds = Array.from(sellerMap.keys());
-    const buyTotals = await prisma.trade.groupBy({
-      by: ['walletId'],
-      where: {
-        tokenId: token.id,
-        side: 'buy',
-        walletId: { in: sellerWalletIds },
-      },
-      _sum: {
-        amountToken: true,
-      },
-    });
-
-    // 3c. Načti celkové prodeje (včetně starších) pro výpočet zbytku
-    const sellTotals = await prisma.trade.groupBy({
-      by: ['walletId'],
-      where: {
-        tokenId: token.id,
-        side: 'sell',
-        walletId: { in: sellerWalletIds },
-      },
-      _sum: {
-        amountToken: true,
-      },
-    });
-
-    // Mapuj na sellery
-    for (const buyTotal of buyTotals) {
-      const seller = sellerMap.get(buyTotal.walletId);
-      if (seller) {
-        seller.totalBoughtTokens = Number(buyTotal._sum.amountToken || 0);
-      }
-    }
-    for (const sellTotal of sellTotals) {
-      const seller = sellerMap.get(sellTotal.walletId);
-      if (seller) {
-        // Zbývající = nakoupeno - prodáno (celkem, ne jen poslední 4h)
-        seller.remainingTokens = Math.max(0, seller.totalBoughtTokens - Number(sellTotal._sum.amountToken || 0));
-      }
-    }
-
-    const sellerCount = sellerMap.size;
-    const sellers = Array.from(sellerMap.values());
-    const avgScore = sellers.reduce((sum, s) => sum + s.score, 0) / sellerCount;
-    const sellerNames = sellers
-      .map(s => s.label || 'unknown')
-      .slice(0, 3)
-      .join(', ');
-
-    console.log(`   📊 [ExitWarning] ${token.symbol}: ${sellerCount}/${buyerWallets.size} buyers now selling, avgScore: ${avgScore.toFixed(1)} (${sellerNames})`);
-
-    // 4. Urči tier na základě počtu prodávajících a jejich score
-    let tier: 'CRITICAL' | 'WARNING' | null = null;
-    let tierConfig: any;
-
-    if (
-      sellerCount >= SIGNAL_TIERS.EXIT_WARNING.CRITICAL.minWallets &&
-      avgScore >= SIGNAL_TIERS.EXIT_WARNING.CRITICAL.minAvgScore
-    ) {
-      tier = 'CRITICAL';
-      tierConfig = SIGNAL_TIERS.EXIT_WARNING.CRITICAL;
-    } else if (
-      sellerCount >= SIGNAL_TIERS.EXIT_WARNING.WARNING.minWallets &&
-      avgScore >= SIGNAL_TIERS.EXIT_WARNING.WARNING.minAvgScore
-    ) {
-      tier = 'WARNING';
-      tierConfig = SIGNAL_TIERS.EXIT_WARNING.WARNING;
-    }
-
-    if (!tier) {
-      console.log(`   ⏭️  [ExitWarning] ${token.symbol}: Thresholds not met - sellerCount: ${sellerCount} (need 2+), avgScore: ${avgScore.toFixed(1)} (need 45+)`);
-      return null;
-    }
-
-    console.log(`   🚨 [ExitWarning] ${token.symbol}: EXIT WARNING ${tier} triggered! ${sellerCount} original buyers now selling, avgScore ${avgScore.toFixed(1)}`);
-
-    const strength = tier === 'CRITICAL' ? 'strong' : 'medium';
-    const confidence = Math.min(90, 50 + sellerCount * 12 + avgScore / 10);
-
-    // Přidej info o prodejcích do contextu včetně detailů o prodejích
+    // Context for this single sell
     const exitContext = {
       ...context,
-      exitSellerCount: sellerCount,
-      exitSellerNames: sellerNames,
-      exitTotalBuyers: buyerWallets.size,
-      currentMarketCapUsd: marketData.marketCap, // Current MCap for display
-      // Detailní data o prodejcích pro Discord notifikaci
-      exitSellers: sellers.map(s => ({
-        walletId: s.walletId,
-        address: s.address,
-        label: s.label,
-        score: s.score,
-        totalSoldUsd: s.totalSoldUsd,
-        totalSoldTokens: s.totalSoldTokens,
-        totalBoughtTokens: s.totalBoughtTokens,  // Celkový bag
-        remainingTokens: s.remainingTokens,      // Kolik zbývá
-        lastSellTime: s.sells[0]?.timestamp, // Nejnovější prodej
-        sellCount: s.sells.length,
-        // Individual sells for detailed Discord display
-        sells: s.sells.map(sell => ({
-          amountUsd: sell.amountUsd,
-          amountTokens: sell.amountTokens,
-          timestamp: sell.timestamp,
-          marketCapUsd: marketData.marketCap, // Use current MCap (approximation)
-        })),
-      })),
+      exitSellerCount: 1,
+      exitSellerNames: wallet.label || wallet.address.substring(0, 8),
+      exitTotalBuyers: 1,
+      currentMarketCapUsd: sellMcap,
+      // Single seller data for Discord
+      exitSellers: [{
+        walletId: wallet.id,
+        address: wallet.address,
+        label: wallet.label,
+        score: walletScore,
+        totalSoldUsd: sellAmountUsd,
+        totalSoldTokens: sellAmountTokens,
+        totalBoughtTokens,
+        remainingTokens,
+        lastSellTime: trade.timestamp,
+        sellCount: 1,
+        // This single sell with its own MCap
+        sells: [{
+          amountUsd: sellAmountUsd,
+          amountTokens: sellAmountTokens,
+          timestamp: trade.timestamp,
+          marketCapUsd: sellMcap, // MCap at time of THIS sell
+        }],
+      }],
     };
 
     return {
       type: 'exit-warning',
       strength,
       confidence,
-      reasoning: `🚨 Exit Warning (${tier}): ${sellerCount}/${buyerWallets.size} original buyers (${sellerNames}) now selling ${token.symbol || 'token'} (avg score ${avgScore.toFixed(0)}) → ${tierConfig.action.replace('_', ' ')}`,
+      reasoning: `🔴 ${wallet.label || wallet.address.substring(0, 8)} [${walletScore}] sold ${token.symbol} - $${sellAmountUsd.toFixed(0)} @ $${(sellMcap / 1000).toFixed(1)}K MCap`,
       context: exitContext,
       suggestedAction: 'sell',
-      riskLevel: 'high',
+      riskLevel: isHighScoreWallet ? 'high' : 'medium',
     };
   }
 
