@@ -26,6 +26,7 @@ import { SolPriceCacheService } from './sol-price-cache.service.js';
 import { SignalPerformanceService } from './signal-performance.service.js';
 import { signalFilter } from './signal-filter.service.js';
 import { RugCheckService } from './rugcheck.service.js';
+import { signalQualityFilter } from './signal-quality-filter.service.js';
 import { prisma } from '../lib/prisma.js';
 
 // Signal type definitions - Core signals + deprecated (for backward compatibility)
@@ -919,6 +920,24 @@ export class AdvancedSignalsService {
       return null;
     }
 
+    // FILTER: Quality filters (volume ratio, price momentum, holder concentration)
+    // Fetch RugCheck for holder data
+    let rugCheckReport = null;
+    if (token?.mintAddress) {
+      try {
+        const rugCheckService = new RugCheckService();
+        rugCheckReport = await rugCheckService.getReport(token.mintAddress);
+      } catch (e) {
+        console.warn(`   ⚠️  [Accumulation] Failed to fetch RugCheck for ${tokenSymbol}`);
+      }
+    }
+
+    const qualityCheck = signalQualityFilter.checkSignalQuality(marketData, rugCheckReport);
+    if (!qualityCheck.passed) {
+      console.log(`   ⚠️  [Accumulation] Token ${tokenSymbol} QUALITY FILTER FAILED: ${qualityCheck.reason}`);
+      return null;
+    }
+
     // Try each tier from strongest to weakest
     const tiers: Array<{ name: 'STRONG' | 'MEDIUM' | 'WEAK'; config: any }> = [
       { name: 'STRONG', config: SIGNAL_TIERS.ACCUMULATION.STRONG },
@@ -1102,6 +1121,24 @@ export class AdvancedSignalsService {
     }
     if (marketData.marketCap < tierConfig.minMarketCap) {
       console.log(`   ⚠️  [ConvictionBuy] Token ${token.symbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K < $${(tierConfig.minMarketCap / 1000).toFixed(0)}K minimum - FILTERED OUT`);
+      return null;
+    }
+
+    // FILTER: Quality filters (volume ratio, price momentum, holder concentration)
+    // Fetch RugCheck for holder data
+    let rugCheckReport = null;
+    if (token?.mintAddress) {
+      try {
+        const rugCheckService = new RugCheckService();
+        rugCheckReport = await rugCheckService.getReport(token.mintAddress);
+      } catch (e) {
+        console.warn(`   ⚠️  [ConvictionBuy] Failed to fetch RugCheck for ${token.symbol}`);
+      }
+    }
+
+    const qualityCheck = signalQualityFilter.checkSignalQuality(marketData, rugCheckReport);
+    if (!qualityCheck.passed) {
+      console.log(`   ⚠️  [ConvictionBuy] Token ${token.symbol} QUALITY FILTER FAILED: ${qualityCheck.reason}`);
       return null;
     }
 

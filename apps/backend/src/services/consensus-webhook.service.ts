@@ -22,6 +22,7 @@ import { PositionMonitorService } from './position-monitor.service.js';
 import { SignalPerformanceService } from './signal-performance.service.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 import { WalletCorrelationService } from './wallet-correlation.service.js';
+import { signalQualityFilter } from './signal-quality-filter.service.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
@@ -176,6 +177,25 @@ export class ConsensusWebhookService {
         console.warn(`   ⚠️  [Consensus] Could not verify market cap - FILTERED OUT (no signal created)`);
         return { consensusFound: false };
       }
+
+      // 4c. QUALITY FILTERS - check volume ratio, price momentum, holder concentration
+      // Fetch RugCheck for holder data
+      let rugCheckReport = null;
+      if (token?.mintAddress) {
+        try {
+          const rugCheckService = new RugCheckService();
+          rugCheckReport = await rugCheckService.getReport(token.mintAddress);
+        } catch (e) {
+          console.warn(`   ⚠️  [Consensus] Failed to fetch RugCheck for ${token.symbol}`);
+        }
+      }
+
+      const qualityCheck = signalQualityFilter.checkSignalQuality(earlyMarketData, rugCheckReport);
+      if (!qualityCheck.passed) {
+        console.log(`   ⚠️  [Consensus] Token ${token?.symbol} QUALITY FILTER FAILED: ${qualityCheck.reason}`);
+        return { consensusFound: false }; // Don't create signal
+      }
+      console.log(`   ✅ [Consensus] Quality filters passed`);
 
       console.log(`   🤖 [Consensus] Will call AI decision service now...`);
 

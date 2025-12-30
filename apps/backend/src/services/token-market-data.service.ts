@@ -15,6 +15,19 @@ export interface TokenMarketData {
   topHolderPercent?: number | null; // Top holder %
   top10HolderPercent?: number | null; // Top 10 holders %
   source?: 'dexscreener' | 'birdeye'; // Data source
+
+  // Volume metrics (from DexScreener txns)
+  buys5m?: number | null;    // Number of buy transactions in 5 minutes
+  sells5m?: number | null;   // Number of sell transactions in 5 minutes
+  buyVolume5m?: number | null;  // Buy volume in USD (5 minutes)
+  sellVolume5m?: number | null; // Sell volume in USD (5 minutes)
+  buySellRatio5m?: number | null; // Buy/Sell volume ratio (>1 = more buying)
+
+  // Price change metrics
+  priceChange5m?: number | null;  // Price change % in 5 minutes
+  priceChange1h?: number | null;  // Price change % in 1 hour
+  priceChange6h?: number | null;  // Price change % in 6 hours
+  priceChange24h?: number | null; // Price change % in 24 hours
 }
 
 export class TokenMarketDataService {
@@ -73,6 +86,33 @@ export class TokenMarketDataService {
         tokenAgeMinutes = Math.round((now.getTime() - createdAt.getTime()) / (1000 * 60));
       }
 
+      // Extract buy/sell transaction counts and volumes (5 minute window)
+      // DexScreener txns structure: { m5: { buys, sells }, h1: {...}, h6: {...}, h24: {...} }
+      const txns = bestPair.txns || {};
+      const m5 = txns.m5 || {};
+      const buys5m = m5.buys !== undefined ? Number(m5.buys) : null;
+      const sells5m = m5.sells !== undefined ? Number(m5.sells) : null;
+
+      // DexScreener volume structure: { m5, h1, h6, h24 } in USD
+      const volume = bestPair.volume || {};
+      const buyVolume5m = volume.m5 !== undefined ? parseFloat(volume.m5) / 2 : null; // Approximate: half is buys
+      const sellVolume5m = volume.m5 !== undefined ? parseFloat(volume.m5) / 2 : null; // Approximate: half is sells
+
+      // Calculate buy/sell ratio from transaction counts (more reliable)
+      let buySellRatio5m: number | null = null;
+      if (buys5m !== null && sells5m !== null && sells5m > 0) {
+        buySellRatio5m = buys5m / sells5m;
+      } else if (buys5m !== null && buys5m > 0 && sells5m === 0) {
+        buySellRatio5m = 10; // Cap at 10 if no sells
+      }
+
+      // Extract price changes
+      const priceChange = bestPair.priceChange || {};
+      const priceChange5m = priceChange.m5 !== undefined ? parseFloat(priceChange.m5) : null;
+      const priceChange1h = priceChange.h1 !== undefined ? parseFloat(priceChange.h1) : null;
+      const priceChange6h = priceChange.h6 !== undefined ? parseFloat(priceChange.h6) : null;
+      const priceChange24h = priceChange.h24 !== undefined ? parseFloat(priceChange.h24) : null;
+
       return {
         price,
         marketCap,
@@ -81,6 +121,17 @@ export class TokenMarketDataService {
         tokenAgeMinutes,
         ageMinutes: tokenAgeMinutes,
         source: 'dexscreener',
+        // Volume metrics
+        buys5m,
+        sells5m,
+        buyVolume5m,
+        sellVolume5m,
+        buySellRatio5m,
+        // Price change metrics
+        priceChange5m,
+        priceChange1h,
+        priceChange6h,
+        priceChange24h,
       };
     } catch (error: any) {
       console.warn(`⚠️  DexScreener error for ${mintAddress.substring(0, 8)}...: ${error.message}`);
