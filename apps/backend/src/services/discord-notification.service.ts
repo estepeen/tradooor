@@ -775,7 +775,8 @@ export class DiscordNotificationService {
           const year = pragueTime.getFullYear();
           const hours = String(pragueTime.getHours()).padStart(2, '0');
           const minutes = String(pragueTime.getMinutes()).padStart(2, '0');
-          return `⚡ Powered by STPNGPT • ${day}/${month}/${year}, ${hours}:${minutes}`;
+          const seconds = String(pragueTime.getSeconds()).padStart(2, '0');
+          return `⚡ Powered by STPNGPT • ${day}/${month}/${year}, ${hours}:${minutes}:${seconds}`;
         })(),
       },
     };
