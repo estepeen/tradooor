@@ -537,6 +537,34 @@ export class AdvancedSignalsService {
   ): Promise<AdvancedSignal | null> {
     console.log(`🔍 [ExitWarning] Checking sell for ${token.symbol || token.id.substring(0, 8)}...`);
 
+    // 0. Fetch market data and filter by market cap
+    // Exit warnings are only relevant for LOW market cap tokens (< $20K)
+    // High market cap tokens are more stable, exit warnings less critical
+    const MAX_MARKET_CAP_FOR_EXIT_WARNING = 20000; // $20K
+
+    let marketData = { marketCap: null as number | null };
+    if (token?.mintAddress) {
+      try {
+        marketData = await this.tokenMarketData.getMarketData(token.mintAddress);
+      } catch (e) {
+        console.warn(`   ⚠️  [ExitWarning] Failed to fetch market data for ${token.symbol}`);
+      }
+    }
+
+    // If market cap is unknown, skip (safety)
+    if (marketData.marketCap === null || marketData.marketCap === undefined) {
+      console.log(`   ⏭️  [ExitWarning] Token ${token.symbol} market cap UNKNOWN - skipping`);
+      return null;
+    }
+
+    // Only care about exit warnings for LOW market cap tokens (under $20K)
+    if (marketData.marketCap >= MAX_MARKET_CAP_FOR_EXIT_WARNING) {
+      console.log(`   ⏭️  [ExitWarning] Token ${token.symbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K >= $${(MAX_MARKET_CAP_FOR_EXIT_WARNING / 1000).toFixed(0)}K - skipping (only low mcap tokens)`);
+      return null;
+    }
+
+    console.log(`   ✅ [ExitWarning] Token ${token.symbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K < $${(MAX_MARKET_CAP_FOR_EXIT_WARNING / 1000).toFixed(0)}K - checking for sellers...`);
+
     // 1. Najdi všechny wallety, které token NAKOUPILY (v posledních 7 dnech)
     const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
     const buyersResult = await prisma.trade.findMany({
