@@ -153,16 +153,23 @@ const COLORS = {
 
 export class DiscordNotificationService {
   private webhookUrl: string;
+  private exitWebhookUrl: string;
   private enabled: boolean;
+  private exitEnabled: boolean;
   private solPriceCacheService: SolPriceCacheService;
 
   constructor() {
     this.webhookUrl = process.env.DISCORD_WEBHOOK_URL || '';
+    this.exitWebhookUrl = process.env.DISCORD_EXIT_WEBHOOK_URL || '';
     this.enabled = !!this.webhookUrl;
+    this.exitEnabled = !!this.exitWebhookUrl;
     this.solPriceCacheService = new SolPriceCacheService();
-    
+
     if (!this.enabled) {
       console.warn('⚠️  Discord notifications disabled: DISCORD_WEBHOOK_URL not set');
+    }
+    if (!this.exitEnabled) {
+      console.warn('⚠️  Discord exit notifications disabled: DISCORD_EXIT_WEBHOOK_URL not set');
     }
   }
 
@@ -616,10 +623,11 @@ export class DiscordNotificationService {
   }
 
 /**
-   * Pošle notifikaci o exit signálu
+   * Pošle notifikaci o exit signálu (do separátního kanálu)
    */
   async sendExitSignalNotification(data: ExitSignalNotificationData): Promise<boolean> {
-    if (!this.enabled) {
+    if (!this.exitEnabled) {
+      console.warn('⚠️  Exit notification skipped: DISCORD_EXIT_WEBHOOK_URL not set');
       return false;
     }
 
@@ -631,7 +639,7 @@ export class DiscordNotificationService {
         embeds: [embed],
       };
 
-      const response = await fetch(this.webhookUrl, {
+      const response = await fetch(this.exitWebhookUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -641,11 +649,11 @@ export class DiscordNotificationService {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`❌ Discord webhook error: ${response.status} - ${errorText}`);
+        console.error(`❌ Discord exit webhook error: ${response.status} - ${errorText}`);
         return false;
       }
 
-      console.log(`📨 Discord exit notification sent for ${data.tokenSymbol}`);
+      console.log(`📨 Discord exit notification sent for ${data.tokenSymbol} to exit channel`);
       return true;
     } catch (error: any) {
       console.error(`❌ Failed to send Discord exit notification: ${error.message}`);

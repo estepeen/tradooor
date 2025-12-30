@@ -172,7 +172,9 @@ export class ConsensusWebhookService {
         }
         console.log(`   ✅ [Consensus] Market cap check passed: $${(earlyMarketData.marketCap / 1000).toFixed(1)}K >= $${(MIN_MARKET_CAP_USD / 1000).toFixed(0)}K minimum`);
       } else {
-        console.warn(`   ⚠️  [Consensus] Could not verify market cap - proceeding with signal creation`);
+        // If we cannot verify market cap, don't create signal (safety first)
+        console.warn(`   ⚠️  [Consensus] Could not verify market cap - FILTERED OUT (no signal created)`);
+        return { consensusFound: false };
       }
 
       console.log(`   🤖 [Consensus] Will call AI decision service now...`);
