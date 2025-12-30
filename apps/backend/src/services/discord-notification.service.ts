@@ -77,6 +77,19 @@ export interface SignalNotificationData {
       marketCapUsd?: number; // Market cap v době nákupu
     }>;
   }>;
+
+  // Pro exit-warning signál: detaily o prodejcích
+  exitSellers?: Array<{
+    walletId: string;
+    address: string;
+    label: string | null;
+    score: number;
+    totalSoldUsd: number;
+    totalSoldTokens: number;
+    lastSellTime: Date;
+    sellCount: number;
+  }>;
+  exitTotalBuyers?: number; // Celkový počet walletů co nakoupily
 }
 
 /**
@@ -220,7 +233,7 @@ export class DiscordNotificationService {
 
   /**
    * Pošle signál do exit kanálu (pro exit-warning signály)
-   * Používá stejný formát jako sendSignalNotification, ale jde do exit webhooku
+   * Používá speciální jednodušší formát - červená barva, jen token info a prodejci
    */
   async sendSignalToExitChannel(data: SignalNotificationData): Promise<boolean> {
     if (!this.exitEnabled) {
@@ -231,7 +244,7 @@ export class DiscordNotificationService {
     try {
       console.log(`📨 [Discord] sendSignalToExitChannel called for ${data.tokenSymbol} (${data.signalType})`);
 
-      const embed = await this.buildSignalEmbed(data);
+      const embed = await this.buildExitWarningEmbed(data);
 
       const payload: DiscordWebhookPayload = {
         username: 'Spectre Exit Alerts',
@@ -258,6 +271,96 @@ export class DiscordNotificationService {
       console.error(`❌ Failed to send Discord exit channel notification: ${error.message}`);
       return false;
     }
+  }
+
+  /**
+   * Vytvoří speciální embed pro exit-warning signál
+   * Jednodušší formát: červená barva, token info, kdo prodává a za kolik
+   */
+  private async buildExitWarningEmbed(data: SignalNotificationData): Promise<DiscordEmbed> {
+    const birdeyeUrl = `https://birdeye.so/token/${data.tokenMint}?chain=solana`;
+    const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://tradooor.stepanpanek.cz';
+
+    // Červená barva pro exit warning
+    const color = 0xff0000; // Červená
+
+    // Počet prodejců vs celkem kupců
+    const sellerCount = data.exitSellers?.length || data.walletCount || 0;
+    const totalBuyers = data.exitTotalBuyers || sellerCount;
+    const strengthLabel = data.strength === 'strong' ? '🚨 CRITICAL' : '⚠️ WARNING';
+
+    // Title
+    const title = `${strengthLabel} EXIT ${data.tokenSymbol} (${sellerCount}/${totalBuyers} selling)`;
+
+    const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
+
+    // Token Info - jednodušší verze
+    const tokenInfo = [];
+    if (data.marketCapUsd) {
+      tokenInfo.push(`**MCap:** $${this.formatNumber(data.marketCapUsd, 0)}`);
+    }
+    if (data.liquidityUsd) {
+      tokenInfo.push(`**Liq:** $${this.formatNumber(data.liquidityUsd, 0)}`);
+    }
+    if (data.entryPriceUsd) {
+      tokenInfo.push(`**Price:** $${this.formatNumber(data.entryPriceUsd, 8)}`);
+    }
+
+    if (tokenInfo.length > 0) {
+      fields.push({
+        name: '📊 Token',
+        value: tokenInfo.join('\n'),
+        inline: true,
+      });
+    }
+
+    // Prodejci - detailní info
+    if (data.exitSellers && data.exitSellers.length > 0) {
+      const sellerLines: string[] = [];
+
+      for (const seller of data.exitSellers) {
+        const name = seller.label || `${seller.address.substring(0, 6)}...`;
+        const profileUrl = `${frontendUrl}/wallet/${seller.address}`;
+        const scoreStr = seller.score ? ` [${Math.round(seller.score)}]` : '';
+
+        // Kdy prodal (formátovaný čas)
+        let timeStr = '';
+        if (seller.lastSellTime) {
+          const time = new Date(seller.lastSellTime);
+          const formatter = new Intl.DateTimeFormat('cs-CZ', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false,
+            timeZone: 'Europe/Prague',
+          });
+          timeStr = formatter.format(time);
+        }
+
+        // Za kolik prodal
+        const soldStr = `$${this.formatNumber(seller.totalSoldUsd, 0)}`;
+
+        // Formát: [Jméno [score]](link) - $XXX @ HH:MM
+        const line = `[**${name}${scoreStr}**](${profileUrl}) - ${soldStr}${timeStr ? ` • ${timeStr}` : ''}`;
+        sellerLines.push(line);
+      }
+
+      fields.push({
+        name: '🔴 Sellers',
+        value: sellerLines.join('\n') || 'No data',
+        inline: false,
+      });
+    }
+
+    return {
+      title,
+      url: birdeyeUrl,
+      color,
+      fields,
+      timestamp: new Date().toISOString(),
+      footer: {
+        text: `Exit Warning • ${data.strength}`,
+      },
+    };
   }
 
   /**

@@ -56,6 +56,20 @@ export interface SignalContext {
   positionSizeUsd?: number;
   walletAvgPositionUsd?: number;
   entryPriceUsd?: number;
+  // Exit-warning specific fields
+  exitSellerCount?: number;
+  exitSellerNames?: string;
+  exitTotalBuyers?: number;
+  exitSellers?: Array<{
+    walletId: string;
+    address: string;
+    label: string | null;
+    score: number;
+    totalSoldUsd: number;
+    totalSoldTokens: number;
+    lastSellTime: Date;
+    sellCount: number;
+  }>;
 }
 
 export interface AdvancedSignal {
@@ -572,15 +586,23 @@ export class AdvancedSignalsService {
           gte: new Date(Date.now() - SIGNAL_TIERS.EXIT_WARNING.WARNING.timeWindowHours * 60 * 60 * 1000),
         },
       },
-      include: {
+      select: {
+        id: true,
+        walletId: true,
+        amountBase: true,
+        amountToken: true,
+        valueUsd: true,
+        timestamp: true,
         wallet: {
           select: {
             id: true,
+            address: true,
             score: true,
             label: true,
           },
         },
       },
+      orderBy: { timestamp: 'desc' },
     });
 
     if (!recentSells || recentSells.length === 0) {
@@ -588,22 +610,55 @@ export class AdvancedSignalsService {
       return null;
     }
 
-    // 3. Počítej unique sellery (z těch co nakoupili) a jejich avg score
-    const sellerMap = new Map<string, { score: number; label: string | null }>();
+    // 3. Seskup prodeje podle walletu a spočítej celkové prodeje
+    interface SellerData {
+      walletId: string;
+      address: string;
+      score: number;
+      label: string | null;
+      totalSoldUsd: number;
+      totalSoldTokens: number;
+      sells: Array<{ amountUsd: number; amountTokens: number; timestamp: Date }>;
+    }
+
+    const sellerMap = new Map<string, SellerData>();
     for (const sell of recentSells) {
-      if (sell.wallet && !sellerMap.has(sell.walletId)) {
+      if (!sell.wallet) continue;
+
+      const existing = sellerMap.get(sell.walletId);
+      const sellAmountUsd = Number(sell.valueUsd || 0);
+      const sellAmountTokens = Number(sell.amountToken || 0);
+
+      if (existing) {
+        existing.totalSoldUsd += sellAmountUsd;
+        existing.totalSoldTokens += sellAmountTokens;
+        existing.sells.push({
+          amountUsd: sellAmountUsd,
+          amountTokens: sellAmountTokens,
+          timestamp: sell.timestamp,
+        });
+      } else {
         sellerMap.set(sell.walletId, {
+          walletId: sell.walletId,
+          address: sell.wallet.address,
           score: sell.wallet.score || 0,
           label: sell.wallet.label || null,
+          totalSoldUsd: sellAmountUsd,
+          totalSoldTokens: sellAmountTokens,
+          sells: [{
+            amountUsd: sellAmountUsd,
+            amountTokens: sellAmountTokens,
+            timestamp: sell.timestamp,
+          }],
         });
       }
     }
 
     const sellerCount = sellerMap.size;
-    const scores = Array.from(sellerMap.values()).map(w => w.score);
-    const avgScore = scores.reduce((sum, score) => sum + score, 0) / sellerCount;
-    const sellerNames = Array.from(sellerMap.values())
-      .map(w => w.label || 'unknown')
+    const sellers = Array.from(sellerMap.values());
+    const avgScore = sellers.reduce((sum, s) => sum + s.score, 0) / sellerCount;
+    const sellerNames = sellers
+      .map(s => s.label || 'unknown')
       .slice(0, 3)
       .join(', ');
 
@@ -637,12 +692,23 @@ export class AdvancedSignalsService {
     const strength = tier === 'CRITICAL' ? 'strong' : 'medium';
     const confidence = Math.min(90, 50 + sellerCount * 12 + avgScore / 10);
 
-    // Přidej info o prodejcích do contextu
+    // Přidej info o prodejcích do contextu včetně detailů o prodejích
     const exitContext = {
       ...context,
       exitSellerCount: sellerCount,
       exitSellerNames: sellerNames,
       exitTotalBuyers: buyerWallets.size,
+      // Detailní data o prodejcích pro Discord notifikaci
+      exitSellers: sellers.map(s => ({
+        walletId: s.walletId,
+        address: s.address,
+        label: s.label,
+        score: s.score,
+        totalSoldUsd: s.totalSoldUsd,
+        totalSoldTokens: s.totalSoldTokens,
+        lastSellTime: s.sells[0]?.timestamp, // Nejnovější prodej
+        sellCount: s.sells.length,
+      })),
     };
 
     return {
@@ -1484,12 +1550,16 @@ export class AdvancedSignalsService {
                 })() : undefined,
               }],
               security: securityData,
+              // Pro exit-warning: přidej detaily o prodejcích
+              exitSellers: signal.type === 'exit-warning' ? signal.context.exitSellers : undefined,
+              exitTotalBuyers: signal.type === 'exit-warning' ? signal.context.exitTotalBuyers : undefined,
             };
 
             console.log(`📨 [AdvancedSignals] About to send Discord notification - baseToken: ${notificationData.baseToken || 'MISSING'}, walletIds: ${notificationData.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}, aiDecision: ${notificationData.aiDecision || 'undefined'}`);
 
             // Exit-warning signály jdou do separátního exit kanálu
             if (signal.type === 'exit-warning') {
+              console.log(`   🔴 [ExitWarning] Sending to exit channel with ${notificationData.exitSellers?.length || 0} sellers`);
               await this.discordNotification.sendSignalToExitChannel(notificationData);
             } else {
               await this.discordNotification.sendSignalNotification(notificationData);
