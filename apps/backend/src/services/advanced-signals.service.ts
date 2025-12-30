@@ -23,6 +23,7 @@ import { TokenMarketDataService } from './token-market-data.service.js';
 import { AIDecisionService, AIContext, AIDecision } from './ai-decision.service.js';
 import { DiscordNotificationService, SignalNotificationData } from './discord-notification.service.js';
 import { SolPriceCacheService } from './sol-price-cache.service.js';
+import { SignalPerformanceService } from './signal-performance.service.js';
 import { prisma } from '../lib/prisma.js';
 
 // Signal type definitions - Core signals + deprecated (for backward compatibility)
@@ -215,7 +216,8 @@ export class AdvancedSignalsService {
   private aiDecision: AIDecisionService;
   private discordNotification: DiscordNotificationService;
   private solPriceCacheService: SolPriceCacheService;
-  
+  private signalPerformance: SignalPerformanceService;
+
   // Cache pro seskupování accumulation signálů (key: tokenId-walletId)
   private pendingAccumulationSignals: Map<string, PendingAccumulationSignal> = new Map();
   private readonly ACCUMULATION_GROUP_WINDOW_MS = 60 * 1000; // 1 minuta
@@ -231,6 +233,7 @@ export class AdvancedSignalsService {
     this.aiDecision = new AIDecisionService();
     this.discordNotification = new DiscordNotificationService();
     this.solPriceCacheService = new SolPriceCacheService();
+    this.signalPerformance = new SignalPerformanceService();
   }
 
   /**
@@ -1133,7 +1136,21 @@ export class AdvancedSignalsService {
       const saved = await this.saveEnhancedSignal(trade, signal, marketData);
       if (saved) {
         savedCount++;
-        
+
+        // Create signal performance tracking record for conviction-buy and accumulation
+        if (['conviction-buy', 'accumulation'].includes(signal.type) && signal.suggestedAction === 'buy') {
+          try {
+            await this.signalPerformance.createPerformanceRecord(
+              saved.id,
+              trade.tokenId,
+              signal.entryPriceUsd || 0
+            );
+            console.log(`   📊 [SignalPerformance] Created performance record for ${signal.type} signal: ${saved.id.substring(0, 16)}...`);
+          } catch (perfError: any) {
+            console.warn(`   ⚠️  Signal performance record creation failed: ${perfError.message}`);
+          }
+        }
+
         // Send Discord notification for core signals only
         // ACTIVE TYPES: consensus, accumulation, conviction-buy (BUY signals), exit-warning (SELL signal)
         // All other signal types are deprecated and not sent to Discord
