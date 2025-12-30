@@ -810,10 +810,14 @@ export class AdvancedSignalsService {
       }
     }
 
-    const qualityCheck = signalQualityFilter.checkSignalQuality(marketData, rugCheckReport);
-    if (!qualityCheck.passed) {
-      console.log(`   ⚠️  [Accumulation] Token ${tokenSymbol} QUALITY FILTER FAILED: ${qualityCheck.reason}`);
-      return null;
+    // QUALITY FILTER DISABLED FOR LATENCY OPTIMIZATION
+    // To re-enable: remove the `false &&` condition below
+    if (false) {
+      const qualityCheck = signalQualityFilter.checkSignalQuality(marketData, rugCheckReport);
+      if (!qualityCheck.passed) {
+        console.log(`   ⚠️  [Accumulation] Token ${tokenSymbol} QUALITY FILTER FAILED: ${qualityCheck.reason}`);
+        return null;
+      }
     }
 
     // Try each tier from strongest to weakest
@@ -1014,10 +1018,14 @@ export class AdvancedSignalsService {
       }
     }
 
-    const qualityCheck = signalQualityFilter.checkSignalQuality(marketData, rugCheckReport);
-    if (!qualityCheck.passed) {
-      console.log(`   ⚠️  [ConvictionBuy] Token ${token.symbol} QUALITY FILTER FAILED: ${qualityCheck.reason}`);
-      return null;
+    // QUALITY FILTER DISABLED FOR LATENCY OPTIMIZATION
+    // To re-enable: remove the `if (false)` block below
+    if (false) {
+      const qualityCheck = signalQualityFilter.checkSignalQuality(marketData, rugCheckReport);
+      if (!qualityCheck.passed) {
+        console.log(`   ⚠️  [ConvictionBuy] Token ${token.symbol} QUALITY FILTER FAILED: ${qualityCheck.reason}`);
+        return null;
+      }
     }
 
     // Add to context
