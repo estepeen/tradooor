@@ -25,6 +25,7 @@ import { DiscordNotificationService, SignalNotificationData } from './discord-no
 import { SolPriceCacheService } from './sol-price-cache.service.js';
 import { SignalPerformanceService } from './signal-performance.service.js';
 import { signalFilter } from './signal-filter.service.js';
+import { RugCheckService } from './rugcheck.service.js';
 import { prisma } from '../lib/prisma.js';
 
 // Signal type definitions - Core signals + deprecated (for backward compatibility)
@@ -204,6 +205,7 @@ interface PendingAccumulationSignal {
   firstTradeTime: Date;
   lastTradeTime: Date;
   timeoutId?: NodeJS.Timeout;
+  securityData?: SignalNotificationData['security'];
 }
 
 export class AdvancedSignalsService {
@@ -218,6 +220,7 @@ export class AdvancedSignalsService {
   private discordNotification: DiscordNotificationService;
   private solPriceCacheService: SolPriceCacheService;
   private signalPerformance: SignalPerformanceService;
+  private rugCheck: RugCheckService;
 
   // Cache pro seskupování accumulation signálů (key: tokenId-walletId)
   private pendingAccumulationSignals: Map<string, PendingAccumulationSignal> = new Map();
@@ -235,6 +238,7 @@ export class AdvancedSignalsService {
     this.discordNotification = new DiscordNotificationService();
     this.solPriceCacheService = new SolPriceCacheService();
     this.signalPerformance = new SignalPerformanceService();
+    this.rugCheck = new RugCheckService();
   }
 
   /**
@@ -1193,6 +1197,32 @@ export class AdvancedSignalsService {
                 continue; // Pokračuj na další signál
               } else {
                 // Nový accumulation signál - přidej do pending a nastav timeout
+                // Fetch RugCheck security data
+                let securityData: SignalNotificationData['security'] | undefined;
+                try {
+                  const rugReport = await this.rugCheck.getReport(token?.mintAddress || '');
+                  if (rugReport) {
+                    securityData = {
+                      riskLevel: rugReport.riskLevel,
+                      riskScore: rugReport.riskScore,
+                      isLpLocked: rugReport.isLpLocked,
+                      lpLockedPercent: rugReport.lpLockedPercent,
+                      isDexPaid: rugReport.isDexPaid,
+                      isMintable: rugReport.isMintable,
+                      isFreezable: rugReport.isFreezable,
+                      isHoneypot: rugReport.isHoneypot,
+                      honeypotReason: rugReport.honeypotReason,
+                      buyTax: rugReport.buyTax,
+                      sellTax: rugReport.sellTax,
+                      hasDangerousTax: rugReport.hasDangerousTax,
+                      risks: rugReport.risks,
+                    };
+                    console.log(`   🛡️  [Accumulation] RugCheck: ${rugReport.riskLevel} (${rugReport.riskScore}/100)${rugReport.isHoneypot ? ' 🍯 HONEYPOT!' : ''}`);
+                  }
+                } catch (rugError: any) {
+                  console.warn(`   ⚠️  [Accumulation] RugCheck failed: ${rugError.message}`);
+                }
+
                 const pending: PendingAccumulationSignal = {
                   tokenId: token.id,
                   walletId: wallet.id,
@@ -1205,6 +1235,7 @@ export class AdvancedSignalsService {
                   signal,
                   firstTradeTime: trade.timestamp,
                   lastTradeTime: trade.timestamp,
+                  securityData,
                 };
                 
                 pending.timeoutId = setTimeout(() => {
@@ -1220,7 +1251,33 @@ export class AdvancedSignalsService {
             
             // Pro ostatní signály: pošli okamžitě
             console.log(`📨 [AdvancedSignals] Sending Discord notification for ${signal.type} signal - baseToken: ${baseToken}, walletId: ${wallet?.id ? 'yes' : 'no'}, walletAddress: ${wallet?.address?.substring(0, 8)}...`);
-            
+
+            // Fetch RugCheck security data for non-accumulation signals
+            let securityData: SignalNotificationData['security'] | undefined;
+            try {
+              const rugReport = await this.rugCheck.getReport(token?.mintAddress || '');
+              if (rugReport) {
+                securityData = {
+                  riskLevel: rugReport.riskLevel,
+                  riskScore: rugReport.riskScore,
+                  isLpLocked: rugReport.isLpLocked,
+                  lpLockedPercent: rugReport.lpLockedPercent,
+                  isDexPaid: rugReport.isDexPaid,
+                  isMintable: rugReport.isMintable,
+                  isFreezable: rugReport.isFreezable,
+                  isHoneypot: rugReport.isHoneypot,
+                  honeypotReason: rugReport.honeypotReason,
+                  buyTax: rugReport.buyTax,
+                  sellTax: rugReport.sellTax,
+                  hasDangerousTax: rugReport.hasDangerousTax,
+                  risks: rugReport.risks,
+                };
+                console.log(`   🛡️  [${signal.type}] RugCheck: ${rugReport.riskLevel} (${rugReport.riskScore}/100)${rugReport.isHoneypot ? ' 🍯 HONEYPOT!' : ''}`);
+              }
+            } catch (rugError: any) {
+              console.warn(`   ⚠️  [${signal.type}] RugCheck failed: ${rugError.message}`);
+            }
+
             const notificationData: SignalNotificationData = {
               tokenSymbol: token?.symbol || 'Unknown',
               tokenMint: token?.mintAddress || '',
@@ -1360,8 +1417,9 @@ export class AdvancedSignalsService {
                   return buyResults;
                 })() : undefined,
               }],
+              security: securityData,
             };
-            
+
             console.log(`📨 [AdvancedSignals] About to send Discord notification - baseToken: ${notificationData.baseToken || 'MISSING'}, walletIds: ${notificationData.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}, aiDecision: ${notificationData.aiDecision || 'undefined'}`);
             await this.discordNotification.sendSignalNotification(notificationData);
           } catch (discordError: any) {
@@ -1498,8 +1556,9 @@ export class AdvancedSignalsService {
           tradeTime: pending.lastTradeTime.toISOString(),
           accumulationBuys: buyResults,
         }],
+        security: pending.securityData,
       };
-      
+
       await this.discordNotification.sendSignalNotification(notificationData);
     } catch (error: any) {
       console.error(`❌ Error sending accumulation notification: ${error.message}`);
