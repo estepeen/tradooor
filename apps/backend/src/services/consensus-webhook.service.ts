@@ -151,6 +151,30 @@ export class ConsensusWebhookService {
 
       console.log(`   🎯 [Consensus] Consensus found: ${uniqueWallets.size} wallets bought ${tokenId.substring(0, 16)}... in 2h window`);
       console.log(`      Using trade ${tradeToUseId.substring(0, 16)}... price: $${tradeToUsePrice.toFixed(6)}`);
+
+      // 4b. EARLY Market Cap Filter - check BEFORE creating signal
+      // This ensures low market cap tokens don't create signals at all
+      const token = await this.tokenRepo.findById(tokenId);
+      let earlyMarketData: any = null;
+
+      if (token?.mintAddress) {
+        try {
+          earlyMarketData = await this.tokenMarketData.getMarketData(token.mintAddress);
+        } catch (e) {
+          console.warn(`   ⚠️  [Consensus] Failed to fetch early market data for ${token.symbol}`);
+        }
+      }
+
+      if (earlyMarketData?.marketCap !== null && earlyMarketData?.marketCap !== undefined) {
+        if (earlyMarketData.marketCap < MIN_MARKET_CAP_USD) {
+          console.log(`   ⚠️  [Consensus] Token ${token?.symbol} market cap $${(earlyMarketData.marketCap / 1000).toFixed(1)}K < $${(MIN_MARKET_CAP_USD / 1000).toFixed(0)}K minimum - FILTERED OUT (no signal created)`);
+          return { consensusFound: false }; // Don't create signal at all
+        }
+        console.log(`   ✅ [Consensus] Market cap check passed: $${(earlyMarketData.marketCap / 1000).toFixed(1)}K >= $${(MIN_MARKET_CAP_USD / 1000).toFixed(0)}K minimum`);
+      } else {
+        console.warn(`   ⚠️  [Consensus] Could not verify market cap - proceeding with signal creation`);
+      }
+
       console.log(`   🤖 [Consensus] Will call AI decision service now...`);
 
       // 5. Zkontroluj existující signál a urči typ notifikace
@@ -272,23 +296,11 @@ export class ConsensusWebhookService {
 
         // 5c. Pošli Discord notifikaci
         try {
-          // Načti token info
-          const token = await this.tokenRepo.findById(tradeToUse.tokenId);
+          // Use earlyMarketData that was already fetched before signal creation
+          // Token was already loaded earlier (line 157)
+          marketDataResult = earlyMarketData;
 
-          // Načti market data
-          try {
-            marketDataResult = await this.tokenMarketData.getMarketData(token?.mintAddress || '');
-          } catch (e) {
-            // ignoruj
-          }
-
-          // Check minimum market cap filter
-          if (marketDataResult?.marketCap !== null && marketDataResult?.marketCap !== undefined) {
-            if (marketDataResult.marketCap < MIN_MARKET_CAP_USD) {
-              console.log(`   ⚠️  [Consensus] Token ${token?.symbol} market cap $${(marketDataResult.marketCap / 1000).toFixed(1)}K < $${(MIN_MARKET_CAP_USD / 1000).toFixed(0)}K minimum - FILTERED OUT`);
-              return { consensusFound: true }; // Signal was found but filtered
-            }
-          }
+          // Market cap filter already applied at step 4b - no need to check again
 
           // Načti wallet info
           const walletIds = sortedBuys.map(b => b.walletId);
