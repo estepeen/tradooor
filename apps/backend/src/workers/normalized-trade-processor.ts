@@ -215,12 +215,17 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
       valuationTimestamp: valuation.timestamp,
     });
 
-    // DŮLEŽITÉ: Přepočítej closed positions s debounce
-    // Debounce zabraňuje přepočítávání stejné walletky vícekrát během krátké doby
-    // Toto výrazně snižuje CPU zatížení při vysokém objemu trades
-    const lastRecalc = walletClosedLotDebounce.get(record.walletId) || 0;
-    const now = Date.now();
-    
+    // LATENCY OPTIMIZATION: Only recalculate closed lots for SELL trades
+    // BUY trades don't close positions, so no need to recalculate immediately
+    // This significantly reduces processing time per trade
+    if (trade.side !== 'sell') {
+      // Skip closed lots recalculation for non-SELL trades
+      // They will be recalculated when a SELL happens or via the queue worker
+    } else {
+      // SELL trades: Recalculate closed positions with debounce
+      const lastRecalc = walletClosedLotDebounce.get(record.walletId) || 0;
+      const now = Date.now();
+
     // Get wallet address for better logging
     let walletAddress = record.walletId.substring(0, 8);
     try {
@@ -231,7 +236,7 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
     } catch {
       // Ignore if wallet lookup fails
     }
-    
+
     if (now - lastRecalc >= CLOSED_LOT_DEBOUNCE_MS) {
       walletClosedLotDebounce.set(record.walletId, now);
       console.log(`   🔄 [ClosedLots] Starting recalculation for wallet ${walletAddress}... (ID: ${record.walletId.substring(0, 8)}...)`);
@@ -290,6 +295,7 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
     } else {
       console.log(`   ⏭️  [ClosedLots] Skipping recalculation for wallet ${walletAddress}... (debounced, last recalc ${Math.round((now - lastRecalc) / 1000)}s ago)`);
     }
+    } // End of SELL-only closed lots block
 
     // SELL trades: Calculate metrics immediately (with debounce) for instant UI update
     // This ensures closed positions and PnL are updated without waiting for the queue worker
