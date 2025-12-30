@@ -8,6 +8,7 @@ import { TokenMarketDataService } from '../services/token-market-data.service.js
 import { DiscordNotificationService } from '../services/discord-notification.service.js';
 import { RugCheckService } from '../services/rugcheck.service.js';
 import { SignalPerformanceService } from '../services/signal-performance.service.js';
+import { signalFilter, ALL_ALLOWED_SIGNAL_TYPES } from '../services/signal-filter.service.js';
 import { prisma } from '../lib/prisma.js';
 
 const router = express.Router();
@@ -1008,21 +1009,65 @@ router.get('/analytics/dashboard', async (req, res) => {
       skipWrong: 0,
     };
 
-    // 4. Get win rate by signal type
+    // 4. Format signals for table - apply centralized filter FIRST
+    // This ensures winRateByType uses the same filtered data
+    const signalsTable = signalsWithPerf
+      .map(perf => {
+        const signalType = (perf.signal?.meta as any)?.signalType || perf.signal?.model || 'unknown';
+        const strength = (perf.signal?.meta as any)?.strength || 'medium';
+        return {
+          id: perf.id,
+          signalId: perf.signalId,
+          tokenId: perf.tokenId,
+          tokenSymbol: perf.signal?.token?.symbol || 'Unknown',
+          tokenMint: perf.signal?.token?.mintAddress || '',
+          signalType,
+          strength,
+          entryPriceUsd: Number(perf.entryPriceUsd),
+          entryTimestamp: perf.entryTimestamp,
+          currentPriceUsd: Number(perf.currentPriceUsd) || null,
+          highestPriceUsd: Number(perf.highestPriceUsd) || null,
+          currentPnlPercent: Number(perf.currentPnlPercent) || null,
+          maxPnlPercent: Number(perf.maxPnlPercent) || null,
+          realizedPnlPercent: Number(perf.realizedPnlPercent) || null,
+          missedPnlPercent: Number(perf.missedPnlPercent) || null,
+          drawdownFromPeak: Number(perf.drawdownFromPeak) || null,
+          timeToPeakMinutes: perf.timeToPeakMinutes,
+          status: perf.status,
+          exitReason: perf.exitReason,
+          pnlSnapshots: perf.pnlSnapshots as Record<string, number> | null,
+        };
+      })
+      // Apply centralized filter - same rules as Discord notifications
+      .filter(s => signalFilter.filterSignals([s]).length > 0);
+
+    // 5. Calculate missed gains summary - use filtered signals
+    const closedSignals = signalsTable.filter(s => s.status === 'closed');
+    const missedGains = {
+      totalMissed: closedSignals.reduce((sum, p) => sum + (Number(p.missedPnlPercent) || 0), 0),
+      avgMissed: closedSignals.length > 0
+        ? closedSignals.reduce((sum, p) => sum + (Number(p.missedPnlPercent) || 0), 0) / closedSignals.length
+        : 0,
+      maxMissed: Math.max(...closedSignals.map(p => Number(p.missedPnlPercent) || 0), 0),
+      signalsWithMissed50Plus: closedSignals.filter(p => (Number(p.missedPnlPercent) || 0) >= 50).length,
+      signalsWithMissed100Plus: closedSignals.filter(p => (Number(p.missedPnlPercent) || 0) >= 100).length,
+    };
+
+    // 6. Get win rate by signal type - using FILTERED closed signals
     const signalsByType: Record<string, { total: number; wins: number; avgPnl: number; avgMissed: number }> = {};
 
-    for (const perf of signalsWithPerf.filter(p => p.status === 'closed')) {
-      const signalType = (perf.signal?.meta as any)?.signalType || perf.signal?.model || 'unknown';
+    for (const signal of closedSignals) {
+      const signalType = signal.signalType;
       if (!signalsByType[signalType]) {
         signalsByType[signalType] = { total: 0, wins: 0, avgPnl: 0, avgMissed: 0 };
       }
 
       signalsByType[signalType].total++;
-      if (Number(perf.realizedPnlPercent) > 0) {
+      if ((signal.realizedPnlPercent || 0) > 0) {
         signalsByType[signalType].wins++;
       }
-      signalsByType[signalType].avgPnl += Number(perf.realizedPnlPercent) || 0;
-      signalsByType[signalType].avgMissed += Number(perf.missedPnlPercent) || 0;
+      signalsByType[signalType].avgPnl += signal.realizedPnlPercent || 0;
+      signalsByType[signalType].avgMissed += signal.missedPnlPercent || 0;
     }
 
     // Calculate averages
@@ -1033,41 +1078,6 @@ router.get('/analytics/dashboard', async (req, res) => {
         data.avgMissed = data.avgMissed / data.total;
       }
     }
-
-    // 5. Format signals for table
-    const signalsTable = signalsWithPerf.map(perf => ({
-      id: perf.id,
-      signalId: perf.signalId,
-      tokenId: perf.tokenId,
-      tokenSymbol: perf.signal?.token?.symbol || 'Unknown',
-      tokenMint: perf.signal?.token?.mintAddress || '',
-      signalType: (perf.signal?.meta as any)?.signalType || perf.signal?.model || 'unknown',
-      entryPriceUsd: Number(perf.entryPriceUsd),
-      entryTimestamp: perf.entryTimestamp,
-      currentPriceUsd: Number(perf.currentPriceUsd) || null,
-      highestPriceUsd: Number(perf.highestPriceUsd) || null,
-      currentPnlPercent: Number(perf.currentPnlPercent) || null,
-      maxPnlPercent: Number(perf.maxPnlPercent) || null,
-      realizedPnlPercent: Number(perf.realizedPnlPercent) || null,
-      missedPnlPercent: Number(perf.missedPnlPercent) || null,
-      drawdownFromPeak: Number(perf.drawdownFromPeak) || null,
-      timeToPeakMinutes: perf.timeToPeakMinutes,
-      status: perf.status,
-      exitReason: perf.exitReason,
-      pnlSnapshots: perf.pnlSnapshots as Record<string, number> | null,
-    }));
-
-    // 6. Calculate missed gains summary
-    const closedSignals = signalsWithPerf.filter(p => p.status === 'closed');
-    const missedGains = {
-      totalMissed: closedSignals.reduce((sum, p) => sum + (Number(p.missedPnlPercent) || 0), 0),
-      avgMissed: closedSignals.length > 0
-        ? closedSignals.reduce((sum, p) => sum + (Number(p.missedPnlPercent) || 0), 0) / closedSignals.length
-        : 0,
-      maxMissed: Math.max(...closedSignals.map(p => Number(p.missedPnlPercent) || 0), 0),
-      signalsWithMissed50Plus: closedSignals.filter(p => (Number(p.missedPnlPercent) || 0) >= 50).length,
-      signalsWithMissed100Plus: closedSignals.filter(p => (Number(p.missedPnlPercent) || 0) >= 100).length,
-    };
 
     res.json({
       success: true,

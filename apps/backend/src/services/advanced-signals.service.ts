@@ -24,6 +24,7 @@ import { AIDecisionService, AIContext, AIDecision } from './ai-decision.service.
 import { DiscordNotificationService, SignalNotificationData } from './discord-notification.service.js';
 import { SolPriceCacheService } from './sol-price-cache.service.js';
 import { SignalPerformanceService } from './signal-performance.service.js';
+import { signalFilter } from './signal-filter.service.js';
 import { prisma } from '../lib/prisma.js';
 
 // Signal type definitions - Core signals + deprecated (for backward compatibility)
@@ -1151,15 +1152,11 @@ export class AdvancedSignalsService {
           }
         }
 
-        // Send Discord notification for core signals only
-        // ACTIVE TYPES: consensus, accumulation, conviction-buy (BUY signals), exit-warning (SELL signal)
-        // All other signal types are deprecated and not sent to Discord
-        const allowedDiscordSignalTypes = ['consensus', 'consensus-update', 'accumulation', 'conviction-buy', 'exit-warning'];
-        const shouldSendDiscord =
-          (signal.suggestedAction === 'buy' && ['consensus', 'consensus-update', 'accumulation', 'conviction-buy'].includes(signal.type)) ||
-          (signal.suggestedAction === 'sell' && signal.type === 'exit-warning');
+        // Send Discord notification using centralized filter
+        // Filter rules are defined in signal-filter.service.ts
+        const filterResult = signalFilter.shouldProcessSignal(signal);
 
-        if (shouldSendDiscord) {
+        if (filterResult.passed) {
           try {
             // Get base token from trade meta (default SOL)
             // Try multiple ways to get baseToken
@@ -1170,14 +1167,9 @@ export class AdvancedSignalsService {
             } else if ((trade as any).meta?.baseToken) {
               baseToken = ((trade as any).meta.baseToken || 'SOL').toUpperCase();
             }
-            
+
             // Pro accumulation signály: seskupit do jednoho embedu (debounce 1 minuta)
-            // FILTER: Odešli pouze MEDIUM a STRONG accumulation do Discordu
             if (signal.type === 'accumulation') {
-              if (signal.strength === 'weak') {
-                console.log(`   📦 [Accumulation] WEAK signal - NOT sending to Discord (${wallet.label || wallet.address.substring(0, 8)}... buying ${token.symbol})`);
-                continue; // Přeskoč Discord notifikaci pro WEAK accumulation
-              }
 
               const key = `${token.id}-${wallet.id}`;
               const existing = this.pendingAccumulationSignals.get(key);
@@ -1375,6 +1367,9 @@ export class AdvancedSignalsService {
           } catch (discordError: any) {
             console.warn(`⚠️  Discord notification failed: ${discordError.message}`);
           }
+        } else {
+          // Signal filtered out by centralized filter
+          console.log(`🚫 [SignalFilter] Signal ${signal.type}/${signal.strength} filtered out: ${filterResult.reason}`);
         }
       }
     }
