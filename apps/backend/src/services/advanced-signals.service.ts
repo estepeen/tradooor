@@ -149,21 +149,21 @@ const SIGNAL_TIERS = {
     EXTREME: {
       multiplier: 5,           // 5x+ average
       minWalletScore: 55,      // 75 → 55 (adjusted for new scoring system)
-      minAbsoluteSize: 5,      // SOL minimum absolute size
+      minAbsoluteSize: 8,      // SOL minimum absolute size (5 → 8)
       minMarketCap: 20000,     // Minimum $20K market cap
       positionSizePercent: [20, 25],
     },
     STRONG: {
       multiplier: 3,
       minWalletScore: 50,      // 70 → 50 (adjusted for new scoring system)
-      minAbsoluteSize: 2,
+      minAbsoluteSize: 5,      // 2 → 5 SOL
       minMarketCap: 20000,     // Minimum $20K market cap
       positionSizePercent: [15, 20],
     },
     MEDIUM: {
       multiplier: 2,
       minWalletScore: 45,      // 65 → 45 (adjusted for new scoring system)
-      minAbsoluteSize: 1,
+      minAbsoluteSize: 3,      // 1 → 3 SOL (minimum for conviction-buy)
       minMarketCap: 20000,     // Minimum $20K market cap
       positionSizePercent: [10, 15],
     },
