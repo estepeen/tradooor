@@ -545,7 +545,8 @@ export class DiscordNotificationService {
       inline: true,
     });
 
-    // Security (RugCheck) - as 3rd column next to Token Info
+    // Security (RugCheck) - DISABLED FOR LATENCY OPTIMIZATION
+    // Only show if we have actual security data (not just placeholder)
     if (data.security) {
       const sec = data.security;
 
@@ -576,14 +577,8 @@ export class DiscordNotificationService {
         value: securityLines.join('\n'),
         inline: true,
       });
-    } else {
-      // Show placeholder if no security data
-      fields.push({
-        name: '🛡️ Security',
-        value: `**Risk:** -\n**Honey:** -\n**LP:** -\n**Mint/Frz:** -`,
-        inline: true,
-      });
     }
+    // Don't show placeholder when security data is not available
 
     // AI Decision (if available) - show if we have AI decision (including fallback when rate limited)
     if (data.aiDecision && data.aiConfidence !== undefined && data.aiConfidence > 0) {
@@ -604,14 +599,8 @@ export class DiscordNotificationService {
         value: aiInfo.join('\n'),
         inline: true,
       });
-    } else {
-      // Show "-" if AI is not available
-      fields.push({
-        name: '🤖 AI Analysis',
-        value: `**Decision:** -\n**Confidence:** -\n**Position:** -\n**Risk:** -`,
-        inline: true,
-      });
     }
+    // Don't show AI Analysis placeholder when AI data is not available (DISABLED FOR LATENCY OPTIMIZATION)
 
     // SL/TP (if available) - show in MCap for readability, icons AFTER text
     // Only show if we have real AI decision values
@@ -639,14 +628,8 @@ export class DiscordNotificationService {
           inline: true,
         });
       }
-    } else {
-      // Show "-" if AI is not available
-      fields.push({
-        name: '📈 Exit Strategy',
-        value: `**SL:** -\n**TP:** -`,
-        inline: true,
-      });
     }
+    // Don't show Exit Strategy placeholder when SL/TP data is not available (DISABLED FOR LATENCY OPTIMIZATION)
 
     // Security is already added above (as 3rd column after Token Info)
 
