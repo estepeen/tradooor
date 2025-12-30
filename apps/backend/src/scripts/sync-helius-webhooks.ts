@@ -42,7 +42,7 @@ async function getExistingWebhooks(): Promise<HeliusWebhook[]> {
   if (!response.ok) {
     throw new Error(`Failed to get webhooks: ${response.status} ${await response.text()}`);
   }
-  return response.json();
+  return response.json() as Promise<HeliusWebhook[]>;
 }
 
 async function createWebhook(addresses: string[], index: number): Promise<string> {
@@ -64,7 +64,7 @@ async function createWebhook(addresses: string[], index: number): Promise<string
     throw new Error(`Failed to create webhook: ${response.status} ${error}`);
   }
 
-  const result = await response.json();
+  const result = await response.json() as { webhookID: string };
   console.log(`   ✅ Created webhook: ${result.webhookID}`);
   return result.webhookID;
 }
@@ -127,7 +127,7 @@ async function tryCreateSingleWebhook(addresses: string[]): Promise<string | nul
       return null;
     }
 
-    const result = await response.json();
+    const result = await response.json() as { webhookID: string };
     console.log(`   ✅ Created single webhook with all addresses: ${result.webhookID}`);
     return result.webhookID;
   } catch (error: any) {
