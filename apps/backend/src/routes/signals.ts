@@ -964,4 +964,127 @@ router.post('/performance/update', async (req, res) => {
   }
 });
 
+// ============================================
+// Advanced Analytics Endpoints for Dashboard
+// ============================================
+
+/**
+ * GET /api/signals/analytics/dashboard
+ * Získá všechna data pro Signals Analytics Dashboard
+ */
+router.get('/analytics/dashboard', async (req, res) => {
+  try {
+    const { days = 7 } = req.query;
+    const daysNum = Number(days);
+    const startDate = new Date(Date.now() - daysNum * 24 * 60 * 60 * 1000);
+
+    // 1. Get signal performance analytics
+    const analytics = await signalPerformance.getAnalytics({ days: daysNum });
+
+    // 2. Get all signals with performance data for table
+    const signalsWithPerf = await prisma.signalPerformance.findMany({
+      where: {
+        entryTimestamp: { gte: startDate },
+      },
+      orderBy: { entryTimestamp: 'desc' },
+      take: 100,
+      include: {
+        signal: {
+          include: {
+            token: {
+              select: { id: true, symbol: true, mintAddress: true },
+            },
+          },
+        },
+      },
+    });
+
+    // 3. AI accuracy - placeholder (AI decisions not stored in current schema)
+    const aiAccuracy = {
+      total: 0,
+      buyCorrect: 0,
+      buyWrong: 0,
+      skipCorrect: 0,
+      skipWrong: 0,
+    };
+
+    // 4. Get win rate by signal type
+    const signalsByType: Record<string, { total: number; wins: number; avgPnl: number; avgMissed: number }> = {};
+
+    for (const perf of signalsWithPerf.filter(p => p.status === 'closed')) {
+      const signalType = (perf.signal?.meta as any)?.signalType || perf.signal?.model || 'unknown';
+      if (!signalsByType[signalType]) {
+        signalsByType[signalType] = { total: 0, wins: 0, avgPnl: 0, avgMissed: 0 };
+      }
+
+      signalsByType[signalType].total++;
+      if (Number(perf.realizedPnlPercent) > 0) {
+        signalsByType[signalType].wins++;
+      }
+      signalsByType[signalType].avgPnl += Number(perf.realizedPnlPercent) || 0;
+      signalsByType[signalType].avgMissed += Number(perf.missedPnlPercent) || 0;
+    }
+
+    // Calculate averages
+    for (const type in signalsByType) {
+      const data = signalsByType[type];
+      if (data.total > 0) {
+        data.avgPnl = data.avgPnl / data.total;
+        data.avgMissed = data.avgMissed / data.total;
+      }
+    }
+
+    // 5. Format signals for table
+    const signalsTable = signalsWithPerf.map(perf => ({
+      id: perf.id,
+      signalId: perf.signalId,
+      tokenId: perf.tokenId,
+      tokenSymbol: perf.signal?.token?.symbol || 'Unknown',
+      tokenMint: perf.signal?.token?.mintAddress || '',
+      signalType: (perf.signal?.meta as any)?.signalType || perf.signal?.model || 'unknown',
+      entryPriceUsd: Number(perf.entryPriceUsd),
+      entryTimestamp: perf.entryTimestamp,
+      currentPriceUsd: Number(perf.currentPriceUsd) || null,
+      highestPriceUsd: Number(perf.highestPriceUsd) || null,
+      currentPnlPercent: Number(perf.currentPnlPercent) || null,
+      maxPnlPercent: Number(perf.maxPnlPercent) || null,
+      realizedPnlPercent: Number(perf.realizedPnlPercent) || null,
+      missedPnlPercent: Number(perf.missedPnlPercent) || null,
+      drawdownFromPeak: Number(perf.drawdownFromPeak) || null,
+      timeToPeakMinutes: perf.timeToPeakMinutes,
+      status: perf.status,
+      exitReason: perf.exitReason,
+      pnlSnapshots: perf.pnlSnapshots as Record<string, number> | null,
+    }));
+
+    // 6. Calculate missed gains summary
+    const closedSignals = signalsWithPerf.filter(p => p.status === 'closed');
+    const missedGains = {
+      totalMissed: closedSignals.reduce((sum, p) => sum + (Number(p.missedPnlPercent) || 0), 0),
+      avgMissed: closedSignals.length > 0
+        ? closedSignals.reduce((sum, p) => sum + (Number(p.missedPnlPercent) || 0), 0) / closedSignals.length
+        : 0,
+      maxMissed: Math.max(...closedSignals.map(p => Number(p.missedPnlPercent) || 0), 0),
+      signalsWithMissed50Plus: closedSignals.filter(p => (Number(p.missedPnlPercent) || 0) >= 50).length,
+      signalsWithMissed100Plus: closedSignals.filter(p => (Number(p.missedPnlPercent) || 0) >= 100).length,
+    };
+
+    res.json({
+      success: true,
+      analytics,
+      signalsTable,
+      aiAccuracy,
+      winRateByType: signalsByType,
+      missedGains,
+      period: { days: daysNum, startDate, endDate: new Date() },
+    });
+  } catch (error: any) {
+    console.error('❌ Error fetching analytics dashboard:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch analytics dashboard',
+    });
+  }
+});
+
 export default router;
