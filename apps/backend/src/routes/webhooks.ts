@@ -22,39 +22,49 @@ const collectorService = new SolanaCollectorService(
 );
 
 /**
- * @deprecated Helius webhook processing is no longer used. Use processQuickNodeWebhook instead.
+ * Process Helius Enhanced webhook payload.
+ * Helius sends parsed transaction data with type: "SWAP" for swaps.
+ *
+ * Payload format (array of transactions):
+ * [
+ *   {
+ *     type: "SWAP",
+ *     signature: "...",
+ *     timestamp: 1234567890,
+ *     tokenTransfers: [...],
+ *     nativeTransfers: [...],
+ *     accountData: [...],
+ *     ...
+ *   }
+ * ]
  */
 export async function processHeliusWebhook(body: any) {
-  console.warn('⚠️  processHeliusWebhook is deprecated and should not be used');
-  return { processed: 0, saved: 0, skipped: 0 };
   try {
-    console.log('📨 ===== WEBHOOK PROCESSING STARTED =====');
+    console.log('📨 ===== HELIUS WEBHOOK PROCESSING STARTED =====');
     console.log(`   Time: ${new Date().toISOString()}`);
-    console.log('   Body keys:', Object.keys(body || {}));
+    console.log('   Body type:', Array.isArray(body) ? 'array' : typeof body);
+    console.log('   Body length:', Array.isArray(body) ? body.length : 'n/a');
 
-    // Helius enhanced webhook sends data in this format:
-    // { accountData: [{ account: "wallet_address", ... }], transactions: [{ type: "SWAP", ... }] }
-    const { transactions, accountData } = body;
-
-    // Normalize format - Helius enhanced webhook sends { accountData: [...], transactions: [...] }
+    // Helius sends array of transactions directly
     let txList: any[] = [];
-    if (transactions && Array.isArray(transactions)) {
-      txList = transactions;
-    } else if (Array.isArray(body)) {
-      // Fallback: sometimes Helius sends array of transactions directly
+    if (Array.isArray(body)) {
       txList = body;
+    } else if (body?.transactions && Array.isArray(body.transactions)) {
+      txList = body.transactions;
+    } else if (body && typeof body === 'object') {
+      // Single transaction
+      txList = [body];
     }
 
     if (txList.length === 0) {
-      console.warn('⚠️  Invalid webhook payload - no transactions found');
-      console.log('   Payload keys:', Object.keys(body || {}));
+      console.warn('⚠️  Invalid Helius webhook payload - no transactions found');
       return { processed: 0, saved: 0, skipped: 0 };
     }
 
-    console.log(`📨 Received Helius webhook: ${txList.length} transaction(s), ${accountData?.length || 0} account(s)`);
+    console.log(`📨 Received Helius webhook: ${txList.length} transaction(s)`);
 
     const backgroundStartTime = Date.now();
-    
+
     // Get all tracked wallet addresses from DB (for fast lookup)
     const allWallets = await smartWalletRepo.findAll({ page: 1, pageSize: 10000 });
     const trackedAddresses = new Set(allWallets.wallets.map(w => w.address.toLowerCase()));
@@ -72,51 +82,15 @@ export async function processHeliusWebhook(body: any) {
           continue;
         }
 
-        // Find wallet by address from transaction
-        // Helius enhanced webhook sends accountData with participant addresses
+        // Find tracked wallet from transaction participants
         let walletAddress: string | null = null;
 
-        // 1. Try to find from accountData in payload
-        if (accountData && Array.isArray(accountData)) {
-          for (const account of accountData) {
-            const accountAddr = account.account || account;
-            if (accountAddr && typeof accountAddr === 'string') {
-              if (trackedAddresses.has(accountAddr.toLowerCase())) {
-                walletAddress = accountAddr;
-                break;
-              }
-            }
-          }
+        // 1. Try feePayer (usually the wallet that initiated the swap)
+        if (tx.feePayer && trackedAddresses.has(tx.feePayer.toLowerCase())) {
+          walletAddress = tx.feePayer;
         }
 
-        // 2. Try to find from accountData in transaction
-        if (!walletAddress && tx.accountData && Array.isArray(tx.accountData)) {
-          for (const account of tx.accountData) {
-            const accountAddr = account.account || account;
-            if (accountAddr && typeof accountAddr === 'string') {
-              if (trackedAddresses.has(accountAddr.toLowerCase())) {
-                walletAddress = accountAddr;
-                break;
-              }
-            }
-          }
-        }
-
-        // 3. Try to find from nativeTransfers
-        if (!walletAddress && tx.nativeTransfers && Array.isArray(tx.nativeTransfers)) {
-          for (const transfer of tx.nativeTransfers) {
-            if (transfer.fromUserAccount && trackedAddresses.has(transfer.fromUserAccount.toLowerCase())) {
-              walletAddress = transfer.fromUserAccount;
-              break;
-            }
-            if (transfer.toUserAccount && trackedAddresses.has(transfer.toUserAccount.toLowerCase())) {
-              walletAddress = transfer.toUserAccount;
-              break;
-            }
-          }
-        }
-
-        // 4. Try to find from tokenTransfers
+        // 2. Try from tokenTransfers
         if (!walletAddress && tx.tokenTransfers && Array.isArray(tx.tokenTransfers)) {
           for (const transfer of tx.tokenTransfers) {
             if (transfer.fromUserAccount && trackedAddresses.has(transfer.fromUserAccount.toLowerCase())) {
@@ -130,44 +104,65 @@ export async function processHeliusWebhook(body: any) {
           }
         }
 
+        // 3. Try from nativeTransfers
+        if (!walletAddress && tx.nativeTransfers && Array.isArray(tx.nativeTransfers)) {
+          for (const transfer of tx.nativeTransfers) {
+            if (transfer.fromUserAccount && trackedAddresses.has(transfer.fromUserAccount.toLowerCase())) {
+              walletAddress = transfer.fromUserAccount;
+              break;
+            }
+            if (transfer.toUserAccount && trackedAddresses.has(transfer.toUserAccount.toLowerCase())) {
+              walletAddress = transfer.toUserAccount;
+              break;
+            }
+          }
+        }
+
+        // 4. Try from accountData
+        if (!walletAddress && tx.accountData && Array.isArray(tx.accountData)) {
+          for (const account of tx.accountData) {
+            const accountAddr = account.account || account;
+            if (accountAddr && typeof accountAddr === 'string') {
+              if (trackedAddresses.has(accountAddr.toLowerCase())) {
+                walletAddress = accountAddr;
+                break;
+              }
+            }
+          }
+        }
+
         if (!walletAddress) {
-          console.warn(`⚠️  Could not find tracked wallet address for transaction ${tx.signature?.substring(0, 16) || 'unknown'}`);
-          console.log(`   Transaction accountData:`, tx.accountData?.map((a: any) => a.account || a).join(', ') || 'none');
+          console.warn(`⚠️  [Helius] Could not find tracked wallet for ${tx.signature?.substring(0, 16) || 'unknown'}`);
           skipped++;
           continue;
         }
 
-        // Process transaction using collector service (walletAddress is guaranteed non-null here)
-        const result = await collectorService.processWebhookTransaction(tx, walletAddress as string);
-        
+        // Process using collector service
+        const result = await collectorService.processWebhookTransaction(tx, walletAddress);
+
         if (result.saved) {
           saved++;
-          console.log(`✅ Saved swap: ${tx.signature?.substring(0, 16) || 'unknown'}... for wallet ${walletAddress?.substring(0, 8) || 'unknown'}...`);
+          console.log(`✅ [Helius] Saved swap: ${tx.signature?.substring(0, 16) || 'unknown'}... for wallet ${walletAddress.substring(0, 8)}...`);
         } else {
           skipped++;
-          console.log(`⏭️  Skipped swap: ${tx.signature?.substring(0, 16) || 'unknown'}... (${result.reason || 'duplicate'})`);
+          // Log occasionally
+          if (skipped % 10 === 0) {
+            console.log(`⏭️  [Helius] Skipped ${skipped} (last: ${result.reason || 'duplicate'})`);
+          }
         }
 
         processed++;
       } catch (error: any) {
-        // Change to warn - some errors (e.g. incomplete data) are not critical
-        console.warn(`⚠️  Error processing webhook transaction ${tx.signature?.substring(0, 16) || 'unknown'}:`, error.message);
-        if (error.stack) {
-          console.warn(`   Stack:`, error.stack.split('\n').slice(0, 3).join('\n'));
-        }
-        // Continue with next transaction
+        console.warn(`⚠️  [Helius] Error processing ${tx.signature?.substring(0, 16) || 'unknown'}:`, error.message);
       }
     }
 
     const backgroundTime = Date.now() - backgroundStartTime;
-    console.log(`✅ Webhook processed (background): ${processed} transactions, ${saved} saved, ${skipped} skipped (took ${backgroundTime}ms)`);
-    
+    console.log(`✅ Helius webhook processed: ${processed} transactions, ${saved} saved, ${skipped} skipped (took ${backgroundTime}ms)`);
+
     return { processed, saved, skipped };
   } catch (error: any) {
-    console.error('❌ Error processing webhook in background:', error);
-    if (error.stack) {
-      console.error('   Stack:', error.stack.split('\n').slice(0, 5).join('\n'));
-    }
+    console.error('❌ Error processing Helius webhook:', error);
     throw error;
   }
 }
@@ -440,7 +435,56 @@ export async function processQuickNodeWebhook(body: any) {
   }
 }
 
-// Helius webhook endpoints removed - using QuickNode only
+/**
+ * GET /api/webhooks/helius/test
+ * Test endpoint - checks if Helius webhook endpoint is working
+ */
+router.get('/helius/test', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Helius webhook endpoint is working!',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+/**
+ * POST /api/webhooks/helius
+ *
+ * Endpoint to receive webhook notifications from Helius Enhanced Webhooks.
+ * Responds immediately and processes transactions in background.
+ */
+router.post('/helius', (req, res) => {
+  const startTime = Date.now();
+
+  const clientIp = req.ip || req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+
+  // Respond immediately (Helius expects fast response)
+  res.status(200).json({
+    success: true,
+    message: 'Helius webhook received, processing in background',
+    responseTimeMs: Date.now() - startTime,
+  });
+
+  setImmediate(async () => {
+    try {
+      console.log('📨 ===== HELIUS WEBHOOK REQUEST RECEIVED =====');
+      console.log(`   Time: ${new Date().toISOString()}`);
+      console.log(`   IP: ${clientIp}`);
+
+      // Parse Buffer to JSON if needed
+      let body = req.body;
+      if (Buffer.isBuffer(body)) {
+        body = JSON.parse(body.toString('utf8'));
+      } else if (typeof body === 'object' && body.type === 'Buffer' && Array.isArray(body.data)) {
+        body = JSON.parse(Buffer.from(body.data).toString('utf8'));
+      }
+
+      await processHeliusWebhook(body);
+    } catch (error: any) {
+      console.error('❌ Error processing Helius webhook in background:', error);
+    }
+  });
+});
 
 /**
  * GET /api/webhooks/quicknode/test

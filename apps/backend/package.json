@@ -98,7 +98,9 @@
     "backfill:cron": "tsx src/workers/backfill-cron.ts",
     "monitoring:cron": "tsx src/workers/monitoring-cron.ts",
     "position:monitor": "tsx src/workers/position-monitor-worker.ts",
-    "signal-performance:cron": "tsx src/workers/signal-performance-cron.ts"
+    "signal-performance:cron": "tsx src/workers/signal-performance-cron.ts",
+    "helius:sync": "tsx src/scripts/sync-helius-webhooks.ts",
+    "helius:list-wallets": "tsx src/scripts/list-wallet-addresses.ts"
   },
   "dependencies": {
     "@solana/web3.js": "^1.87.6",
