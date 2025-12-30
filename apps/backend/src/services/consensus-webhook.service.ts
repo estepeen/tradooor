@@ -263,60 +263,11 @@ export class ConsensusWebhookService {
           }
         }
 
-        // 5b. AI Evaluace signálu
-        let aiDecisionResult: any = null;
+        // 5b. Připrav data pro Discord (AI bude async)
         let marketDataResult: any = null;
         let walletsData: any[] = [];
-        
-        // AI evaluace pouze pokud je povolená
-        if (process.env.ENABLE_AI_DECISIONS === 'true') {
-          try {
-            // Check if GROQ_API_KEY is set
-            const hasGroqKey = !!process.env.GROQ_API_KEY;
-            if (!hasGroqKey) {
-              console.warn(`   ⚠️  GROQ_API_KEY not set - AI decisions will use fallback rules`);
-            } else {
-              console.log(`   🤖 Calling AI decision service...`);
-            }
-            
-            aiDecisionResult = await this.evaluateSignalWithAI(
-              signal,
-              tradeToUse,
-              uniqueWallets.size,
-              sortedBuys
-            );
-          
-          if (aiDecisionResult && !aiDecisionResult.isFallback) {
-            const model = aiDecisionResult.model || 'unknown';
-            console.log(`   🤖 AI Decision (${model}): ${aiDecisionResult.decision} (${aiDecisionResult.confidence}% confidence)`);
-            console.log(`      Reasoning: ${aiDecisionResult.reasoning?.substring(0, 100)}...`);
-            console.log(`      Position: ${aiDecisionResult.suggestedPositionPercent}%, SL: ${aiDecisionResult.stopLossPercent}%, TP: ${aiDecisionResult.takeProfitPercent}%, Risk: ${aiDecisionResult.riskScore}/10`);
-            
-            // Aktualizuj Signal s AI rozhodnutím
-            await this.updateSignalWithAI(signal.id, aiDecisionResult);
-          } else if (aiDecisionResult && aiDecisionResult.isFallback) {
-            // Use fallback decision if rate limited (better than showing "-")
-            // Only skip if it's a parse error fallback, not rate limit fallback
-            const isRateLimitFallback = aiDecisionResult.reasoning?.includes('Fallback decision based on');
-            if (isRateLimitFallback) {
-              console.warn(`   ⚠️  AI rate limited, using fallback decision (rule-based)`);
-              // Keep aiDecisionResult - it will be used in Discord embed
-            } else {
-            console.warn(`   ⚠️  AI returned fallback decision - will not use (showing "-" instead)`);
-            aiDecisionResult = null;
-            }
-          } else {
-            console.warn(`   ⚠️  AI evaluation returned null - AI not available`);
-          }
-          } catch (aiError: any) {
-            console.error(`   ❌ AI evaluation failed: ${aiError.message}`);
-            console.error(`   Stack: ${aiError.stack}`);
-          }
-        } else {
-          console.log(`   ⏭️  AI decision layer disabled (ENABLE_AI_DECISIONS != 'true') - skipping AI evaluation`);
-        }
 
-        // 5c. Pošli Discord notifikaci
+        // 5c. Pošli Discord notifikaci HNED (bez čekání na AI)
         try {
           // Use earlyMarketData that was already fetched before signal creation
           // Token was already loaded earlier (line 157)
@@ -421,49 +372,12 @@ export class ConsensusWebhookService {
           // Získej base token z trade (default SOL)
           const baseToken = ((tradeToUse as any).meta?.baseToken || 'SOL').toUpperCase();
 
-          // Spočítej SL/TP ceny
+          // Entry price for signal
           const entryPrice = Number(tradeToUse.priceBasePerToken || 0);
-          const stopLossPriceUsd = aiDecisionResult?.stopLossPercent && entryPrice
-            ? entryPrice * (1 - aiDecisionResult.stopLossPercent / 100)
-            : undefined;
-          const takeProfitPriceUsd = aiDecisionResult?.takeProfitPercent && entryPrice
-            ? entryPrice * (1 + aiDecisionResult.takeProfitPercent / 100)
-            : undefined;
+          // SL/TP will be calculated in async AI
 
-          // Načti security data z RugCheck
-          let securityData: SignalNotificationData['security'] | undefined;
-          try {
-            const rugReport = await this.rugCheck.getReport(token?.mintAddress || '');
-            if (rugReport) {
-              securityData = {
-                riskLevel: rugReport.riskLevel,
-                riskScore: rugReport.riskScore,
-                isLpLocked: rugReport.isLpLocked,
-                lpLockedPercent: rugReport.lpLockedPercent,
-                isDexPaid: rugReport.isDexPaid,
-                isMintable: rugReport.isMintable,
-                isFreezable: rugReport.isFreezable,
-                isHoneypot: rugReport.isHoneypot,
-                honeypotReason: rugReport.honeypotReason,
-                buyTax: rugReport.buyTax,
-                sellTax: rugReport.sellTax,
-                hasDangerousTax: rugReport.hasDangerousTax,
-                risks: rugReport.risks,
-              };
-              
-              // Log security status
-              if (rugReport.isHoneypot) {
-                console.log(`   🍯🚨 HONEYPOT DETECTED for ${token?.symbol}! ${rugReport.honeypotReason || ''}`);
-              } else {
-                const taxInfo = rugReport.buyTax !== undefined || rugReport.sellTax !== undefined
-                  ? ` | Tax: B${rugReport.buyTax || 0}%/S${rugReport.sellTax || 0}%`
-                  : '';
-                console.log(`   🛡️  RugCheck: ${rugReport.riskLevel} (${rugReport.riskScore}/100)${taxInfo}`);
-              }
-            }
-          } catch (rugError: any) {
-            console.warn(`   ⚠️  RugCheck failed: ${rugError.message}`);
-          }
+          // Security data (RugCheck) REMOVED for latency optimization
+          // Was adding 1-2 seconds delay
 
           // Sestaví data pro notifikaci
           // Najdi nejnovější wallet (který se právě přidal)
@@ -479,6 +393,7 @@ export class ConsensusWebhookService {
             signalType = 'cluster-consensus';
           }
 
+          // Připrav notification data BEZ AI (AI bude async)
           const notificationData: SignalNotificationData = {
             tokenSymbol: token?.symbol || 'Unknown',
             tokenMint: token?.mintAddress || '',
@@ -494,38 +409,52 @@ export class ConsensusWebhookService {
             liquidityUsd: marketDataResult?.liquidity,
             volume24hUsd: marketDataResult?.volume24h,
             tokenAgeMinutes: marketDataResult?.ageMinutes,
-            baseToken, // Add base token
-            // Only include AI decision if we have a real one (not fallback)
-            aiDecision: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.decision : undefined,
-            aiConfidence: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.confidence : undefined,
-            // Pro update přidej info o novém walletovi
-            aiReasoning: isUpdate 
+            baseToken,
+            // AI data will be added async via message edit
+            aiDecision: undefined,
+            aiConfidence: undefined,
+            aiReasoning: isUpdate
               ? `🆕 New trader added: ${newestWallet?.label || 'Unknown'} (total ${uniqueWallets.size} wallets)`
-              : (aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.reasoning : undefined),
-            aiPositionPercent: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.suggestedPositionPercent : undefined,
-            stopLossPercent: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.stopLossPercent : undefined,
-            takeProfitPercent: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.takeProfitPercent : undefined,
-            stopLossPriceUsd: aiDecisionResult && !aiDecisionResult.isFallback ? stopLossPriceUsd : undefined,
-            takeProfitPriceUsd: aiDecisionResult && !aiDecisionResult.isFallback ? takeProfitPriceUsd : undefined,
-            aiRiskScore: aiDecisionResult && !aiDecisionResult.isFallback ? aiDecisionResult.riskScore : undefined,
+              : undefined,
+            aiPositionPercent: undefined,
+            stopLossPercent: undefined,
+            takeProfitPercent: undefined,
+            stopLossPriceUsd: undefined,
+            takeProfitPriceUsd: undefined,
+            aiRiskScore: undefined,
             wallets: walletsData.map(w => ({
               label: w.label || null,
               address: w.address,
-              walletId: w.id, // Add wallet ID for profile link
+              walletId: w.id,
               score: Number(w.score) || 0,
               tradeAmountUsd: w.tradeAmountUsd,
               tradePrice: w.tradePrice,
               tradeTime: w.tradeTime,
-              marketCapUsd: w.marketCapUsd, // Market cap v době trade
+              marketCapUsd: w.marketCapUsd,
             })),
-            security: securityData,
+            // Security removed for latency
           };
 
-          // Pošli notifikaci
-          console.log(`📨 [ConsensusWebhook] About to send Discord notification - baseToken: ${notificationData.baseToken || 'MISSING'}, walletIds: ${notificationData.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}, aiDecision: ${notificationData.aiDecision || 'undefined'}`);
-          await this.discordNotification.sendSignalNotification(notificationData);
-          
-          // 5d. Vytvoř virtuální pozici pro exit monitoring
+          // Pošli notifikaci HNED (bez AI)
+          console.log(`📨 [ConsensusWebhook] Sending Discord notification IMMEDIATELY (AI will be async)`);
+          const discordResult = await this.discordNotification.sendSignalNotification(notificationData);
+
+          // 5d. Spusť AI ASYNCHRONNĚ a edituj zprávu
+          if (discordResult.success && discordResult.messageId && process.env.ENABLE_AI_DECISIONS === 'true') {
+            // Fire and forget - nečekáme na AI
+            this.runAsyncAIAndUpdateMessage(
+              discordResult.messageId,
+              notificationData,
+              signal,
+              tradeToUse,
+              uniqueWallets.size,
+              sortedBuys
+            ).catch(err => {
+              console.warn(`   ⚠️  Async AI update failed: ${err.message}`);
+            });
+          }
+
+          // 5e. Vytvoř virtuální pozici pro exit monitoring
           try {
             const walletIdsList = Array.from(uniqueWallets);
             await this.positionMonitor.createPositionFromConsensus(
@@ -642,6 +571,66 @@ export class ConsensusWebhookService {
     } catch (error: any) {
       console.error(`❌ Error processing SELL trade:`, error.message);
       return { closed: false };
+    }
+  }
+
+  /**
+   * Async AI evaluation and Discord message update
+   * Runs in background after signal is sent
+   */
+  private async runAsyncAIAndUpdateMessage(
+    messageId: string,
+    originalData: any,
+    signal: any,
+    trade: any,
+    walletCount: number,
+    allBuys: any[]
+  ): Promise<void> {
+    const startTime = Date.now();
+    console.log(`   🤖 [Async AI] Starting AI evaluation for message ${messageId.substring(0, 12)}...`);
+
+    try {
+      const aiDecisionResult = await this.evaluateSignalWithAI(
+        signal,
+        trade,
+        walletCount,
+        allBuys
+      );
+
+      if (!aiDecisionResult) {
+        console.log(`   ⚠️  [Async AI] AI returned null - no update needed`);
+        return;
+      }
+
+      if (aiDecisionResult.isFallback) {
+        console.log(`   ⚠️  [Async AI] AI returned fallback - skipping update`);
+        return;
+      }
+
+      const elapsed = Date.now() - startTime;
+      console.log(`   🤖 [Async AI] Got AI decision in ${elapsed}ms: ${aiDecisionResult.decision} (${aiDecisionResult.confidence}%)`);
+
+      // Update signal in DB
+      await this.updateSignalWithAI(signal.id, aiDecisionResult);
+
+      // Update Discord message with AI data
+      await this.discordNotification.updateSignalWithAI(
+        messageId,
+        originalData,
+        {
+          aiDecision: aiDecisionResult.decision,
+          aiConfidence: aiDecisionResult.confidence,
+          aiPositionPercent: aiDecisionResult.suggestedPositionPercent,
+          aiRiskScore: aiDecisionResult.riskScore,
+          stopLossPercent: aiDecisionResult.stopLossPercent,
+          takeProfitPercent: aiDecisionResult.takeProfitPercent,
+          aiReasoning: aiDecisionResult.reasoning,
+        }
+      );
+
+      console.log(`   ✅ [Async AI] Discord message updated with AI (total ${Date.now() - startTime}ms)`);
+    } catch (error: any) {
+      console.error(`   ❌ [Async AI] Failed: ${error.message}`);
     }
   }
 

@@ -198,28 +198,30 @@ export class DiscordNotificationService {
 
   /**
    * Pošle notifikaci o novém signálu
+   * Returns message ID for later editing (async AI update)
    */
-  async sendSignalNotification(data: SignalNotificationData): Promise<boolean> {
+  async sendSignalNotification(data: SignalNotificationData): Promise<{ success: boolean; messageId?: string }> {
     if (!this.enabled) {
-      return false;
+      return { success: false };
     }
 
     try {
       // Debug: Log what we're sending
       console.log(`📨 [Discord] sendSignalNotification called - baseToken: ${data.baseToken || 'MISSING'}, walletIds: ${data.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}, aiDecision: ${data.aiDecision || 'undefined'}, aiConfidence: ${data.aiConfidence || 'undefined'}`);
-      
+
       const embed = await this.buildSignalEmbed(data);
-      
+
       // Debug: Log embed content
       const tradersField = embed.fields?.find(f => f.name.includes('Traders'));
       console.log(`📨 [Discord] Embed built - title: ${embed.title}, fields: ${embed.fields?.length || 0}, traders field: ${tradersField ? tradersField.value.substring(0, 100) + '...' : 'none'}`);
-      
+
       const payload: DiscordWebhookPayload = {
         username: 'Spectre',
         embeds: [embed],
       };
 
-      const response = await fetch(this.webhookUrl, {
+      // Use ?wait=true to get message ID for later editing
+      const response = await fetch(`${this.webhookUrl}?wait=true`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -230,13 +232,90 @@ export class DiscordNotificationService {
       if (!response.ok) {
         const errorText = await response.text();
         console.error(`❌ Discord webhook error: ${response.status} - ${errorText}`);
+        return { success: false };
+      }
+
+      // Parse response to get message ID
+      const responseData = await response.json() as { id: string };
+      const messageId = responseData.id;
+
+      console.log(`📨 Discord notification sent for ${data.tokenSymbol} (messageId: ${messageId || 'none'})`);
+      return { success: true, messageId };
+    } catch (error: any) {
+      console.error(`❌ Failed to send Discord notification: ${error.message}`);
+      return { success: false };
+    }
+  }
+
+  /**
+   * Aktualizuje existující Discord zprávu s AI analýzou
+   * Používá se pro asynchronní AI - signál se pošle hned, AI se doplní později
+   */
+  async updateSignalWithAI(
+    messageId: string,
+    originalData: SignalNotificationData,
+    aiData: {
+      aiDecision: string;
+      aiConfidence: number;
+      aiPositionPercent?: number;
+      aiRiskScore?: number;
+      stopLossPercent?: number;
+      takeProfitPercent?: number;
+      aiReasoning?: string;
+    }
+  ): Promise<boolean> {
+    if (!this.enabled || !messageId) {
+      return false;
+    }
+
+    try {
+      // Merge AI data into original data
+      const updatedData: SignalNotificationData = {
+        ...originalData,
+        aiDecision: aiData.aiDecision as any,
+        aiConfidence: aiData.aiConfidence,
+        aiPositionPercent: aiData.aiPositionPercent,
+        aiRiskScore: aiData.aiRiskScore,
+        stopLossPercent: aiData.stopLossPercent,
+        takeProfitPercent: aiData.takeProfitPercent,
+      };
+
+      // Rebuild embed with AI data
+      const embed = await this.buildSignalEmbed(updatedData);
+
+      const payload: DiscordWebhookPayload = {
+        embeds: [embed],
+      };
+
+      // Extract webhook ID and token from URL for PATCH request
+      // URL format: https://discord.com/api/webhooks/{webhook_id}/{webhook_token}
+      const urlParts = this.webhookUrl.match(/\/webhooks\/(\d+)\/([^/?]+)/);
+      if (!urlParts) {
+        console.error('❌ Could not parse webhook URL for message edit');
         return false;
       }
 
-      console.log(`📨 Discord notification sent for ${data.tokenSymbol}`);
+      const [, webhookId, webhookToken] = urlParts;
+      const editUrl = `https://discord.com/api/webhooks/${webhookId}/${webhookToken}/messages/${messageId}`;
+
+      const response = await fetch(editUrl, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ Discord message edit error: ${response.status} - ${errorText}`);
+        return false;
+      }
+
+      console.log(`📨 Discord message updated with AI for ${originalData.tokenSymbol} (messageId: ${messageId})`);
       return true;
     } catch (error: any) {
-      console.error(`❌ Failed to send Discord notification: ${error.message}`);
+      console.error(`❌ Failed to update Discord message with AI: ${error.message}`);
       return false;
     }
   }
@@ -545,40 +624,8 @@ export class DiscordNotificationService {
       inline: true,
     });
 
-    // Security (RugCheck) - DISABLED FOR LATENCY OPTIMIZATION
-    // Only show if we have actual security data (not just placeholder)
-    if (data.security) {
-      const sec = data.security;
-
-      // Security section - clean format, no icons in values
-      const securityLines = [
-        `**Risk:** ${sec.riskLevel.toUpperCase()}`,
-      ];
-
-      // Honeypot status - red alert icon AFTER text if yes
-      if (sec.isHoneypot) {
-        securityLines.push(`**Honey:** YES 🚨`);
-      } else {
-        securityLines.push(`**Honey:** No`);
-      }
-
-      // LP Lock
-      if (sec.isLpLocked) {
-        securityLines.push(`**LP:** ${sec.lpLockedPercent ? `${sec.lpLockedPercent.toFixed(0)}%` : 'Yes'}`);
-      } else {
-        securityLines.push(`**LP:** No`);
-      }
-
-      // Mint and Freeze combined on one line
-      securityLines.push(`**Mint/Frz:** ${sec.isMintable ? 'Yes' : 'No'}/${sec.isFreezable ? 'Yes' : 'No'}`);
-
-      fields.push({
-        name: '🛡️ Security',
-        value: securityLines.join('\n'),
-        inline: true,
-      });
-    }
-    // Don't show placeholder when security data is not available
+    // Security section REMOVED for latency optimization
+    // RugCheck was adding 1-2s delay and most tokens are fine
 
     // AI Decision (if available) - show if we have AI decision (including fallback when rate limited)
     if (data.aiDecision && data.aiConfidence !== undefined && data.aiConfidence > 0) {
@@ -1043,7 +1090,8 @@ export class DiscordNotificationService {
       ],
     };
 
-    return this.sendSignalNotification(testData);
+    const result = await this.sendSignalNotification(testData);
+    return result.success;
   }
 }
 
