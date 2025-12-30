@@ -278,6 +278,7 @@ export class DiscordNotificationService {
         aiRiskScore: aiData.aiRiskScore,
         stopLossPercent: aiData.stopLossPercent,
         takeProfitPercent: aiData.takeProfitPercent,
+        aiReasoning: aiData.aiReasoning,
       };
 
       // Rebuild embed with AI data
@@ -570,7 +571,7 @@ export class DiscordNotificationService {
     // Build fields
     const fields: DiscordEmbed['fields'] = [];
 
-    // Signal Info
+    // 1. Signal Info
     const signalInfo = [
       `**Type:** ${data.signalType}`,
       `**Strength:** ${data.strength.toUpperCase()}`,
@@ -591,8 +592,7 @@ export class DiscordNotificationService {
       inline: true,
     });
 
-    // Token Info - sloučené Price & Market + Token Info do jedné sekce
-    console.log(`📨 [Discord] Building embed for ${data.tokenSymbol} - baseToken: ${baseToken}, wallets: ${data.wallets?.length || 0}, walletIds: ${data.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}`);
+    // 2. Token Info
     const tokenInfo = [];
 
     // Market Cap (Entry)
@@ -624,61 +624,26 @@ export class DiscordNotificationService {
       inline: true,
     });
 
-    // Security section REMOVED for latency optimization
-    // RugCheck was adding 1-2s delay and most tokens are fine
+    // 3. Strategy - Use AI values if available, otherwise defaults
+    const slPercent = data.stopLossPercent && data.stopLossPercent > 0 ? data.stopLossPercent : 20;
+    const tpPercent = data.takeProfitPercent && data.takeProfitPercent > 0 ? data.takeProfitPercent : 50;
 
-    // AI Decision (if available) - show if we have AI decision (including fallback when rate limited)
-    if (data.aiDecision && data.aiConfidence !== undefined && data.aiConfidence > 0) {
-      const aiInfo = [
-        `**Decision:** ${data.aiDecision.toUpperCase()}`,
-        `**Confidence:** ${data.aiConfidence.toFixed(0)}%`,
-      ];
-
-      if (data.aiPositionPercent) {
-        aiInfo.push(`**Position:** ${data.aiPositionPercent}%`);
-      }
-      if (data.aiRiskScore) {
-        aiInfo.push(`**Risk:** ${data.aiRiskScore}/10`);
-      }
-
-      fields.push({
-        name: '🤖 AI Analysis',
-        value: aiInfo.join('\n'),
-        inline: true,
-      });
+    const strategyLines = [];
+    if (data.marketCapUsd) {
+      const slMcap = data.marketCapUsd * (1 - slPercent / 100);
+      const tpMcap = data.marketCapUsd * (1 + tpPercent / 100);
+      strategyLines.push(`**SL:** $${this.formatNumber(slMcap, 0)} (-${slPercent}%) 🛑`);
+      strategyLines.push(`**TP:** $${this.formatNumber(tpMcap, 0)} (+${tpPercent}%) 🎯`);
+    } else {
+      strategyLines.push(`**SL:** -${slPercent}% 🛑`);
+      strategyLines.push(`**TP:** +${tpPercent}% 🎯`);
     }
-    // Don't show AI Analysis placeholder when AI data is not available (DISABLED FOR LATENCY OPTIMIZATION)
 
-    // SL/TP (if available) - show in MCap for readability, icons AFTER text
-    // Only show if we have real AI decision values
-    if (data.stopLossPercent && data.stopLossPercent > 0 && data.takeProfitPercent && data.takeProfitPercent > 0) {
-      const sltp = [];
-      if (data.stopLossPercent && data.marketCapUsd) {
-        // Calculate SL MCap from entry MCap
-        const slMcap = data.marketCapUsd * (1 - data.stopLossPercent / 100);
-        sltp.push(`**SL:** $${this.formatNumber(slMcap, 0)} (-${data.stopLossPercent}%) 🛑`);
-      } else if (data.stopLossPriceUsd && data.stopLossPercent) {
-        sltp.push(`**SL:** $${this.formatNumber(data.stopLossPriceUsd, 8)} (-${data.stopLossPercent}%) 🛑`);
-      }
-      if (data.takeProfitPercent && data.marketCapUsd) {
-        // Calculate TP MCap from entry MCap
-        const tpMcap = data.marketCapUsd * (1 + data.takeProfitPercent / 100);
-        sltp.push(`**TP:** $${this.formatNumber(tpMcap, 0)} (+${data.takeProfitPercent}%) 🎯`);
-      } else if (data.takeProfitPriceUsd && data.takeProfitPercent) {
-        sltp.push(`**TP:** $${this.formatNumber(data.takeProfitPriceUsd, 8)} (+${data.takeProfitPercent}%) 🎯`);
-      }
-
-      if (sltp.length > 0) {
-        fields.push({
-          name: '📈 Exit Strategy',
-          value: sltp.join('\n'),
-          inline: true,
-        });
-      }
-    }
-    // Don't show Exit Strategy placeholder when SL/TP data is not available (DISABLED FOR LATENCY OPTIMIZATION)
-
-    // Security is already added above (as 3rd column after Token Info)
+    fields.push({
+      name: '📈 Strategy',
+      value: strategyLines.join('\n'),
+      inline: true,
+    });
 
     // Separator before Traders section
     fields.push({
