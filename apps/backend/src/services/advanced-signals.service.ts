@@ -67,6 +67,8 @@ export interface SignalContext {
     score: number;
     totalSoldUsd: number;
     totalSoldTokens: number;
+    totalBoughtTokens: number;   // Celkový bag (kolik nakoupil)
+    remainingTokens: number;     // Kolik mu zbývá po prodeji
     lastSellTime: Date;
     sellCount: number;
   }>;
@@ -646,6 +648,8 @@ export class AdvancedSignalsService {
       label: string | null;
       totalSoldUsd: number;
       totalSoldTokens: number;
+      totalBoughtTokens: number;  // Celkový bag
+      remainingTokens: number;    // Kolik zbývá
       sells: Array<{ amountUsd: number; amountTokens: number; timestamp: Date }>;
     }
 
@@ -673,12 +677,56 @@ export class AdvancedSignalsService {
           label: sell.wallet.label || null,
           totalSoldUsd: sellAmountUsd,
           totalSoldTokens: sellAmountTokens,
+          totalBoughtTokens: 0,  // Bude doplněno níže
+          remainingTokens: 0,    // Bude doplněno níže
           sells: [{
             amountUsd: sellAmountUsd,
             amountTokens: sellAmountTokens,
             timestamp: sell.timestamp,
           }],
         });
+      }
+    }
+
+    // 3b. Načti celkové nákupy (bag) pro každého prodejce
+    const sellerWalletIds = Array.from(sellerMap.keys());
+    const buyTotals = await prisma.trade.groupBy({
+      by: ['walletId'],
+      where: {
+        tokenId: token.id,
+        side: 'buy',
+        walletId: { in: sellerWalletIds },
+      },
+      _sum: {
+        amountToken: true,
+      },
+    });
+
+    // 3c. Načti celkové prodeje (včetně starších) pro výpočet zbytku
+    const sellTotals = await prisma.trade.groupBy({
+      by: ['walletId'],
+      where: {
+        tokenId: token.id,
+        side: 'sell',
+        walletId: { in: sellerWalletIds },
+      },
+      _sum: {
+        amountToken: true,
+      },
+    });
+
+    // Mapuj na sellery
+    for (const buyTotal of buyTotals) {
+      const seller = sellerMap.get(buyTotal.walletId);
+      if (seller) {
+        seller.totalBoughtTokens = Number(buyTotal._sum.amountToken || 0);
+      }
+    }
+    for (const sellTotal of sellTotals) {
+      const seller = sellerMap.get(sellTotal.walletId);
+      if (seller) {
+        // Zbývající = nakoupeno - prodáno (celkem, ne jen poslední 4h)
+        seller.remainingTokens = Math.max(0, seller.totalBoughtTokens - Number(sellTotal._sum.amountToken || 0));
       }
     }
 
@@ -734,6 +782,8 @@ export class AdvancedSignalsService {
         score: s.score,
         totalSoldUsd: s.totalSoldUsd,
         totalSoldTokens: s.totalSoldTokens,
+        totalBoughtTokens: s.totalBoughtTokens,  // Celkový bag
+        remainingTokens: s.remainingTokens,      // Kolik zbývá
         lastSellTime: s.sells[0]?.timestamp, // Nejnovější prodej
         sellCount: s.sells.length,
       })),

@@ -86,6 +86,8 @@ export interface SignalNotificationData {
     score: number;
     totalSoldUsd: number;
     totalSoldTokens: number;
+    totalBoughtTokens: number;   // Celkový bag (kolik nakoupil)
+    remainingTokens: number;     // Kolik mu zbývá po prodeji
     lastSellTime: Date;
     sellCount: number;
   }>;
@@ -339,8 +341,22 @@ export class DiscordNotificationService {
         // Za kolik prodal
         const soldStr = `$${this.formatNumber(seller.totalSoldUsd, 0)}`;
 
-        // Formát: [Jméno [score]](link) - $XXX @ HH:MM
-        const line = `[**${name}${scoreStr}**](${profileUrl}) - ${soldStr}${timeStr ? ` • ${timeStr}` : ''}`;
+        // Procento prodaného bagu
+        let soldPercentStr = '';
+        if (seller.totalBoughtTokens && seller.totalBoughtTokens > 0) {
+          const soldPercent = (seller.totalSoldTokens / seller.totalBoughtTokens) * 100;
+          soldPercentStr = ` (${soldPercent.toFixed(0)}% bagu)`;
+        }
+
+        // Kolik zbývá v procentech
+        let remainingStr = '';
+        if (seller.totalBoughtTokens && seller.totalBoughtTokens > 0) {
+          const remainingPercent = (seller.remainingTokens / seller.totalBoughtTokens) * 100;
+          remainingStr = ` • zbývá ${remainingPercent.toFixed(0)}%`;
+        }
+
+        // Formát: [Jméno [score]](link) - $XXX (XX% bagu) • zbývá XX% • HH:MM
+        const line = `[**${name}${scoreStr}**](${profileUrl}) - ${soldStr}${soldPercentStr}${remainingStr}${timeStr ? ` • ${timeStr}` : ''}`;
         sellerLines.push(line);
       }
 
