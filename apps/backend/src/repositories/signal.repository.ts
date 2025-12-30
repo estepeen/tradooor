@@ -207,19 +207,27 @@ export class SignalRepository {
       updateData.reasoning = updates.reasoning;
     }
     // AI fields - store in meta JSON field since they're not in Prisma schema yet
-    if (updates.aiDecision !== undefined || updates.aiConfidence !== undefined || 
+    if (updates.aiDecision !== undefined || updates.aiConfidence !== undefined ||
         updates.aiReasoning !== undefined || updates.aiSuggestedPositionPercent !== undefined ||
         updates.aiStopLossPercent !== undefined || updates.aiTakeProfitPercent !== undefined ||
         updates.aiRiskScore !== undefined || updates.entryPriceUsd !== undefined ||
         updates.stopLossPriceUsd !== undefined || updates.takeProfitPriceUsd !== undefined ||
         updates.suggestedHoldTimeMinutes !== undefined) {
-      
-      // Get existing meta or create new
-      const existingMeta = updateData.meta || {};
-      if (!updateData.meta && updates.meta) {
+
+      // Fetch existing signal to get current meta
+      const existingSignal = await prisma.signal.findUnique({
+        where: { id },
+        select: { meta: true },
+      });
+
+      // Merge existing meta with new AI fields
+      const existingMeta = (existingSignal?.meta as Record<string, any>) || {};
+
+      // Also merge any meta from updates
+      if (updates.meta) {
         Object.assign(existingMeta, updates.meta);
       }
-      
+
       // Store AI fields in meta
       if (updates.aiDecision !== undefined) existingMeta.aiDecision = updates.aiDecision;
       if (updates.aiConfidence !== undefined) existingMeta.aiConfidence = updates.aiConfidence;
@@ -232,16 +240,13 @@ export class SignalRepository {
       if (updates.stopLossPriceUsd !== undefined) existingMeta.stopLossPriceUsd = updates.stopLossPriceUsd;
       if (updates.takeProfitPriceUsd !== undefined) existingMeta.takeProfitPriceUsd = updates.takeProfitPriceUsd;
       if (updates.suggestedHoldTimeMinutes !== undefined) existingMeta.suggestedHoldTimeMinutes = updates.suggestedHoldTimeMinutes;
-      
+
       updateData.meta = existingMeta;
     }
 
     const result = await prisma.signal.update({
       where: { id },
-      data: {
-        ...updateData,
-        meta: updates.meta !== undefined ? (updates.meta as any) : undefined,
-      },
+      data: updateData,
     });
 
     return {
