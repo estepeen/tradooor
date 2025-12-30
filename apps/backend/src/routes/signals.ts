@@ -1013,8 +1013,10 @@ router.get('/analytics/dashboard', async (req, res) => {
     // This ensures winRateByType uses the same filtered data
     const signalsTable = signalsWithPerf
       .map(perf => {
-        const signalType = (perf.signal?.meta as any)?.signalType || perf.signal?.model || 'unknown';
-        const strength = (perf.signal?.meta as any)?.strength || 'medium';
+        const meta = perf.signal?.meta as any;
+        const signalType = meta?.signalType || perf.signal?.model || 'unknown';
+        const strength = meta?.strength || 'medium';
+
         return {
           id: perf.id,
           signalId: perf.signalId,
@@ -1036,6 +1038,16 @@ router.get('/analytics/dashboard', async (req, res) => {
           status: perf.status,
           exitReason: perf.exitReason,
           pnlSnapshots: perf.pnlSnapshots as Record<string, number> | null,
+          // AI Analysis data
+          aiDecision: meta?.aiDecision || null,
+          aiConfidence: meta?.aiConfidence || null,
+          aiPositionPercent: meta?.aiSuggestedPositionPercent || null,
+          aiRiskScore: meta?.aiRiskScore || null,
+          // Exit Strategy data
+          stopLossPercent: meta?.aiStopLossPercent || null,
+          takeProfitPercent: meta?.aiTakeProfitPercent || null,
+          stopLossPriceUsd: meta?.stopLossPriceUsd || null,
+          takeProfitPriceUsd: meta?.takeProfitPriceUsd || null,
         };
       })
       // Apply centralized filter - same rules as Discord notifications

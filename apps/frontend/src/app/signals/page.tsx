@@ -12,6 +12,7 @@ interface SignalPerformance {
   tokenSymbol: string;
   tokenMint: string;
   signalType: string;
+  strength: string;
   entryPriceUsd: number;
   entryTimestamp: string;
   currentPriceUsd: number | null;
@@ -25,6 +26,16 @@ interface SignalPerformance {
   status: 'active' | 'closed' | 'expired';
   exitReason: string | null;
   pnlSnapshots: Record<string, number> | null;
+  // AI Analysis data
+  aiDecision: 'buy' | 'skip' | 'sell' | null;
+  aiConfidence: number | null;
+  aiPositionPercent: number | null;
+  aiRiskScore: number | null;
+  // Exit Strategy data
+  stopLossPercent: number | null;
+  takeProfitPercent: number | null;
+  stopLossPriceUsd: number | null;
+  takeProfitPriceUsd: number | null;
 }
 
 interface Analytics {
@@ -252,12 +263,13 @@ export default function SignalsAnalyticsPage() {
                 <tr className="text-left text-xs text-gray-400 uppercase">
                   <th className="px-4 py-3">Token</th>
                   <th className="px-4 py-3">Type</th>
+                  <th className="px-4 py-3">AI Analysis</th>
+                  <th className="px-4 py-3">Exit Strategy</th>
                   <th className="px-4 py-3">Entry</th>
                   <th className="px-4 py-3">Current P&L</th>
                   <th className="px-4 py-3">Max P&L</th>
                   <th className="px-4 py-3">Realized</th>
                   <th className="px-4 py-3">Missed</th>
-                  <th className="px-4 py-3">Peak Time</th>
                   <th className="px-4 py-3">Status</th>
                 </tr>
               </thead>
@@ -266,6 +278,26 @@ export default function SignalsAnalyticsPage() {
                   const typeConfig = SIGNAL_TYPE_CONFIG[signal.signalType] || {
                     icon: '📊', label: signal.signalType, color: 'bg-gray-500/20 text-gray-400'
                   };
+
+                  // AI Decision styling
+                  const getAIDecisionStyle = (decision: string | null) => {
+                    if (!decision) return { emoji: '-', color: 'text-gray-500' };
+                    switch (decision) {
+                      case 'buy': return { emoji: '✅', color: 'text-green-400' };
+                      case 'skip': return { emoji: '⏭️', color: 'text-yellow-400' };
+                      case 'sell': return { emoji: '❌', color: 'text-red-400' };
+                      default: return { emoji: '-', color: 'text-gray-500' };
+                    }
+                  };
+
+                  const getRiskColor = (risk: number | null) => {
+                    if (!risk) return 'text-gray-500';
+                    if (risk <= 3) return 'text-green-400';
+                    if (risk <= 6) return 'text-yellow-400';
+                    return 'text-red-400';
+                  };
+
+                  const aiStyle = getAIDecisionStyle(signal.aiDecision);
 
                   return (
                     <tr key={signal.id} className="hover:bg-gray-800/30 transition-colors">
@@ -284,6 +316,45 @@ export default function SignalsAnalyticsPage() {
                         <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs ${typeConfig.color}`}>
                           {typeConfig.icon} {typeConfig.label}
                         </span>
+                        <div className="text-xs text-gray-500 mt-1">{signal.strength}</div>
+                      </td>
+                      {/* AI Analysis Column */}
+                      <td className="px-4 py-3">
+                        <div className="text-xs space-y-0.5">
+                          <div className={aiStyle.color}>
+                            {aiStyle.emoji} {signal.aiDecision?.toUpperCase() || '-'}
+                          </div>
+                          <div className="text-gray-400">
+                            Conf: {signal.aiConfidence ? `${signal.aiConfidence}%` : '-'}
+                          </div>
+                          <div className="text-gray-400">
+                            Pos: {signal.aiPositionPercent ? `${signal.aiPositionPercent}%` : '-'}
+                          </div>
+                          <div className={getRiskColor(signal.aiRiskScore)}>
+                            Risk: {signal.aiRiskScore ? `${signal.aiRiskScore}/10` : '-'}
+                          </div>
+                        </div>
+                      </td>
+                      {/* Exit Strategy Column */}
+                      <td className="px-4 py-3">
+                        <div className="text-xs space-y-0.5">
+                          <div className="text-red-400">
+                            🛑 SL: {signal.stopLossPercent ? `-${signal.stopLossPercent}%` : '-'}
+                          </div>
+                          <div className="text-green-400">
+                            🎯 TP: {signal.takeProfitPercent ? `+${signal.takeProfitPercent}%` : '-'}
+                          </div>
+                          {signal.stopLossPriceUsd && (
+                            <div className="text-gray-500 text-[10px]">
+                              ${formatNumber(signal.stopLossPriceUsd, 8)}
+                            </div>
+                          )}
+                          {signal.takeProfitPriceUsd && (
+                            <div className="text-gray-500 text-[10px]">
+                              ${formatNumber(signal.takeProfitPriceUsd, 8)}
+                            </div>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 font-mono text-sm text-white">
                         ${formatNumber(signal.entryPriceUsd, 8)}
@@ -317,13 +388,6 @@ export default function SignalsAnalyticsPage() {
                           }`}>
                             {signal.missedPnlPercent.toFixed(1)}%
                           </span>
-                        ) : '-'}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-gray-400">
-                        {signal.timeToPeakMinutes !== null ? (
-                          signal.timeToPeakMinutes >= 60
-                            ? `${(signal.timeToPeakMinutes / 60).toFixed(1)}h`
-                            : `${signal.timeToPeakMinutes}m`
                         ) : '-'}
                       </td>
                       <td className="px-4 py-3">
