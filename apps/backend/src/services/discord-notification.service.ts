@@ -483,10 +483,12 @@ export class DiscordNotificationService {
 
       const walletDetails = sortedWallets.map((w) => {
         const name = w.label || `${w.address.substring(0, 6)}...`;
-        
+        // Add score after name, e.g. "Spuno [80]"
+        const scoreStr = w.score ? ` [${Math.round(w.score)}]` : '';
+
         // Prefer URL s reálnou wallet address (přehlednější než interní ID)
         const profileUrl = `${frontendUrl}/wallet/${w.address}`;
-        const nameWithLink = `[**${name}**](${profileUrl})`;
+        const nameWithLink = `[**${name}${scoreStr}**](${profileUrl})`;
         
         // Pro accumulation signál: zobraz jméno a pod ním všechny nákupy (jako u consensus)
         if (data.signalType === 'accumulation' && w.accumulationBuys && w.accumulationBuys.length > 0) {
