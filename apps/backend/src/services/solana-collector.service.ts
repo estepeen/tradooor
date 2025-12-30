@@ -26,6 +26,10 @@ export type NormalizedSwap = {
   liquidityType?: 'ADD' | 'REMOVE'; // ADD nebo REMOVE pro liquidity operations
 };
 
+// Minimum trade value in USD to consider valid (filter out dust/fees)
+// Trades under this value are likely just transaction fees, not real trades
+const MIN_TRADE_VALUE_USD = 1.0; // $1 USD minimum
+
 /**
  * Try to normalize a single QuickNode transaction (RPC-style webhook payload)
  * into our internal NormalizedSwap format, based purely on pre/post balances.
@@ -44,42 +48,57 @@ export function normalizeQuickNodeSwap(
     if (!meta || !message) return null;
 
     const walletLower = walletAddress.toLowerCase();
+    const sig = tx.transaction?.signatures?.[0]?.substring(0, 16) || 'unknown';
 
     // Map account index -> pubkey
-    // Get account keys - try multiple sources
+    // Get account keys - try multiple sources (CRITICAL for versioned transactions)
     let accountKeys: string[] = [];
+
+    // Source 1: Standard accountKeys (legacy transactions)
     if (message.accountKeys && Array.isArray(message.accountKeys)) {
       accountKeys = message.accountKeys.map((k: any) =>
         typeof k === 'string' ? k : k?.pubkey
       ).filter(Boolean);
     }
-    // Fallback: try staticAccountKeys (for versioned transactions)
+
+    // Source 2: staticAccountKeys (versioned transactions V0)
     if (accountKeys.length === 0 && message.staticAccountKeys && Array.isArray(message.staticAccountKeys)) {
       accountKeys = message.staticAccountKeys.map((k: any) =>
         typeof k === 'string' ? k : k?.pubkey
       ).filter(Boolean);
-      console.log(`   [QuickNode] Using staticAccountKeys: ${accountKeys.length} accounts`);
     }
-    // Fallback: try to get from transaction directly
+
+    // Source 3: Try loadedAddresses (some RPC responses include resolved ATL addresses)
+    if (meta.loadedAddresses) {
+      const writable = meta.loadedAddresses.writable || [];
+      const readonly = meta.loadedAddresses.readonly || [];
+      const loadedKeys = [...writable, ...readonly].map((k: any) =>
+        typeof k === 'string' ? k : k?.pubkey
+      ).filter(Boolean);
+      if (loadedKeys.length > 0) {
+        accountKeys = [...accountKeys, ...loadedKeys];
+      }
+    }
+
+    // Source 4: Fallback - try to get from transaction directly
     if (accountKeys.length === 0 && tx.transaction?.message?.accountKeys) {
       accountKeys = (tx.transaction.message.accountKeys || []).map((k: any) =>
         typeof k === 'string' ? k : k?.pubkey
       ).filter(Boolean);
     }
-    
-    // If still empty but we have balances, try to infer from token balances
-    if (accountKeys.length === 0 && meta.preBalances && meta.postBalances) {
-      // For versioned transactions, we might need to use a different approach
-      // Try to find wallet in token balances and use that to infer account index
-      const tokenBalances = meta.preTokenBalances || meta.postTokenBalances || [];
-      const walletInTokens = tokenBalances.find((tb: any) => 
-        tb.owner && tb.owner.toLowerCase() === walletLower
-      );
-      if (walletInTokens && meta.preBalances.length > 0) {
-        console.log(`   ⚠️  [QuickNode] Cannot map balances to wallet - accountKeys missing. preBalances: ${meta.preBalances.length}, but no accountKeys to map them.`);
-        console.log(`   [QuickNode] Wallet found in token balances, but cannot determine SOL balance change without accountKeys mapping.`);
-      }
-    }
+
+    // VERSIONED TRANSACTION DETECTION: Check for addressTableLookups
+    // If we have addressTableLookups but no loadedAddresses, the webhook didn't resolve them
+    // In this case, we can still process based on token balance changes (owner field is always present)
+    const hasUnresolvedATL = message.addressTableLookups &&
+                             Array.isArray(message.addressTableLookups) &&
+                             message.addressTableLookups.length > 0 &&
+                             (!meta.loadedAddresses ||
+                              (meta.loadedAddresses.writable?.length === 0 && meta.loadedAddresses.readonly?.length === 0));
+
+    // Flag for whether we can map SOL balances to wallet
+    let canMapSolBalances = accountKeys.length >= (meta.preBalances?.length || 0) ||
+                            accountKeys.some(k => k.toLowerCase() === walletLower);
 
     // Helper: base token universe
     const BASE_MINTS = new Set<string>([
@@ -182,29 +201,70 @@ export function normalizeQuickNodeSwap(
     const preBalances: number[] = meta.preBalances || [];
     const postBalances: number[] = meta.postBalances || [];
     let walletAccountIndices: number[] = [];
-    
+    let solNetFromAccountKeys = false;
+
     if (accountKeys.length > 0) {
       // Standard path: map accountKeys to balances
       for (let i = 0; i < accountKeys.length; i++) {
         const pk = accountKeys[i];
         if (!pk || pk.toLowerCase() !== walletLower) continue;
         walletAccountIndices.push(i);
+        solNetFromAccountKeys = true;
         const preLamports = preBalances[i] ?? 0;
         const postLamports = postBalances[i] ?? preLamports;
         const deltaLamports = postLamports - preLamports;
         if (deltaLamports !== 0) {
           const deltaSol = deltaLamports / 1e9;
           solNet += deltaSol;
-          // Debug: log SOL changes
-          if (Math.abs(deltaSol) > 0.0001) {
-            console.log(`   [QuickNode] SOL balance change [account ${i}]: ${deltaSol.toFixed(6)} SOL (pre: ${(preLamports / 1e9).toFixed(6)}, post: ${(postLamports / 1e9).toFixed(6)})`);
-          }
         }
       }
     }
-    
-    if (walletAccountIndices.length === 0 && Math.abs(solNet) < 0.001) {
-      console.log(`   ⚠️  [QuickNode] Wallet ${walletAddress.substring(0, 8)}... not found in accountKeys (${accountKeys.length} accounts), will try fallback after primaryDelta is determined`);
+
+    // VERSIONED TX FALLBACK: If we have token changes but couldn't find wallet in accountKeys,
+    // try to infer SOL change from balance analysis
+    // This is crucial for versioned transactions with unresolved address table lookups
+    if (!solNetFromAccountKeys && tokenNetByMint.size > 0 && preBalances.length > 0) {
+      // For versioned transactions, we can't directly map balances to wallet
+      // But we can use heuristics: find the largest SOL change that makes sense for the trade
+      // Typically, the fee payer (index 0) is the wallet, and SOL changes there are relevant
+
+      // Heuristic 1: Check first account (usually fee payer = wallet)
+      if (preBalances.length > 0 && postBalances.length > 0) {
+        const delta0 = (postBalances[0] - preBalances[0]) / 1e9;
+        // Only use if it's a significant change (> 0.001 SOL, not just fees)
+        if (Math.abs(delta0) > 0.001) {
+          solNet = delta0;
+          console.log(`   ⚠️  [QuickNode] Versioned tx ${sig}...: Using account[0] SOL change as fallback: ${solNet.toFixed(6)} SOL`);
+        }
+      }
+
+      // Heuristic 2: If account[0] didn't have significant change, look for largest change
+      // that correlates with token movement direction
+      if (Math.abs(solNet) < 0.001) {
+        // Determine expected direction from token changes
+        const primaryTokenDelta = Array.from(tokenNetByMint.entries())
+          .filter(([mint]) => !BASE_MINTS.has(mint))
+          .reduce((max, [, d]) => Math.abs(d) > Math.abs(max) ? d : max, 0);
+
+        if (primaryTokenDelta !== 0) {
+          // If token increased (BUY), expect SOL to decrease
+          const expectedDirection = primaryTokenDelta > 0 ? -1 : 1;
+
+          let bestChange = 0;
+          for (let i = 0; i < Math.min(preBalances.length, postBalances.length); i++) {
+            const delta = (postBalances[i] - preBalances[i]) / 1e9;
+            // Only consider changes > 0.01 SOL and in expected direction
+            if (Math.sign(delta) === expectedDirection && Math.abs(delta) > 0.01 && Math.abs(delta) > Math.abs(bestChange)) {
+              bestChange = delta;
+            }
+          }
+
+          if (Math.abs(bestChange) > 0.01) {
+            solNet = bestChange;
+            console.log(`   ⚠️  [QuickNode] Versioned tx ${sig}...: Inferred SOL change from balance analysis: ${solNet.toFixed(6)} SOL`);
+          }
+        }
+      }
     }
 
     // Debug: log token net changes (only if there are changes)
@@ -346,41 +406,7 @@ export function normalizeQuickNodeSwap(
         primaryDelta = delta;
       }
     }
-    
-    // Fallback: if no accountKeys but we have token changes, try to infer SOL change
-    // This handles versioned transactions where accountKeys might be in a different format
-    // NOTE: This must be after primaryDelta is determined
-    if (walletAccountIndices.length === 0 && tokenNetByMint.size > 0 && primaryMint && Math.abs(primaryDelta) > 0) {
-      // Try to get SOL change from balance analysis
-      // Look for the largest SOL change that matches the direction of the token change
-      if (meta.preBalances && meta.postBalances && meta.preBalances.length > 0) {
-        // Determine expected direction: if token increased (BUY), SOL should decrease
-        const isBuy = primaryDelta > 0;
-        const expectedSolDirection = isBuy ? -1 : 1;
-        
-        // Find the largest SOL change in the expected direction (excluding very small changes which are likely fees)
-        let bestSolChange = 0;
-        for (let i = 0; i < Math.min(preBalances.length, postBalances.length); i++) {
-          const delta = (postBalances[i] - preBalances[i]) / 1e9;
-          // If direction matches and magnitude is larger, use it
-          // Exclude very small changes (< 0.01 SOL) which are likely just fees
-          if (Math.sign(delta) === expectedSolDirection && Math.abs(delta) > 0.01 && Math.abs(delta) > Math.abs(bestSolChange)) {
-            bestSolChange = delta;
-          }
-        }
-        
-        // If we found a significant change in the right direction, use it
-        if (Math.abs(bestSolChange) > 0.01) {
-          solNet = bestSolChange;
-          // Recalculate solTotalNet with the new solNet
-          solTotalNet = solNet + wsolNet;
-          console.log(`   ⚠️  [QuickNode] No accountKeys mapping, but detected SOL change from balance analysis: ${solNet.toFixed(6)} SOL (direction: ${isBuy ? 'BUY' : 'SELL'}).`);
-        } else {
-          console.log(`   ⚠️  [QuickNode] No accountKeys mapping, and detected SOL change (${bestSolChange.toFixed(6)}) is too small or wrong direction.`);
-        }
-      }
-    }
-    
+
     // IMPROVED: Also check if there's significant SOL/USDC/USDT movement even without clear token change
     // This can happen in edge cases where token balance changes are not properly detected
     const significantBaseChange = Math.abs(solTotalNet) > 0.001 || Math.abs(usdcNet) > 0.001 || Math.abs(usdtNet) > 0.001;
@@ -943,8 +969,29 @@ export class SolanaCollectorService {
         }
       }
 
-      // 5. USD value je už vypočítané v normalized.amountBase (v USD)
-      const valueUsd = normalized.amountBase; // Už je v USD
+      // 5. Calculate estimated USD value for minimum trade filter
+      // amountBase is in SOL/USDC/USDT - need to convert to USD
+      let estimatedValueUsd = normalized.amountBase;
+      if (normalized.baseToken === 'SOL' && normalized.side !== 'void') {
+        try {
+          const solPrice = await this.solPriceService.getSolPriceUsd();
+          estimatedValueUsd = normalized.amountBase * solPrice;
+        } catch {
+          // Fallback: assume ~$150 SOL
+          estimatedValueUsd = normalized.amountBase * 150;
+        }
+      }
+      // USDC/USDT are already in USD, no conversion needed
+
+      // Filter out tiny trades (likely just fees, not real trades)
+      // Only filter non-void trades - void trades (liquidity) should always be stored for tracking
+      if (normalized.side !== 'void' && estimatedValueUsd < MIN_TRADE_VALUE_USD) {
+        console.log(
+          `   ⏭️  [QuickNode] Skipping tiny trade: ${normalized.txSignature.substring(0, 16)}... ` +
+          `(${normalized.amountBase.toFixed(4)} ${normalized.baseToken} ≈ $${estimatedValueUsd.toFixed(2)} < $${MIN_TRADE_VALUE_USD} min)`
+        );
+        return { saved: false, reason: `value < $${MIN_TRADE_VALUE_USD} USD (likely fee)` };
+      }
 
       const existing = await this.tradeRepo.findBySignature(normalized.txSignature);
       if (existing) {

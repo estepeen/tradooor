@@ -381,23 +381,34 @@ export async function processQuickNodeWebhook(body: any) {
             const sig = tx.transaction?.signatures?.[0]?.substring(0, 16) || 'unknown';
             const reason = result.reason || 'unknown reason';
             
-            // More detailed logging for "not a swap" cases to help debug missing trades
+            // Detailed logging for debugging missing trades
+            const meta = tx.meta;
+            const message = tx.transaction?.message;
+
+            // Check if this is a versioned transaction with unresolved ATL
+            const hasUnresolvedATL = message?.addressTableLookups?.length > 0 &&
+                                     (!meta?.loadedAddresses ||
+                                      (meta.loadedAddresses.writable?.length === 0 && meta.loadedAddresses.readonly?.length === 0));
+
+            // Log based on reason type
             if (reason === 'not a swap') {
-              console.log(
-                `⏭️  [QuickNode] Skipped tx ${sig}... for wallet ${walletAddress.substring(0, 8)}...: ${reason}`
-              );
-              // Log transaction details for debugging
-              const meta = tx.meta;
-              if (meta) {
-                const preTokenCount = meta.preTokenBalances?.length || 0;
-                const postTokenCount = meta.postTokenBalances?.length || 0;
-                console.log(`      Token balances: pre=${preTokenCount}, post=${postTokenCount}`);
-                console.log(`      Account keys: ${tx.transaction?.message?.accountKeys?.length || 0}`);
+              // Only log "not a swap" occasionally to reduce noise
+              if (skipped % 5 === 0) {
+                const preTokenCount = meta?.preTokenBalances?.length || 0;
+                const postTokenCount = meta?.postTokenBalances?.length || 0;
+                const accountKeysCount = message?.accountKeys?.length || message?.staticAccountKeys?.length || 0;
+                console.log(
+                  `⏭️  [QuickNode] Skipped ${sig}... for ${walletAddress.substring(0, 8)}...: ${reason} ` +
+                  `(tokens: ${preTokenCount}→${postTokenCount}, keys: ${accountKeysCount}${hasUnresolvedATL ? ', ATL unresolved' : ''})`
+                );
               }
+            } else if (reason.includes('< $')) {
+              // Tiny trade - log it for visibility
+              console.log(`   💸 [QuickNode] Tiny trade filtered: ${sig}... - ${reason}`);
             } else {
-              // Less verbose for other skip reasons
-              if (skipped % 10 === 0) {
-                console.log(`   ⏭️  Skipped ${skipped} transactions (last reason: ${reason})`);
+              // Other reasons (duplicate, etc) - less verbose
+              if (skipped % 20 === 0) {
+                console.log(`   ⏭️  Skipped ${skipped} transactions (last: ${reason})`);
               }
             }
           }
