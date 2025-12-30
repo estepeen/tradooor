@@ -1,4 +1,11 @@
-import 'dotenv/config';
+import { config } from 'dotenv';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+// Load .env from apps/backend directory
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+config({ path: resolve(__dirname, '../../.env') });
 import { NormalizedTradeRepository } from '../repositories/normalized-trade.repository.js';
 import { TradeRepository } from '../repositories/trade.repository.js';
 import { WalletProcessingQueueRepository } from '../repositories/wallet-processing-queue.repository.js';
@@ -18,6 +25,7 @@ import { WalletCorrelationService } from '../services/wallet-correlation.service
 // Log environment variables status
 console.log(`🔍 [NormalizedTradeWorker] Environment check:`);
 console.log(`   GROQ_API_KEY: ${process.env.GROQ_API_KEY ? `${process.env.GROQ_API_KEY.substring(0, 10)}...` : 'NOT SET'}`);
+console.log(`   ENABLE_AI_DECISIONS: ${process.env.ENABLE_AI_DECISIONS || 'NOT SET'}`);
 console.log(`   ENABLE_ADVANCED_SIGNALS: ${process.env.ENABLE_ADVANCED_SIGNALS !== 'false' ? 'true' : 'false'}`);
 
 const normalizedTradeRepo = new NormalizedTradeRepository();
