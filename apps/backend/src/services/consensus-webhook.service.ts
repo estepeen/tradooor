@@ -27,7 +27,19 @@ import { signalQualityFilter } from './signal-quality-filter.service.js';
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
 const CLUSTER_STRENGTH_THRESHOLD = 70; // Minimum cluster strength for 💎💎 CLUSTER signal
-const MIN_MARKET_CAP_USD = 20000; // Global minimum market cap filter ($20K)
+
+// NINJA Signal parameters (micro-cap, fast consensus)
+const NINJA_MIN_MARKET_CAP_USD = 5000;    // $5K minimum (needs some liquidity)
+const NINJA_MAX_MARKET_CAP_USD = 20000;   // $20K maximum (micro-cap territory)
+const NINJA_TIME_WINDOW_MINUTES = 3;       // 3 minute window for fast consensus
+const NINJA_MAX_PRICE_PUMP_PERCENT = 50;   // Max 50% pump from first buy
+const NINJA_MIN_LIQUIDITY_USD = 3000;      // $3K minimum liquidity
+const NINJA_STOP_LOSS_PERCENT = 25;        // -25% SL (tighter for micro-cap risk)
+const NINJA_TAKE_PROFIT_PERCENT = 50;      // +50% TP (quick exit)
+const NINJA_MIN_WALLETS = 2;               // 2+ wallets for consensus
+
+// CONSENSUS Signal parameters (regular market cap)
+const CONSENSUS_MIN_MARKET_CAP_USD = 20000; // $20K minimum for regular consensus
 
 export class ConsensusWebhookService {
   private paperTradeService: PaperTradeService;
@@ -166,16 +178,59 @@ export class ConsensusWebhookService {
         }
       }
 
-      if (earlyMarketData?.marketCap !== null && earlyMarketData?.marketCap !== undefined) {
-        if (earlyMarketData.marketCap < MIN_MARKET_CAP_USD) {
-          console.log(`   ⚠️  [Consensus] Token ${token?.symbol} market cap $${(earlyMarketData.marketCap / 1000).toFixed(1)}K < $${(MIN_MARKET_CAP_USD / 1000).toFixed(0)}K minimum - FILTERED OUT (no signal created)`);
-          return { consensusFound: false }; // Don't create signal at all
-        }
-        console.log(`   ✅ [Consensus] Market cap check passed: $${(earlyMarketData.marketCap / 1000).toFixed(1)}K >= $${(MIN_MARKET_CAP_USD / 1000).toFixed(0)}K minimum`);
-      } else {
+      // Determine signal type based on market cap: NINJA (<20K) vs CONSENSUS (>=20K)
+      let isNinjaSignal = false;
+      const marketCap = earlyMarketData?.marketCap;
+      const liquidity = earlyMarketData?.liquidity;
+
+      if (marketCap === null || marketCap === undefined) {
         // If we cannot verify market cap, don't create signal (safety first)
-        console.warn(`   ⚠️  [Consensus] Could not verify market cap - FILTERED OUT (no signal created)`);
+        console.warn(`   ⚠️  [Signal] Could not verify market cap - FILTERED OUT (no signal created)`);
         return { consensusFound: false };
+      }
+
+      // Check if this qualifies as NINJA signal (micro-cap fast consensus)
+      if (marketCap >= NINJA_MIN_MARKET_CAP_USD && marketCap < NINJA_MAX_MARKET_CAP_USD) {
+        // NINJA candidate - check additional requirements
+
+        // Check liquidity minimum
+        if (liquidity !== null && liquidity !== undefined && liquidity < NINJA_MIN_LIQUIDITY_USD) {
+          console.log(`   ⚠️  [NINJA] Token ${token?.symbol} liquidity $${(liquidity / 1000).toFixed(1)}K < $${(NINJA_MIN_LIQUIDITY_USD / 1000).toFixed(0)}K minimum - FILTERED OUT`);
+          return { consensusFound: false };
+        }
+
+        // Check time window - all buys must be within NINJA_TIME_WINDOW_MINUTES
+        const firstBuyTime = new Date(sortedBuys[0].timestamp).getTime();
+        const lastBuyTime = new Date(sortedBuys[sortedBuys.length - 1].timestamp).getTime();
+        const timeSpanMinutes = (lastBuyTime - firstBuyTime) / (1000 * 60);
+
+        if (timeSpanMinutes > NINJA_TIME_WINDOW_MINUTES) {
+          console.log(`   ⚠️  [NINJA] Token ${token?.symbol} buys span ${timeSpanMinutes.toFixed(1)} min > ${NINJA_TIME_WINDOW_MINUTES} min max - not a NINJA (checking CONSENSUS...)`);
+          // Falls through to regular CONSENSUS check below
+        } else {
+          // Check price pump - current price vs first buy price
+          const firstBuyPrice = Number(sortedBuys[0].priceBasePerToken || 0);
+          const currentPrice = Number(tradeToUse.priceBasePerToken || 0);
+          const pricePumpPercent = firstBuyPrice > 0 ? ((currentPrice - firstBuyPrice) / firstBuyPrice) * 100 : 0;
+
+          if (pricePumpPercent > NINJA_MAX_PRICE_PUMP_PERCENT) {
+            console.log(`   ⚠️  [NINJA] Token ${token?.symbol} pumped +${pricePumpPercent.toFixed(0)}% > ${NINJA_MAX_PRICE_PUMP_PERCENT}% max - FILTERED OUT (missed entry)`);
+            return { consensusFound: false };
+          }
+
+          // All NINJA checks passed!
+          isNinjaSignal = true;
+          console.log(`   🥷 [NINJA] NINJA Signal detected! MCap: $${(marketCap / 1000).toFixed(1)}K, ${uniqueWallets.size} wallets in ${timeSpanMinutes.toFixed(1)} min, pump: +${pricePumpPercent.toFixed(0)}%`);
+        }
+      }
+
+      // If not NINJA, check regular CONSENSUS minimum
+      if (!isNinjaSignal) {
+        if (marketCap < CONSENSUS_MIN_MARKET_CAP_USD) {
+          console.log(`   ⚠️  [CONSENSUS] Token ${token?.symbol} market cap $${(marketCap / 1000).toFixed(1)}K < $${(CONSENSUS_MIN_MARKET_CAP_USD / 1000).toFixed(0)}K minimum - FILTERED OUT`);
+          return { consensusFound: false };
+        }
+        console.log(`   ✅ [CONSENSUS] Market cap check passed: $${(marketCap / 1000).toFixed(1)}K >= $${(CONSENSUS_MIN_MARKET_CAP_USD / 1000).toFixed(0)}K minimum`);
       }
 
       // 4c. QUALITY FILTERS - check volume ratio, price momentum, holder concentration
@@ -385,13 +440,19 @@ export class ConsensusWebhookService {
             new Date(b.tradeTime || 0).getTime() - new Date(a.tradeTime || 0).getTime()
           )[0];
 
-          // Determine signal type based on cluster detection
-          let signalType: 'consensus' | 'consensus-update' | 'cluster-consensus' =
-            isUpdate ? 'consensus-update' : 'consensus';
+          // Determine signal type based on NINJA detection or cluster detection
+          let signalType: string = isUpdate ? 'consensus-update' : 'consensus';
 
-          if (clusterData?.isCorrelated && !isUpdate) {
+          if (isNinjaSignal && !isUpdate) {
+            signalType = 'ninja';
+          } else if (clusterData?.isCorrelated && !isUpdate) {
             signalType = 'cluster-consensus';
           }
+
+          // Set default SL/TP based on signal type
+          // NINJA uses tighter parameters, CONSENSUS uses standard
+          const defaultStopLoss = isNinjaSignal ? NINJA_STOP_LOSS_PERCENT : 20;
+          const defaultTakeProfit = isNinjaSignal ? NINJA_TAKE_PROFIT_PERCENT : 50;
 
           // Připrav notification data BEZ AI (AI bude async)
           const notificationData: SignalNotificationData = {
@@ -417,8 +478,9 @@ export class ConsensusWebhookService {
               ? `🆕 New trader added: ${newestWallet?.label || 'Unknown'} (total ${uniqueWallets.size} wallets)`
               : undefined,
             aiPositionPercent: undefined,
-            stopLossPercent: undefined,
-            takeProfitPercent: undefined,
+            // Set default SL/TP (AI can update async)
+            stopLossPercent: defaultStopLoss,
+            takeProfitPercent: defaultTakeProfit,
             stopLossPriceUsd: undefined,
             takeProfitPriceUsd: undefined,
             aiRiskScore: undefined,

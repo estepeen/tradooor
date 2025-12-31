@@ -522,7 +522,10 @@ export class DiscordNotificationService {
 
     // Determine color based on high-level signal type (bar color on the left)
     let color: number;
-    if (data.signalType === 'accumulation') {
+    if (data.signalType === 'ninja') {
+      // 🥷 NINJA → fialová čára (micro-cap fast consensus)
+      color = 0x8b5cf6;
+    } else if (data.signalType === 'accumulation') {
       // Accumulation → zelená čára
       color = 0x00ff00;
     } else if (data.signalType === 'cluster-consensus') {
@@ -548,7 +551,9 @@ export class DiscordNotificationService {
 
     // Build title podle typu signálu
     let title: string;
-    if (data.signalType === 'accumulation') {
+    if (data.signalType === 'ninja') {
+      title = `🥷 NINJA Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
+    } else if (data.signalType === 'accumulation') {
       title = `⚡ ACCUMULATION Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
     } else if (data.signalType === 'cluster-consensus') {
       title = `💎💎 CLUSTER Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
@@ -799,8 +804,10 @@ export class DiscordNotificationService {
    */
   private getSignalEmoji(signalType: string): string {
     const emojis: Record<string, string> = {
+      'ninja': '🥷',
       'consensus': '🤝',
       'consensus-update': '📈',
+      'cluster-consensus': '💎',
       'whale-entry': '🐋',
       'early-sniper': '🎯',
       'hot-token': '🔥',
