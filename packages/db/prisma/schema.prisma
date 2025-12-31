@@ -816,3 +816,75 @@ model PositionWalletActivity {
   @@index([walletId])
   @@index([status])
 }
+
+// ============================================================================
+// SPECTRE TRADING BOT
+// ============================================================================
+
+/// Trades executed by SPECTRE bot (real mainnet trades)
+model SpectreTrade {
+  id              String   @id @default(cuid())
+
+  // Signal that triggered this trade
+  signalType      String   // 'ninja' | 'consensus'
+  signalStrength  String   // 'weak' | 'medium' | 'strong'
+
+  // Token info
+  tokenMint       String
+  tokenSymbol     String
+
+  // Trade execution
+  side            String   // 'buy' | 'sell'
+  amountSol       Decimal  @db.Decimal(36, 18)
+  amountTokens    Decimal? @db.Decimal(36, 18)
+  pricePerToken   Decimal? @db.Decimal(36, 18)
+  txSignature     String?  @unique
+
+  // Market context at trade time
+  marketCapUsd    Decimal? @db.Decimal(36, 18)
+  liquidityUsd    Decimal? @db.Decimal(36, 18)
+  entryPriceUsd   Decimal? @db.Decimal(36, 18)
+
+  // Strategy parameters used
+  stopLossPercent   Float?
+  takeProfitPercent Float?
+  slippageBps       Int?
+  jitoTipLamports   Int?
+
+  // Execution metrics
+  success         Boolean  @default(false)
+  error           String?
+  latencyMs       Int?     // Time from quote to tx confirmation (execution latency)
+  signalToTradeMs Int?     // Time from signal timestamp to trade execution
+
+  // Retry tracking
+  attemptNumber   Int      @default(1) // Which attempt (1 = first try, 2 = retry)
+  priceAtSignal   Decimal? @db.Decimal(36, 18) // Token price when signal was created
+  priceAtTrade    Decimal? @db.Decimal(36, 18) // Token price when we tried to buy
+  priceChangePercent Float? // % change from signal to trade attempt
+
+  // Position tracking (for linking buy to sell)
+  positionId      String?  // Links buy and sell trades of same position
+  exitReason      String?  // 'stop_loss' | 'take_profit' | 'manual' | 'trailing_stop'
+
+  // PnL (filled when position closes)
+  realizedPnlSol     Decimal? @db.Decimal(36, 18)
+  realizedPnlPercent Decimal? @db.Decimal(36, 18)
+  realizedPnlUsd     Decimal? @db.Decimal(36, 18)
+
+  // Wallets that triggered the signal
+  triggerWallets  Json?    // Array of { address, label, score }
+
+  // Timestamps
+  signalTimestamp DateTime? // When signal was received
+  executedAt      DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([tokenMint])
+  @@index([signalType])
+  @@index([side])
+  @@index([success])
+  @@index([executedAt])
+  @@index([positionId])
+}

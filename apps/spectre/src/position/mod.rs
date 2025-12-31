@@ -10,9 +10,11 @@ use tracing::{info, warn};
 pub struct Position {
     pub token_mint: String,
     pub token_symbol: String,
-    pub entry_price_usd: f64,
+    pub entry_price: f64,
     pub amount_tokens: u64,
     pub amount_sol_invested: f64,
+    pub stop_loss_percent: f64,
+    pub take_profit_percent: f64,
     pub stop_loss_price: f64,
     pub take_profit_price: f64,
     pub entry_time: chrono::DateTime<chrono::Utc>,
@@ -23,20 +25,20 @@ impl Position {
     pub fn new(
         token_mint: String,
         token_symbol: String,
-        entry_price_usd: f64,
+        entry_price: f64,
         amount_tokens: u64,
         amount_sol_invested: f64,
         stop_loss_percent: f64,  // e.g., -25
         take_profit_percent: f64, // e.g., 50
         tx_signature: String,
     ) -> Self {
-        let stop_loss_price = entry_price_usd * (1.0 + stop_loss_percent / 100.0);
-        let take_profit_price = entry_price_usd * (1.0 + take_profit_percent / 100.0);
+        let stop_loss_price = entry_price * (1.0 + stop_loss_percent / 100.0);
+        let take_profit_price = entry_price * (1.0 + take_profit_percent / 100.0);
 
         info!(
             "📊 Position created: {} @ ${:.10} | SL: ${:.10} ({:.0}%) | TP: ${:.10} (+{:.0}%)",
             token_symbol,
-            entry_price_usd,
+            entry_price,
             stop_loss_price,
             stop_loss_percent,
             take_profit_price,
@@ -46,9 +48,11 @@ impl Position {
         Self {
             token_mint,
             token_symbol,
-            entry_price_usd,
+            entry_price,
             amount_tokens,
             amount_sol_invested,
+            stop_loss_percent,
+            take_profit_percent,
             stop_loss_price,
             take_profit_price,
             entry_time: chrono::Utc::now(),
@@ -70,15 +74,15 @@ impl Position {
     /// Calculate current PnL
     pub fn calculate_pnl(&self, current_price: f64) -> PnL {
         let current_value = current_price * self.amount_tokens as f64;
-        let entry_value = self.entry_price_usd * self.amount_tokens as f64;
+        let entry_value = self.entry_price * self.amount_tokens as f64;
         let pnl_usd = current_value - entry_value;
-        let pnl_percent = (current_price / self.entry_price_usd - 1.0) * 100.0;
+        let pnl_percent = (current_price / self.entry_price - 1.0) * 100.0;
 
         PnL {
             pnl_usd,
             pnl_percent,
             current_price,
-            entry_price: self.entry_price_usd,
+            entry_price: self.entry_price,
         }
     }
 }

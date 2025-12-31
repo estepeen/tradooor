@@ -63,7 +63,8 @@
       "Bash(rustup update:*)",
       "Bash(cargo build:*)",
       "Bash(pnpm --filter backend add:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(pnpm --filter @solbot/db db:migrate:*)"
     ]
   }
 }

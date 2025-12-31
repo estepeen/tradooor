@@ -145,4 +145,20 @@ pub struct TradeResult {
     pub error: Option<String>,
     pub latency_ms: u64,
     pub timestamp: String,
+
+    // Signal context (passed through from SpectreSignal)
+    pub signal_type: Option<String>,
+    pub signal_strength: Option<String>,
+    pub market_cap_usd: Option<f64>,
+    pub liquidity_usd: Option<f64>,
+    pub entry_price_usd: Option<f64>,
+    pub stop_loss_percent: Option<f64>,
+    pub take_profit_percent: Option<f64>,
+    pub trigger_wallets: Option<Vec<SignalWallet>>,
+
+    // Retry tracking
+    pub attempt_number: u32,
+    pub price_at_signal: Option<f64>,
+    pub price_at_trade: Option<f64>,
+    pub price_change_percent: Option<f64>,
 }

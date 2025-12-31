@@ -5,6 +5,7 @@ import { smartWalletRouter } from './routes/smart-wallets.js';
 import { tradesRouter } from './routes/trades.js';
 import { tokensRouter } from './routes/tokens.js';
 import webhookRouter from './routes/webhooks.js';
+import { spectreRouter } from './routes/spectre.js';
 
 // Check if there's an error loading dotenv
 const dotenvResult = dotenv.config();
@@ -161,6 +162,7 @@ app.options('*', (req, res) => {
 app.use('/api/smart-wallets', smartWalletRouter);
 app.use('/api/trades', tradesRouter);
 app.use('/api/tokens', tokensRouter);
+app.use('/api/spectre', spectreRouter);
 
 // Handle "route not found" errors
 app.use((req, res, next) => {

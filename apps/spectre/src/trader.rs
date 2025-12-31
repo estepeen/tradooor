@@ -38,11 +38,21 @@ impl SpectreTrader {
         }
     }
 
-    /// Execute buy order for a signal
+    /// Execute buy order for a signal with retry logic
+    /// Max 2 attempts, skip if price jumped more than 30% from signal
     pub async fn execute_buy(&self, signal: &SpectreSignal) -> Result<TradeResult> {
-        let start = std::time::Instant::now();
+        const MAX_ATTEMPTS: u32 = 2;
+        const MAX_PRICE_CHANGE_PERCENT: f64 = 30.0;
+
         let token_mint = &signal.token_mint;
         let token_symbol = &signal.token_symbol;
+        let signal_price = signal.entry_price_usd;
+
+        // Check if we already have a position
+        if self.position_manager.has_position(token_mint).await {
+            warn!("⚠️ Already have position in {}, skipping", token_symbol);
+            return Ok(self.create_error_result(signal, "Already have position", 1, None));
+        }
 
         info!(
             "👻 Executing BUY: {} ({}) - MCap: ${:.0}",
@@ -51,149 +61,217 @@ impl SpectreTrader {
             signal.market_cap_usd.unwrap_or(0.0)
         );
 
-        // Check if we already have a position
-        if self.position_manager.has_position(token_mint).await {
-            warn!("⚠️ Already have position in {}, skipping", token_symbol);
+        // Try up to MAX_ATTEMPTS times
+        for attempt in 1..=MAX_ATTEMPTS {
+            let start = std::time::Instant::now();
+
+            // Convert SOL to lamports
+            let amount_lamports = (self.config.trade_amount_sol * 1e9) as u64;
+
+            // 1. Get quote from Jupiter
+            let quote = match self.jupiter.get_quote(
+                token_mint,
+                amount_lamports,
+                self.config.slippage_bps,
+            ).await {
+                Ok(q) => q,
+                Err(e) => {
+                    error!("❌ [Attempt {}/{}] Failed to get Jupiter quote: {}", attempt, MAX_ATTEMPTS, e);
+                    if attempt < MAX_ATTEMPTS {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        continue;
+                    }
+                    return Ok(self.create_error_result(signal, &format!("Quote failed: {}", e), attempt, None));
+                }
+            };
+
+            let out_amount: u64 = quote.out_amount.parse().unwrap_or(0);
+
+            // Calculate current price from quote (SOL per token)
+            let current_price = if out_amount > 0 {
+                Some(self.config.trade_amount_sol / (out_amount as f64))
+            } else {
+                None
+            };
+
+            // Check price change from signal (if we have both prices)
+            let price_change_percent = match (signal_price, current_price) {
+                (Some(signal_p), Some(current_p)) if signal_p > 0.0 => {
+                    let change = ((current_p - signal_p) / signal_p) * 100.0;
+                    Some(change)
+                }
+                _ => None
+            };
+
+            // Skip if price jumped too much
+            if let Some(change) = price_change_percent {
+                if change > MAX_PRICE_CHANGE_PERCENT {
+                    warn!(
+                        "⚠️ Price jumped {:.1}% since signal (max {}%), skipping {}",
+                        change, MAX_PRICE_CHANGE_PERCENT, token_symbol
+                    );
+                    return Ok(TradeResult {
+                        success: false,
+                        token_mint: token_mint.clone(),
+                        token_symbol: token_symbol.clone(),
+                        action: "buy".to_string(),
+                        amount_sol: self.config.trade_amount_sol,
+                        amount_tokens: None,
+                        price_per_token: current_price,
+                        tx_signature: None,
+                        error: Some(format!("Price jumped {:.1}% > {}% max", change, MAX_PRICE_CHANGE_PERCENT)),
+                        latency_ms: start.elapsed().as_millis() as u64,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        signal_type: Some(signal.signal_type.clone()),
+                        signal_strength: Some(signal.strength.clone()),
+                        market_cap_usd: signal.market_cap_usd,
+                        liquidity_usd: signal.liquidity_usd,
+                        entry_price_usd: signal.entry_price_usd,
+                        stop_loss_percent: Some(signal.stop_loss_percent),
+                        take_profit_percent: Some(signal.take_profit_percent),
+                        trigger_wallets: Some(signal.wallets.clone()),
+                        attempt_number: attempt,
+                        price_at_signal: signal_price,
+                        price_at_trade: current_price,
+                        price_change_percent,
+                    });
+                }
+            }
+
+            // 2. Get swap transaction
+            let (transaction, _last_valid_block) = match self.jupiter.get_swap_transaction(
+                quote,
+                &self.config.wallet_pubkey(),
+                self.config.jito_tip_lamports,
+            ).await {
+                Ok(tx) => tx,
+                Err(e) => {
+                    error!("❌ [Attempt {}/{}] Failed to get swap transaction: {}", attempt, MAX_ATTEMPTS, e);
+                    if attempt < MAX_ATTEMPTS {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        continue;
+                    }
+                    return Ok(self.create_error_result(signal, &format!("Swap tx failed: {}", e), attempt, current_price));
+                }
+            };
+
+            // 3. Sign transaction
+            let recent_blockhash = match self.rpc_client.get_latest_blockhash().await {
+                Ok(bh) => bh,
+                Err(e) => {
+                    error!("❌ [Attempt {}/{}] Failed to get blockhash: {}", attempt, MAX_ATTEMPTS, e);
+                    if attempt < MAX_ATTEMPTS {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        continue;
+                    }
+                    return Ok(self.create_error_result(signal, &format!("Blockhash failed: {}", e), attempt, current_price));
+                }
+            };
+
+            let signed_tx = self.sign_versioned_transaction(transaction, recent_blockhash)?;
+
+            // 4. Send via Jito bundle for MEV protection
+            let bundle_id = match self.jito.send_bundle(&signed_tx).await {
+                Ok(id) => id,
+                Err(e) => {
+                    warn!("⚠️ [Attempt {}/{}] Jito bundle failed, falling back to RPC: {}", attempt, MAX_ATTEMPTS, e);
+                    // Fallback to direct RPC submission
+                    match self.rpc_client.send_and_confirm_transaction(&signed_tx).await {
+                        Ok(sig) => sig.to_string(),
+                        Err(e) => {
+                            error!("❌ [Attempt {}/{}] Transaction failed: {}", attempt, MAX_ATTEMPTS, e);
+                            if attempt < MAX_ATTEMPTS {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                                continue;
+                            }
+                            return Ok(self.create_error_result(signal, &format!("TX failed: {}", e), attempt, current_price));
+                        }
+                    }
+                }
+            };
+
+            let elapsed = start.elapsed();
+            let entry_price = signal.entry_price_usd.unwrap_or(0.0);
+
+            // 5. Create position for SL/TP monitoring
+            let position = Position::new(
+                token_mint.clone(),
+                token_symbol.clone(),
+                entry_price,
+                out_amount,
+                self.config.trade_amount_sol,
+                signal.stop_loss_percent,
+                signal.take_profit_percent,
+                bundle_id.clone(),
+            );
+            self.position_manager.add_position(position).await;
+
+            info!(
+                "✅ BUY executed (attempt {}): {} tokens for {} SOL (took: {:?})",
+                attempt,
+                out_amount,
+                self.config.trade_amount_sol,
+                elapsed
+            );
+
             return Ok(TradeResult {
-                success: false,
+                success: true,
                 token_mint: token_mint.clone(),
                 token_symbol: token_symbol.clone(),
                 action: "buy".to_string(),
-                amount_sol: 0.0,
-                amount_tokens: None,
-                price_per_token: None,
-                tx_signature: None,
-                error: Some("Already have position".to_string()),
-                latency_ms: start.elapsed().as_millis() as u64,
+                amount_sol: self.config.trade_amount_sol,
+                amount_tokens: Some(out_amount as f64),
+                price_per_token: Some(entry_price),
+                tx_signature: Some(bundle_id),
+                error: None,
+                latency_ms: elapsed.as_millis() as u64,
                 timestamp: chrono::Utc::now().to_rfc3339(),
+                signal_type: Some(signal.signal_type.clone()),
+                signal_strength: Some(signal.strength.clone()),
+                market_cap_usd: signal.market_cap_usd,
+                liquidity_usd: signal.liquidity_usd,
+                entry_price_usd: signal.entry_price_usd,
+                stop_loss_percent: Some(signal.stop_loss_percent),
+                take_profit_percent: Some(signal.take_profit_percent),
+                trigger_wallets: Some(signal.wallets.clone()),
+                attempt_number: attempt,
+                price_at_signal: signal_price,
+                price_at_trade: current_price,
+                price_change_percent,
             });
         }
 
-        // Convert SOL to lamports
-        let amount_lamports = (self.config.trade_amount_sol * 1e9) as u64;
+        // Should never reach here, but just in case
+        Ok(self.create_error_result(signal, "Max attempts exhausted", MAX_ATTEMPTS, None))
+    }
 
-        // 1. Get quote from Jupiter
-        let quote = match self.jupiter.get_quote(
-            token_mint,
-            amount_lamports,
-            self.config.slippage_bps,
-        ).await {
-            Ok(q) => q,
-            Err(e) => {
-                error!("❌ Failed to get Jupiter quote: {}", e);
-                return Ok(TradeResult {
-                    success: false,
-                    token_mint: token_mint.clone(),
-                    token_symbol: token_symbol.clone(),
-                    action: "buy".to_string(),
-                    amount_sol: self.config.trade_amount_sol,
-                    amount_tokens: None,
-                    price_per_token: None,
-                    tx_signature: None,
-                    error: Some(format!("Quote failed: {}", e)),
-                    latency_ms: start.elapsed().as_millis() as u64,
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                });
-            }
-        };
-
-        let out_amount: u64 = quote.out_amount.parse().unwrap_or(0);
-
-        // 2. Get swap transaction
-        let (mut transaction, _last_valid_block) = match self.jupiter.get_swap_transaction(
-            quote,
-            &self.config.wallet_pubkey(),
-            self.config.jito_tip_lamports,
-        ).await {
-            Ok(tx) => tx,
-            Err(e) => {
-                error!("❌ Failed to get swap transaction: {}", e);
-                return Ok(TradeResult {
-                    success: false,
-                    token_mint: token_mint.clone(),
-                    token_symbol: token_symbol.clone(),
-                    action: "buy".to_string(),
-                    amount_sol: self.config.trade_amount_sol,
-                    amount_tokens: None,
-                    price_per_token: None,
-                    tx_signature: None,
-                    error: Some(format!("Swap tx failed: {}", e)),
-                    latency_ms: start.elapsed().as_millis() as u64,
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                });
-            }
-        };
-
-        // 3. Sign transaction
-        let recent_blockhash = self.rpc_client.get_latest_blockhash().await?;
-
-        // For VersionedTransaction, we need to sign differently
-        let signed_tx = self.sign_versioned_transaction(transaction, recent_blockhash)?;
-
-        // 4. Send via Jito bundle for MEV protection
-        let bundle_id = match self.jito.send_bundle(&signed_tx).await {
-            Ok(id) => id,
-            Err(e) => {
-                warn!("⚠️ Jito bundle failed, falling back to RPC: {}", e);
-                // Fallback to direct RPC submission
-                match self.rpc_client.send_and_confirm_transaction(&signed_tx).await {
-                    Ok(sig) => sig.to_string(),
-                    Err(e) => {
-                        error!("❌ Transaction failed: {}", e);
-                        return Ok(TradeResult {
-                            success: false,
-                            token_mint: token_mint.clone(),
-                            token_symbol: token_symbol.clone(),
-                            action: "buy".to_string(),
-                            amount_sol: self.config.trade_amount_sol,
-                            amount_tokens: None,
-                            price_per_token: None,
-                            tx_signature: None,
-                            error: Some(format!("TX failed: {}", e)),
-                            latency_ms: start.elapsed().as_millis() as u64,
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                        });
-                    }
-                }
-            }
-        };
-
-        let elapsed = start.elapsed();
-        let entry_price = signal.entry_price_usd.unwrap_or(0.0);
-
-        // 5. Create position for SL/TP monitoring
-        let position = Position::new(
-            token_mint.clone(),
-            token_symbol.clone(),
-            entry_price,
-            out_amount,
-            self.config.trade_amount_sol,
-            signal.stop_loss_percent,
-            signal.take_profit_percent,
-            bundle_id.clone(),
-        );
-        self.position_manager.add_position(position).await;
-
-        info!(
-            "✅ BUY executed: {} tokens for {} SOL (took: {:?})",
-            out_amount,
-            self.config.trade_amount_sol,
-            elapsed
-        );
-
-        Ok(TradeResult {
-            success: true,
-            token_mint: token_mint.clone(),
-            token_symbol: token_symbol.clone(),
+    /// Helper to create error TradeResult with all signal context
+    fn create_error_result(&self, signal: &SpectreSignal, error: &str, attempt: u32, current_price: Option<f64>) -> TradeResult {
+        TradeResult {
+            success: false,
+            token_mint: signal.token_mint.clone(),
+            token_symbol: signal.token_symbol.clone(),
             action: "buy".to_string(),
             amount_sol: self.config.trade_amount_sol,
-            amount_tokens: Some(out_amount as f64),
-            price_per_token: Some(entry_price),
-            tx_signature: Some(bundle_id),
-            error: None,
-            latency_ms: elapsed.as_millis() as u64,
+            amount_tokens: None,
+            price_per_token: None,
+            tx_signature: None,
+            error: Some(error.to_string()),
+            latency_ms: 0,
             timestamp: chrono::Utc::now().to_rfc3339(),
-        })
+            signal_type: Some(signal.signal_type.clone()),
+            signal_strength: Some(signal.strength.clone()),
+            market_cap_usd: signal.market_cap_usd,
+            liquidity_usd: signal.liquidity_usd,
+            entry_price_usd: signal.entry_price_usd,
+            stop_loss_percent: Some(signal.stop_loss_percent),
+            take_profit_percent: Some(signal.take_profit_percent),
+            trigger_wallets: Some(signal.wallets.clone()),
+            attempt_number: attempt,
+            price_at_signal: signal.entry_price_usd,
+            price_at_trade: current_price,
+            price_change_percent: None,
+        }
     }
 
     /// Execute sell order (SL/TP triggered)
@@ -235,6 +313,18 @@ impl SpectreTrader {
                     error: Some(format!("Sell quote failed: {}", e)),
                     latency_ms: start.elapsed().as_millis() as u64,
                     timestamp: chrono::Utc::now().to_rfc3339(),
+                    signal_type: None,
+                    signal_strength: None,
+                    market_cap_usd: None,
+                    liquidity_usd: None,
+                    entry_price_usd: Some(position.entry_price),
+                    stop_loss_percent: Some(position.stop_loss_percent),
+                    take_profit_percent: Some(position.take_profit_percent),
+                    trigger_wallets: None,
+                    attempt_number: 1,
+                    price_at_signal: None,
+                    price_at_trade: None,
+                    price_change_percent: None,
                 });
             }
         };
@@ -289,6 +379,18 @@ impl SpectreTrader {
             error: None,
             latency_ms: elapsed.as_millis() as u64,
             timestamp: chrono::Utc::now().to_rfc3339(),
+            signal_type: None,
+            signal_strength: None,
+            market_cap_usd: None,
+            liquidity_usd: None,
+            entry_price_usd: Some(position.entry_price),
+            stop_loss_percent: Some(position.stop_loss_percent),
+            take_profit_percent: Some(position.take_profit_percent),
+            trigger_wallets: None,
+            attempt_number: 1,
+            price_at_signal: None,
+            price_at_trade: None,
+            price_change_percent: None,
         })
     }
 
