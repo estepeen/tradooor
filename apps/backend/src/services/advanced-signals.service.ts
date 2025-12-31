@@ -243,6 +243,11 @@ export class AdvancedSignalsService {
   private pendingAccumulationSignals: Map<string, PendingAccumulationSignal> = new Map();
   private readonly ACCUMULATION_GROUP_WINDOW_MS = 60 * 1000; // 1 minuta
 
+  // Cooldown cache pro accumulation signály na úrovni tokenu (key: tokenId)
+  // Zabraňuje opakovanému posílání accumulation signálů pro stejný token v krátkém čase
+  private sentAccumulationSignals: Map<string, number> = new Map(); // tokenId -> timestamp
+  private readonly ACCUMULATION_COOLDOWN_MS = 30 * 60 * 1000; // 30 minut cooldown per token
+
   constructor() {
     this.signalRepo = new SignalRepository();
     this.smartWalletRepo = new SmartWalletRepository();
@@ -1334,6 +1339,13 @@ export class AdvancedSignalsService {
 
             // Pro accumulation signály: seskupit do jednoho embedu (debounce 1 minuta)
             if (signal.type === 'accumulation') {
+              // Cooldown check: pokud jsme pro tento token poslali accumulation signál v posledních 30 minutách, přeskoč
+              const lastSentTime = this.sentAccumulationSignals.get(token.id);
+              if (lastSentTime && Date.now() - lastSentTime < this.ACCUMULATION_COOLDOWN_MS) {
+                const minutesAgo = Math.round((Date.now() - lastSentTime) / 60000);
+                console.log(`⏳ [Accumulation] Skipping ${token.symbol} - cooldown active (sent ${minutesAgo}m ago, waiting ${Math.round(this.ACCUMULATION_COOLDOWN_MS / 60000)}m)`);
+                continue;
+              }
 
               const key = `${token.id}-${wallet.id}`;
               const existing = this.pendingAccumulationSignals.get(key);
@@ -1736,6 +1748,18 @@ export class AdvancedSignalsService {
       };
 
       await this.discordNotification.sendSignalNotification(notificationData);
+
+      // Ulož do cooldown cache - zabraň opakovanému odeslání pro stejný token po dobu 30 minut
+      this.sentAccumulationSignals.set(pending.tokenId, Date.now());
+      console.log(`✅ [Accumulation] Signal sent for ${pending.tokenSymbol} - cooldown active for ${Math.round(this.ACCUMULATION_COOLDOWN_MS / 60000)} minutes`);
+
+      // Cleanup starých záznamů z cooldown cache (starší než 1 hodina)
+      const oneHourAgo = Date.now() - 60 * 60 * 1000;
+      for (const [tokenId, timestamp] of this.sentAccumulationSignals.entries()) {
+        if (timestamp < oneHourAgo) {
+          this.sentAccumulationSignals.delete(tokenId);
+        }
+      }
     } catch (error: any) {
       console.error(`❌ Error sending accumulation notification: ${error.message}`);
     }
