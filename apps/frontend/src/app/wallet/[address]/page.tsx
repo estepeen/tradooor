@@ -467,10 +467,10 @@ export default function WalletDetailPage() {
           };
           
           const periods = [
-            { key: '1d', days: 1 },
-            { key: '7d', days: 7 },
-            { key: '14d', days: 14 },
-            { key: '30d', days: 30 },
+            { key: '1d' },
+            { key: '7d' },
+            { key: '14d' },
+            { key: '30d' },
           ];
           
           // Ensure baseToken is always set
@@ -478,29 +478,34 @@ export default function WalletDetailPage() {
           
           return (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-              {periods.map(({ key, days }) => {
-                const data = calculatePnLForPeriod(days);
+              {periods.map(({ key }) => {
+                // Use PnL data from API (same as homepage) for consistency
+                const apiData = pnlData?.periods?.[key];
+                const pnlBase = apiData?.pnl ?? 0;
+                const pnlPercent = apiData?.pnlPercent ?? 0;
+                const trades = apiData?.trades ?? 0;
+
                 return (
                   <div key={key} style={{ border: 'none', background: '#2323234f', backdropFilter: 'blur(20px)' }} className="p-4">
                     <div style={{ color: 'white', fontSize: '.875rem', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 'bold' }} className="mb-1">PnL ({key})</div>
                   <div className={`${
-                    data.pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'
+                    pnlPercent >= 0 ? 'text-green-600' : 'text-red-600'
                   }`}>
                           <span style={{ fontSize: '1.5rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
                             {(() => {
-                              const formatted = formatNumber(Math.abs(data.pnlBase), 2);
+                              const formatted = formatNumber(Math.abs(pnlBase), 2);
                               // Explicitly remove any $ symbol that might be in the formatted string
                               const cleaned = formatted.replace(/\$/g, '');
-                              return `${cleaned} ${baseToken}`;
+                              return `${pnlBase >= 0 ? '+' : '-'}${cleaned} ${baseToken}`;
                             })()}
                           </span>
                           {' '}
                           <span style={{ fontSize: '0.875rem', fontFamily: 'Inter, sans-serif', fontWeight: 'normal' }}>
-                            ({data.pnlPercent >= 0 ? '+' : ''}{formatPercent(data.pnlPercent / 100)})
+                            ({pnlPercent >= 0 ? '+' : ''}{formatPercent(pnlPercent / 100)})
                           </span>
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    {data.trades} trades
+                    {trades} closed lots
                   </div>
                 </div>
                 );
