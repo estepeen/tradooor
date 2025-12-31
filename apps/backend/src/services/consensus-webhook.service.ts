@@ -181,14 +181,29 @@ export class ConsensusWebhookService {
 
       // Determine signal type based on market cap: NINJA (<20K) vs CONSENSUS (>=20K)
       let isNinjaSignal = false;
-      const marketCap = earlyMarketData?.marketCap;
-      const liquidity = earlyMarketData?.liquidity;
+      let marketCap = earlyMarketData?.marketCap;
+      let liquidity = earlyMarketData?.liquidity;
+
+      // FALLBACK: If API market data failed, use market cap from trade meta
+      // This is critical for NINJA signals - we need MCap even if API is slow
+      if (marketCap === null || marketCap === undefined) {
+        // Try to get MCap from the most recent trade's meta
+        const latestTrade = sortedBuys[sortedBuys.length - 1];
+        const tradeMeta = latestTrade?.meta as any;
+        if (tradeMeta?.marketCapUsd) {
+          marketCap = Number(tradeMeta.marketCapUsd);
+          console.log(`   📊 [Signal] Using MCap from trade meta: $${(marketCap / 1000).toFixed(1)}K`);
+        } else if (tradeMeta?.fdvUsd) {
+          marketCap = Number(tradeMeta.fdvUsd);
+          console.log(`   📊 [Signal] Using FDV from trade meta: $${(marketCap / 1000).toFixed(1)}K`);
+        }
+      }
 
       console.log(`   📊 [Signal] Market data: MCap=$${marketCap ? (marketCap / 1000).toFixed(1) + 'K' : 'null'}, Liq=$${liquidity ? (liquidity / 1000).toFixed(1) + 'K' : 'null'}`);
 
       if (marketCap === null || marketCap === undefined) {
         // If we cannot verify market cap, don't create signal (safety first)
-        console.warn(`   ⚠️  [Signal] Could not verify market cap - FILTERED OUT (no signal created)`);
+        console.warn(`   ⚠️  [Signal] Could not verify market cap from API or trade meta - FILTERED OUT (no signal created)`);
         return { consensusFound: false };
       }
 
