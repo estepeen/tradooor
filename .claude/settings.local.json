@@ -58,7 +58,12 @@
       "Bash(ssh root@157.180.41.49 \"systemctl restart postgresql@16-main && sleep 3 && systemctl status postgresql@16-main && pm2 restart all\")",
       "Bash(ssh root@157.180.41.49 \"source ~/.nvm/nvm.sh && pm2 restart backend normalize-trades && pm2 list\")",
       "Bash(pnpm --filter frontend build:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nfix: Unify PnL calculation in trader profile with homepage\n\nTrader profile now uses data from /pnl API endpoint \\(same as homepage\\)\ninstead of calculating from closedPositions. This ensures consistent\nPnL values between homepage and trader detail page.\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfix: Unify PnL calculation in trader profile with homepage\n\nTrader profile now uses data from /pnl API endpoint \\(same as homepage\\)\ninstead of calculating from closedPositions. This ensures consistent\nPnL values between homepage and trader detail page.\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(cargo check:*)",
+      "Bash(rustup update:*)",
+      "Bash(cargo build:*)",
+      "Bash(pnpm --filter backend add:*)",
+      "Bash(git rm:*)"
     ]
   }
 }

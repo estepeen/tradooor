@@ -1,7 +1,7 @@
 import Redis from 'ioredis';
 
 /**
- * Redis service for communication with Rust trading bot
+ * Redis service for communication with SPECTRE trading bot
  * Uses LIST (LPUSH/BRPOP) for reliable message delivery
  */
 class RedisService {
@@ -53,23 +53,23 @@ class RedisService {
   }
 
   /**
-   * Push a NINJA signal to the trading bot queue
+   * Push a signal to the SPECTRE trading bot queue
    */
-  async pushNinjaSignal(signal: NinjaSignalPayload): Promise<boolean> {
+  async pushSignal(signal: SpectreSignalPayload): Promise<boolean> {
     if (!this.client || !this.isConnected) {
-      console.warn('⚠️  [Redis] Not connected, skipping NINJA signal push');
+      console.warn('⚠️  [Redis] Not connected, skipping signal push');
       return false;
     }
 
     try {
-      const queueName = process.env.REDIS_NINJA_QUEUE || 'ninja_signals';
+      const queueName = process.env.REDIS_SPECTRE_QUEUE || 'spectre_signals';
       const payload = JSON.stringify(signal);
 
       await this.client.lpush(queueName, payload);
-      console.log(`🥷 [Redis] NINJA signal pushed to queue: ${signal.tokenSymbol} (${signal.tokenMint.substring(0, 8)}...)`);
+      console.log(`👻 [Redis] Signal pushed to queue: ${signal.tokenSymbol} (${signal.tokenMint.substring(0, 8)}...) [${signal.signalType.toUpperCase()}]`);
       return true;
     } catch (error: any) {
-      console.error('❌ [Redis] Failed to push NINJA signal:', error.message);
+      console.error('❌ [Redis] Failed to push signal:', error.message);
       return false;
     }
   }
@@ -94,10 +94,10 @@ class RedisService {
 }
 
 /**
- * Payload structure for NINJA signal (must match Rust NinjaSignal struct)
+ * Payload structure for SPECTRE signal (must match Rust SpectreSignal struct)
  */
-export interface NinjaSignalPayload {
-  signalType: 'ninja';
+export interface SpectreSignalPayload {
+  signalType: 'ninja' | 'consensus';
   tokenSymbol: string;
   tokenMint: string;
   marketCapUsd: number | null;

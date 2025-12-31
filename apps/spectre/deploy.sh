@@ -1,11 +1,11 @@
 #!/bin/bash
 set -e
 
-# NINJA Trader Deployment Script
+# SPECTRE Deployment Script
 # Run this on your VPS to set up the Rust trading bot
 
-echo "🥷 NINJA Trader Deployment"
-echo "=========================="
+echo "👻 SPECTRE Deployment"
+echo "====================="
 
 # Check if running on Linux
 if [[ "$OSTYPE" != "linux-gnu"* ]]; then
@@ -42,10 +42,10 @@ echo "✅ Rust version: $(rustc --version)"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
-echo "🔨 Building NINJA Trader..."
+echo "🔨 Building SPECTRE..."
 cargo build --release
 
-BINARY_PATH="$SCRIPT_DIR/target/release/ninja-trader"
+BINARY_PATH="$SCRIPT_DIR/target/release/spectre"
 
 if [[ ! -f "$BINARY_PATH" ]]; then
     echo "❌ Build failed - binary not found"
@@ -57,9 +57,9 @@ echo "✅ Binary built: $BINARY_PATH ($(du -h "$BINARY_PATH" | cut -f1))"
 # Create systemd service
 echo "📝 Creating systemd service..."
 
-cat > /etc/systemd/system/ninja-trader.service << EOF
+cat > /etc/systemd/system/spectre.service << EOF
 [Unit]
-Description=NINJA Trading Bot
+Description=SPECTRE Trading Bot
 After=network.target redis-server.service
 
 [Service]
@@ -81,7 +81,7 @@ EOF
 systemctl daemon-reload
 
 echo ""
-echo "✅ NINJA Trader installed!"
+echo "✅ SPECTRE installed!"
 echo ""
 echo "📋 Next steps:"
 echo "   1. Create .env file with your configuration:"
@@ -89,15 +89,15 @@ echo "      cp .env.example .env"
 echo "      nano .env"
 echo ""
 echo "   2. Add these to your backend .env:"
-echo "      ENABLE_NINJA_BOT=true"
+echo "      ENABLE_SPECTRE_BOT=true"
 echo "      REDIS_URL=redis://127.0.0.1:6379"
 echo ""
 echo "   3. Start the bot:"
-echo "      systemctl start ninja-trader"
-echo "      systemctl status ninja-trader"
+echo "      systemctl start spectre"
+echo "      systemctl status spectre"
 echo ""
 echo "   4. View logs:"
-echo "      journalctl -u ninja-trader -f"
+echo "      journalctl -u spectre -f"
 echo ""
 echo "   5. Enable auto-start on boot:"
-echo "      systemctl enable ninja-trader"
+echo "      systemctl enable spectre"

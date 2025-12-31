@@ -7,8 +7,8 @@ use tracing::{info, warn, error};
 /// Signal received from Node.js backend
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NinjaSignal {
-    pub signal_type: String,           // "ninja"
+pub struct SpectreSignal {
+    pub signal_type: String,           // "ninja" or "consensus"
     pub token_symbol: String,
     pub token_mint: String,
     pub market_cap_usd: Option<f64>,
@@ -49,9 +49,9 @@ impl RedisListener {
         })
     }
 
-    /// Listen for NINJA signals using Redis LIST (BRPOP) and return a receiver channel
+    /// Listen for signals using Redis LIST (BRPOP) and return a receiver channel
     /// This is more reliable than pubsub and ensures no signal is lost
-    pub async fn subscribe(&self) -> Result<mpsc::UnboundedReceiver<NinjaSignal>> {
+    pub async fn subscribe(&self) -> Result<mpsc::UnboundedReceiver<SpectreSignal>> {
         let (tx, rx) = mpsc::unbounded_channel();
 
         let redis_url = self.redis_url.clone();
@@ -88,20 +88,19 @@ impl RedisListener {
 
                 match result {
                     Ok(Some((_key, payload))) => {
-                        match serde_json::from_str::<NinjaSignal>(&payload) {
+                        match serde_json::from_str::<SpectreSignal>(&payload) {
                             Ok(signal) => {
-                                if signal.signal_type == "ninja" {
-                                    info!(
-                                        "🥷 Received NINJA signal: {} ({}) MCap: ${:.0}",
-                                        signal.token_symbol,
-                                        &signal.token_mint[..16.min(signal.token_mint.len())],
-                                        signal.market_cap_usd.unwrap_or(0.0)
-                                    );
+                                info!(
+                                    "👻 Received signal [{}]: {} ({}) MCap: ${:.0}",
+                                    signal.signal_type.to_uppercase(),
+                                    signal.token_symbol,
+                                    &signal.token_mint[..16.min(signal.token_mint.len())],
+                                    signal.market_cap_usd.unwrap_or(0.0)
+                                );
 
-                                    if tx.send(signal).is_err() {
-                                        error!("Signal receiver dropped, stopping listener");
-                                        break;
-                                    }
+                                if tx.send(signal).is_err() {
+                                    error!("Signal receiver dropped, stopping listener");
+                                    break;
                                 }
                             }
                             Err(e) => {
@@ -127,7 +126,7 @@ impl RedisListener {
     /// Publish a trade result back to Node.js
     pub async fn publish_trade_result(&mut self, result: &TradeResult) -> Result<()> {
         let payload = serde_json::to_string(result)?;
-        let _: () = self.connection.lpush("ninja_trade_results", payload).await?;
+        let _: () = self.connection.lpush("spectre_trade_results", payload).await?;
         Ok(())
     }
 }

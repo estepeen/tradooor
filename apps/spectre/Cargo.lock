@@ -2124,34 +2124,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ninja-trader"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.21.7",
- "bincode",
- "bs58 0.5.1",
- "chrono",
- "dotenvy",
- "futures",
- "rand 0.8.5",
- "redis",
- "reqwest",
- "serde",
- "serde_json",
- "solana-client",
- "solana-sdk",
- "solana-transaction-status",
- "spl-associated-token-account",
- "spl-token",
- "thiserror",
- "tokio",
- "tokio-util",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "nix"
 version = "0.26.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4100,6 +4072,34 @@ dependencies = [
  "scroll",
  "thiserror",
  "winapi",
+]
+
+[[package]]
+name = "spectre"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.21.7",
+ "bincode",
+ "bs58 0.5.1",
+ "chrono",
+ "dotenvy",
+ "futures",
+ "rand 0.8.5",
+ "redis",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "solana-client",
+ "solana-sdk",
+ "solana-transaction-status",
+ "spl-associated-token-account",
+ "spl-token",
+ "thiserror",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

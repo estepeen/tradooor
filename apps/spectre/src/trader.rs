@@ -12,9 +12,9 @@ use crate::config::Config;
 use crate::jupiter::JupiterClient;
 use crate::jito::JitoClient;
 use crate::position::{Position, PositionManager, ExitReason};
-use crate::redis::{NinjaSignal, TradeResult};
+use crate::redis::{SpectreSignal, TradeResult};
 
-pub struct NinjaTrader {
+pub struct SpectreTrader {
     config: Config,
     rpc_client: Arc<RpcClient>,
     jupiter: JupiterClient,
@@ -22,7 +22,7 @@ pub struct NinjaTrader {
     position_manager: PositionManager,
 }
 
-impl NinjaTrader {
+impl SpectreTrader {
     pub fn new(config: Config) -> Self {
         let rpc_client = Arc::new(RpcClient::new_with_commitment(
             config.rpc_url.clone(),
@@ -38,14 +38,14 @@ impl NinjaTrader {
         }
     }
 
-    /// Execute buy order for a NINJA signal
-    pub async fn execute_buy(&self, signal: &NinjaSignal) -> Result<TradeResult> {
+    /// Execute buy order for a signal
+    pub async fn execute_buy(&self, signal: &SpectreSignal) -> Result<TradeResult> {
         let start = std::time::Instant::now();
         let token_mint = &signal.token_mint;
         let token_symbol = &signal.token_symbol;
 
         info!(
-            "🥷 Executing BUY: {} ({}) - MCap: ${:.0}",
+            "👻 Executing BUY: {} ({}) - MCap: ${:.0}",
             token_symbol,
             token_mint,
             signal.market_cap_usd.unwrap_or(0.0)

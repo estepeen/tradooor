@@ -23,7 +23,7 @@ import { SignalPerformanceService } from './signal-performance.service.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 import { WalletCorrelationService } from './wallet-correlation.service.js';
 import { signalQualityFilter } from './signal-quality-filter.service.js';
-import { redisService, NinjaSignalPayload } from './redis.service.js';
+import { redisService, SpectreSignalPayload } from './redis.service.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
@@ -502,9 +502,9 @@ export class ConsensusWebhookService {
           console.log(`📨 [ConsensusWebhook] Sending Discord notification IMMEDIATELY (AI will be async)`);
           const discordResult = await this.discordNotification.sendSignalNotification(notificationData);
 
-          // 5d. Push NINJA signal to Redis for Rust trading bot (if NINJA signal)
-          if (signalType === 'ninja' && process.env.ENABLE_NINJA_BOT === 'true') {
-            const ninjaPayload: NinjaSignalPayload = {
+          // 5d. Push signal to Redis for SPECTRE trading bot (NINJA signals only for now)
+          if (signalType === 'ninja' && process.env.ENABLE_SPECTRE_BOT === 'true') {
+            const spectrePayload: SpectreSignalPayload = {
               signalType: 'ninja',
               tokenSymbol: notificationData.tokenSymbol,
               tokenMint: notificationData.tokenMint,
@@ -523,8 +523,8 @@ export class ConsensusWebhookService {
             };
 
             // Fire and forget - don't block Discord notification
-            redisService.pushNinjaSignal(ninjaPayload).catch(err => {
-              console.warn(`   ⚠️  Redis NINJA push failed: ${err.message}`);
+            redisService.pushSignal(spectrePayload).catch(err => {
+              console.warn(`   ⚠️  Redis SPECTRE push failed: ${err.message}`);
             });
           }
 

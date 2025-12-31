@@ -1,8 +1,8 @@
 [package]
-name = "ninja-trader"
+name = "spectre"
 version = "0.1.0"
 edition = "2021"
-description = "Ultra-fast Solana trading bot for NINJA signals"
+description = "Ultra-fast Solana trading bot for consensus signals"
 
 [dependencies]
 # Solana

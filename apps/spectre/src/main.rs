@@ -11,7 +11,7 @@ use tracing_subscriber::FmtSubscriber;
 
 use crate::config::Config;
 use crate::redis::RedisListener;
-use crate::trader::NinjaTrader;
+use crate::trader::SpectreTrader;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
         .compact()
         .init();
 
-    info!("🥷 NINJA Trader starting...");
+    info!("👻 SPECTRE starting...");
 
     // Load configuration
     let config = Config::from_env()?;
@@ -39,7 +39,7 @@ async fn main() -> Result<()> {
     info!("   Jito tip: {} lamports", config.jito_tip_lamports);
 
     // Initialize trader
-    let trader = NinjaTrader::new(config.clone());
+    let trader = SpectreTrader::new(config.clone());
 
     // Check balance
     match trader.get_balance().await {
@@ -51,14 +51,14 @@ async fn main() -> Result<()> {
     let mut redis_listener = RedisListener::new(&config.redis_url, &config.redis_channel).await?;
     let mut signal_rx = redis_listener.subscribe().await?;
 
-    info!("🚀 NINJA Trader ready! Waiting for signals...");
+    info!("🚀 SPECTRE ready! Waiting for signals...");
     info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
     // Main loop - process signals
     while let Some(signal) = signal_rx.recv().await {
         info!("");
         info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-        info!("🥷 NINJA SIGNAL RECEIVED");
+        info!("👻 SIGNAL RECEIVED");
         info!("   Token: {} ({})", signal.token_symbol, &signal.token_mint[..16.min(signal.token_mint.len())]);
         info!("   MCap: ${:.0}", signal.market_cap_usd.unwrap_or(0.0));
         info!("   Liquidity: ${:.0}", signal.liquidity_usd.unwrap_or(0.0));
@@ -87,14 +87,14 @@ async fn main() -> Result<()> {
         }
     }
 
-    info!("👋 NINJA Trader shutting down...");
+    info!("👋 SPECTRE shutting down...");
     Ok(())
 }
 
 /// Background task for monitoring positions and executing SL/TP
 #[allow(dead_code)]
 async fn position_monitor(
-    trader: std::sync::Arc<NinjaTrader>,
+    trader: std::sync::Arc<SpectreTrader>,
     mut shutdown_rx: tokio::sync::broadcast::Receiver<()>,
 ) {
     let check_interval = tokio::time::Duration::from_secs(5);
