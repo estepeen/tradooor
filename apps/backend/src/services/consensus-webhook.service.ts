@@ -184,14 +184,25 @@ export class ConsensusWebhookService {
       const marketCap = earlyMarketData?.marketCap;
       const liquidity = earlyMarketData?.liquidity;
 
+      console.log(`   📊 [Signal] Market data: MCap=$${marketCap ? (marketCap / 1000).toFixed(1) + 'K' : 'null'}, Liq=$${liquidity ? (liquidity / 1000).toFixed(1) + 'K' : 'null'}`);
+
       if (marketCap === null || marketCap === undefined) {
         // If we cannot verify market cap, don't create signal (safety first)
         console.warn(`   ⚠️  [Signal] Could not verify market cap - FILTERED OUT (no signal created)`);
         return { consensusFound: false };
       }
 
+      // Calculate time span for NINJA check
+      const firstBuyTime = new Date(sortedBuys[0].timestamp).getTime();
+      const lastBuyTime = new Date(sortedBuys[sortedBuys.length - 1].timestamp).getTime();
+      const timeSpanMinutes = (lastBuyTime - firstBuyTime) / (1000 * 60);
+
+      console.log(`   ⏱️  [Signal] Time span: ${timeSpanMinutes.toFixed(1)} min (first: ${sortedBuys[0].timestamp}, last: ${sortedBuys[sortedBuys.length - 1].timestamp})`);
+
       // Check if this qualifies as NINJA signal (micro-cap fast consensus)
       if (marketCap >= NINJA_MIN_MARKET_CAP_USD && marketCap < NINJA_MAX_MARKET_CAP_USD) {
+        console.log(`   🥷 [NINJA] MCap in NINJA range ($5K-$20K): $${(marketCap / 1000).toFixed(1)}K`);
+
         // NINJA candidate - check additional requirements
 
         // Check liquidity minimum
@@ -201,10 +212,6 @@ export class ConsensusWebhookService {
         }
 
         // Check time window - all buys must be within NINJA_TIME_WINDOW_MINUTES
-        const firstBuyTime = new Date(sortedBuys[0].timestamp).getTime();
-        const lastBuyTime = new Date(sortedBuys[sortedBuys.length - 1].timestamp).getTime();
-        const timeSpanMinutes = (lastBuyTime - firstBuyTime) / (1000 * 60);
-
         if (timeSpanMinutes > NINJA_TIME_WINDOW_MINUTES) {
           console.log(`   ⚠️  [NINJA] Token ${token?.symbol} buys span ${timeSpanMinutes.toFixed(1)} min > ${NINJA_TIME_WINDOW_MINUTES} min max - not a NINJA (checking CONSENSUS...)`);
           // Falls through to regular CONSENSUS check below
@@ -221,8 +228,13 @@ export class ConsensusWebhookService {
 
           // All NINJA checks passed!
           isNinjaSignal = true;
-          console.log(`   🥷 [NINJA] NINJA Signal detected! MCap: $${(marketCap / 1000).toFixed(1)}K, ${uniqueWallets.size} wallets in ${timeSpanMinutes.toFixed(1)} min, pump: +${pricePumpPercent.toFixed(0)}%`);
+          console.log(`   🥷 [NINJA] ✅ NINJA Signal detected! MCap: $${(marketCap / 1000).toFixed(1)}K, ${uniqueWallets.size} wallets in ${timeSpanMinutes.toFixed(1)} min, pump: +${pricePumpPercent.toFixed(0)}%`);
         }
+      } else if (marketCap < NINJA_MIN_MARKET_CAP_USD) {
+        console.log(`   ⚠️  [Signal] MCap $${(marketCap / 1000).toFixed(1)}K < $5K minimum - too low, FILTERED OUT`);
+        return { consensusFound: false };
+      } else {
+        console.log(`   📈 [CONSENSUS] MCap $${(marketCap / 1000).toFixed(1)}K >= $20K - checking CONSENSUS signal`);
       }
 
       // If not NINJA, check regular CONSENSUS minimum
