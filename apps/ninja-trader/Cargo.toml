@@ -1,0 +1,49 @@
+[package]
+name = "ninja-trader"
+version = "0.1.0"
+edition = "2021"
+description = "Ultra-fast Solana trading bot for NINJA signals"
+
+[dependencies]
+# Solana
+solana-sdk = "1.18"
+solana-client = "1.18"
+solana-transaction-status = "1.18"
+spl-token = "4.0"
+spl-associated-token-account = "2.3"
+
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+futures = "0.3"
+
+# HTTP client for Jupiter API + Jito
+reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
+
+# Redis for signal communication
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager", "aio"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+bincode = "1.3"
+
+# Utils
+base64 = "0.21"
+bs58 = "0.5"
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenvy = "0.15"
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+
+# For precise timing
+tokio-util = { version = "0.7", features = ["time"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

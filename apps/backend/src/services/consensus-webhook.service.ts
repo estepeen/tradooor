@@ -23,6 +23,7 @@ import { SignalPerformanceService } from './signal-performance.service.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 import { WalletCorrelationService } from './wallet-correlation.service.js';
 import { signalQualityFilter } from './signal-quality-filter.service.js';
+import { redisService, NinjaSignalPayload } from './redis.service.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
@@ -501,7 +502,33 @@ export class ConsensusWebhookService {
           console.log(`📨 [ConsensusWebhook] Sending Discord notification IMMEDIATELY (AI will be async)`);
           const discordResult = await this.discordNotification.sendSignalNotification(notificationData);
 
-          // 5d. Spusť AI ASYNCHRONNĚ a edituj zprávu
+          // 5d. Push NINJA signal to Redis for Rust trading bot (if NINJA signal)
+          if (signalType === 'ninja' && process.env.ENABLE_NINJA_BOT === 'true') {
+            const ninjaPayload: NinjaSignalPayload = {
+              signalType: 'ninja',
+              tokenSymbol: notificationData.tokenSymbol,
+              tokenMint: notificationData.tokenMint,
+              marketCapUsd: notificationData.marketCapUsd ?? null,
+              liquidityUsd: notificationData.liquidityUsd ?? null,
+              entryPriceUsd: notificationData.entryPriceUsd ?? null,
+              stopLossPercent: notificationData.stopLossPercent ?? NINJA_STOP_LOSS_PERCENT,
+              takeProfitPercent: notificationData.takeProfitPercent ?? NINJA_TAKE_PROFIT_PERCENT,
+              strength: notificationData.strength,
+              timestamp: new Date().toISOString(),
+              wallets: notificationData.wallets.map(w => ({
+                address: w.address,
+                label: w.label ?? null,
+                score: w.score ?? null,
+              })),
+            };
+
+            // Fire and forget - don't block Discord notification
+            redisService.pushNinjaSignal(ninjaPayload).catch(err => {
+              console.warn(`   ⚠️  Redis NINJA push failed: ${err.message}`);
+            });
+          }
+
+          // 5e. Spusť AI ASYNCHRONNĚ a edituj zprávu
           if (discordResult.success && discordResult.messageId && process.env.ENABLE_AI_DECISIONS === 'true') {
             // Fire and forget - nečekáme na AI
             this.runAsyncAIAndUpdateMessage(
