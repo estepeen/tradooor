@@ -243,10 +243,9 @@ export class AdvancedSignalsService {
   private pendingAccumulationSignals: Map<string, PendingAccumulationSignal> = new Map();
   private readonly ACCUMULATION_GROUP_WINDOW_MS = 60 * 1000; // 1 minuta
 
-  // Cooldown cache pro accumulation signály na úrovni tokenu (key: tokenId)
-  // Zabraňuje opakovanému posílání accumulation signálů pro stejný token v krátkém čase
-  private sentAccumulationSignals: Map<string, number> = new Map(); // tokenId -> timestamp
-  private readonly ACCUMULATION_COOLDOWN_MS = 30 * 60 * 1000; // 30 minut cooldown per token
+  // Cache pro accumulation signály - ukládá timestamp posledního zpracovaného nákupu per token
+  // Nový signál se odešle pouze pokud jsou nákupy NOVĚJŠÍ než tento timestamp
+  private lastProcessedAccumulationTrade: Map<string, Date> = new Map(); // tokenId -> last trade timestamp
 
   constructor() {
     this.signalRepo = new SignalRepository();
@@ -1339,11 +1338,12 @@ export class AdvancedSignalsService {
 
             // Pro accumulation signály: seskupit do jednoho embedu (debounce 1 minuta)
             if (signal.type === 'accumulation') {
-              // Cooldown check: pokud jsme pro tento token poslali accumulation signál v posledních 30 minutách, přeskoč
-              const lastSentTime = this.sentAccumulationSignals.get(token.id);
-              if (lastSentTime && Date.now() - lastSentTime < this.ACCUMULATION_COOLDOWN_MS) {
-                const minutesAgo = Math.round((Date.now() - lastSentTime) / 60000);
-                console.log(`⏳ [Accumulation] Skipping ${token.symbol} - cooldown active (sent ${minutesAgo}m ago, waiting ${Math.round(this.ACCUMULATION_COOLDOWN_MS / 60000)}m)`);
+              // Kontrola: pokud jsme pro tento token už zpracovali novější nebo stejné nákupy, přeskoč
+              // Toto zabraňuje opakovanému posílání signálů pro stejné staré nákupy
+              const lastProcessedTime = this.lastProcessedAccumulationTrade.get(token.id);
+              const tradeTime = new Date(trade.timestamp);
+              if (lastProcessedTime && tradeTime <= lastProcessedTime) {
+                console.log(`⏳ [Accumulation] Skipping ${token.symbol} - trade already processed (trade: ${tradeTime.toISOString()}, last: ${lastProcessedTime.toISOString()})`);
                 continue;
               }
 
@@ -1749,15 +1749,16 @@ export class AdvancedSignalsService {
 
       await this.discordNotification.sendSignalNotification(notificationData);
 
-      // Ulož do cooldown cache - zabraň opakovanému odeslání pro stejný token po dobu 30 minut
-      this.sentAccumulationSignals.set(pending.tokenId, Date.now());
-      console.log(`✅ [Accumulation] Signal sent for ${pending.tokenSymbol} - cooldown active for ${Math.round(this.ACCUMULATION_COOLDOWN_MS / 60000)} minutes`);
+      // Ulož timestamp posledního zpracovaného nákupu - zabraň opakovanému odeslání pro stejné staré nákupy
+      // Používáme lastTradeTime z pending signálu (nejnovější nákup v této skupině)
+      this.lastProcessedAccumulationTrade.set(pending.tokenId, pending.lastTradeTime);
+      console.log(`✅ [Accumulation] Signal sent for ${pending.tokenSymbol} - last trade: ${pending.lastTradeTime.toISOString()}`);
 
-      // Cleanup starých záznamů z cooldown cache (starší než 1 hodina)
-      const oneHourAgo = Date.now() - 60 * 60 * 1000;
-      for (const [tokenId, timestamp] of this.sentAccumulationSignals.entries()) {
-        if (timestamp < oneHourAgo) {
-          this.sentAccumulationSignals.delete(tokenId);
+      // Cleanup starých záznamů (starší než 24 hodin) - držíme historii delší dobu
+      const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      for (const [tokenId, timestamp] of this.lastProcessedAccumulationTrade.entries()) {
+        if (timestamp < oneDayAgo) {
+          this.lastProcessedAccumulationTrade.delete(tokenId);
         }
       }
     } catch (error: any) {
