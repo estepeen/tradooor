@@ -1369,12 +1369,7 @@ router.get('/:id/pnl', async (req, res) => {
     
     // Get all closed lots for this wallet
     const allClosedLots = await closedLotRepo.findByWallet(walletId);
-    
-    // #region agent log
-    const sample5Lots = allClosedLots.slice(0,5).map(l=>({realizedPnl:l.realizedPnl,realizedPnlUsd:l.realizedPnlUsd,exitTime:l.exitTime?.toISOString?.()}));
-    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1278',message:'DETAIL PAGE - all ClosedLots loaded',data:{walletId,totalLots:allClosedLots.length,sample5Lots},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
-    // #endregion
-    
+
     // Get all trades for volume calculation (volume = sum of all trades, not just closed lots)
     const allTrades = await tradeRepo.findByWalletId(walletId, {
       page: 1,
@@ -1402,6 +1397,50 @@ router.get('/:id/pnl', async (req, res) => {
     const pnlData: Record<string, { pnl: number; pnlUsd: number; pnlPercent: number; pnlUsdValue: number; volumeBase: number; volumeUsdValue: number; trades: number; volumeTrades: number }> = {};
     
     for (const [period, fromDate] of Object.entries(periods)) {
+      // For 30d period, use cached value from wallet DB (same as homepage) for consistency
+      // This ensures homepage and detail page show the same PnL value
+      if (period === '30d') {
+        const cachedPnl = wallet.recentPnl30dBase ?? 0;
+        const cachedPnlPercent = wallet.recentPnl30dPercent ?? 0;
+
+        // Still calculate volume from trades
+        const periodTrades = trades.filter(t => {
+          const tradeDate = new Date(t.timestamp);
+          const side = (t.side || '').toLowerCase();
+          const isInPeriod = tradeDate >= fromDate;
+          const isNotVoid = side !== 'void';
+          return isInPeriod && isNotVoid;
+        });
+
+        const volumeBase = periodTrades.reduce((sum, trade) => {
+          const amountBase = trade.amountBase != null ? Number(trade.amountBase) : 0;
+          return sum + amountBase;
+        }, 0);
+
+        const pnlUsdValue = cachedPnl * solPriceUsd;
+        const volumeUsdValue = volumeBase * solPriceUsd;
+
+        // Count closed lots for this period (for display)
+        const periodClosedLots = allClosedLots.filter(lot => {
+          if (!lot.exitTime) return false;
+          const exitTime = new Date(lot.exitTime);
+          return exitTime >= fromDate && exitTime <= now;
+        });
+
+        pnlData[period] = {
+          pnl: cachedPnl,
+          pnlUsd: cachedPnl,
+          pnlPercent: cachedPnlPercent,
+          pnlUsdValue,
+          trades: periodClosedLots.length,
+          volumeBase,
+          volumeUsdValue,
+          volumeTrades: periodTrades.length,
+        };
+        continue;
+      }
+
+      // For other periods (1d, 7d, 14d), calculate real-time from ClosedLot
       // Filter closed lots by exitTime (when the lot was closed)
       const periodClosedLots = allClosedLots.filter(lot => {
         if (!lot.exitTime) return false;
@@ -1410,7 +1449,6 @@ router.get('/:id/pnl', async (req, res) => {
       });
 
       // Calculate PnL from ClosedLot (všechny hodnoty jsou v SOL)
-      // DŮLEŽITÉ: realizedPnl je vždy v SOL (USDC/USDT se převedou na SOL při výpočtu)
       const totalPnl = periodClosedLots.reduce((sum, lot) => {
         return sum + (lot.realizedPnl || 0);
       }, 0);
@@ -1419,12 +1457,6 @@ router.get('/:id/pnl', async (req, res) => {
       const totalCostBasis = periodClosedLots.reduce((sum, lot) => {
         return sum + (lot.costBasis || 0);
       }, 0);
-
-      // #region agent log
-      if(period==='30d'){
-        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1337',message:'DETAIL PAGE - 30d PnL calculated (SOL)',data:{period,periodLotsCount:periodClosedLots.length,totalPnl,totalCostBasis},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H6'})}).catch(()=>{});
-      }
-      // #endregion
 
       // Calculate PnL percentage (ROI) - vše v SOL
       const pnlPercent = totalCostBasis > 0
@@ -1455,21 +1487,15 @@ router.get('/:id/pnl', async (req, res) => {
       const volumeUsdValue = volumeBase * solPriceUsd;
 
       pnlData[period] = {
-        pnl: totalPnl, // PnL v SOL (všechny hodnoty jsou v SOL)
-        pnlUsd: totalPnl, // PnL v SOL (kompatibilita - frontend očekává pnlUsd, ale obsahuje SOL)
-        pnlPercent, // ROI v % (pro kompatibilitu)
-        pnlUsdValue, // USD hodnota PnL pro zobrazení (místo procent)
-        trades: periodClosedLots.length, // Počet closed lots (uzavřených pozic)
-        volumeBase, // Volume v SOL (součet všech trades)
-        volumeUsdValue, // USD hodnota volume pro zobrazení (místo procent)
-        volumeTrades: periodTrades.length, // Počet všech trades (BUY + SELL) v tomto období
+        pnl: totalPnl,
+        pnlUsd: totalPnl,
+        pnlPercent,
+        pnlUsdValue,
+        trades: periodClosedLots.length,
+        volumeBase,
+        volumeUsdValue,
+        volumeTrades: periodTrades.length,
       };
-      
-      // #region agent log - Debug period PnL calculation
-      if (period === '30d') {
-        fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1330',message:'30d PnL period calculation',data:{period,totalPnl,pnlPercent,periodLotsCount:periodClosedLots.length,volumeBase},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
-      }
-      // #endregion
     }
 
     // Get daily PnL data for charts from ClosedLot (všechny hodnoty jsou v SOL)
@@ -1516,30 +1542,6 @@ router.get('/:id/pnl', async (req, res) => {
     if (primaryBaseToken === 'WSOL') {
       primaryBaseToken = 'SOL';
     }
-
-    // #region agent log - Debug PnL API response
-    const sample30d = pnlData['30d'];
-    fetch('http://127.0.0.1:7242/ingest/d9d466c4-864c-48e8-9710-84e03ea195a8',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'smart-wallets.ts:1360',message:'PnL API response',data:{walletId,periods:Object.keys(pnlData),sample30d:{pnl:sample30d?.pnl,pnlUsd:sample30d?.pnlUsd,pnlPercent:sample30d?.pnlPercent},primaryBaseToken},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H7'})}).catch(()=>{});
-    // #endregion
-
-    // DEBUG: Log what we're sending to frontend
-    console.log(`🔍 [Backend] PnL API response for wallet ${walletId}:`, {
-      baseToken: primaryBaseToken,
-      sample30d: {
-        pnl: sample30d?.pnl,
-        pnlUsd: sample30d?.pnlUsd,
-        pnlPercent: sample30d?.pnlPercent,
-        volumeBase: sample30d?.volumeBase,
-        pnlType: typeof sample30d?.pnl,
-        pnlUsdType: typeof sample30d?.pnlUsd,
-      },
-      allPeriods: Object.keys(pnlData).map(period => ({
-        period,
-        pnl: pnlData[period]?.pnl,
-        pnlUsd: pnlData[period]?.pnlUsd,
-        volumeBase: pnlData[period]?.volumeBase,
-      })),
-    });
 
     res.json({
       periods: pnlData,
