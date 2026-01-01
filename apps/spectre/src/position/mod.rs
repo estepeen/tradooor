@@ -28,6 +28,9 @@ pub struct Position {
     /// True if position was opened via pump.fun (should sell via pump.fun too)
     #[serde(default)]
     pub is_pumpfun: bool,
+    /// True if entry price was synced with real PumpPortal price
+    #[serde(default)]
+    pub price_synced: bool,
 }
 
 impl Position {
@@ -75,6 +78,7 @@ impl Position {
             failed_sell_attempts: 0,
             is_unsellable: false,
             is_pumpfun,
+            price_synced: false,
         }
     }
 
@@ -90,10 +94,15 @@ impl Position {
     }
 
     /// Update entry price and recalculate SL/TP based on real PumpPortal price
-    /// This syncs our position with actual bonding curve price
+    /// This syncs our position with actual bonding curve price (only once!)
     pub fn sync_with_real_price(&mut self, real_price: f64) {
+        if self.price_synced {
+            return; // Already synced, don't update again
+        }
+
         let old_entry = self.entry_price;
         self.entry_price = real_price;
+        self.price_synced = true; // Mark as synced so we don't update again
 
         // Recalculate SL/TP from new entry price
         let sl_multiplier = 1.0 - self.stop_loss_percent.abs() / 100.0;
@@ -112,11 +121,9 @@ impl Position {
     }
 
     /// Check if entry price has been synced with real PumpPortal price
-    /// (entry_price will be very different from backend's estimate initially)
     pub fn needs_price_sync(&self) -> bool {
-        // If position is pump.fun and we haven't synced yet (entry_price is still from signal)
-        // We detect this by checking if we're in the first few seconds
-        self.is_pumpfun && self.is_waiting_for_price_sync()
+        // Only sync pump.fun positions that haven't been synced yet
+        self.is_pumpfun && !self.price_synced
     }
 
     /// Check if current price triggers SL or TP
