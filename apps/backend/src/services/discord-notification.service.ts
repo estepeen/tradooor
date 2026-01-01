@@ -553,13 +553,29 @@ export class DiscordNotificationService {
     // This shows the MCap when the signal was triggered, not current MCap
     let entryMcapFromTraders: number | null = null;
     if (data.wallets && data.wallets.length > 0) {
-      // Sort by trade time (oldest first) and get first trader's MCap
-      const sortedByTime = [...data.wallets]
-        .filter(w => w.tradeTime && w.marketCapUsd)
-        .sort((a, b) => new Date(a.tradeTime!).getTime() - new Date(b.tradeTime!).getTime());
+      // For accumulation signals, get MCap from first accumulationBuys entry
+      if (data.signalType === 'accumulation') {
+        for (const wallet of data.wallets) {
+          if (wallet.accumulationBuys && wallet.accumulationBuys.length > 0) {
+            // Sort by timestamp and get first buy's MCap
+            const sortedBuys = [...wallet.accumulationBuys]
+              .filter(b => b.timestamp && b.marketCapUsd)
+              .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+            if (sortedBuys.length > 0 && sortedBuys[0].marketCapUsd) {
+              entryMcapFromTraders = sortedBuys[0].marketCapUsd;
+              break;
+            }
+          }
+        }
+      } else {
+        // For other signals, sort by trade time (oldest first) and get first trader's MCap
+        const sortedByTime = [...data.wallets]
+          .filter(w => w.tradeTime && w.marketCapUsd)
+          .sort((a, b) => new Date(a.tradeTime!).getTime() - new Date(b.tradeTime!).getTime());
 
-      if (sortedByTime.length > 0) {
-        entryMcapFromTraders = sortedByTime[0].marketCapUsd!;
+        if (sortedByTime.length > 0) {
+          entryMcapFromTraders = sortedByTime[0].marketCapUsd!;
+        }
       }
     }
 
