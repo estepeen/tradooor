@@ -297,7 +297,16 @@ export class ConsensusWebhookService {
         }
       }
 
-      const qualityCheck = signalQualityFilter.checkSignalQuality(earlyMarketData, rugCheckReport);
+      // Create market data object from previously fetched marketCap and liquidity
+      const marketDataForQuality = {
+        marketCap,
+        liquidity,
+        price: null,
+        volume24h: null,
+        tokenAgeMinutes: null,
+        ageMinutes: null,
+      };
+      const qualityCheck = signalQualityFilter.checkSignalQuality(marketDataForQuality, rugCheckReport);
       if (!qualityCheck.passed) {
         console.log(`   ⚠️  [Consensus] Token ${token?.symbol} QUALITY FILTER FAILED: ${qualityCheck.reason}`);
         return { consensusFound: false }; // Don't create signal
@@ -376,9 +385,8 @@ export class ConsensusWebhookService {
 
         // 5c. Pošli Discord notifikaci HNED (bez čekání na AI)
         try {
-          // Use earlyMarketData that was already fetched before signal creation
-          // Token was already loaded earlier (line 157)
-          marketDataResult = earlyMarketData;
+          // Use marketCap and liquidity already fetched from trade meta / Birdeye
+          marketDataResult = marketDataForQuality;
 
           // Market cap filter already applied at step 4b - no need to check again
 
