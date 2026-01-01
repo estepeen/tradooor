@@ -41,6 +41,9 @@ const NINJA_MIN_TOKEN_AGE_MINUTES = 60;     // 1 hour minimum age
 const NINJA_MIN_DIVERSITY_PERCENT = 70;     // 70% unique wallets
 const NINJA_DIVERSITY_SAMPLE_SIZE = 30;     // From last 30 trades
 
+// Volume Spike Detection
+const NINJA_MIN_VOLUME_SPIKE_RATIO = 3.0;   // Min 3x volume vs avg last hour
+
 // Trading Parameters
 const NINJA_STOP_LOSS_PERCENT = 20;         // -20% SL
 const NINJA_TAKE_PROFIT_PERCENT = 30;       // +30% first TP
@@ -441,7 +444,37 @@ export class ConsensusWebhookService {
         console.log(`   ✅ [NINJA] Quality: ${qualityWalletCount} quality wallets (${tier.name} min: ${tier.qualityRequirement.minQualityWallets})`);
       }
 
-      // 7. DIVERSITY CHECK (global - same for all tiers)
+      // 7. VOLUME SPIKE DETECTION
+      // Compare volume in tier's time window vs average volume in last hour
+      const oneHourAgo = currentTradeTime - 60 * 60 * 1000;
+      const allBuysLastHour = await this.tradeRepo.findBuysByTokenAndTimeWindow(
+        tokenId,
+        new Date(oneHourAgo),
+        new Date(currentTradeTime)
+      );
+
+      // Calculate total volume in last hour (in USD)
+      const totalVolumeLastHour = allBuysLastHour.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
+
+      // Calculate volume in tier's time window (in USD)
+      const volumeInTierWindow = buysInNinjaWindow.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
+
+      // Average volume per minute in last hour
+      const avgVolumePerMinute = totalVolumeLastHour / 60;
+
+      // Expected volume for tier window based on hourly average
+      const expectedVolumeInWindow = avgVolumePerMinute * tier.timeWindowMinutes;
+
+      // Calculate volume spike ratio
+      const volumeSpikeRatio = expectedVolumeInWindow > 0 ? volumeInTierWindow / expectedVolumeInWindow : 0;
+
+      if (volumeSpikeRatio < NINJA_MIN_VOLUME_SPIKE_RATIO) {
+        console.log(`   ❌ [NINJA] Volume spike ${volumeSpikeRatio.toFixed(2)}x < ${NINJA_MIN_VOLUME_SPIKE_RATIO}x minimum (window: $${volumeInTierWindow.toFixed(0)}, expected: $${expectedVolumeInWindow.toFixed(0)}) - FILTERED OUT`);
+        return { consensusFound: false };
+      }
+      console.log(`   ✅ [NINJA] Volume spike: ${volumeSpikeRatio.toFixed(2)}x (window: $${volumeInTierWindow.toFixed(0)} vs expected: $${expectedVolumeInWindow.toFixed(0)}, min ${NINJA_MIN_VOLUME_SPIKE_RATIO}x)`);
+
+      // 8. DIVERSITY CHECK (global - same for all tiers)
       const allTokenBuys24h = await this.tradeRepo.findBuysByTokenAndTimeWindow(
         tokenId,
         new Date(currentTradeTime - 24 * 60 * 60 * 1000),
@@ -462,7 +495,7 @@ export class ConsensusWebhookService {
       }
       console.log(`   ✅ [NINJA] Diversity: ${diversityPercent.toFixed(0)}% (${uniqueWalletsInSample}/${sampleSize} unique, min ${NINJA_MIN_DIVERSITY_PERCENT}%)`);
 
-      // 8. TOKEN AGE CHECK (global - 1 hour minimum)
+      // 9. TOKEN AGE CHECK (global - 1 hour minimum)
       let tokenAgeMinutes: number | null = null;
       if (allTokenBuys24h.length > 0) {
         const oldestBuy = allTokenBuys24h.reduce((oldest, t) =>
