@@ -86,9 +86,9 @@ impl Config {
             // Note: These are actually priority fees sent to PumpPortal, not Jito tips
             // Jito bundling provides MEV protection regardless of tip amount
             jito_tip_lamports: std::env::var("JITO_TIP_LAMPORTS")
-                .unwrap_or_else(|_| "200000".to_string()) // 0.0002 SOL (~$0.04) for BUY priority fee
+                .unwrap_or_else(|_| "700000".to_string()) // 0.0007 SOL (~$0.14) for BUY priority fee
                 .parse()
-                .unwrap_or(200000),
+                .unwrap_or(700000),
 
             jito_tip_sell_lamports: std::env::var("JITO_TIP_SELL_LAMPORTS")
                 .unwrap_or_else(|_| "150000".to_string()) // 0.00015 SOL (~$0.03) for SELL priority fee
