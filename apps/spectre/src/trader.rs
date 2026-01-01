@@ -195,6 +195,7 @@ impl SpectreTrader {
                 price_at_signal: signal.entry_price_usd,
                 price_at_trade: signal.entry_price_usd,
                 price_change_percent: Some(0.0),
+                signal_timestamp: Some(signal.timestamp.clone()),
             });
         }
 
@@ -283,6 +284,7 @@ impl SpectreTrader {
                         price_at_signal: signal_price,
                         price_at_trade: current_price,
                         price_change_percent,
+                        signal_timestamp: Some(signal.timestamp.clone()),
                     });
                 }
             }
@@ -402,6 +404,7 @@ impl SpectreTrader {
                 price_at_signal: signal_price,
                 price_at_trade: current_price,
                 price_change_percent,
+                signal_timestamp: Some(signal.timestamp.clone()),
             });
         }
 
@@ -435,6 +438,7 @@ impl SpectreTrader {
             price_at_signal: signal.entry_price_usd,
             price_at_trade: current_price,
             price_change_percent: None,
+            signal_timestamp: Some(signal.timestamp.clone()),
         }
     }
 
@@ -514,6 +518,7 @@ impl SpectreTrader {
                         price_at_signal: None,
                         price_at_trade: None,
                         price_change_percent: None,
+                        signal_timestamp: None,
                     });
                 }
             };
@@ -550,6 +555,7 @@ impl SpectreTrader {
                         price_at_signal: None,
                         price_at_trade: None,
                         price_change_percent: None,
+                        signal_timestamp: None,
                     });
                 }
             };
@@ -591,6 +597,7 @@ impl SpectreTrader {
                                 price_at_signal: None,
                                 price_at_trade: None,
                                 price_change_percent: None,
+                                signal_timestamp: None,
                             });
                         }
                     }
@@ -633,6 +640,7 @@ impl SpectreTrader {
                 price_at_signal: None,
                 price_at_trade: None,
                 price_change_percent: None,
+                signal_timestamp: None,
             });
         }
 
@@ -689,6 +697,7 @@ impl SpectreTrader {
                         price_at_signal: None,
                         price_at_trade: None,
                         price_change_percent: None,
+                        signal_timestamp: None,
                     });
                 }
             };
@@ -734,6 +743,7 @@ impl SpectreTrader {
                         price_at_signal: None,
                         price_at_trade: None,
                         price_change_percent: None,
+                        signal_timestamp: None,
                     });
                 }
             };
@@ -772,6 +782,7 @@ impl SpectreTrader {
                         price_at_signal: None,
                         price_at_trade: None,
                         price_change_percent: None,
+                        signal_timestamp: None,
                     });
                 }
             };
@@ -809,6 +820,7 @@ impl SpectreTrader {
                         price_at_signal: None,
                         price_at_trade: None,
                         price_change_percent: None,
+                        signal_timestamp: None,
                     });
                 }
             };
@@ -851,6 +863,7 @@ impl SpectreTrader {
                                 price_at_signal: None,
                                 price_at_trade: None,
                                 price_change_percent: None,
+                                signal_timestamp: None,
                             });
                         }
                     }
@@ -898,6 +911,7 @@ impl SpectreTrader {
                 price_at_signal: None,
                 price_at_trade: None,
                 price_change_percent: None,
+                signal_timestamp: None,
             });
         }
 

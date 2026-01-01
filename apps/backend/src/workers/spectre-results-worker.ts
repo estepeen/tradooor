@@ -7,6 +7,7 @@
 
 import Redis from 'ioredis';
 import { spectreTradeService } from '../services/spectre-trade.service.js';
+import { DiscordNotificationService, SpectreTradeNotificationData } from '../services/discord-notification.service.js';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 const RESULTS_QUEUE = 'spectre_trade_results';
@@ -32,11 +33,18 @@ interface SpectreTradeResult {
   stopLossPercent?: number;
   takeProfitPercent?: number;
   triggerWallets?: Array<{ address: string; label: string | null; score: number | null }>;
+  // Signal timestamp (when signal was generated)
+  signalTimestamp?: string;
 }
 
 class SpectreResultsWorker {
   private redis: Redis | null = null;
   private isRunning = false;
+  private discordService: DiscordNotificationService;
+
+  constructor() {
+    this.discordService = new DiscordNotificationService();
+  }
 
   async start() {
     console.log('👻 [SpectreResultsWorker] Starting...');
@@ -94,6 +102,41 @@ class SpectreResultsWorker {
       const result: SpectreTradeResult = JSON.parse(payload);
 
       console.log(`👻 [SpectreResultsWorker] Received: ${result.action.toUpperCase()} ${result.tokenSymbol} - ${result.success ? '✅' : '❌'}`);
+
+      // Send Discord notification
+      try {
+        const notificationData: SpectreTradeNotificationData = {
+          action: result.action as 'buy' | 'sell',
+          success: result.success,
+          tokenSymbol: result.tokenSymbol,
+          tokenMint: result.tokenMint,
+          amountSol: result.amountSol,
+          txSignature: result.txSignature,
+          error: result.error,
+          signalType: result.signalType,
+          // Use signalTimestamp if available, fallback to timestamp (trade execution time)
+          signalTimestamp: result.signalTimestamp || result.timestamp,
+          signalMarketCapUsd: result.marketCapUsd,
+          tradeTimestamp: result.timestamp, // timestamp field = trade execution time
+          tradeMarketCapUsd: result.marketCapUsd, // TODO: Get current MCap if available
+          latencyMs: result.latencyMs,
+          // PnL info for sells
+          entryPriceUsd: result.entryPriceUsd,
+          exitPriceUsd: result.pricePerToken,
+        };
+
+        // Calculate PnL for sells if we have entry and exit prices
+        if (result.action === 'sell' && result.entryPriceUsd && result.pricePerToken && result.amountTokens) {
+          const entryValue = result.entryPriceUsd * result.amountTokens;
+          const exitValue = result.pricePerToken * result.amountTokens;
+          notificationData.pnlUsd = exitValue - entryValue;
+          notificationData.pnlPercent = ((result.pricePerToken / result.entryPriceUsd) - 1) * 100;
+        }
+
+        await this.discordService.sendSpectreTradeNotification(notificationData);
+      } catch (discordError: any) {
+        console.error(`⚠️ [SpectreResultsWorker] Discord notification failed: ${discordError.message}`);
+      }
 
       // Save to database
       await spectreTradeService.saveTrade({

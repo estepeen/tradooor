@@ -103,8 +103,31 @@ export interface SignalNotificationData {
 }
 
 /**
- * Data pro exit signál notifikaci
+ * Data pro SPECTRE trade notifikaci
  */
+export interface SpectreTradeNotificationData {
+  action: 'buy' | 'sell';
+  success: boolean;
+  tokenSymbol: string;
+  tokenMint: string;
+  amountSol: number;
+  txSignature?: string;
+  error?: string;
+  // Signal context
+  signalType?: string;
+  signalTimestamp: string; // ISO timestamp when signal was generated
+  signalMarketCapUsd?: number;
+  // Trade context
+  tradeTimestamp: string; // ISO timestamp when trade was executed
+  tradeMarketCapUsd?: number;
+  latencyMs: number;
+  // For SELL: PnL info
+  pnlUsd?: number;
+  pnlPercent?: number;
+  entryPriceUsd?: number;
+  exitPriceUsd?: number;
+}
+
 export interface ExitSignalNotificationData {
   tokenSymbol: string;
   tokenMint: string;
@@ -1069,6 +1092,192 @@ export class DiscordNotificationService {
       'volume_drop': '💧',
     };
     return emojis[exitType] || '🚨';
+  }
+
+  /**
+   * Pošle notifikaci o SPECTRE trade (buy/sell) do exit kanálu
+   * Tracker pro sledování vlastních obchodů
+   */
+  async sendSpectreTradeNotification(data: SpectreTradeNotificationData): Promise<boolean> {
+    if (!this.exitEnabled) {
+      console.warn('⚠️  SPECTRE trade notification skipped: DISCORD_EXIT_WEBHOOK_URL not set');
+      return false;
+    }
+
+    try {
+      const embed = this.buildSpectreTradeEmbed(data);
+
+      const payload: DiscordWebhookPayload = {
+        username: 'Spectre Tracker',
+        embeds: [embed],
+      };
+
+      const response = await fetch(this.exitWebhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ Discord SPECTRE trade webhook error: ${response.status} - ${errorText}`);
+        return false;
+      }
+
+      console.log(`📨 Discord SPECTRE ${data.action.toUpperCase()} notification sent for ${data.tokenSymbol}`);
+      return true;
+    } catch (error: any) {
+      console.error(`❌ Failed to send Discord SPECTRE trade notification: ${error.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Vytvoří embed pro SPECTRE trade
+   */
+  private buildSpectreTradeEmbed(data: SpectreTradeNotificationData): DiscordEmbed {
+    const birdeyeUrl = `https://birdeye.so/token/${data.tokenMint}?chain=solana`;
+    const isBuy = data.action === 'buy';
+
+    // Barvy: zelená pro BUY, červená pro SELL, šedá pro error
+    let color: number;
+    if (!data.success) {
+      color = 0x808080; // Gray for failed
+    } else if (isBuy) {
+      color = 0x00ff00; // Green for buy
+    } else {
+      color = 0xff0000; // Red for sell
+    }
+
+    // Emoji a status
+    const actionEmoji = isBuy ? '🟢' : '🔴';
+    const statusEmoji = data.success ? '✅' : '❌';
+
+    // Vypočítej časový rozdíl mezi signálem a obchodem
+    const signalTime = new Date(data.signalTimestamp);
+    const tradeTime = new Date(data.tradeTimestamp);
+    const timeDiffMs = tradeTime.getTime() - signalTime.getTime();
+    const timeDiffSeconds = (timeDiffMs / 1000).toFixed(1);
+
+    // Formátuj časy (Praha timezone)
+    const formatTime = (date: Date) => {
+      const formatter = new Intl.DateTimeFormat('cs-CZ', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+        timeZone: 'Europe/Prague',
+      });
+      return formatter.format(date);
+    };
+
+    // Title
+    const signalLabel = data.signalType?.toUpperCase() || 'SIGNAL';
+    let title: string;
+    if (isBuy) {
+      title = `${actionEmoji} BUY $${data.tokenSymbol} ${statusEmoji}`;
+    } else {
+      // Pro sell přidáme PnL do titulku
+      const pnlStr = data.pnlPercent !== undefined
+        ? ` (${data.pnlPercent >= 0 ? '+' : ''}${data.pnlPercent.toFixed(1)}%)`
+        : '';
+      title = `${actionEmoji} SELL $${data.tokenSymbol}${pnlStr} ${statusEmoji}`;
+    }
+
+    const fields: DiscordEmbed['fields'] = [];
+
+    // Trade Info
+    const tradeInfo = [
+      `**Amount:** ${data.amountSol.toFixed(4)} SOL`,
+      `**Signal:** ${signalLabel}`,
+    ];
+    if (data.txSignature) {
+      const solscanUrl = `https://solscan.io/tx/${data.txSignature}`;
+      tradeInfo.push(`**TX:** [View](${solscanUrl})`);
+    }
+    if (data.error) {
+      tradeInfo.push(`**Error:** ${data.error}`);
+    }
+
+    fields.push({
+      name: '💰 Trade',
+      value: tradeInfo.join('\n'),
+      inline: true,
+    });
+
+    // Market Cap comparison
+    const mcapInfo = [];
+    if (data.signalMarketCapUsd) {
+      mcapInfo.push(`**Signal MCap:** $${this.formatNumber(data.signalMarketCapUsd, 0)}`);
+    }
+    if (data.tradeMarketCapUsd) {
+      mcapInfo.push(`**Trade MCap:** $${this.formatNumber(data.tradeMarketCapUsd, 0)}`);
+    }
+    if (data.signalMarketCapUsd && data.tradeMarketCapUsd) {
+      const mcapChange = ((data.tradeMarketCapUsd - data.signalMarketCapUsd) / data.signalMarketCapUsd * 100);
+      mcapInfo.push(`**MCap Change:** ${mcapChange >= 0 ? '+' : ''}${mcapChange.toFixed(1)}%`);
+    }
+
+    if (mcapInfo.length > 0) {
+      fields.push({
+        name: '📊 Market Cap',
+        value: mcapInfo.join('\n'),
+        inline: true,
+      });
+    }
+
+    // Timing
+    const timingInfo = [
+      `**Signal:** ${formatTime(signalTime)}`,
+      `**Trade:** ${formatTime(tradeTime)}`,
+      `**Delay:** ${timeDiffSeconds}s`,
+      `**Latency:** ${data.latencyMs}ms`,
+    ];
+
+    fields.push({
+      name: '⏱️ Timing',
+      value: timingInfo.join('\n'),
+      inline: true,
+    });
+
+    // PnL (only for SELL)
+    if (!isBuy && data.success) {
+      const pnlInfo = [];
+      if (data.entryPriceUsd) {
+        pnlInfo.push(`**Entry:** $${this.formatNumber(data.entryPriceUsd, 10)}`);
+      }
+      if (data.exitPriceUsd) {
+        pnlInfo.push(`**Exit:** $${this.formatNumber(data.exitPriceUsd, 10)}`);
+      }
+      if (data.pnlUsd !== undefined) {
+        const pnlEmoji = data.pnlUsd >= 0 ? '📈' : '📉';
+        pnlInfo.push(`**PnL:** ${pnlEmoji} ${data.pnlUsd >= 0 ? '+' : ''}$${data.pnlUsd.toFixed(2)}`);
+      }
+      if (data.pnlPercent !== undefined) {
+        pnlInfo.push(`**PnL %:** ${data.pnlPercent >= 0 ? '+' : ''}${data.pnlPercent.toFixed(2)}%`);
+      }
+
+      if (pnlInfo.length > 0) {
+        fields.push({
+          name: '💵 PnL',
+          value: pnlInfo.join('\n'),
+          inline: false,
+        });
+      }
+    }
+
+    return {
+      title,
+      url: birdeyeUrl,
+      color,
+      fields,
+      timestamp: new Date().toISOString(),
+      footer: {
+        text: `👻 Spectre Tracker`,
+      },
+    };
   }
 
   /**
