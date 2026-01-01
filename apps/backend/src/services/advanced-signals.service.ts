@@ -153,21 +153,21 @@ const SIGNAL_TIERS = {
       multiplier: 5,           // 5x+ average
       minWalletScore: 55,      // 75 → 55 (adjusted for new scoring system)
       minAbsoluteSize: 8,      // SOL minimum absolute size (5 → 8)
-      minMarketCap: 20000,     // Minimum $20K market cap
+      minMarketCap: 50000,     // Minimum $50K market cap (from first buy)
       positionSizePercent: [20, 25],
     },
     STRONG: {
       multiplier: 3,
       minWalletScore: 50,      // 70 → 50 (adjusted for new scoring system)
       minAbsoluteSize: 5,      // 2 → 5 SOL
-      minMarketCap: 20000,     // Minimum $20K market cap
+      minMarketCap: 50000,     // Minimum $50K market cap (from first buy)
       positionSizePercent: [15, 20],
     },
     MEDIUM: {
       multiplier: 2,
       minWalletScore: 45,      // 65 → 45 (adjusted for new scoring system)
       minAbsoluteSize: 3,      // 1 → 3 SOL (minimum for conviction-buy)
-      minMarketCap: 20000,     // Minimum $20K market cap
+      minMarketCap: 50000,     // Minimum $50K market cap (from first buy)
       positionSizePercent: [10, 15],
     },
   },
@@ -799,8 +799,8 @@ export class AdvancedSignalsService {
       return null;
     }
 
-    // FILTER: Minimum market cap threshold ($20K for all accumulation signals)
-    const MIN_MARKET_CAP = 20000;
+    // FILTER: Minimum market cap threshold ($50K for all accumulation signals - from first buy)
+    const MIN_MARKET_CAP = 50000;
     if (marketData.marketCap < MIN_MARKET_CAP) {
       console.log(`   ⚠️  [Accumulation] Token ${tokenSymbol} market cap $${(marketData.marketCap / 1000).toFixed(1)}K < $${(MIN_MARKET_CAP / 1000).toFixed(0)}K minimum - FILTERED OUT`);
       return null;
