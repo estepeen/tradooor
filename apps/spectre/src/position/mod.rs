@@ -28,21 +28,25 @@ impl Position {
         entry_price: f64,
         amount_tokens: u64,
         amount_sol_invested: f64,
-        stop_loss_percent: f64,  // e.g., -25
-        take_profit_percent: f64, // e.g., 50
+        stop_loss_percent: f64,  // e.g., 25 (always positive from backend, means -25%)
+        take_profit_percent: f64, // e.g., 50 (means +50%)
         tx_signature: String,
     ) -> Self {
-        let stop_loss_price = entry_price * (1.0 + stop_loss_percent / 100.0);
-        let take_profit_price = entry_price * (1.0 + take_profit_percent / 100.0);
+        // SL comes as positive number (e.g., 25 means -25% from entry)
+        let sl_multiplier = 1.0 - stop_loss_percent.abs() / 100.0;
+        let stop_loss_price = entry_price * sl_multiplier;
+
+        // TP comes as positive number (e.g., 50 means +50% from entry)
+        let take_profit_price = entry_price * (1.0 + take_profit_percent.abs() / 100.0);
 
         info!(
-            "📊 Position created: {} @ ${:.10} | SL: ${:.10} ({:.0}%) | TP: ${:.10} (+{:.0}%)",
+            "📊 Position created: {} @ ${:.10} | SL: ${:.10} (-{:.0}%) | TP: ${:.10} (+{:.0}%)",
             token_symbol,
             entry_price,
             stop_loss_price,
-            stop_loss_percent,
+            stop_loss_percent.abs(),
             take_profit_price,
-            take_profit_percent
+            take_profit_percent.abs()
         );
 
         Self {
