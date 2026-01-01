@@ -72,7 +72,9 @@
       "Bash(ssh -i ~/.ssh/claude_assistant root@89.203.248.173 \"cd /root/tradooor && git pull origin master && pm2 restart all\")",
       "Bash(ssh -i ~/.ssh/claude_assistant -o ConnectTimeout=10 -o StrictHostKeyChecking=no root@89.203.248.173 \"echo connected\")",
       "Bash(python3:*)",
-      "Bash(pnpm --filter backend exec tsc:*)"
+      "Bash(pnpm --filter backend exec tsc:*)",
+      "Bash(ssh -i ~/.ssh/claude_assistant -o ConnectTimeout=10 root@157.180.41.49 \"cd /opt/tradooor && git pull origin master && source ~/.nvm/nvm.sh && pm2 restart normalize-trades backend\")",
+      "Bash(pnpm --filter backend exec tsc --noEmit)"
     ]
   }
 }

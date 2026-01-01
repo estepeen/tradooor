@@ -28,48 +28,96 @@ const CONSENSUS_TIME_WINDOW_HOURS = 2;
 const CLUSTER_STRENGTH_THRESHOLD = 70; // Minimum cluster strength for 💎💎 CLUSTER signal
 
 // ============================================================================
-// NEW NINJA SIGNAL PARAMETERS (2025 Redesign)
+// NEW NINJA SIGNAL PARAMETERS (2025 Redesign) - TIERED SYSTEM
 // ============================================================================
-// Market Cap: $75K - $350K USD
-const NINJA_MIN_MARKET_CAP_USD = 75000;     // $75K minimum
-const NINJA_MAX_MARKET_CAP_USD = 350000;    // $350K maximum
-const NINJA_MCAP_THRESHOLD_FOR_WINDOW = 200000; // $200K threshold for time window selection
 
-// Time Windows: 5min for <$200K, 10min for >$200K
-const NINJA_TIME_WINDOW_MINUTES_LOW_MCAP = 5;   // 5min window for tokens under $200K
-const NINJA_TIME_WINDOW_MINUTES_HIGH_MCAP = 10; // 10min window for tokens over $200K
-
-// Liquidity: min $15K USD
+// Global limits
+const NINJA_MIN_MARKET_CAP_USD = 80000;     // $80K minimum (Tier 1 start)
+const NINJA_MAX_MARKET_CAP_USD = 500000;    // $500K maximum (Tier 4 end)
 const NINJA_MIN_LIQUIDITY_USD = 15000;      // $15K minimum liquidity
+const NINJA_MIN_TOKEN_AGE_MINUTES = 60;     // 1 hour minimum age
 
-// Wallet Consensus: min 3 buying wallets in time window
-const NINJA_MIN_WALLETS = 3;                // 3+ wallets required
-
-// Diversity: min 70% unique buyers from last 30 trades
-const NINJA_MIN_DIVERSITY_PERCENT = 70;     // 70% = at least 70% unique wallets
-const NINJA_DIVERSITY_SAMPLE_SIZE = 30;     // Check diversity from last 30 trades
-
-// Dev Holdings: max 20% supply (TODO: Implement via API)
-const NINJA_MAX_DEV_HOLDINGS_PERCENT = 20;  // Max 20% dev holdings
-
-// Top 10 Holders: max 50% supply (TODO: Implement via API)
-const NINJA_MAX_TOP10_HOLDINGS_PERCENT = 50; // Max 50% top 10 holdings
-
-// Token Age: min 2 hours
-const NINJA_MIN_TOKEN_AGE_MINUTES = 120;    // 2 hours minimum age
-
-// Total Holders: min 30 (TODO: Implement via API)
-const NINJA_MIN_TOTAL_HOLDERS = 30;         // Min 30 holders
+// Diversity (same for all tiers)
+const NINJA_MIN_DIVERSITY_PERCENT = 70;     // 70% unique wallets
+const NINJA_DIVERSITY_SAMPLE_SIZE = 30;     // From last 30 trades
 
 // Trading Parameters
 const NINJA_STOP_LOSS_PERCENT = 20;         // -20% SL
 const NINJA_TAKE_PROFIT_PERCENT = 30;       // +30% first TP
 
-// Legacy parameters (kept for compatibility but not actively used)
-const NINJA_MAX_PRICE_PUMP_PERCENT = 50;    // Max 50% pump filter (disabled)
-const NINJA_FAST_FOLLOW_SECONDS = 90;       // Fast follow filter (disabled)
-const NINJA_MOMENTUM_LOOKBACK_SECONDS = 60; // Momentum filter (disabled)
-const NINJA_MIN_RECENT_TRADES = 1;          // Min recent trades (disabled)
+// ============================================================================
+// TIER DEFINITIONS
+// ============================================================================
+interface NinjaTier {
+  name: string;
+  minMcap: number;
+  maxMcap: number;
+  timeWindowMinutes: number;
+  minWallets: number;
+  activityWindowMinutes: number;
+  minUniqueBuyers: number;
+  qualityRequirement?: {
+    minQualityWallets: number;      // Min wallets that are tracked/quality
+    minBuyAmountUsd?: number;       // Or min buy amount in USD
+  };
+}
+
+const NINJA_TIERS: NinjaTier[] = [
+  {
+    name: 'Tier 1',
+    minMcap: 80000,      // $80K
+    maxMcap: 120000,     // $120K
+    timeWindowMinutes: 5,
+    minWallets: 3,
+    activityWindowMinutes: 10,
+    minUniqueBuyers: 8,
+  },
+  {
+    name: 'Tier 2',
+    minMcap: 120000,     // $120K
+    maxMcap: 200000,     // $200K
+    timeWindowMinutes: 8,
+    minWallets: 3,
+    activityWindowMinutes: 10,
+    minUniqueBuyers: 6,
+  },
+  {
+    name: 'Tier 3',
+    minMcap: 200000,     // $200K
+    maxMcap: 350000,     // $350K
+    timeWindowMinutes: 12,
+    minWallets: 4,
+    activityWindowMinutes: 15,
+    minUniqueBuyers: 5,
+    qualityRequirement: {
+      minQualityWallets: 2,  // Min 2 tracked/quality wallets
+      minBuyAmountUsd: 100,  // Or buys > $100
+    },
+  },
+  {
+    name: 'Tier 4',
+    minMcap: 350000,     // $350K
+    maxMcap: 500000,     // $500K
+    timeWindowMinutes: 15,
+    minWallets: 4,
+    activityWindowMinutes: 20,
+    minUniqueBuyers: 8,
+    qualityRequirement: {
+      minQualityWallets: 3,  // Min 3 tracked/quality wallets
+      minBuyAmountUsd: 100,  // Or buys > $100
+    },
+  },
+];
+
+// Helper function to get tier for market cap
+function getNinjaTier(marketCap: number): NinjaTier | null {
+  for (const tier of NINJA_TIERS) {
+    if (marketCap >= tier.minMcap && marketCap < tier.maxMcap) {
+      return tier;
+    }
+  }
+  return null;
+}
 
 // CONSENSUS Signal parameters (post-graduation, higher market cap)
 const CONSENSUS_MIN_MARKET_CAP_USD = 50000; // $50K minimum for regular consensus
@@ -269,45 +317,12 @@ export class ConsensusWebhookService {
       }
 
       // ============================================================================
-      // NEW NINJA SIGNAL DETECTION (2025 Redesign)
+      // NEW NINJA SIGNAL DETECTION (2025 Redesign) - TIERED SYSTEM
       // Only NINJA signals are emitted - CONSENSUS signals DISABLED
       // ============================================================================
       const currentTradeTime = new Date(tradeToUse.timestamp).getTime();
 
-      // Determine time window based on market cap
-      const ninjaTimeWindowMinutes = marketCap < NINJA_MCAP_THRESHOLD_FOR_WINDOW
-        ? NINJA_TIME_WINDOW_MINUTES_LOW_MCAP   // 5min for <$200K
-        : NINJA_TIME_WINDOW_MINUTES_HIGH_MCAP; // 10min for >$200K
-
-      const ninjaWindowStart = currentTradeTime - ninjaTimeWindowMinutes * 60 * 1000;
-
-      // Filter buys within NINJA time window
-      const buysInNinjaWindow = sortedBuys.filter(t => {
-        const tradeTime = new Date(t.timestamp).getTime();
-        return tradeTime >= ninjaWindowStart && tradeTime <= currentTradeTime;
-      });
-
-      const ninjaWallets = new Set(buysInNinjaWindow.map(t => t.walletId));
-      const ninjaWalletCount = ninjaWallets.size;
-
-      // Calculate time spans for logging
-      const firstBuyTime = new Date(sortedBuys[0].timestamp).getTime();
-      const lastBuyTime = new Date(sortedBuys[sortedBuys.length - 1].timestamp).getTime();
-      const totalTimeSpanMinutes = (lastBuyTime - firstBuyTime) / (1000 * 60);
-
-      const ninjaFirstBuy = buysInNinjaWindow[0];
-      const ninjaLastBuy = buysInNinjaWindow[buysInNinjaWindow.length - 1];
-      const ninjaTimeSpan = ninjaFirstBuy && ninjaLastBuy
-        ? (new Date(ninjaLastBuy.timestamp).getTime() - new Date(ninjaFirstBuy.timestamp).getTime()) / (1000 * 60)
-        : 0;
-
-      console.log(`   ⏱️  [NINJA] Total span: ${totalTimeSpanMinutes.toFixed(1)} min | Window (${ninjaTimeWindowMinutes}min for MCap $${(marketCap / 1000).toFixed(0)}K): ${ninjaWalletCount} wallets, ${ninjaTimeSpan.toFixed(1)} min span`);
-
-      // ============================================================================
-      // NINJA SIGNAL FILTERS
-      // ============================================================================
-
-      // 1. MARKET CAP CHECK: $75K - $550K
+      // 1. GLOBAL MARKET CAP CHECK
       if (marketCap < NINJA_MIN_MARKET_CAP_USD) {
         console.log(`   ❌ [NINJA] MCap $${(marketCap / 1000).toFixed(1)}K < $${NINJA_MIN_MARKET_CAP_USD / 1000}K minimum - FILTERED OUT`);
         return { consensusFound: false };
@@ -318,48 +333,108 @@ export class ConsensusWebhookService {
         return { consensusFound: false };
       }
 
-      console.log(`   ✅ [NINJA] MCap in range ($${NINJA_MIN_MARKET_CAP_USD / 1000}K-$${NINJA_MAX_MARKET_CAP_USD / 1000}K): $${(marketCap / 1000).toFixed(1)}K`);
+      // 2. GET TIER FOR THIS MARKET CAP
+      const tier = getNinjaTier(marketCap);
+      if (!tier) {
+        console.log(`   ❌ [NINJA] MCap $${(marketCap / 1000).toFixed(1)}K doesn't match any tier - FILTERED OUT`);
+        return { consensusFound: false };
+      }
 
-      // 2. LIQUIDITY CHECK: min $15K
+      console.log(`   🎯 [NINJA] ${tier.name} ($${tier.minMcap / 1000}K-$${tier.maxMcap / 1000}K): MCap $${(marketCap / 1000).toFixed(1)}K`);
+
+      // 3. LIQUIDITY CHECK (global)
       if (liquidity !== null && liquidity !== undefined && liquidity < NINJA_MIN_LIQUIDITY_USD) {
         console.log(`   ❌ [NINJA] Liquidity $${(liquidity / 1000).toFixed(1)}K < $${NINJA_MIN_LIQUIDITY_USD / 1000}K minimum - FILTERED OUT`);
         return { consensusFound: false };
       }
       console.log(`   ✅ [NINJA] Liquidity: $${liquidity ? (liquidity / 1000).toFixed(1) + 'K' : 'N/A'} (min $${NINJA_MIN_LIQUIDITY_USD / 1000}K)`);
 
-      // 3. WALLET COUNT CHECK: min 3 wallets in time window
-      if (ninjaWalletCount < NINJA_MIN_WALLETS) {
-        console.log(`   ❌ [NINJA] Only ${ninjaWalletCount} wallet(s) in ${ninjaTimeWindowMinutes}min window (need ${NINJA_MIN_WALLETS}+) - FILTERED OUT`);
+      // 4. TIER-SPECIFIC TIME WINDOW & WALLET COUNT
+      const ninjaTimeWindowMinutes = tier.timeWindowMinutes;
+      const ninjaWindowStart = currentTradeTime - ninjaTimeWindowMinutes * 60 * 1000;
+
+      const buysInNinjaWindow = sortedBuys.filter(t => {
+        const tradeTime = new Date(t.timestamp).getTime();
+        return tradeTime >= ninjaWindowStart && tradeTime <= currentTradeTime;
+      });
+
+      const ninjaWallets = new Set(buysInNinjaWindow.map(t => t.walletId));
+      const ninjaWalletCount = ninjaWallets.size;
+
+      if (ninjaWalletCount < tier.minWallets) {
+        console.log(`   ❌ [NINJA] Only ${ninjaWalletCount} wallet(s) in ${ninjaTimeWindowMinutes}min window (${tier.name} needs ${tier.minWallets}+) - FILTERED OUT`);
         return { consensusFound: false };
       }
-      console.log(`   ✅ [NINJA] Wallets: ${ninjaWalletCount} in ${ninjaTimeWindowMinutes}min window (min ${NINJA_MIN_WALLETS})`);
+      console.log(`   ✅ [NINJA] Wallets: ${ninjaWalletCount} in ${ninjaTimeWindowMinutes}min window (${tier.name} min: ${tier.minWallets})`);
 
-      // 4. DIVERSITY CHECK: min 70% unique buyers from last 30 trades
+      // 5. TIER-SPECIFIC ACTIVITY CHECK (unique buyers in activity window)
+      const activityWindowStart = currentTradeTime - tier.activityWindowMinutes * 60 * 1000;
       const allTokenBuys = await this.tradeRepo.findBuysByTokenAndTimeWindow(
         tokenId,
-        new Date(currentTradeTime - 24 * 60 * 60 * 1000), // Last 24h
+        new Date(activityWindowStart),
         new Date(currentTradeTime)
       );
 
-      const recentTradesForDiversity = allTokenBuys
+      const uniqueBuyersInActivityWindow = new Set(allTokenBuys.map(t => t.walletId)).size;
+
+      if (uniqueBuyersInActivityWindow < tier.minUniqueBuyers) {
+        console.log(`   ❌ [NINJA] Only ${uniqueBuyersInActivityWindow} unique buyers in ${tier.activityWindowMinutes}min (${tier.name} needs ${tier.minUniqueBuyers}+) - FILTERED OUT`);
+        return { consensusFound: false };
+      }
+      console.log(`   ✅ [NINJA] Activity: ${uniqueBuyersInActivityWindow} unique buyers in ${tier.activityWindowMinutes}min (${tier.name} min: ${tier.minUniqueBuyers})`);
+
+      // 6. TIER-SPECIFIC QUALITY REQUIREMENT (Tier 3 & 4)
+      if (tier.qualityRequirement) {
+        // Count quality wallets: those that are tracked (in our DB with label) OR bought > $100
+        let qualityWalletCount = 0;
+
+        for (const trade of buysInNinjaWindow) {
+          const wallet = await this.smartWalletRepo.findById(trade.walletId);
+          const tradeValueUsd = Number(trade.valueUsd || 0);
+
+          // Quality = has label (tracked wallet) OR buy > minBuyAmountUsd
+          const isTracked = wallet?.label && wallet.label.length > 0;
+          const isBigBuy = tier.qualityRequirement.minBuyAmountUsd
+            ? tradeValueUsd >= tier.qualityRequirement.minBuyAmountUsd
+            : false;
+
+          if (isTracked || isBigBuy) {
+            qualityWalletCount++;
+          }
+        }
+
+        if (qualityWalletCount < tier.qualityRequirement.minQualityWallets) {
+          console.log(`   ❌ [NINJA] Only ${qualityWalletCount} quality wallets (${tier.name} needs ${tier.qualityRequirement.minQualityWallets}+ tracked or >$${tier.qualityRequirement.minBuyAmountUsd} buys) - FILTERED OUT`);
+          return { consensusFound: false };
+        }
+        console.log(`   ✅ [NINJA] Quality: ${qualityWalletCount} quality wallets (${tier.name} min: ${tier.qualityRequirement.minQualityWallets})`);
+      }
+
+      // 7. DIVERSITY CHECK (global - same for all tiers)
+      const allTokenBuys24h = await this.tradeRepo.findBuysByTokenAndTimeWindow(
+        tokenId,
+        new Date(currentTradeTime - 24 * 60 * 60 * 1000),
+        new Date(currentTradeTime)
+      );
+
+      const recentTradesForDiversity = allTokenBuys24h
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
         .slice(0, NINJA_DIVERSITY_SAMPLE_SIZE);
 
       const uniqueWalletsInSample = new Set(recentTradesForDiversity.map(t => t.walletId)).size;
       const sampleSize = recentTradesForDiversity.length;
-      const diversityPercent = sampleSize > 0 ? (uniqueWalletsInSample / sampleSize) * 100 : 100; // 100% if no sample
+      const diversityPercent = sampleSize > 0 ? (uniqueWalletsInSample / sampleSize) * 100 : 100;
 
       if (diversityPercent < NINJA_MIN_DIVERSITY_PERCENT) {
-        console.log(`   ❌ [NINJA] Diversity ${diversityPercent.toFixed(0)}% < ${NINJA_MIN_DIVERSITY_PERCENT}% (${uniqueWalletsInSample}/${sampleSize} unique) - possible wash trading, FILTERED OUT`);
+        console.log(`   ❌ [NINJA] Diversity ${diversityPercent.toFixed(0)}% < ${NINJA_MIN_DIVERSITY_PERCENT}% (${uniqueWalletsInSample}/${sampleSize} unique) - wash trading? FILTERED OUT`);
         return { consensusFound: false };
       }
       console.log(`   ✅ [NINJA] Diversity: ${diversityPercent.toFixed(0)}% (${uniqueWalletsInSample}/${sampleSize} unique, min ${NINJA_MIN_DIVERSITY_PERCENT}%)`);
 
-      // 5. TOKEN AGE CHECK: min 2 hours
-      // Try to get token age from first trade timestamp or token creation
+      // 8. TOKEN AGE CHECK (global - 1 hour minimum)
       let tokenAgeMinutes: number | null = null;
-      if (allTokenBuys.length > 0) {
-        const oldestBuy = allTokenBuys.reduce((oldest, t) =>
+      if (allTokenBuys24h.length > 0) {
+        const oldestBuy = allTokenBuys24h.reduce((oldest, t) =>
           new Date(t.timestamp).getTime() < new Date(oldest.timestamp).getTime() ? t : oldest
         );
         tokenAgeMinutes = (currentTradeTime - new Date(oldestBuy.timestamp).getTime()) / (1000 * 60);
@@ -371,23 +446,16 @@ export class ConsensusWebhookService {
       }
       console.log(`   ✅ [NINJA] Token age: ${tokenAgeMinutes ? tokenAgeMinutes.toFixed(0) + 'min' : 'N/A'} (min ${NINJA_MIN_TOKEN_AGE_MINUTES}min)`);
 
-      // TODO: Implement these checks via API (Helius/Birdeye):
-      // - Dev holdings: max 30% supply
-      // - Top 10 holders: max 50% supply
-      // - Total holders: min 30
-      console.log(`   ℹ️  [NINJA] Holder checks (dev/top10/total) - TODO: implement via API`);
-
       // ALL NINJA CHECKS PASSED!
       isNinjaSignal = true;
-      console.log(`   🥷 [NINJA] ✅ NINJA Signal CONFIRMED!`);
+      console.log(`   🥷 [NINJA] ✅ ${tier.name} SIGNAL CONFIRMED!`);
       console.log(`      MCap: $${(marketCap / 1000).toFixed(1)}K | Liq: $${liquidity ? (liquidity / 1000).toFixed(1) + 'K' : 'N/A'}`);
-      console.log(`      Wallets: ${ninjaWalletCount} in ${ninjaTimeWindowMinutes}min | Diversity: ${diversityPercent.toFixed(0)}%`);
-      console.log(`      Token Age: ${tokenAgeMinutes ? tokenAgeMinutes.toFixed(0) + 'min' : 'N/A'}`);
+      console.log(`      Wallets: ${ninjaWalletCount} in ${ninjaTimeWindowMinutes}min | Activity: ${uniqueBuyersInActivityWindow} in ${tier.activityWindowMinutes}min`);
+      console.log(`      Diversity: ${diversityPercent.toFixed(0)}% | Age: ${tokenAgeMinutes ? tokenAgeMinutes.toFixed(0) + 'min' : 'N/A'}`);
 
       // CONSENSUS signals are DISABLED - only NINJA signals are emitted
-      // If we reach here without isNinjaSignal=true, we filter out
       if (!isNinjaSignal) {
-        console.log(`   ❌ [NINJA] Signal validation failed - FILTERED OUT (CONSENSUS disabled)`);
+        console.log(`   ❌ [NINJA] Signal validation failed - FILTERED OUT`);
         return { consensusFound: false };
       }
 
