@@ -91,12 +91,12 @@ impl Position {
     }
 
     /// Trailing SL activation threshold (% profit before trailing starts)
-    /// Once price goes +20% from entry, trailing SL activates
-    const TRAILING_ACTIVATION_PERCENT: f64 = 20.0;
+    /// Once price goes +30% from entry, trailing SL activates
+    const TRAILING_ACTIVATION_PERCENT: f64 = 30.0;
 
     /// Trailing SL distance from high (% below high price)
-    /// Once trailing is active, SL follows at 25% below the high
-    const TRAILING_DISTANCE_PERCENT: f64 = 25.0;
+    /// Once trailing is active, SL follows at 20% below the high
+    const TRAILING_DISTANCE_PERCENT: f64 = 20.0;
 
     /// Short initial period to wait for first price sync (in seconds)
     /// We need at least one PumpPortal price update to sync entry_price
@@ -151,7 +151,7 @@ impl Position {
             self.high_price = current_price;
         }
 
-        // Check if we should activate trailing (price went +15% from entry)
+        // Check if we should activate trailing (price went +30% from entry)
         let profit_percent = (current_price / self.entry_price - 1.0) * 100.0;
 
         if !self.trailing_active && profit_percent >= Self::TRAILING_ACTIVATION_PERCENT {

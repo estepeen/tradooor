@@ -1613,10 +1613,10 @@ export class AdvancedSignalsService {
 
             console.log(`📨 [AdvancedSignals] About to send Discord notification - baseToken: ${notificationData.baseToken || 'MISSING'}, walletIds: ${notificationData.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}, aiDecision: ${notificationData.aiDecision || 'undefined'}`);
 
-            // Exit-warning signály jdou do separátního exit kanálu
+            // Exit-warning signály - DISABLED (nepotřebujeme, SPECTRE má vlastní SL/TP)
             if (signal.type === 'exit-warning') {
-              console.log(`   🔴 [ExitWarning] Sending to exit channel with ${notificationData.exitSellers?.length || 0} sellers`);
-              await this.discordNotification.sendSignalToExitChannel(notificationData);
+              console.log(`   🔴 [ExitWarning] SKIPPED - exit notifications disabled`);
+              // await this.discordNotification.sendSignalToExitChannel(notificationData);
             } else {
               await this.discordNotification.sendSignalNotification(notificationData);
             }

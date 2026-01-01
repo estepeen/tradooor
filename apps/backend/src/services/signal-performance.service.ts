@@ -175,26 +175,7 @@ export class SignalPerformanceService {
           // Close the performance record
           await this.performanceRepo.close(perf.signalId, 'stop_loss_hit', currentPrice);
 
-          // Send Discord notification
-          try {
-            await this.discordNotification.sendExitSignalNotification({
-              tokenSymbol: token.symbol || 'Unknown',
-              tokenMint: token.mintAddress,
-              exitType: 'stop_loss',
-              strength: 'strong',
-              recommendation: 'full_exit',
-              entryPriceUsd: entryPrice,
-              currentPriceUsd: currentPrice,
-              pnlPercent: currentPnlPercent,
-              holdTimeMinutes: Math.round(ageMs / 60000),
-              entryWalletCount: 1,
-              activeWalletCount: 0,
-              exitedWalletCount: 1,
-              triggerReason: `Stop loss triggered at ${currentPnlPercent.toFixed(1)}% (SL: -${stopLossPercent}%)`,
-            });
-          } catch (discordError: any) {
-            console.warn(`⚠️  Discord exit notification failed: ${discordError.message}`);
-          }
+          // Discord notification DISABLED - SPECTRE handles its own notifications
 
           stats.slHits++;
           continue;
@@ -207,26 +188,7 @@ export class SignalPerformanceService {
           // Close the performance record
           await this.performanceRepo.close(perf.signalId, 'take_profit_hit', currentPrice);
 
-          // Send Discord notification
-          try {
-            await this.discordNotification.sendExitSignalNotification({
-              tokenSymbol: token.symbol || 'Unknown',
-              tokenMint: token.mintAddress,
-              exitType: 'take_profit',
-              strength: 'strong',
-              recommendation: 'full_exit',
-              entryPriceUsd: entryPrice,
-              currentPriceUsd: currentPrice,
-              pnlPercent: currentPnlPercent,
-              holdTimeMinutes: Math.round(ageMs / 60000),
-              entryWalletCount: 1,
-              activeWalletCount: 0,
-              exitedWalletCount: 1,
-              triggerReason: `Take profit triggered at +${currentPnlPercent.toFixed(1)}% (TP: +${takeProfitPercent}%)`,
-            });
-          } catch (discordError: any) {
-            console.warn(`⚠️  Discord exit notification failed: ${discordError.message}`);
-          }
+          // Discord notification DISABLED - SPECTRE handles its own notifications
 
           stats.tpHits++;
           continue;

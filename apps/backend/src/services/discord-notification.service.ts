@@ -1142,25 +1142,17 @@ export class DiscordNotificationService {
   }
 
   /**
-   * Vytvoří embed pro SPECTRE trade
+   * Vytvoří embed pro SPECTRE trade - minimalistický design
+   * BUY: zelený proužek, SELL: červený proužek
    */
   private buildSpectreTradeEmbed(data: SpectreTradeNotificationData): DiscordEmbed {
-    const birdeyeUrl = `https://birdeye.so/token/${data.tokenMint}?chain=solana`;
     const pumpfunUrl = `https://pump.fun/coin/${data.tokenMint}`;
     const isBuy = data.action === 'buy';
 
-    // Barvy: zelená pro BUY, červená/oranžová pro SELL (podle PnL)
-    let color: number;
-    if (!data.success) {
-      color = 0x808080; // Gray for failed
-    } else if (isBuy) {
-      color = 0x22c55e; // Green for buy
-    } else {
-      // Pro SELL: zelená pokud profit, červená pokud loss
-      color = (data.pnlPercent ?? 0) >= 0 ? 0x22c55e : 0xef4444;
-    }
+    // Barvy: zelená pro BUY, červená pro SELL
+    const color = isBuy ? 0x22c55e : 0xef4444;
 
-    // Formátuj čas (Praha timezone)
+    // Formátuj čas (Praha timezone) - HH:MM:SS
     const formatTime = (dateStr: string) => {
       const date = new Date(dateStr);
       return new Intl.DateTimeFormat('cs-CZ', {
@@ -1177,149 +1169,63 @@ export class DiscordNotificationService {
       ? data.tokenSymbol
       : data.tokenMint.slice(0, 6);
 
-    const fields: DiscordEmbed['fields'] = [];
+    // MCap string
+    const formatMcap = (mcap?: number) => {
+      if (!mcap) return 'N/A';
+      if (mcap >= 1000000) return `$${(mcap / 1000000).toFixed(2)}M`;
+      return `$${(mcap / 1000).toFixed(1)}K`;
+    };
 
     if (isBuy) {
       // ===== BUY EMBED =====
-      const statusEmoji = data.success ? '✅' : '❌';
+      // Pro BUY použij MCap v momentě nákupu (tradeMarketCapUsd), fallback na signalMarketCapUsd
+      const mcapStr = formatMcap(data.tradeMarketCapUsd || data.signalMarketCapUsd);
+      const title = `🟢 BUY $${tokenSymbol}`;
 
-      // Title s MCap
-      const mcapStr = data.signalMarketCapUsd
-        ? ` @ $${this.formatNumber(data.signalMarketCapUsd, 0)}`
-        : '';
-
-      const title = `🟢 BUY $${tokenSymbol}${mcapStr} ${statusEmoji}`;
-
-      // Signal info
-      const signalType = data.signalType?.toUpperCase() || 'NINJA';
-      const signalStrength = data.signalStrength?.toUpperCase() || '';
-      const signalInfo = [
-        `**Type:** ${signalType}${signalStrength ? ` (${signalStrength})` : ''}`,
+      // Simple description with key info
+      const description = [
+        `**MCap:** ${mcapStr}`,
         `**Amount:** ${data.amountSol.toFixed(4)} SOL`,
-      ];
-      if (data.entryPriceUsd) {
-        signalInfo.push(`**Price:** $${this.formatSmallPrice(data.entryPriceUsd)}`);
-      }
-      if (data.stopLossPercent && data.takeProfitPercent) {
-        signalInfo.push(`**SL/TP:** -${data.stopLossPercent}% / +${data.takeProfitPercent}%`);
-      }
-
-      fields.push({
-        name: '🥷 Signal',
-        value: signalInfo.join('\n'),
-        inline: true,
-      });
-
-      // Timing
-      const timingInfo = [
         `**Time:** ${formatTime(data.tradeTimestamp)}`,
-        `**Latency:** ${data.latencyMs}ms`,
-      ];
-
-      fields.push({
-        name: '⏱️ Execution',
-        value: timingInfo.join('\n'),
-        inline: true,
-      });
-
-      // TX Link
-      if (data.txSignature) {
-        fields.push({
-          name: '🔗 Links',
-          value: `[Solscan](https://solscan.io/tx/${data.txSignature}) • [Birdeye](${birdeyeUrl}) • [Pump.fun](${pumpfunUrl})`,
-          inline: false,
-        });
-      }
-
-      if (data.error) {
-        fields.push({
-          name: '❌ Error',
-          value: data.error,
-          inline: false,
-        });
-      }
+        '',
+        `[pump.fun](${pumpfunUrl})${data.txSignature ? ` • [tx](https://solscan.io/tx/${data.txSignature})` : ''}`,
+      ].join('\n');
 
       return {
         title,
+        description,
         color,
-        fields,
         timestamp: new Date().toISOString(),
-        footer: { text: '👻 Spectre' },
       };
 
     } else {
       // ===== SELL EMBED =====
-      const exitEmoji = data.exitReason === 'take_profit' ? '🎯' : data.exitReason === 'stop_loss' ? '🛑' : '🔴';
-      const exitLabel = data.exitReason === 'take_profit' ? 'TAKE PROFIT'
-        : data.exitReason === 'stop_loss' ? 'STOP LOSS'
-        : 'SELL';
-
-      // PnL string pro title
-      const pnlStr = data.pnlPercent !== undefined
-        ? ` ${data.pnlPercent >= 0 ? '+' : ''}${data.pnlPercent.toFixed(1)}%`
-        : '';
-      const pnlEmoji = (data.pnlPercent ?? 0) >= 0 ? '📈' : '📉';
-
-      const statusEmoji = data.success ? '✅' : '❌';
-      const title = `${exitEmoji} ${exitLabel} $${tokenSymbol}${pnlStr} ${pnlEmoji} ${statusEmoji}`;
+      const mcapStr = formatMcap(data.tradeMarketCapUsd);
 
       // PnL info
-      if (data.success && (data.entryPriceUsd || data.exitPriceUsd || data.pnlPercent !== undefined)) {
-        const pnlInfo = [];
-        if (data.entryPriceUsd) {
-          pnlInfo.push(`**Entry:** $${this.formatSmallPrice(data.entryPriceUsd)}`);
-        }
-        if (data.exitPriceUsd) {
-          pnlInfo.push(`**Exit:** $${this.formatSmallPrice(data.exitPriceUsd)}`);
-        }
-        if (data.pnlPercent !== undefined) {
-          const pnlColor = data.pnlPercent >= 0 ? '🟢' : '🔴';
-          pnlInfo.push(`**PnL:** ${pnlColor} ${data.pnlPercent >= 0 ? '+' : ''}${data.pnlPercent.toFixed(2)}%`);
-        }
+      const pnlStr = data.pnlPercent !== undefined
+        ? `${data.pnlPercent >= 0 ? '+' : ''}${data.pnlPercent.toFixed(1)}%`
+        : 'N/A';
+      const pnlUsdStr = data.pnlUsd !== undefined
+        ? `${data.pnlUsd >= 0 ? '+' : ''}$${data.pnlUsd.toFixed(2)}`
+        : '';
 
-        fields.push({
-          name: '💰 Result',
-          value: pnlInfo.join('\n'),
-          inline: true,
-        });
-      }
+      const title = `🔴 SELL $${tokenSymbol}`;
 
-      // Trade info
-      const tradeInfo = [
-        `**Amount:** ${data.amountSol.toFixed(4)} SOL`,
+      // Simple description with key info
+      const description = [
+        `**MCap:** ${mcapStr}`,
+        `**PnL:** ${pnlStr}${pnlUsdStr ? ` (${pnlUsdStr})` : ''}`,
         `**Time:** ${formatTime(data.tradeTimestamp)}`,
-        `**Latency:** ${data.latencyMs}ms`,
-      ];
-
-      fields.push({
-        name: '⚡ Trade',
-        value: tradeInfo.join('\n'),
-        inline: true,
-      });
-
-      // TX Link
-      if (data.txSignature) {
-        fields.push({
-          name: '🔗 Links',
-          value: `[Solscan](https://solscan.io/tx/${data.txSignature}) • [Birdeye](${birdeyeUrl})`,
-          inline: false,
-        });
-      }
-
-      if (data.error) {
-        fields.push({
-          name: '❌ Error',
-          value: data.error,
-          inline: false,
-        });
-      }
+        '',
+        `[pump.fun](${pumpfunUrl})${data.txSignature ? ` • [tx](https://solscan.io/tx/${data.txSignature})` : ''}`,
+      ].join('\n');
 
       return {
         title,
+        description,
         color,
-        fields,
         timestamp: new Date().toISOString(),
-        footer: { text: '👻 Spectre' },
       };
     }
   }
