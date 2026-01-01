@@ -19,6 +19,12 @@ pub struct Position {
     pub take_profit_price: f64,
     pub entry_time: chrono::DateTime<chrono::Utc>,
     pub tx_signature: String,
+    /// Number of failed sell attempts (for "no route" errors)
+    #[serde(default)]
+    pub failed_sell_attempts: u32,
+    /// If true, stop trying to sell (marked as unsellable)
+    #[serde(default)]
+    pub is_unsellable: bool,
 }
 
 impl Position {
@@ -61,11 +67,18 @@ impl Position {
             take_profit_price,
             entry_time: chrono::Utc::now(),
             tx_signature,
+            failed_sell_attempts: 0,
+            is_unsellable: false,
         }
     }
 
     /// Check if current price triggers SL or TP
+    /// Returns None if position is marked as unsellable
     pub fn check_exit(&self, current_price: f64) -> Option<ExitReason> {
+        if self.is_unsellable {
+            return None;
+        }
+
         if current_price <= self.stop_loss_price {
             Some(ExitReason::StopLoss)
         } else if current_price >= self.take_profit_price {
@@ -156,6 +169,39 @@ impl PositionManager {
     pub async fn position_count(&self) -> usize {
         let positions = self.positions.read().await;
         positions.len()
+    }
+
+    /// Increment failed sell attempts and mark as unsellable if too many failures
+    /// Returns true if position was marked as unsellable
+    pub async fn increment_failed_sell(&self, token_mint: &str) -> bool {
+        const MAX_SELL_FAILURES: u32 = 3;
+
+        let mut positions = self.positions.write().await;
+        if let Some(position) = positions.get_mut(token_mint) {
+            position.failed_sell_attempts += 1;
+
+            if position.failed_sell_attempts >= MAX_SELL_FAILURES {
+                position.is_unsellable = true;
+                warn!(
+                    "⚠️ {} marked as UNSELLABLE after {} failed sell attempts (no route found)",
+                    position.token_symbol, position.failed_sell_attempts
+                );
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Mark position as unsellable
+    pub async fn mark_unsellable(&self, token_mint: &str, reason: &str) {
+        let mut positions = self.positions.write().await;
+        if let Some(position) = positions.get_mut(token_mint) {
+            position.is_unsellable = true;
+            warn!(
+                "⚠️ {} marked as UNSELLABLE: {}",
+                position.token_symbol, reason
+            );
+        }
     }
 }
 

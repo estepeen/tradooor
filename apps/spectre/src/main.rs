@@ -281,11 +281,23 @@ async fn execute_exit(
                     warn!("⚠️ Failed to publish trade result: {}", e);
                 }
             } else {
-                error!("❌ Exit failed: {}", result.error.as_deref().unwrap_or("Unknown"));
+                let error_msg = result.error.as_deref().unwrap_or("Unknown");
+                error!("❌ Exit failed: {}", error_msg);
+
+                // If quote failed (no route), increment failed sell counter
+                if error_msg.contains("no route") || error_msg.contains("COULD_NOT_FIND") || error_msg.contains("quote failed") {
+                    trader.position_manager().increment_failed_sell(token_mint).await;
+                }
             }
         }
         Err(e) => {
             error!("❌ Exit error: {}", e);
+
+            // Also increment on error
+            let error_str = e.to_string();
+            if error_str.contains("no route") || error_str.contains("COULD_NOT_FIND") {
+                trader.position_manager().increment_failed_sell(token_mint).await;
+            }
         }
     }
 }
