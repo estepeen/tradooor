@@ -138,7 +138,9 @@ export interface SpectreSignalPayload {
 }
 
 /**
- * Pre-signal payload - sent after 1st wallet buy to prepare TX
+ * Pre-signal payload - sent before signal confirmation to prepare TX
+ * Tier 1 & 2: Sent after 2 wallets (need 3 for signal)
+ * Tier 3 & 4: Sent after 3 wallets (need 4 for signal)
  * SPECTRE will build the TX skeleton and cache it for fast execution
  */
 export interface SpectrePreSignalPayload {
@@ -153,6 +155,15 @@ export interface SpectrePreSignalPayload {
     label: string | null;
     score: number | null;
   };
+  // Extended info for tiered system
+  tier?: string;                    // e.g., "Tier 1", "Tier 2", etc.
+  currentWallets?: number;          // Current wallet count
+  requiredWallets?: number;         // Required wallets for signal
+  allWallets?: Array<{              // All wallets that bought so far
+    address: string;
+    label: string | null;
+    score: number | null;
+  }>;
 }
 
 // Singleton instance

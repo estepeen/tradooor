@@ -184,53 +184,84 @@ export class ConsensusWebhookService {
         return { consensusFound: false };
       }
 
-      // 2. Zkontroluj, jestli jsou alespoň 2 různé wallets
+      // 2. Zkontroluj počet unikátních wallets
       const uniqueWallets = new Set(recentBuys.map(t => t.walletId));
+      const walletCount = uniqueWallets.size;
 
-      // ⚡ FAST CONFIRM: If only 1 wallet, send pre-signal to SPECTRE to prepare TX
-      if (uniqueWallets.size === 1 && process.env.ENABLE_SPECTRE_BOT === 'true') {
-        const firstTrade = recentBuys[0];
-        const token = await this.tokenRepo.findById(tokenId);
-        const wallet = await this.smartWalletRepo.findById(walletId);
-
-        // Get market data from trade meta (pump.fun bonding curve)
-        const tradeMeta = firstTrade?.meta as any;
+      // ⚡ PRE-SIGNAL SYSTEM: Prepare TX before signal confirmation
+      // Tier 1 & 2 ($80K-$200K): Prepare after 2 wallets, wait for 3rd
+      // Tier 3 & 4 ($200K-$500K): Prepare after 3 wallets, wait for 4th
+      if (process.env.ENABLE_SPECTRE_BOT === 'true') {
+        const latestTrade = recentBuys[recentBuys.length - 1];
+        const tradeMeta = latestTrade?.meta as any;
         const marketCap = tradeMeta?.marketCapUsd ? Number(tradeMeta.marketCapUsd) : null;
         const liquidity = tradeMeta?.liquidityUsd ? Number(tradeMeta.liquidityUsd) : null;
 
-        // Calculate entry price
-        const amountToken = Number(firstTrade.amountToken || 0);
-        const valueUsd = Number(firstTrade.valueUsd || 0);
-        const entryPrice = amountToken > 0 && valueUsd > 0 ? valueUsd / amountToken : null;
-
-        // Check if MCap is in NINJA range before sending pre-signal
+        // Check if MCap is in NINJA range
         if (marketCap !== null && marketCap >= NINJA_MIN_MARKET_CAP_USD && marketCap < NINJA_MAX_MARKET_CAP_USD) {
-          const preSignal: SpectrePreSignalPayload = {
-            tokenMint: token?.mintAddress || '',
-            tokenSymbol: token?.symbol || 'Unknown',
-            marketCapUsd: marketCap,
-            liquidityUsd: liquidity,
-            entryPriceUsd: entryPrice,
-            timestamp: new Date().toISOString(),
-            firstWallet: {
-              address: wallet?.address || '',
-              label: wallet?.label || null,
-              score: wallet?.score ? Number(wallet.score) : null,
-            },
-          };
+          const tier = getNinjaTier(marketCap);
 
-          // Fire and forget - prepare TX in background
-          redisService.pushPreSignal(preSignal).catch(err => {
-            console.warn(`   ⚠️  Redis pre-signal push failed: ${err.message}`);
-          });
+          if (tier) {
+            // Determine pre-signal threshold based on tier
+            // Tier 1 & 2: prepare at 2 wallets (need 3 for signal)
+            // Tier 3 & 4: prepare at 3 wallets (need 4 for signal)
+            const preSignalThreshold = tier.minWallets - 1;
 
-          console.log(`   ⚡ [Pre-Signal] Sent to SPECTRE for ${token?.symbol} @ $${marketCap ? (marketCap / 1000).toFixed(1) + 'K' : 'N/A'} MCap`);
+            // Send pre-signal when we hit the threshold (exactly, not more)
+            if (walletCount === preSignalThreshold) {
+              const token = await this.tokenRepo.findById(tokenId);
+              const wallet = await this.smartWalletRepo.findById(walletId);
+
+              // Calculate entry price from latest trade
+              const amountToken = Number(latestTrade.amountToken || 0);
+              const valueUsd = Number(latestTrade.valueUsd || 0);
+              const entryPrice = amountToken > 0 && valueUsd > 0 ? valueUsd / amountToken : null;
+
+              // Collect all wallet info for pre-signal
+              const walletInfos: Array<{ address: string; label: string | null; score: number | null }> = [];
+              for (const wId of uniqueWallets) {
+                const w = await this.smartWalletRepo.findById(wId);
+                if (w) {
+                  walletInfos.push({
+                    address: w.address,
+                    label: w.label || null,
+                    score: w.score ? Number(w.score) : null,
+                  });
+                }
+              }
+
+              const preSignal: SpectrePreSignalPayload = {
+                tokenMint: token?.mintAddress || '',
+                tokenSymbol: token?.symbol || 'Unknown',
+                marketCapUsd: marketCap,
+                liquidityUsd: liquidity,
+                entryPriceUsd: entryPrice,
+                timestamp: new Date().toISOString(),
+                firstWallet: walletInfos[0] || {
+                  address: wallet?.address || '',
+                  label: wallet?.label || null,
+                  score: wallet?.score ? Number(wallet.score) : null,
+                },
+                // Extended info for tiered system
+                tier: tier.name,
+                currentWallets: walletCount,
+                requiredWallets: tier.minWallets,
+                allWallets: walletInfos,
+              };
+
+              // Fire and forget - prepare TX in background
+              redisService.pushPreSignal(preSignal).catch(err => {
+                console.warn(`   ⚠️  Redis pre-signal push failed: ${err.message}`);
+              });
+
+              console.log(`   ⚡ [Pre-Signal] ${tier.name}: ${walletCount}/${tier.minWallets} wallets for ${token?.symbol} @ $${(marketCap / 1000).toFixed(1)}K MCap - PREPARING TX`);
+            }
+          }
         }
-
-        return { consensusFound: false };
       }
 
-      if (uniqueWallets.size < 2) {
+      // Continue with consensus check - need at least 2 wallets to proceed
+      if (walletCount < 2) {
         return { consensusFound: false };
       }
 
