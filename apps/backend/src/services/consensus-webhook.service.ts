@@ -37,14 +37,11 @@ const NINJA_STOP_LOSS_PERCENT = 20;        // -20% SL
 const NINJA_TAKE_PROFIT_PERCENT = 30;      // +30% first TP (scaled exits: 80% at +30%, 15% at +50%, 5% at +80%)
 const NINJA_MIN_WALLETS = 2;               // 2+ wallets for consensus
 
-// NINJA Acceleration filter: detect fast buying activity
-const NINJA_ACCELERATION_WINDOW_SECONDS = 120; // 2 minute window for acceleration check
-const NINJA_MIN_TRADES_FOR_ACCELERATION = 3;   // Minimum 3 trades in acceleration window
-// Alternative: second wallet must buy within 60 seconds of first
-const NINJA_FAST_FOLLOW_SECONDS = 60;
+// NINJA Fast Follow filter: 2nd wallet must buy quickly after 1st
+const NINJA_FAST_FOLLOW_SECONDS = 90;          // 2nd wallet must buy within 90s of first
 
 // NINJA Diversity filter: ensure unique wallets (anti wash-trading)
-const NINJA_MIN_DIVERSITY_PERCENT = 60;        // ≥60% unique wallets from recent trades
+const NINJA_MIN_DIVERSITY_PERCENT = 100;       // 100% = all wallets must be unique (2 wallets = 2 unique)
 
 // CONSENSUS Signal parameters (post-graduation, higher market cap)
 const CONSENSUS_MIN_MARKET_CAP_USD = 50000; // $50K minimum for regular consensus
@@ -312,17 +309,9 @@ export class ConsensusWebhookService {
             return { consensusFound: false };
           }
 
-          // ACCELERATION CHECK: Fast buying activity
-          // Either: 3+ trades in 2 min window, OR second wallet bought within 60s of first
-          const accelerationWindowStart = currentTradeTime - NINJA_ACCELERATION_WINDOW_SECONDS * 1000;
-          const tradesInAccelWindow = buysInNinjaWindow.filter(t => {
-            const tradeTime = new Date(t.timestamp).getTime();
-            return tradeTime >= accelerationWindowStart && tradeTime <= currentTradeTime;
-          });
-          const hasAcceleration = tradesInAccelWindow.length >= NINJA_MIN_TRADES_FOR_ACCELERATION;
-
-          // Check fast follow: second unique wallet bought within 60s of first
+          // FAST FOLLOW CHECK: 2nd wallet must buy within 90s of first
           let hasFastFollow = false;
+          let timeDiffSeconds = 0;
           if (ninjaFirstBuy && buysInNinjaWindow.length >= 2) {
             const firstBuyTimeMs = new Date(ninjaFirstBuy.timestamp).getTime();
             const firstWallet = ninjaFirstBuy.walletId;
@@ -330,32 +319,28 @@ export class ConsensusWebhookService {
             const secondWalletBuy = buysInNinjaWindow.find(t => t.walletId !== firstWallet);
             if (secondWalletBuy) {
               const secondBuyTimeMs = new Date(secondWalletBuy.timestamp).getTime();
-              const timeDiffSeconds = (secondBuyTimeMs - firstBuyTimeMs) / 1000;
+              timeDiffSeconds = (secondBuyTimeMs - firstBuyTimeMs) / 1000;
               hasFastFollow = timeDiffSeconds <= NINJA_FAST_FOLLOW_SECONDS;
-              console.log(`   ⚡ [NINJA] Fast follow check: 2nd wallet bought ${timeDiffSeconds.toFixed(0)}s after first (threshold: ${NINJA_FAST_FOLLOW_SECONDS}s) - ${hasFastFollow ? 'PASS' : 'FAIL'}`);
+              console.log(`   ⚡ [NINJA] Fast follow: 2nd wallet bought ${timeDiffSeconds.toFixed(0)}s after first (max: ${NINJA_FAST_FOLLOW_SECONDS}s) - ${hasFastFollow ? 'PASS ✓' : 'FAIL'}`);
             }
           }
 
-          if (!hasAcceleration && !hasFastFollow) {
-            console.log(`   ⚠️  [NINJA] No acceleration detected: ${tradesInAccelWindow.length} trades in ${NINJA_ACCELERATION_WINDOW_SECONDS}s (need ${NINJA_MIN_TRADES_FOR_ACCELERATION}+) and no fast follow - checking CONSENSUS...`);
+          if (!hasFastFollow) {
+            console.log(`   ⚠️  [NINJA] No fast follow (2nd wallet too slow) - checking CONSENSUS...`);
             // Falls through to regular CONSENSUS check
           } else {
-            console.log(`   ⚡ [NINJA] Acceleration detected: ${tradesInAccelWindow.length} trades in ${NINJA_ACCELERATION_WINDOW_SECONDS}s window${hasAcceleration ? ' ✓' : ''}${hasFastFollow ? ', fast follow ✓' : ''}`);
-
-            // DIVERSITY CHECK: ≥60% unique wallets from recent trades
-            const recentTrades = buysInNinjaWindow.slice(-10); // Last 10 trades max
-            const uniqueWalletsInRecent = new Set(recentTrades.map(t => t.walletId)).size;
-            const diversityPercent = (uniqueWalletsInRecent / recentTrades.length) * 100;
+            // DIVERSITY CHECK: all wallets must be unique (no wash trading)
+            const uniqueWallets = new Set(buysInNinjaWindow.map(t => t.walletId)).size;
+            const totalTrades = buysInNinjaWindow.length;
+            const diversityPercent = (uniqueWallets / totalTrades) * 100;
 
             if (diversityPercent < NINJA_MIN_DIVERSITY_PERCENT) {
-              console.log(`   ⚠️  [NINJA] Low diversity: ${uniqueWalletsInRecent}/${recentTrades.length} unique wallets (${diversityPercent.toFixed(0)}% < ${NINJA_MIN_DIVERSITY_PERCENT}%) - possible wash trading, checking CONSENSUS...`);
+              console.log(`   ⚠️  [NINJA] Low diversity: ${uniqueWallets}/${totalTrades} unique wallets (${diversityPercent.toFixed(0)}% < ${NINJA_MIN_DIVERSITY_PERCENT}%) - possible wash trading, checking CONSENSUS...`);
               // Falls through to regular CONSENSUS check
             } else {
-              console.log(`   🎯 [NINJA] Diversity check passed: ${uniqueWalletsInRecent}/${recentTrades.length} unique wallets (${diversityPercent.toFixed(0)}%)`);
-
               // All NINJA checks passed!
               isNinjaSignal = true;
-              console.log(`   🥷 [NINJA] ✅ NINJA Signal detected! MCap: $${(marketCap / 1000).toFixed(1)}K, ${ninjaWalletCount} wallets in ${ninjaTimeSpan.toFixed(1)} min, pump: +${pricePumpPercent.toFixed(0)}%, diversity: ${diversityPercent.toFixed(0)}%`);
+              console.log(`   🥷 [NINJA] ✅ NINJA Signal! MCap: $${(marketCap / 1000).toFixed(1)}K, ${ninjaWalletCount} wallets, fast follow: ${timeDiffSeconds.toFixed(0)}s, pump: +${pricePumpPercent.toFixed(0)}%`);
             }
           }
         }
