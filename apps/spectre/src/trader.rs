@@ -199,13 +199,19 @@ impl SpectreTrader {
             };
 
             let elapsed = start.elapsed();
-            let entry_price = signal.entry_price_usd.unwrap_or(0.0);
+
+            // Use actual trade price (from quote), not signal price
+            // current_price = SOL amount / tokens received
+            let actual_entry_price = current_price.unwrap_or_else(|| {
+                // Fallback to signal price if we couldn't calculate
+                signal.entry_price_usd.unwrap_or(0.0)
+            });
 
             // 5. Create position for SL/TP monitoring
             let position = Position::new(
                 token_mint.clone(),
                 token_symbol.clone(),
-                entry_price,
+                actual_entry_price,  // Use actual trade price!
                 out_amount,
                 self.config.trade_amount_sol,
                 signal.stop_loss_percent,
@@ -229,7 +235,7 @@ impl SpectreTrader {
                 action: "buy".to_string(),
                 amount_sol: self.config.trade_amount_sol,
                 amount_tokens: Some(out_amount as f64),
-                price_per_token: Some(entry_price),
+                price_per_token: Some(actual_entry_price),
                 tx_signature: Some(bundle_id),
                 error: None,
                 latency_ms: elapsed.as_millis() as u64,
