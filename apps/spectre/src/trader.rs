@@ -282,9 +282,11 @@ impl SpectreTrader {
         }
     }
 
-    /// Execute sell order (SL/TP triggered)
+    /// Execute sell order (SL/TP triggered) with retry logic
+    /// Will retry up to MAX_SELL_ATTEMPTS times until successful
     pub async fn execute_sell(&self, token_mint: &str, reason: ExitReason) -> Result<TradeResult> {
-        let start = std::time::Instant::now();
+        const MAX_SELL_ATTEMPTS: u32 = 5;
+        const RETRY_DELAY_MS: u64 = 1000;
 
         let position = match self.position_manager.get_position(token_mint).await {
             Some(p) => p,
@@ -300,106 +302,265 @@ impl SpectreTrader {
             position.amount_tokens
         );
 
-        // 1. Get sell quote
-        let quote = match self.jupiter.get_sell_quote(
-            token_mint,
-            position.amount_tokens,
-            self.config.slippage_bps + 500, // Extra slippage for sells
-        ).await {
-            Ok(q) => q,
-            Err(e) => {
-                error!("❌ Failed to get sell quote: {}", e);
-                return Ok(TradeResult {
-                    success: false,
-                    token_mint: token_mint.to_string(),
-                    token_symbol: position.token_symbol.clone(),
-                    action: "sell".to_string(),
-                    amount_sol: 0.0,
-                    amount_tokens: Some(position.amount_tokens as f64),
-                    price_per_token: None,
-                    tx_signature: None,
-                    error: Some(format!("Sell quote failed: {}", e)),
-                    latency_ms: start.elapsed().as_millis() as u64,
-                    timestamp: chrono::Utc::now().to_rfc3339(),
-                    signal_type: None,
-                    signal_strength: None,
-                    market_cap_usd: None,
-                    liquidity_usd: None,
-                    entry_price_usd: Some(position.entry_price),
-                    stop_loss_percent: Some(position.stop_loss_percent),
-                    take_profit_percent: Some(position.take_profit_percent),
-                    trigger_wallets: None,
-                    attempt_number: 1,
-                    price_at_signal: None,
-                    price_at_trade: None,
-                    price_change_percent: None,
-                });
-            }
-        };
+        let mut last_error: Option<String> = None;
 
-        let out_lamports: u64 = quote.out_amount.parse().unwrap_or(0);
-        let out_sol = out_lamports as f64 / 1e9;
+        for attempt in 1..=MAX_SELL_ATTEMPTS {
+            let start = std::time::Instant::now();
 
-        // 2. Get swap transaction
-        let (transaction, _) = self.jupiter.get_swap_transaction(
-            quote,
-            &self.config.wallet_pubkey(),
-            self.config.jito_tip_lamports,
-        ).await?;
+            // 1. Get sell quote with increasing slippage on retries
+            let extra_slippage = 500 + (attempt - 1) * 200; // Start at 5%, add 2% per retry
+            let quote = match self.jupiter.get_sell_quote(
+                token_mint,
+                position.amount_tokens,
+                self.config.slippage_bps + extra_slippage as u16,
+            ).await {
+                Ok(q) => q,
+                Err(e) => {
+                    error!("❌ [Sell Attempt {}/{}] Failed to get quote: {}", attempt, MAX_SELL_ATTEMPTS, e);
+                    last_error = Some(format!("Sell quote failed: {}", e));
+                    if attempt < MAX_SELL_ATTEMPTS {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                        continue;
+                    }
+                    // Final attempt failed
+                    return Ok(TradeResult {
+                        success: false,
+                        token_mint: token_mint.to_string(),
+                        token_symbol: position.token_symbol.clone(),
+                        action: "sell".to_string(),
+                        amount_sol: 0.0,
+                        amount_tokens: Some(position.amount_tokens as f64),
+                        price_per_token: None,
+                        tx_signature: None,
+                        error: last_error,
+                        latency_ms: start.elapsed().as_millis() as u64,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        signal_type: None,
+                        signal_strength: None,
+                        market_cap_usd: None,
+                        liquidity_usd: None,
+                        entry_price_usd: Some(position.entry_price),
+                        stop_loss_percent: Some(position.stop_loss_percent),
+                        take_profit_percent: Some(position.take_profit_percent),
+                        trigger_wallets: None,
+                        attempt_number: attempt,
+                        price_at_signal: None,
+                        price_at_trade: None,
+                        price_change_percent: None,
+                    });
+                }
+            };
 
-        // 3. Sign and send
-        let recent_blockhash = self.rpc_client.get_latest_blockhash().await?;
-        let signed_tx = self.sign_versioned_transaction(transaction, recent_blockhash)?;
+            let out_lamports: u64 = quote.out_amount.parse().unwrap_or(0);
+            let out_sol = out_lamports as f64 / 1e9;
 
-        let tx_sig = match self.jito.send_bundle(&signed_tx).await {
-            Ok(id) => id,
-            Err(_) => {
-                // Fallback to direct RPC
-                self.rpc_client.send_and_confirm_transaction(&signed_tx).await?.to_string()
-            }
-        };
+            // 2. Get swap transaction
+            let (transaction, _) = match self.jupiter.get_swap_transaction(
+                quote,
+                &self.config.wallet_pubkey(),
+                self.config.jito_tip_lamports,
+            ).await {
+                Ok(tx) => tx,
+                Err(e) => {
+                    error!("❌ [Sell Attempt {}/{}] Failed to get swap TX: {}", attempt, MAX_SELL_ATTEMPTS, e);
+                    last_error = Some(format!("Swap TX failed: {}", e));
+                    if attempt < MAX_SELL_ATTEMPTS {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                        continue;
+                    }
+                    return Ok(TradeResult {
+                        success: false,
+                        token_mint: token_mint.to_string(),
+                        token_symbol: position.token_symbol.clone(),
+                        action: "sell".to_string(),
+                        amount_sol: 0.0,
+                        amount_tokens: Some(position.amount_tokens as f64),
+                        price_per_token: None,
+                        tx_signature: None,
+                        error: last_error,
+                        latency_ms: start.elapsed().as_millis() as u64,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        signal_type: None,
+                        signal_strength: None,
+                        market_cap_usd: None,
+                        liquidity_usd: None,
+                        entry_price_usd: Some(position.entry_price),
+                        stop_loss_percent: Some(position.stop_loss_percent),
+                        take_profit_percent: Some(position.take_profit_percent),
+                        trigger_wallets: None,
+                        attempt_number: attempt,
+                        price_at_signal: None,
+                        price_at_trade: None,
+                        price_change_percent: None,
+                    });
+                }
+            };
 
-        // 4. Remove position
-        self.position_manager.remove_position(token_mint).await;
+            // 3. Sign and send
+            let recent_blockhash = match self.rpc_client.get_latest_blockhash().await {
+                Ok(bh) => bh,
+                Err(e) => {
+                    error!("❌ [Sell Attempt {}/{}] Failed to get blockhash: {}", attempt, MAX_SELL_ATTEMPTS, e);
+                    last_error = Some(format!("Blockhash failed: {}", e));
+                    if attempt < MAX_SELL_ATTEMPTS {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                        continue;
+                    }
+                    return Ok(TradeResult {
+                        success: false,
+                        token_mint: token_mint.to_string(),
+                        token_symbol: position.token_symbol.clone(),
+                        action: "sell".to_string(),
+                        amount_sol: 0.0,
+                        amount_tokens: Some(position.amount_tokens as f64),
+                        price_per_token: None,
+                        tx_signature: None,
+                        error: last_error,
+                        latency_ms: start.elapsed().as_millis() as u64,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        signal_type: None,
+                        signal_strength: None,
+                        market_cap_usd: None,
+                        liquidity_usd: None,
+                        entry_price_usd: Some(position.entry_price),
+                        stop_loss_percent: Some(position.stop_loss_percent),
+                        take_profit_percent: Some(position.take_profit_percent),
+                        trigger_wallets: None,
+                        attempt_number: attempt,
+                        price_at_signal: None,
+                        price_at_trade: None,
+                        price_change_percent: None,
+                    });
+                }
+            };
 
-        let elapsed = start.elapsed();
-        let pnl_sol = out_sol - position.amount_sol_invested;
-        let pnl_percent = (out_sol / position.amount_sol_invested - 1.0) * 100.0;
+            let signed_tx = match self.sign_versioned_transaction(transaction, recent_blockhash) {
+                Ok(tx) => tx,
+                Err(e) => {
+                    error!("❌ [Sell Attempt {}/{}] Failed to sign TX: {}", attempt, MAX_SELL_ATTEMPTS, e);
+                    last_error = Some(format!("Sign failed: {}", e));
+                    if attempt < MAX_SELL_ATTEMPTS {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                        continue;
+                    }
+                    return Ok(TradeResult {
+                        success: false,
+                        token_mint: token_mint.to_string(),
+                        token_symbol: position.token_symbol.clone(),
+                        action: "sell".to_string(),
+                        amount_sol: 0.0,
+                        amount_tokens: Some(position.amount_tokens as f64),
+                        price_per_token: None,
+                        tx_signature: None,
+                        error: last_error,
+                        latency_ms: start.elapsed().as_millis() as u64,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        signal_type: None,
+                        signal_strength: None,
+                        market_cap_usd: None,
+                        liquidity_usd: None,
+                        entry_price_usd: Some(position.entry_price),
+                        stop_loss_percent: Some(position.stop_loss_percent),
+                        take_profit_percent: Some(position.take_profit_percent),
+                        trigger_wallets: None,
+                        attempt_number: attempt,
+                        price_at_signal: None,
+                        price_at_trade: None,
+                        price_change_percent: None,
+                    });
+                }
+            };
 
-        info!(
-            "✅ SELL executed ({}): {} SOL received | PnL: {:.4} SOL ({:.1}%) | took: {:?}",
-            reason,
-            out_sol,
-            pnl_sol,
-            pnl_percent,
-            elapsed
-        );
+            // Try Jito first, then fallback to RPC
+            let tx_sig = match self.jito.send_bundle(&signed_tx).await {
+                Ok(id) => id,
+                Err(jito_err) => {
+                    warn!("⚠️ [Sell Attempt {}/{}] Jito failed, trying RPC: {}", attempt, MAX_SELL_ATTEMPTS, jito_err);
+                    match self.rpc_client.send_and_confirm_transaction(&signed_tx).await {
+                        Ok(sig) => sig.to_string(),
+                        Err(rpc_err) => {
+                            error!("❌ [Sell Attempt {}/{}] RPC also failed: {}", attempt, MAX_SELL_ATTEMPTS, rpc_err);
+                            last_error = Some(format!("TX failed: Jito={}, RPC={}", jito_err, rpc_err));
+                            if attempt < MAX_SELL_ATTEMPTS {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                                continue;
+                            }
+                            return Ok(TradeResult {
+                                success: false,
+                                token_mint: token_mint.to_string(),
+                                token_symbol: position.token_symbol.clone(),
+                                action: "sell".to_string(),
+                                amount_sol: 0.0,
+                                amount_tokens: Some(position.amount_tokens as f64),
+                                price_per_token: None,
+                                tx_signature: None,
+                                error: last_error,
+                                latency_ms: start.elapsed().as_millis() as u64,
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                                signal_type: None,
+                                signal_strength: None,
+                                market_cap_usd: None,
+                                liquidity_usd: None,
+                                entry_price_usd: Some(position.entry_price),
+                                stop_loss_percent: Some(position.stop_loss_percent),
+                                take_profit_percent: Some(position.take_profit_percent),
+                                trigger_wallets: None,
+                                attempt_number: attempt,
+                                price_at_signal: None,
+                                price_at_trade: None,
+                                price_change_percent: None,
+                            });
+                        }
+                    }
+                }
+            };
 
-        Ok(TradeResult {
-            success: true,
-            token_mint: token_mint.to_string(),
-            token_symbol: position.token_symbol,
-            action: "sell".to_string(),
-            amount_sol: out_sol,
-            amount_tokens: Some(position.amount_tokens as f64),
-            price_per_token: None,
-            tx_signature: Some(tx_sig),
-            error: None,
-            latency_ms: elapsed.as_millis() as u64,
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            signal_type: None,
-            signal_strength: None,
-            market_cap_usd: None,
-            liquidity_usd: None,
-            entry_price_usd: Some(position.entry_price),
-            stop_loss_percent: Some(position.stop_loss_percent),
-            take_profit_percent: Some(position.take_profit_percent),
-            trigger_wallets: None,
-            attempt_number: 1,
-            price_at_signal: None,
-            price_at_trade: None,
-            price_change_percent: None,
-        })
+            // SUCCESS! Remove position and return
+            self.position_manager.remove_position(token_mint).await;
+
+            let elapsed = start.elapsed();
+            let pnl_sol = out_sol - position.amount_sol_invested;
+            let pnl_percent = (out_sol / position.amount_sol_invested - 1.0) * 100.0;
+
+            info!(
+                "✅ SELL executed (attempt {}) ({}): {} SOL received | PnL: {:.4} SOL ({:.1}%) | took: {:?}",
+                attempt,
+                reason,
+                out_sol,
+                pnl_sol,
+                pnl_percent,
+                elapsed
+            );
+
+            return Ok(TradeResult {
+                success: true,
+                token_mint: token_mint.to_string(),
+                token_symbol: position.token_symbol,
+                action: "sell".to_string(),
+                amount_sol: out_sol,
+                amount_tokens: Some(position.amount_tokens as f64),
+                price_per_token: None,
+                tx_signature: Some(tx_sig),
+                error: None,
+                latency_ms: elapsed.as_millis() as u64,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                signal_type: None,
+                signal_strength: None,
+                market_cap_usd: None,
+                liquidity_usd: None,
+                entry_price_usd: Some(position.entry_price),
+                stop_loss_percent: Some(position.stop_loss_percent),
+                take_profit_percent: Some(position.take_profit_percent),
+                trigger_wallets: None,
+                attempt_number: attempt,
+                price_at_signal: None,
+                price_at_trade: None,
+                price_change_percent: None,
+            });
+        }
+
+        // Should never reach here
+        Err(anyhow!("Sell failed after {} attempts", MAX_SELL_ATTEMPTS))
     }
 
     /// Sign a versioned transaction

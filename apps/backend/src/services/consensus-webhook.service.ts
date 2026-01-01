@@ -33,7 +33,7 @@ const NINJA_MAX_MARKET_CAP_USD = 22000;   // $22K maximum (micro-cap territory)
 const NINJA_TIME_WINDOW_MINUTES = 3;       // 3 minute window for fast consensus
 const NINJA_MAX_PRICE_PUMP_PERCENT = 50;   // Max 50% pump from first buy
 const NINJA_MIN_LIQUIDITY_USD = 3000;      // $3K minimum liquidity
-const NINJA_STOP_LOSS_PERCENT = 25;        // -25% SL (tighter for micro-cap risk)
+const NINJA_STOP_LOSS_PERCENT = 20;        // -20% SL (tighter for micro-cap risk)
 const NINJA_TAKE_PROFIT_PERCENT = 50;      // +50% TP (quick exit)
 const NINJA_MIN_WALLETS = 2;               // 2+ wallets for consensus
 
