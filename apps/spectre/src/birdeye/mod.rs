@@ -1,13 +1,10 @@
 use anyhow::{anyhow, Result};
 use reqwest::Client;
 use serde::Deserialize;
-use tracing::{debug, warn, info};
+use tracing::{debug, warn};
 
 const BIRDEYE_API_URL: &str = "https://public-api.birdeye.so";
-const PUMPFUN_API_URL: &str = "https://frontend-api.pump.fun";
-
-// Pump.fun tokens have 1 billion total supply with 6 decimals
-const PUMP_FUN_TOTAL_SUPPLY: f64 = 1_000_000_000.0;
+const DEXSCREENER_API_URL: &str = "https://api.dexscreener.com/latest/dex/tokens";
 
 #[derive(Debug, Deserialize)]
 struct BirdeyeResponse<T> {
@@ -22,16 +19,23 @@ struct PriceData {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct PumpFunCoin {
-    mint: String,
+struct DexScreenerResponse {
+    pairs: Option<Vec<DexScreenerPair>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DexScreenerPair {
+    chain_id: String,
+    price_usd: Option<String>,
     #[serde(default)]
-    market_cap: f64,
-    #[serde(default)]
-    usd_market_cap: f64,
-    #[serde(default)]
-    virtual_sol_reserves: Option<f64>,
-    #[serde(default)]
-    virtual_token_reserves: Option<f64>,
+    liquidity: Option<DexScreenerLiquidity>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DexScreenerLiquidity {
+    usd: Option<f64>,
 }
 
 pub struct BirdeyeClient {
@@ -51,20 +55,21 @@ impl BirdeyeClient {
     }
 
     /// Get current price in USD for a token
-    /// First tries pump.fun API (no rate limit), falls back to Birdeye
+    /// First tries DexScreener (no rate limit, works for all DEX tokens),
+    /// falls back to Birdeye for edge cases
     pub async fn get_price(&self, token_mint: &str) -> Result<f64> {
-        // 1. Try pump.fun API first (no rate limit, works for pump.fun tokens)
-        if let Ok(price) = self.get_price_from_pumpfun(token_mint).await {
+        // 1. Try DexScreener first (no rate limit, works for all Solana DEX tokens)
+        if let Ok(price) = self.get_price_from_dexscreener(token_mint).await {
             return Ok(price);
         }
 
-        // 2. Fall back to Birdeye for non-pump.fun tokens
+        // 2. Fall back to Birdeye for edge cases
         self.get_price_from_birdeye(token_mint).await
     }
 
-    /// Get price from pump.fun API (no rate limit)
-    async fn get_price_from_pumpfun(&self, token_mint: &str) -> Result<f64> {
-        let url = format!("{}/coins/{}", PUMPFUN_API_URL, token_mint);
+    /// Get price from DexScreener API (no rate limit)
+    async fn get_price_from_dexscreener(&self, token_mint: &str) -> Result<f64> {
+        let url = format!("{}/{}", DEXSCREENER_API_URL, token_mint);
 
         let response = self.client
             .get(&url)
@@ -73,34 +78,29 @@ impl BirdeyeClient {
             .await?;
 
         if !response.status().is_success() {
-            return Err(anyhow!("pump.fun API error: {}", response.status()));
+            return Err(anyhow!("DexScreener API error: {}", response.status()));
         }
 
-        let coin: PumpFunCoin = response.json().await?;
+        let data: DexScreenerResponse = response.json().await?;
 
-        // Calculate price from market cap or reserves
-        let price = if coin.usd_market_cap > 0.0 {
-            // MCap / Total Supply = Price
-            coin.usd_market_cap / PUMP_FUN_TOTAL_SUPPLY
-        } else if let (Some(sol_reserves), Some(token_reserves)) = (coin.virtual_sol_reserves, coin.virtual_token_reserves) {
-            // Bonding curve price calculation
-            // This is approximate - actual price depends on SOL/USD rate
-            if token_reserves > 0.0 {
-                // Get SOL price (use a rough estimate or fetch from elsewhere)
-                let sol_price_usd = 200.0; // TODO: Get actual SOL price
-                (sol_reserves / token_reserves) * sol_price_usd
-            } else {
-                return Err(anyhow!("No price data from pump.fun"));
+        // Find Solana pair with price
+        if let Some(pairs) = data.pairs {
+            for pair in pairs {
+                if pair.chain_id == "solana" {
+                    if let Some(price_str) = pair.price_usd {
+                        if let Ok(price) = price_str.parse::<f64>() {
+                            debug!("DexScreener price for {}: ${:.10}", &token_mint[..8.min(token_mint.len())], price);
+                            return Ok(price);
+                        }
+                    }
+                }
             }
-        } else {
-            return Err(anyhow!("No market cap or reserves from pump.fun"));
-        };
+        }
 
-        debug!("pump.fun price for {}: ${:.10}", &token_mint[..8.min(token_mint.len())], price);
-        Ok(price)
+        Err(anyhow!("No Solana price data from DexScreener"))
     }
 
-    /// Get price from Birdeye API
+    /// Get price from Birdeye API (fallback, has rate limits)
     async fn get_price_from_birdeye(&self, token_mint: &str) -> Result<f64> {
         let url = format!("{}/defi/price?address={}", BIRDEYE_API_URL, token_mint);
 
@@ -147,8 +147,8 @@ impl BirdeyeClient {
                     results.push((mint.to_string(), None));
                 }
             }
-            // Small delay to avoid rate limiting
-            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            // Small delay to be nice to APIs
+            tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
         }
 
         Ok(results)
