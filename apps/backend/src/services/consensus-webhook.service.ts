@@ -17,12 +17,10 @@ import { SignalRepository } from '../repositories/signal.repository.js';
 import { AIDecisionService } from './ai-decision.service.js';
 import { TokenMarketDataService } from './token-market-data.service.js';
 import { DiscordNotificationService, SignalNotificationData } from './discord-notification.service.js';
-import { RugCheckService } from './rugcheck.service.js';
 import { PositionMonitorService } from './position-monitor.service.js';
 import { SignalPerformanceService } from './signal-performance.service.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 import { WalletCorrelationService } from './wallet-correlation.service.js';
-import { signalQualityFilter } from './signal-quality-filter.service.js';
 import { redisService, SpectreSignalPayload } from './redis.service.js';
 
 const INITIAL_CAPITAL_USD = 1000;
@@ -30,8 +28,8 @@ const CONSENSUS_TIME_WINDOW_HOURS = 2;
 const CLUSTER_STRENGTH_THRESHOLD = 70; // Minimum cluster strength for 💎💎 CLUSTER signal
 
 // NINJA Signal parameters (micro-cap, fast consensus)
-const NINJA_MIN_MARKET_CAP_USD = 5000;    // $5K minimum (needs some liquidity)
-const NINJA_MAX_MARKET_CAP_USD = 20000;   // $20K maximum (micro-cap territory)
+const NINJA_MIN_MARKET_CAP_USD = 4000;    // $4K minimum (needs some liquidity)
+const NINJA_MAX_MARKET_CAP_USD = 22000;   // $22K maximum (micro-cap territory)
 const NINJA_TIME_WINDOW_MINUTES = 3;       // 3 minute window for fast consensus
 const NINJA_MAX_PRICE_PUMP_PERCENT = 50;   // Max 50% pump from first buy
 const NINJA_MIN_LIQUIDITY_USD = 3000;      // $3K minimum liquidity
@@ -40,7 +38,7 @@ const NINJA_TAKE_PROFIT_PERCENT = 50;      // +50% TP (quick exit)
 const NINJA_MIN_WALLETS = 2;               // 2+ wallets for consensus
 
 // CONSENSUS Signal parameters (regular market cap)
-const CONSENSUS_MIN_MARKET_CAP_USD = 20000; // $20K minimum for regular consensus
+const CONSENSUS_MIN_MARKET_CAP_USD = 22000; // $22K minimum for regular consensus (above NINJA range)
 
 export class ConsensusWebhookService {
   private paperTradeService: PaperTradeService;
@@ -53,7 +51,6 @@ export class ConsensusWebhookService {
   private aiDecisionService: AIDecisionService;
   private tokenMarketData: TokenMarketDataService;
   private discordNotification: DiscordNotificationService;
-  private rugCheck: RugCheckService;
   private positionMonitor: PositionMonitorService;
   private signalPerformance: SignalPerformanceService;
   private tradeFeatureRepo: TradeFeatureRepository;
@@ -70,7 +67,6 @@ export class ConsensusWebhookService {
     this.aiDecisionService = new AIDecisionService();
     this.tokenMarketData = new TokenMarketDataService();
     this.discordNotification = new DiscordNotificationService();
-    this.rugCheck = new RugCheckService();
     this.positionMonitor = new PositionMonitorService();
     this.signalPerformance = new SignalPerformanceService();
     this.tradeFeatureRepo = new TradeFeatureRepository();
@@ -285,19 +281,8 @@ export class ConsensusWebhookService {
         console.log(`   ✅ [CONSENSUS] Market cap check passed: $${(marketCap / 1000).toFixed(1)}K >= $${(CONSENSUS_MIN_MARKET_CAP_USD / 1000).toFixed(0)}K minimum`);
       }
 
-      // 4c. QUALITY FILTERS - check volume ratio, price momentum, holder concentration
-      // Fetch RugCheck for holder data
-      let rugCheckReport = null;
-      if (token?.mintAddress) {
-        try {
-          const rugCheckService = new RugCheckService();
-          rugCheckReport = await rugCheckService.getReport(token.mintAddress);
-        } catch (e) {
-          console.warn(`   ⚠️  [Consensus] Failed to fetch RugCheck for ${token.symbol}`);
-        }
-      }
-
-      // Create market data object from previously fetched marketCap and liquidity
+      // Quality filters DISABLED - only MCap, liquidity, and wallet count matter
+      // Create market data object for later use
       const marketDataForQuality = {
         marketCap,
         liquidity,
@@ -306,12 +291,6 @@ export class ConsensusWebhookService {
         tokenAgeMinutes: null,
         ageMinutes: null,
       };
-      const qualityCheck = signalQualityFilter.checkSignalQuality(marketDataForQuality, rugCheckReport);
-      if (!qualityCheck.passed) {
-        console.log(`   ⚠️  [Consensus] Token ${token?.symbol} QUALITY FILTER FAILED: ${qualityCheck.reason}`);
-        return { consensusFound: false }; // Don't create signal
-      }
-      console.log(`   ✅ [Consensus] Quality filters passed`);
 
       console.log(`   🤖 [Consensus] Will call AI decision service now...`);
 
