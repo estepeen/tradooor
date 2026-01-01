@@ -11,6 +11,7 @@ use tracing::{info, warn, error};
 use crate::config::Config;
 use crate::jupiter::JupiterClient;
 use crate::jito::JitoClient;
+use crate::pumpfun_trade::PumpfunTrader;
 use crate::position::{Position, PositionManager, ExitReason};
 use crate::redis::{SpectreSignal, TradeResult};
 
@@ -19,6 +20,7 @@ pub struct SpectreTrader {
     rpc_client: Arc<RpcClient>,
     jupiter: JupiterClient,
     jito: JitoClient,
+    pumpfun: PumpfunTrader,
     position_manager: PositionManager,
 }
 
@@ -32,6 +34,7 @@ impl SpectreTrader {
         Self {
             jupiter: JupiterClient::with_api_key(config.jupiter_api_key.clone()),
             jito: JitoClient::new(&config.jito_block_engine_url),
+            pumpfun: PumpfunTrader::new(),
             position_manager: PositionManager::new(),
             config,
             rpc_client,
@@ -39,14 +42,10 @@ impl SpectreTrader {
     }
 
     /// Execute buy order for a signal with retry logic
-    /// Max 2 attempts, skip if price jumped more than 30% from signal
+    /// Routes NINJA signals to pump.fun, CONSENSUS signals to Jupiter
     pub async fn execute_buy(&self, signal: &SpectreSignal) -> Result<TradeResult> {
-        const MAX_ATTEMPTS: u32 = 2;
-        const MAX_PRICE_CHANGE_PERCENT: f64 = 30.0;
-
         let token_mint = &signal.token_mint;
         let token_symbol = &signal.token_symbol;
-        let signal_price = signal.entry_price_usd;
 
         // Check if we already have a position
         if self.position_manager.has_position(token_mint).await {
@@ -54,12 +53,162 @@ impl SpectreTrader {
             return Ok(self.create_error_result(signal, "Already have position", 1, None));
         }
 
+        // Route based on signal type:
+        // - NINJA (micro-cap $5K-$20K) -> pump.fun bonding curve (more reliable)
+        // - CONSENSUS ($20K+) -> Jupiter (token likely graduated to Raydium)
+        let is_ninja = signal.signal_type.to_lowercase() == "ninja";
+
         info!(
-            "👻 Executing BUY: {} ({}) - MCap: ${:.0}",
+            "👻 Executing BUY via {}: {} ({}) - MCap: ${:.0}",
+            if is_ninja { "PUMP.FUN" } else { "JUPITER" },
             token_symbol,
             token_mint,
             signal.market_cap_usd.unwrap_or(0.0)
         );
+
+        if is_ninja {
+            self.execute_buy_pumpfun(signal).await
+        } else {
+            self.execute_buy_jupiter(signal).await
+        }
+    }
+
+    /// Execute buy via pump.fun bonding curve (for NINJA signals)
+    async fn execute_buy_pumpfun(&self, signal: &SpectreSignal) -> Result<TradeResult> {
+        const MAX_ATTEMPTS: u32 = 2;
+
+        let token_mint = &signal.token_mint;
+        let token_symbol = &signal.token_symbol;
+
+        for attempt in 1..=MAX_ATTEMPTS {
+            let start = std::time::Instant::now();
+
+            // 1. Get transaction from PumpPortal
+            let slippage_percent = (self.config.slippage_bps / 100) as u16; // Convert bps to percent
+            let priority_fee_sol = self.config.jito_tip_lamports as f64 / 1e9;
+
+            let tx_bytes = match self.pumpfun.get_buy_transaction(
+                &self.config.wallet_pubkey().to_string(),
+                token_mint,
+                self.config.trade_amount_sol,
+                slippage_percent,
+                priority_fee_sol,
+            ).await {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    error!("❌ [Attempt {}/{}] PumpPortal buy failed: {}", attempt, MAX_ATTEMPTS, e);
+                    if attempt < MAX_ATTEMPTS {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        continue;
+                    }
+                    return Ok(self.create_error_result(signal, &format!("PumpPortal failed: {}", e), attempt, None));
+                }
+            };
+
+            // 2. Sign transaction
+            let signed_tx = match self.pumpfun.sign_transaction(&tx_bytes, &self.config.wallet) {
+                Ok(tx) => tx,
+                Err(e) => {
+                    error!("❌ [Attempt {}/{}] Failed to sign TX: {}", attempt, MAX_ATTEMPTS, e);
+                    if attempt < MAX_ATTEMPTS {
+                        continue;
+                    }
+                    return Ok(self.create_error_result(signal, &format!("Sign failed: {}", e), attempt, None));
+                }
+            };
+
+            // 3. Send via Jito bundle for MEV protection
+            let tx_sig = match self.jito.send_bundle(&signed_tx).await {
+                Ok(id) => id,
+                Err(e) => {
+                    warn!("⚠️ [Attempt {}/{}] Jito bundle failed, falling back to RPC: {}", attempt, MAX_ATTEMPTS, e);
+                    match self.rpc_client.send_and_confirm_transaction(&signed_tx).await {
+                        Ok(sig) => sig.to_string(),
+                        Err(rpc_e) => {
+                            error!("❌ [Attempt {}/{}] RPC also failed: {}", attempt, MAX_ATTEMPTS, rpc_e);
+                            if attempt < MAX_ATTEMPTS {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                                continue;
+                            }
+                            return Ok(self.create_error_result(signal, &format!("TX failed: {}", rpc_e), attempt, None));
+                        }
+                    }
+                }
+            };
+
+            let elapsed = start.elapsed();
+
+            // Use signal price as entry (we don't have exact quote from pump.fun)
+            let entry_price = signal.entry_price_usd.unwrap_or(0.0);
+
+            // Estimate tokens received (we'll update from on-chain later if needed)
+            // For now, estimate from market cap and SOL invested
+            let estimated_tokens = if entry_price > 0.0 {
+                ((self.config.trade_amount_sol * 200.0) / entry_price) as u64 // Rough SOL price estimate
+            } else {
+                0
+            };
+
+            // Create position for SL/TP monitoring (mark as pump.fun position)
+            let position = Position::new(
+                token_mint.clone(),
+                token_symbol.clone(),
+                entry_price,
+                estimated_tokens,
+                self.config.trade_amount_sol,
+                signal.stop_loss_percent,
+                signal.take_profit_percent,
+                tx_sig.clone(),
+                true, // is_pumpfun = true
+            );
+            self.position_manager.add_position(position).await;
+
+            info!(
+                "✅ PUMP.FUN BUY executed (attempt {}): ~{} tokens for {} SOL (took: {:?})",
+                attempt,
+                estimated_tokens,
+                self.config.trade_amount_sol,
+                elapsed
+            );
+
+            return Ok(TradeResult {
+                success: true,
+                token_mint: token_mint.clone(),
+                token_symbol: token_symbol.clone(),
+                action: "buy".to_string(),
+                amount_sol: self.config.trade_amount_sol,
+                amount_tokens: Some(estimated_tokens as f64),
+                price_per_token: Some(entry_price),
+                tx_signature: Some(tx_sig),
+                error: None,
+                latency_ms: elapsed.as_millis() as u64,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                signal_type: Some(signal.signal_type.clone()),
+                signal_strength: Some(signal.strength.clone()),
+                market_cap_usd: signal.market_cap_usd,
+                liquidity_usd: signal.liquidity_usd,
+                entry_price_usd: signal.entry_price_usd,
+                stop_loss_percent: Some(signal.stop_loss_percent),
+                take_profit_percent: Some(signal.take_profit_percent),
+                trigger_wallets: Some(signal.wallets.clone()),
+                attempt_number: attempt,
+                price_at_signal: signal.entry_price_usd,
+                price_at_trade: signal.entry_price_usd,
+                price_change_percent: Some(0.0),
+            });
+        }
+
+        Ok(self.create_error_result(signal, "Max attempts exhausted", MAX_ATTEMPTS, None))
+    }
+
+    /// Execute buy via Jupiter (for CONSENSUS signals - graduated tokens)
+    async fn execute_buy_jupiter(&self, signal: &SpectreSignal) -> Result<TradeResult> {
+        const MAX_ATTEMPTS: u32 = 2;
+        const MAX_PRICE_CHANGE_PERCENT: f64 = 30.0;
+
+        let token_mint = &signal.token_mint;
+        let token_symbol = &signal.token_symbol;
+        let signal_price = signal.entry_price_usd;
 
         // Try up to MAX_ATTEMPTS times
         for attempt in 1..=MAX_ATTEMPTS {
@@ -207,7 +356,7 @@ impl SpectreTrader {
                 signal.entry_price_usd.unwrap_or(0.0)
             });
 
-            // 5. Create position for SL/TP monitoring
+            // 5. Create position for SL/TP monitoring (Jupiter = not pump.fun)
             let position = Position::new(
                 token_mint.clone(),
                 token_symbol.clone(),
@@ -217,6 +366,7 @@ impl SpectreTrader {
                 signal.stop_loss_percent,
                 signal.take_profit_percent,
                 bundle_id.clone(),
+                false, // is_pumpfun = false (Jupiter)
             );
             self.position_manager.add_position(position).await;
 
@@ -289,11 +439,8 @@ impl SpectreTrader {
     }
 
     /// Execute sell order (SL/TP triggered) with retry logic
-    /// Will retry up to MAX_SELL_ATTEMPTS times until successful
+    /// Routes to pump.fun or Jupiter based on how position was opened
     pub async fn execute_sell(&self, token_mint: &str, reason: ExitReason) -> Result<TradeResult> {
-        const MAX_SELL_ATTEMPTS: u32 = 5;
-        const RETRY_DELAY_MS: u64 = 1000;
-
         let position = match self.position_manager.get_position(token_mint).await {
             Some(p) => p,
             None => {
@@ -302,11 +449,200 @@ impl SpectreTrader {
         };
 
         info!(
-            "🔴 Executing SELL ({}): {} - {} tokens",
+            "🔴 Executing SELL via {} ({}): {} - {} tokens",
+            if position.is_pumpfun { "PUMP.FUN" } else { "JUPITER" },
             reason,
             position.token_symbol,
             position.amount_tokens
         );
+
+        if position.is_pumpfun {
+            self.execute_sell_pumpfun(token_mint, &position, reason).await
+        } else {
+            self.execute_sell_jupiter(token_mint, &position, reason).await
+        }
+    }
+
+    /// Execute sell via pump.fun bonding curve
+    async fn execute_sell_pumpfun(&self, token_mint: &str, position: &Position, reason: ExitReason) -> Result<TradeResult> {
+        const MAX_SELL_ATTEMPTS: u32 = 3;
+        const RETRY_DELAY_MS: u64 = 500;
+
+        for attempt in 1..=MAX_SELL_ATTEMPTS {
+            let start = std::time::Instant::now();
+
+            // Increase slippage on retries
+            let slippage_percent = (self.config.slippage_bps / 100) as u16 + ((attempt - 1) * 5) as u16;
+            let priority_fee_sol = self.config.jito_tip_lamports as f64 / 1e9;
+
+            // 1. Get sell transaction from PumpPortal
+            let tx_bytes = match self.pumpfun.get_sell_transaction(
+                &self.config.wallet_pubkey().to_string(),
+                token_mint,
+                position.amount_tokens,
+                slippage_percent,
+                priority_fee_sol,
+            ).await {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    error!("❌ [Sell Attempt {}/{}] PumpPortal sell failed: {}", attempt, MAX_SELL_ATTEMPTS, e);
+                    if attempt < MAX_SELL_ATTEMPTS {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                        continue;
+                    }
+                    return Ok(TradeResult {
+                        success: false,
+                        token_mint: token_mint.to_string(),
+                        token_symbol: position.token_symbol.clone(),
+                        action: "sell".to_string(),
+                        amount_sol: 0.0,
+                        amount_tokens: Some(position.amount_tokens as f64),
+                        price_per_token: None,
+                        tx_signature: None,
+                        error: Some(format!("PumpPortal sell failed: {}", e)),
+                        latency_ms: start.elapsed().as_millis() as u64,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        signal_type: None,
+                        signal_strength: None,
+                        market_cap_usd: None,
+                        liquidity_usd: None,
+                        entry_price_usd: Some(position.entry_price),
+                        stop_loss_percent: Some(position.stop_loss_percent),
+                        take_profit_percent: Some(position.take_profit_percent),
+                        trigger_wallets: None,
+                        attempt_number: attempt,
+                        price_at_signal: None,
+                        price_at_trade: None,
+                        price_change_percent: None,
+                    });
+                }
+            };
+
+            // 2. Sign transaction
+            let signed_tx = match self.pumpfun.sign_transaction(&tx_bytes, &self.config.wallet) {
+                Ok(tx) => tx,
+                Err(e) => {
+                    error!("❌ [Sell Attempt {}/{}] Failed to sign TX: {}", attempt, MAX_SELL_ATTEMPTS, e);
+                    if attempt < MAX_SELL_ATTEMPTS {
+                        continue;
+                    }
+                    return Ok(TradeResult {
+                        success: false,
+                        token_mint: token_mint.to_string(),
+                        token_symbol: position.token_symbol.clone(),
+                        action: "sell".to_string(),
+                        amount_sol: 0.0,
+                        amount_tokens: Some(position.amount_tokens as f64),
+                        price_per_token: None,
+                        tx_signature: None,
+                        error: Some(format!("Sign failed: {}", e)),
+                        latency_ms: start.elapsed().as_millis() as u64,
+                        timestamp: chrono::Utc::now().to_rfc3339(),
+                        signal_type: None,
+                        signal_strength: None,
+                        market_cap_usd: None,
+                        liquidity_usd: None,
+                        entry_price_usd: Some(position.entry_price),
+                        stop_loss_percent: Some(position.stop_loss_percent),
+                        take_profit_percent: Some(position.take_profit_percent),
+                        trigger_wallets: None,
+                        attempt_number: attempt,
+                        price_at_signal: None,
+                        price_at_trade: None,
+                        price_change_percent: None,
+                    });
+                }
+            };
+
+            // 3. Send via Jito bundle
+            let tx_sig = match self.jito.send_bundle(&signed_tx).await {
+                Ok(id) => id,
+                Err(e) => {
+                    warn!("⚠️ [Sell Attempt {}/{}] Jito failed, trying RPC: {}", attempt, MAX_SELL_ATTEMPTS, e);
+                    match self.rpc_client.send_and_confirm_transaction(&signed_tx).await {
+                        Ok(sig) => sig.to_string(),
+                        Err(rpc_e) => {
+                            error!("❌ [Sell Attempt {}/{}] RPC also failed: {}", attempt, MAX_SELL_ATTEMPTS, rpc_e);
+                            if attempt < MAX_SELL_ATTEMPTS {
+                                tokio::time::sleep(tokio::time::Duration::from_millis(RETRY_DELAY_MS)).await;
+                                continue;
+                            }
+                            return Ok(TradeResult {
+                                success: false,
+                                token_mint: token_mint.to_string(),
+                                token_symbol: position.token_symbol.clone(),
+                                action: "sell".to_string(),
+                                amount_sol: 0.0,
+                                amount_tokens: Some(position.amount_tokens as f64),
+                                price_per_token: None,
+                                tx_signature: None,
+                                error: Some(format!("TX failed: {}", rpc_e)),
+                                latency_ms: start.elapsed().as_millis() as u64,
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                                signal_type: None,
+                                signal_strength: None,
+                                market_cap_usd: None,
+                                liquidity_usd: None,
+                                entry_price_usd: Some(position.entry_price),
+                                stop_loss_percent: Some(position.stop_loss_percent),
+                                take_profit_percent: Some(position.take_profit_percent),
+                                trigger_wallets: None,
+                                attempt_number: attempt,
+                                price_at_signal: None,
+                                price_at_trade: None,
+                                price_change_percent: None,
+                            });
+                        }
+                    }
+                }
+            };
+
+            // SUCCESS!
+            self.position_manager.remove_position(token_mint).await;
+
+            let elapsed = start.elapsed();
+            info!(
+                "✅ PUMP.FUN SELL executed (attempt {}) ({}): {} tokens sold (took: {:?})",
+                attempt,
+                reason,
+                position.amount_tokens,
+                elapsed
+            );
+
+            return Ok(TradeResult {
+                success: true,
+                token_mint: token_mint.to_string(),
+                token_symbol: position.token_symbol.clone(),
+                action: "sell".to_string(),
+                amount_sol: position.amount_sol_invested, // Approximate, we don't know exact return
+                amount_tokens: Some(position.amount_tokens as f64),
+                price_per_token: None,
+                tx_signature: Some(tx_sig),
+                error: None,
+                latency_ms: elapsed.as_millis() as u64,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                signal_type: None,
+                signal_strength: None,
+                market_cap_usd: None,
+                liquidity_usd: None,
+                entry_price_usd: Some(position.entry_price),
+                stop_loss_percent: Some(position.stop_loss_percent),
+                take_profit_percent: Some(position.take_profit_percent),
+                trigger_wallets: None,
+                attempt_number: attempt,
+                price_at_signal: None,
+                price_at_trade: None,
+                price_change_percent: None,
+            });
+        }
+
+        Err(anyhow!("Pump.fun sell failed after max attempts"))
+    }
+
+    /// Execute sell via Jupiter (for graduated tokens)
+    async fn execute_sell_jupiter(&self, token_mint: &str, position: &Position, reason: ExitReason) -> Result<TradeResult> {
+        const MAX_SELL_ATTEMPTS: u32 = 5;
+        const RETRY_DELAY_MS: u64 = 1000;
 
         let mut last_error: Option<String> = None;
 
@@ -541,7 +877,7 @@ impl SpectreTrader {
             return Ok(TradeResult {
                 success: true,
                 token_mint: token_mint.to_string(),
-                token_symbol: position.token_symbol,
+                token_symbol: position.token_symbol.clone(),
                 action: "sell".to_string(),
                 amount_sol: out_sol,
                 amount_tokens: Some(position.amount_tokens as f64),

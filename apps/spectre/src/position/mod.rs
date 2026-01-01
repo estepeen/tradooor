@@ -25,6 +25,9 @@ pub struct Position {
     /// If true, stop trying to sell (marked as unsellable)
     #[serde(default)]
     pub is_unsellable: bool,
+    /// True if position was opened via pump.fun (should sell via pump.fun too)
+    #[serde(default)]
+    pub is_pumpfun: bool,
 }
 
 impl Position {
@@ -37,6 +40,7 @@ impl Position {
         stop_loss_percent: f64,  // e.g., 25 (always positive from backend, means -25%)
         take_profit_percent: f64, // e.g., 50 (means +50%)
         tx_signature: String,
+        is_pumpfun: bool,        // true if bought via pump.fun bonding curve
     ) -> Self {
         // SL comes as positive number (e.g., 25 means -25% from entry)
         let sl_multiplier = 1.0 - stop_loss_percent.abs() / 100.0;
@@ -46,7 +50,8 @@ impl Position {
         let take_profit_price = entry_price * (1.0 + take_profit_percent.abs() / 100.0);
 
         info!(
-            "📊 Position created: {} @ ${:.10} | SL: ${:.10} (-{:.0}%) | TP: ${:.10} (+{:.0}%)",
+            "📊 Position created ({}): {} @ ${:.10} | SL: ${:.10} (-{:.0}%) | TP: ${:.10} (+{:.0}%)",
+            if is_pumpfun { "pump.fun" } else { "Jupiter" },
             token_symbol,
             entry_price,
             stop_loss_price,
@@ -69,6 +74,7 @@ impl Position {
             tx_signature,
             failed_sell_attempts: 0,
             is_unsellable: false,
+            is_pumpfun,
         }
     }
 

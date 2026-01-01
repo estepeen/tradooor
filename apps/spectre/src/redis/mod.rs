@@ -78,11 +78,12 @@ impl RedisListener {
             };
 
             loop {
-                // BRPOP with 1 second timeout - blocks until message available
+                // BRPOP with 0 timeout - blocks INDEFINITELY until message available
+                // This is the most efficient way - no polling, instant response
                 let result: redis::RedisResult<Option<(String, String)>> =
                     redis::cmd("BRPOP")
                         .arg(&queue_name)
-                        .arg(1) // 1 second timeout
+                        .arg(0) // 0 = block forever until message arrives (instant response)
                         .query_async(&mut conn)
                         .await;
 

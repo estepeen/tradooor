@@ -6,6 +6,7 @@ mod position;
 mod trader;
 mod birdeye;
 mod pumpportal;
+mod pumpfun_trade;
 
 use anyhow::Result;
 use std::sync::Arc;

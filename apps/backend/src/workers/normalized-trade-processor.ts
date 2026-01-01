@@ -54,7 +54,7 @@ const METRICS_DEBOUNCE_MS = 3000; // Reduced from 10s to 3s for faster UI update
 
 // LATENCY OPTIMIZATION: Minimal delays for fastest signal delivery
 // Key insight: Sequential processing is the bottleneck, not batch size
-const IDLE_DELAY_MS = Number(process.env.NORMALIZED_TRADE_WORKER_IDLE_MS || 100); // Minimal idle delay
+const IDLE_DELAY_MS = Number(process.env.NORMALIZED_TRADE_WORKER_IDLE_MS || 50); // 50ms idle - fast polling
 const BATCH_SIZE = Number(process.env.NORMALIZED_TRADE_WORKER_BATCH || 20); // Moderate batch size
 const DELAY_BETWEEN_TRADES_MS = 0; // No delay between trades - process as fast as possible
 
