@@ -40,8 +40,13 @@ const NINJA_MIN_WALLETS = 2;               // 2+ wallets for consensus
 // NINJA Fast Follow filter: 2nd wallet must buy quickly after 1st
 const NINJA_FAST_FOLLOW_SECONDS = 90;          // 2nd wallet must buy within 90s of first
 
-// NINJA Diversity filter: ensure unique wallets (anti wash-trading)
-const NINJA_MIN_DIVERSITY_PERCENT = 100;       // 100% = all wallets must be unique (2 wallets = 2 unique)
+// NINJA Diversity filter: ensure unique wallets from recent trades (anti wash-trading)
+const NINJA_MIN_DIVERSITY_PERCENT = 60;        // 60% = at least 60% of last 20 trades must be unique wallets
+const NINJA_DIVERSITY_SAMPLE_SIZE = 20;        // Check diversity from last 20 trades on this token
+
+// NINJA Momentum filter: ensure buying activity hasn't dropped off
+const NINJA_MOMENTUM_LOOKBACK_SECONDS = 60;    // Look at activity in last 60 seconds
+const NINJA_MIN_RECENT_TRADES = 1;             // At least 1 trade in last 60s (shows momentum)
 
 // CONSENSUS Signal parameters (post-graduation, higher market cap)
 const CONSENSUS_MIN_MARKET_CAP_USD = 50000; // $50K minimum for regular consensus
@@ -329,18 +334,45 @@ export class ConsensusWebhookService {
             console.log(`   ⚠️  [NINJA] No fast follow (2nd wallet too slow) - checking CONSENSUS...`);
             // Falls through to regular CONSENSUS check
           } else {
-            // DIVERSITY CHECK: all wallets must be unique (no wash trading)
-            const uniqueWallets = new Set(buysInNinjaWindow.map(t => t.walletId)).size;
-            const totalTrades = buysInNinjaWindow.length;
-            const diversityPercent = (uniqueWallets / totalTrades) * 100;
+            // DIVERSITY CHECK: check diversity from last 20 trades on this token
+            // Get all BUY trades for this token (sorted by time)
+            const allTokenBuys = await this.tradeRepo.findBuysByTokenAndTimeWindow(
+              tokenId,
+              new Date(currentTradeTime - 24 * 60 * 60 * 1000), // Last 24h
+              new Date(currentTradeTime)
+            );
+
+            // Take last N trades for diversity check
+            const recentTradesForDiversity = allTokenBuys
+              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+              .slice(0, NINJA_DIVERSITY_SAMPLE_SIZE);
+
+            const uniqueWalletsInSample = new Set(recentTradesForDiversity.map(t => t.walletId)).size;
+            const sampleSize = recentTradesForDiversity.length;
+            const diversityPercent = sampleSize > 0 ? (uniqueWalletsInSample / sampleSize) * 100 : 0;
+
+            console.log(`   🔄 [NINJA] Diversity check: ${uniqueWalletsInSample}/${sampleSize} unique wallets in last ${sampleSize} trades (${diversityPercent.toFixed(0)}%)`);
 
             if (diversityPercent < NINJA_MIN_DIVERSITY_PERCENT) {
-              console.log(`   ⚠️  [NINJA] Low diversity: ${uniqueWallets}/${totalTrades} unique wallets (${diversityPercent.toFixed(0)}% < ${NINJA_MIN_DIVERSITY_PERCENT}%) - possible wash trading, checking CONSENSUS...`);
+              console.log(`   ⚠️  [NINJA] Low diversity: ${diversityPercent.toFixed(0)}% < ${NINJA_MIN_DIVERSITY_PERCENT}% - possible wash trading, checking CONSENSUS...`);
               // Falls through to regular CONSENSUS check
             } else {
-              // All NINJA checks passed!
-              isNinjaSignal = true;
-              console.log(`   🥷 [NINJA] ✅ NINJA Signal! MCap: $${(marketCap / 1000).toFixed(1)}K, ${ninjaWalletCount} wallets, fast follow: ${timeDiffSeconds.toFixed(0)}s, pump: +${pricePumpPercent.toFixed(0)}%`);
+              // MOMENTUM CHECK: ensure there's recent activity (not a dead/dying token)
+              const momentumCutoff = currentTradeTime - NINJA_MOMENTUM_LOOKBACK_SECONDS * 1000;
+              const recentTrades = buysInNinjaWindow.filter(t =>
+                new Date(t.timestamp).getTime() >= momentumCutoff
+              );
+
+              console.log(`   📈 [NINJA] Momentum check: ${recentTrades.length} trades in last ${NINJA_MOMENTUM_LOOKBACK_SECONDS}s`);
+
+              if (recentTrades.length < NINJA_MIN_RECENT_TRADES) {
+                console.log(`   ⚠️  [NINJA] Low momentum: ${recentTrades.length} < ${NINJA_MIN_RECENT_TRADES} recent trades - activity dropped, checking CONSENSUS...`);
+                // Falls through to regular CONSENSUS check
+              } else {
+                // All NINJA checks passed!
+                isNinjaSignal = true;
+                console.log(`   🥷 [NINJA] ✅ NINJA Signal! MCap: $${(marketCap / 1000).toFixed(1)}K, ${ninjaWalletCount} wallets, fast follow: ${timeDiffSeconds.toFixed(0)}s, pump: +${pricePumpPercent.toFixed(0)}%, diversity: ${diversityPercent.toFixed(0)}%`);
+              }
             }
           }
         }

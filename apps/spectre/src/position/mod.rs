@@ -31,12 +31,9 @@ pub struct Position {
     /// True if entry price was synced with real PumpPortal price
     #[serde(default)]
     pub price_synced: bool,
-    /// Highest price seen since entry (for trailing SL)
+    /// Highest price seen since entry (for logging only)
     #[serde(default)]
     pub high_price: f64,
-    /// True if trailing SL is active (after hitting activation threshold)
-    #[serde(default)]
-    pub trailing_active: bool,
     /// Signal type (ninja, consensus, etc.) - determines exit strategy
     #[serde(default)]
     pub signal_type: String,
@@ -124,21 +121,12 @@ impl Position {
             is_unsellable: false,
             is_pumpfun,
             price_synced: false,
-            high_price: entry_price, // Start tracking from entry
-            trailing_active: false,
+            high_price: entry_price, // For logging only
             signal_type,
             scaled_exit_stage: 0,
             original_amount_tokens: amount_tokens,
         }
     }
-
-    /// Trailing SL activation threshold (% profit before trailing starts)
-    /// Once price goes +30% from entry, trailing SL activates
-    const TRAILING_ACTIVATION_PERCENT: f64 = 30.0;
-
-    /// Trailing SL distance from high (% below high price)
-    /// Once trailing is active, SL follows at 20% below the high
-    const TRAILING_DISTANCE_PERCENT: f64 = 20.0;
 
     /// Short initial period to wait for first price sync (in seconds)
     /// We need at least one PumpPortal price update to sync entry_price
@@ -179,56 +167,11 @@ impl Position {
         );
     }
 
-    /// Update trailing stop loss based on current price
-    /// Called on every price update to potentially raise the SL
-    /// Returns true if SL was updated
-    pub fn update_trailing_sl(&mut self, current_price: f64) -> bool {
-        // Don't trail until price is synced
-        if !self.price_synced {
-            return false;
-        }
-
-        // Update high price if we have a new high
+    /// Update high price for logging (no trailing SL - we use scaled exits)
+    pub fn update_high_price(&mut self, current_price: f64) {
         if current_price > self.high_price {
             self.high_price = current_price;
         }
-
-        // Check if we should activate trailing (price went +30% from entry)
-        let profit_percent = (current_price / self.entry_price - 1.0) * 100.0;
-
-        if !self.trailing_active && profit_percent >= Self::TRAILING_ACTIVATION_PERCENT {
-            self.trailing_active = true;
-            info!(
-                "📈 Trailing SL ACTIVATED for {} at +{:.1}% profit (high: ${:.10})",
-                self.token_symbol,
-                profit_percent,
-                self.high_price
-            );
-        }
-
-        // If trailing is active, update SL based on high price
-        if self.trailing_active {
-            // New SL = high_price * (1 - trailing_distance%)
-            let new_sl = self.high_price * (1.0 - Self::TRAILING_DISTANCE_PERCENT / 100.0);
-
-            // Only update if new SL is higher than current (never lower the SL)
-            if new_sl > self.stop_loss_price {
-                let old_sl = self.stop_loss_price;
-                self.stop_loss_price = new_sl;
-
-                info!(
-                    "📊 Trailing SL raised for {}: ${:.10} -> ${:.10} (high: ${:.10}, current: ${:.10})",
-                    self.token_symbol,
-                    old_sl,
-                    new_sl,
-                    self.high_price,
-                    current_price
-                );
-                return true;
-            }
-        }
-
-        false
     }
 
     /// Check if entry price has been synced with real PumpPortal price
@@ -489,15 +432,12 @@ impl PositionManager {
         false
     }
 
-    /// Update trailing stop loss for a position
-    /// Called on every price update to potentially raise the SL
-    /// Returns true if SL was updated
-    pub async fn update_trailing_sl(&self, token_mint: &str, current_price: f64) -> bool {
+    /// Update high price for logging (no trailing SL - we use scaled exits)
+    pub async fn update_high_price(&self, token_mint: &str, current_price: f64) {
         let mut positions = self.positions.write().await;
         if let Some(position) = positions.get_mut(token_mint) {
-            return position.update_trailing_sl(current_price);
+            position.update_high_price(current_price);
         }
-        false
     }
 
     /// Advance scaled exit stage for NINJA signals
