@@ -49,8 +49,9 @@ pub struct SwapInfo {
     pub output_mint: String,
     pub in_amount: String,
     pub out_amount: String,
-    pub fee_amount: String,
-    pub fee_mint: String,
+    // These fields are optional in Jupiter API v1
+    pub fee_amount: Option<String>,
+    pub fee_mint: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
