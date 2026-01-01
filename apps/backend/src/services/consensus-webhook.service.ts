@@ -560,7 +560,7 @@ export class ConsensusWebhookService {
             await this.positionMonitor.createPositionFromConsensus(
               signal.id, // consensusSignalId
               tokenId,
-              signal.id, // signalId (same as consensus signal in this case)
+              null, // signalId - ConsensusSignal není v Signal tabulce, předej null
               entryPrice,
               walletIdsList as string[],
               { marketCapUsd: marketDataResult?.marketCap, liquidityUsd: marketDataResult?.liquidity }
