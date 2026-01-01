@@ -1153,30 +1153,14 @@ export class SolanaCollectorService {
       const balanceBefore: number | null = null;
       const balanceAfter: number | null = null;
 
-      // Store as NormalizedTrade for async processing
-      const normalizedTrade = await this.normalizedTradeRepo.create({
-        txSignature: normalized.txSignature,
-        walletId: wallet.id,
-        tokenId: token.id,
-        tokenMint: normalized.tokenMint,
-        side: normalized.side,
-        amountToken: normalized.amountToken,
-        amountBaseRaw,
-        baseToken: normalized.baseToken,
-        priceBasePerTokenRaw: normalized.priceBasePerToken,
-        timestamp: normalized.timestamp,
-        dex: normalized.dex,
-        balanceBefore,
-        balanceAfter,
-        meta: heliusDebugMeta,
-        rawPayload: tx,
-      });
+      // DISABLED: Trade data storage disabled - web UI no longer used
+      // const normalizedTrade = await this.normalizedTradeRepo.create({...});
 
       console.log(
-        `   ✅ [Helius] Normalized trade stored: ${normalizedTrade.id.substring(0, 12)}... (${normalized.side} ${normalized.amountToken.toFixed(6)} tokens, ${amountBaseRaw.toFixed(6)} ${normalized.baseToken})`
+        `   ⏭️ [Helius] Trade storage DISABLED: ${normalized.side} ${normalized.amountToken.toFixed(6)} tokens, ${amountBaseRaw.toFixed(6)} ${normalized.baseToken}`
       );
 
-      return { saved: true, normalizedTradeId: normalizedTrade.id };
+      return { saved: false, reason: 'storage_disabled' };
     } catch (error: any) {
       console.error(`❌ [Helius] Error processing transaction:`, error);
       return { saved: false, reason: error.message || 'unknown error' };
@@ -1335,35 +1319,14 @@ export class SolanaCollectorService {
         return { saved: false, reason: 'token_not_found' };
       }
 
-      // DŮLEŽITÉ: Po opravě normalizeQuickNodeSwap je baseToken VŽDY SOL/USDC/USDT
-      // Není potřeba ukládat secondaryTokenMint, protože už nepoužíváme token-to-token swapy
-      const normalizedRecord = await this.normalizedTradeRepo.create({
-        txSignature: normalized.txSignature,
-        walletId: wallet.id,
-        tokenId: token.id,
-        tokenMint: token.mintAddress,
-        side: normalized.side,
-        amountToken: normalized.amountToken,
-        amountBaseRaw,
-        baseToken: normalized.baseToken,
-        priceBasePerTokenRaw: normalized.priceBasePerToken,
-        timestamp: normalized.timestamp,
-        dex: normalized.dex,
-        meta: {
-          source: 'quicknode-webhook',
-          baseToken: normalized.baseToken,
-          quicknodeDebug: quicknodeDebugMeta,
-          walletAddress,
-          liquidityType: (normalized as any).liquidityType, // ADD nebo REMOVE pro liquidity operations
-        },
-        rawPayload: tx,
-      });
+      // DISABLED: Trade data storage disabled - web UI no longer used
+      // const normalizedRecord = await this.normalizedTradeRepo.create({...});
 
       console.log(
-        `   ✅ [QuickNode] Normalized trade stored: ${normalizedRecord.id.substring(0, 8)}... (${normalized.side} ${normalized.amountToken} tokens, ${normalized.amountBase} ${normalized.baseToken})`
+        `   ⏭️ [QuickNode] Trade storage DISABLED: ${normalized.side} ${normalized.amountToken} tokens, ${normalized.amountBase} ${normalized.baseToken}`
       );
 
-      return { saved: true, normalizedTradeId: normalizedRecord.id };
+      return { saved: false, reason: 'storage_disabled' };
     } catch (error: any) {
       console.error(`❌ Error processing QuickNode webhook transaction:`, error);
       return { saved: false, reason: error.message || 'unknown error' };
