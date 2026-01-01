@@ -722,7 +722,11 @@ router.post('/sync', async (req, res) => {
       console.log(`📊 Detected delimiter: ${delimiter === ';' ? 'semicolon' : 'comma'}`);
       console.log(`📊 Header line: ${headerLine}`);
       
-      const cleanedLines = lines.slice(headerLineIndex);
+      // Filter out commented lines (lines starting with #)
+      const cleanedLines = lines.slice(headerLineIndex).filter(line => {
+        const trimmed = line.trim();
+        return !trimmed.startsWith('#');
+      });
       const cleanedContent = cleanedLines.join('\n');
       
       records = parse(cleanedContent, {
