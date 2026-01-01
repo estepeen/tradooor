@@ -111,21 +111,28 @@ export interface SpectreTradeNotificationData {
   tokenSymbol: string;
   tokenMint: string;
   amountSol: number;
+  amountTokens?: number;
   txSignature?: string;
   error?: string;
   // Signal context
   signalType?: string;
+  signalStrength?: string;
   signalTimestamp: string; // ISO timestamp when signal was generated
   signalMarketCapUsd?: number;
   // Trade context
   tradeTimestamp: string; // ISO timestamp when trade was executed
   tradeMarketCapUsd?: number;
   latencyMs: number;
-  // For SELL: PnL info
+  // For BUY: entry price
+  entryPriceUsd?: number;
+  // For SELL: exit info
+  exitPriceUsd?: number;
+  exitReason?: 'stop_loss' | 'take_profit' | 'manual';
   pnlUsd?: number;
   pnlPercent?: number;
-  entryPriceUsd?: number;
-  exitPriceUsd?: number;
+  // Position settings
+  stopLossPercent?: number;
+  takeProfitPercent?: number;
 }
 
 export interface ExitSignalNotificationData {
@@ -1139,145 +1146,201 @@ export class DiscordNotificationService {
    */
   private buildSpectreTradeEmbed(data: SpectreTradeNotificationData): DiscordEmbed {
     const birdeyeUrl = `https://birdeye.so/token/${data.tokenMint}?chain=solana`;
+    const pumpfunUrl = `https://pump.fun/coin/${data.tokenMint}`;
     const isBuy = data.action === 'buy';
 
-    // Barvy: zelená pro BUY, červená pro SELL, šedá pro error
+    // Barvy: zelená pro BUY, červená/oranžová pro SELL (podle PnL)
     let color: number;
     if (!data.success) {
       color = 0x808080; // Gray for failed
     } else if (isBuy) {
-      color = 0x00ff00; // Green for buy
+      color = 0x22c55e; // Green for buy
     } else {
-      color = 0xff0000; // Red for sell
+      // Pro SELL: zelená pokud profit, červená pokud loss
+      color = (data.pnlPercent ?? 0) >= 0 ? 0x22c55e : 0xef4444;
     }
 
-    // Emoji a status
-    const actionEmoji = isBuy ? '🟢' : '🔴';
-    const statusEmoji = data.success ? '✅' : '❌';
-
-    // Vypočítej časový rozdíl mezi signálem a obchodem
-    const signalTime = new Date(data.signalTimestamp);
-    const tradeTime = new Date(data.tradeTimestamp);
-    const timeDiffMs = tradeTime.getTime() - signalTime.getTime();
-    const timeDiffSeconds = (timeDiffMs / 1000).toFixed(1);
-
-    // Formátuj časy (Praha timezone)
-    const formatTime = (date: Date) => {
-      const formatter = new Intl.DateTimeFormat('cs-CZ', {
+    // Formátuj čas (Praha timezone)
+    const formatTime = (dateStr: string) => {
+      const date = new Date(dateStr);
+      return new Intl.DateTimeFormat('cs-CZ', {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
         hour12: false,
         timeZone: 'Europe/Prague',
-      });
-      return formatter.format(date);
+      }).format(date);
     };
 
-    // Title
-    const signalLabel = data.signalType?.toUpperCase() || 'SIGNAL';
-    let title: string;
-    if (isBuy) {
-      title = `${actionEmoji} BUY $${data.tokenSymbol} ${statusEmoji}`;
-    } else {
-      // Pro sell přidáme PnL do titulku
-      const pnlStr = data.pnlPercent !== undefined
-        ? ` (${data.pnlPercent >= 0 ? '+' : ''}${data.pnlPercent.toFixed(1)}%)`
-        : '';
-      title = `${actionEmoji} SELL $${data.tokenSymbol}${pnlStr} ${statusEmoji}`;
-    }
+    // Token symbol - fallback na zkrácený mint pokud Unknown
+    const tokenSymbol = data.tokenSymbol && data.tokenSymbol !== 'Unknown'
+      ? data.tokenSymbol
+      : data.tokenMint.slice(0, 6);
 
     const fields: DiscordEmbed['fields'] = [];
 
-    // Trade Info
-    const tradeInfo = [
-      `**Amount:** ${data.amountSol.toFixed(4)} SOL`,
-      `**Signal:** ${signalLabel}`,
-    ];
-    if (data.txSignature) {
-      const solscanUrl = `https://solscan.io/tx/${data.txSignature}`;
-      tradeInfo.push(`**TX:** [View](${solscanUrl})`);
-    }
-    if (data.error) {
-      tradeInfo.push(`**Error:** ${data.error}`);
-    }
+    if (isBuy) {
+      // ===== BUY EMBED =====
+      const statusEmoji = data.success ? '✅' : '❌';
 
-    fields.push({
-      name: '💰 Trade',
-      value: tradeInfo.join('\n'),
-      inline: true,
-    });
+      // Title s MCap
+      const mcapStr = data.signalMarketCapUsd
+        ? ` @ $${this.formatNumber(data.signalMarketCapUsd, 0)}`
+        : '';
 
-    // Market Cap comparison
-    const mcapInfo = [];
-    if (data.signalMarketCapUsd) {
-      mcapInfo.push(`**Signal MCap:** $${this.formatNumber(data.signalMarketCapUsd, 0)}`);
-    }
-    if (data.tradeMarketCapUsd) {
-      mcapInfo.push(`**Trade MCap:** $${this.formatNumber(data.tradeMarketCapUsd, 0)}`);
-    }
-    if (data.signalMarketCapUsd && data.tradeMarketCapUsd) {
-      const mcapChange = ((data.tradeMarketCapUsd - data.signalMarketCapUsd) / data.signalMarketCapUsd * 100);
-      mcapInfo.push(`**MCap Change:** ${mcapChange >= 0 ? '+' : ''}${mcapChange.toFixed(1)}%`);
-    }
+      const title = `🟢 BUY $${tokenSymbol}${mcapStr} ${statusEmoji}`;
 
-    if (mcapInfo.length > 0) {
+      // Signal info
+      const signalType = data.signalType?.toUpperCase() || 'NINJA';
+      const signalStrength = data.signalStrength?.toUpperCase() || '';
+      const signalInfo = [
+        `**Type:** ${signalType}${signalStrength ? ` (${signalStrength})` : ''}`,
+        `**Amount:** ${data.amountSol.toFixed(4)} SOL`,
+      ];
+      if (data.entryPriceUsd) {
+        signalInfo.push(`**Price:** $${this.formatSmallPrice(data.entryPriceUsd)}`);
+      }
+      if (data.stopLossPercent && data.takeProfitPercent) {
+        signalInfo.push(`**SL/TP:** -${data.stopLossPercent}% / +${data.takeProfitPercent}%`);
+      }
+
       fields.push({
-        name: '📊 Market Cap',
-        value: mcapInfo.join('\n'),
+        name: '🥷 Signal',
+        value: signalInfo.join('\n'),
         inline: true,
       });
-    }
 
-    // Timing
-    const timingInfo = [
-      `**Signal:** ${formatTime(signalTime)}`,
-      `**Trade:** ${formatTime(tradeTime)}`,
-      `**Delay:** ${timeDiffSeconds}s`,
-      `**Latency:** ${data.latencyMs}ms`,
-    ];
+      // Timing
+      const timingInfo = [
+        `**Time:** ${formatTime(data.tradeTimestamp)}`,
+        `**Latency:** ${data.latencyMs}ms`,
+      ];
 
-    fields.push({
-      name: '⏱️ Timing',
-      value: timingInfo.join('\n'),
-      inline: true,
-    });
+      fields.push({
+        name: '⏱️ Execution',
+        value: timingInfo.join('\n'),
+        inline: true,
+      });
 
-    // PnL (only for SELL)
-    if (!isBuy && data.success) {
-      const pnlInfo = [];
-      if (data.entryPriceUsd) {
-        pnlInfo.push(`**Entry:** $${this.formatNumber(data.entryPriceUsd, 10)}`);
-      }
-      if (data.exitPriceUsd) {
-        pnlInfo.push(`**Exit:** $${this.formatNumber(data.exitPriceUsd, 10)}`);
-      }
-      if (data.pnlUsd !== undefined) {
-        const pnlEmoji = data.pnlUsd >= 0 ? '📈' : '📉';
-        pnlInfo.push(`**PnL:** ${pnlEmoji} ${data.pnlUsd >= 0 ? '+' : ''}$${data.pnlUsd.toFixed(2)}`);
-      }
-      if (data.pnlPercent !== undefined) {
-        pnlInfo.push(`**PnL %:** ${data.pnlPercent >= 0 ? '+' : ''}${data.pnlPercent.toFixed(2)}%`);
-      }
-
-      if (pnlInfo.length > 0) {
+      // TX Link
+      if (data.txSignature) {
         fields.push({
-          name: '💵 PnL',
-          value: pnlInfo.join('\n'),
+          name: '🔗 Links',
+          value: `[Solscan](https://solscan.io/tx/${data.txSignature}) • [Birdeye](${birdeyeUrl}) • [Pump.fun](${pumpfunUrl})`,
           inline: false,
         });
       }
-    }
 
-    return {
-      title,
-      url: birdeyeUrl,
-      color,
-      fields,
-      timestamp: new Date().toISOString(),
-      footer: {
-        text: `👻 Spectre Tracker`,
-      },
-    };
+      if (data.error) {
+        fields.push({
+          name: '❌ Error',
+          value: data.error,
+          inline: false,
+        });
+      }
+
+      return {
+        title,
+        color,
+        fields,
+        timestamp: new Date().toISOString(),
+        footer: { text: '👻 Spectre' },
+      };
+
+    } else {
+      // ===== SELL EMBED =====
+      const exitEmoji = data.exitReason === 'take_profit' ? '🎯' : data.exitReason === 'stop_loss' ? '🛑' : '🔴';
+      const exitLabel = data.exitReason === 'take_profit' ? 'TAKE PROFIT'
+        : data.exitReason === 'stop_loss' ? 'STOP LOSS'
+        : 'SELL';
+
+      // PnL string pro title
+      const pnlStr = data.pnlPercent !== undefined
+        ? ` ${data.pnlPercent >= 0 ? '+' : ''}${data.pnlPercent.toFixed(1)}%`
+        : '';
+      const pnlEmoji = (data.pnlPercent ?? 0) >= 0 ? '📈' : '📉';
+
+      const statusEmoji = data.success ? '✅' : '❌';
+      const title = `${exitEmoji} ${exitLabel} $${tokenSymbol}${pnlStr} ${pnlEmoji} ${statusEmoji}`;
+
+      // PnL info
+      if (data.success && (data.entryPriceUsd || data.exitPriceUsd || data.pnlPercent !== undefined)) {
+        const pnlInfo = [];
+        if (data.entryPriceUsd) {
+          pnlInfo.push(`**Entry:** $${this.formatSmallPrice(data.entryPriceUsd)}`);
+        }
+        if (data.exitPriceUsd) {
+          pnlInfo.push(`**Exit:** $${this.formatSmallPrice(data.exitPriceUsd)}`);
+        }
+        if (data.pnlPercent !== undefined) {
+          const pnlColor = data.pnlPercent >= 0 ? '🟢' : '🔴';
+          pnlInfo.push(`**PnL:** ${pnlColor} ${data.pnlPercent >= 0 ? '+' : ''}${data.pnlPercent.toFixed(2)}%`);
+        }
+
+        fields.push({
+          name: '💰 Result',
+          value: pnlInfo.join('\n'),
+          inline: true,
+        });
+      }
+
+      // Trade info
+      const tradeInfo = [
+        `**Amount:** ${data.amountSol.toFixed(4)} SOL`,
+        `**Time:** ${formatTime(data.tradeTimestamp)}`,
+        `**Latency:** ${data.latencyMs}ms`,
+      ];
+
+      fields.push({
+        name: '⚡ Trade',
+        value: tradeInfo.join('\n'),
+        inline: true,
+      });
+
+      // TX Link
+      if (data.txSignature) {
+        fields.push({
+          name: '🔗 Links',
+          value: `[Solscan](https://solscan.io/tx/${data.txSignature}) • [Birdeye](${birdeyeUrl})`,
+          inline: false,
+        });
+      }
+
+      if (data.error) {
+        fields.push({
+          name: '❌ Error',
+          value: data.error,
+          inline: false,
+        });
+      }
+
+      return {
+        title,
+        color,
+        fields,
+        timestamp: new Date().toISOString(),
+        footer: { text: '👻 Spectre' },
+      };
+    }
+  }
+
+  /**
+   * Formátuje velmi malé ceny (např. 0.0000000409 -> 0.0₈409)
+   */
+  private formatSmallPrice(price: number): string {
+    if (price >= 0.01) {
+      return price.toFixed(4);
+    }
+    // Count zeros after decimal
+    const str = price.toFixed(15);
+    const match = str.match(/^0\.0*[1-9]/);
+    if (!match) return price.toExponential(2);
+
+    const zeros = match[0].length - 2; // počet nul
+    const significantPart = price * Math.pow(10, zeros);
+    const subscript = String(zeros).split('').map(d => '₀₁₂₃₄₅₆₇₈₉'[parseInt(d)]).join('');
+
+    return `0.0${subscript}${significantPart.toFixed(3).replace('0.', '')}`;
   }
 
   /**

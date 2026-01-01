@@ -111,18 +111,24 @@ class SpectreResultsWorker {
           tokenSymbol: result.tokenSymbol,
           tokenMint: result.tokenMint,
           amountSol: result.amountSol,
+          amountTokens: result.amountTokens,
           txSignature: result.txSignature,
           error: result.error,
           signalType: result.signalType,
+          signalStrength: result.signalStrength,
           // Use signalTimestamp if available, fallback to timestamp (trade execution time)
           signalTimestamp: result.signalTimestamp || result.timestamp,
           signalMarketCapUsd: result.marketCapUsd,
           tradeTimestamp: result.timestamp, // timestamp field = trade execution time
-          tradeMarketCapUsd: result.marketCapUsd, // TODO: Get current MCap if available
+          tradeMarketCapUsd: result.marketCapUsd,
           latencyMs: result.latencyMs,
-          // PnL info for sells
+          // Entry price (for both buy and sell)
           entryPriceUsd: result.entryPriceUsd,
+          // Exit info for sells
           exitPriceUsd: result.pricePerToken,
+          // Position settings
+          stopLossPercent: result.stopLossPercent,
+          takeProfitPercent: result.takeProfitPercent,
         };
 
         // Calculate PnL for sells if we have entry and exit prices
@@ -131,6 +137,13 @@ class SpectreResultsWorker {
           const exitValue = result.pricePerToken * result.amountTokens;
           notificationData.pnlUsd = exitValue - entryValue;
           notificationData.pnlPercent = ((result.pricePerToken / result.entryPriceUsd) - 1) * 100;
+
+          // Determine exit reason based on PnL
+          if (result.stopLossPercent && notificationData.pnlPercent <= -result.stopLossPercent * 0.8) {
+            notificationData.exitReason = 'stop_loss';
+          } else if (result.takeProfitPercent && notificationData.pnlPercent >= result.takeProfitPercent * 0.8) {
+            notificationData.exitReason = 'take_profit';
+          }
         }
 
         await this.discordService.sendSpectreTradeNotification(notificationData);
