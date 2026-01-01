@@ -30,9 +30,9 @@ const CLUSTER_STRENGTH_THRESHOLD = 70; // Minimum cluster strength for 💎💎 
 // ============================================================================
 // NEW NINJA SIGNAL PARAMETERS (2025 Redesign)
 // ============================================================================
-// Market Cap: $75K - $550K USD
+// Market Cap: $75K - $350K USD
 const NINJA_MIN_MARKET_CAP_USD = 75000;     // $75K minimum
-const NINJA_MAX_MARKET_CAP_USD = 550000;    // $550K maximum
+const NINJA_MAX_MARKET_CAP_USD = 350000;    // $350K maximum
 const NINJA_MCAP_THRESHOLD_FOR_WINDOW = 200000; // $200K threshold for time window selection
 
 // Time Windows: 5min for <$200K, 10min for >$200K
