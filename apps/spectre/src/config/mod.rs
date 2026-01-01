@@ -18,7 +18,8 @@ pub struct Config {
     pub take_profit_percent: f64,   // +50%
 
     // Jito
-    pub jito_tip_lamports: u64,     // Tip for Jito bundle (e.g., 10000 = 0.00001 SOL)
+    pub jito_tip_lamports: u64,      // Tip for BUY Jito bundle (e.g., 1000000 = 0.001 SOL)
+    pub jito_tip_sell_lamports: u64, // Tip for SELL Jito bundle (lower, e.g., 350000 = 0.00035 SOL)
 
     // Redis
     pub redis_url: String,
@@ -83,9 +84,14 @@ impl Config {
                 .unwrap_or(100000.0),
 
             jito_tip_lamports: std::env::var("JITO_TIP_LAMPORTS")
-                .unwrap_or_else(|_| "100000".to_string()) // 0.0001 SOL default
+                .unwrap_or_else(|_| "1000000".to_string()) // 0.001 SOL default for BUY
                 .parse()
-                .unwrap_or(100000),
+                .unwrap_or(1000000),
+
+            jito_tip_sell_lamports: std::env::var("JITO_TIP_SELL_LAMPORTS")
+                .unwrap_or_else(|_| "350000".to_string()) // 0.00035 SOL default for SELL (lower priority)
+                .parse()
+                .unwrap_or(350000),
 
             redis_url: std::env::var("REDIS_URL")
                 .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string()),

@@ -43,7 +43,8 @@ async fn main() -> Result<()> {
     info!("   Slippage: {}%", config.slippage_bps as f64 / 100.0);
     info!("   Stop Loss: {}%", config.stop_loss_percent);
     info!("   Take Profit: +{}%", config.take_profit_percent);
-    info!("   Jito tip: {} lamports", config.jito_tip_lamports);
+    info!("   Jito tip (buy): {} lamports", config.jito_tip_lamports);
+    info!("   Jito tip (sell): {} lamports", config.jito_tip_sell_lamports);
     info!("   Position check interval: {}s", config.position_check_interval_secs);
 
     // Initialize trader

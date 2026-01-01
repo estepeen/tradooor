@@ -617,7 +617,7 @@ impl SpectreTrader {
 
             // Increase slippage on retries
             let slippage_percent = (self.config.slippage_bps / 100) as u16 + ((attempt - 1) * 5) as u16;
-            let priority_fee_sol = self.config.jito_tip_lamports as f64 / 1e9;
+            let priority_fee_sol = self.config.jito_tip_sell_lamports as f64 / 1e9;
 
             // 1. Get sell transaction from PumpPortal
             let tx_bytes = match self.pumpfun.get_sell_transaction(
@@ -845,11 +845,11 @@ impl SpectreTrader {
             let out_lamports: u64 = quote.out_amount.parse().unwrap_or(0);
             let out_sol = out_lamports as f64 / 1e9;
 
-            // 2. Get swap transaction
+            // 2. Get swap transaction (use lower tip for sells)
             let (transaction, _) = match self.jupiter.get_swap_transaction(
                 quote,
                 &self.config.wallet_pubkey(),
-                self.config.jito_tip_lamports,
+                self.config.jito_tip_sell_lamports,
             ).await {
                 Ok(tx) => tx,
                 Err(e) => {
