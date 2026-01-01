@@ -8,8 +8,13 @@ use solana_sdk::{
 };
 use tracing::info;
 
-const JUPITER_QUOTE_API: &str = "https://quote-api.jup.ag/v6/quote";
-const JUPITER_SWAP_API: &str = "https://quote-api.jup.ag/v6/swap";
+// Jupiter API v1 (2025+) - requires API key from portal.jup.ag
+const JUPITER_QUOTE_API: &str = "https://api.jup.ag/swap/v1/quote";
+const JUPITER_SWAP_API: &str = "https://api.jup.ag/swap/v1/swap";
+
+// Public fallback (has 0.2% fee) - use if no API key
+const JUPITER_PUBLIC_QUOTE_API: &str = "https://public.jupiterapi.com/quote";
+const JUPITER_PUBLIC_SWAP_API: &str = "https://public.jupiterapi.com/swap";
 
 // SOL mint address
 pub const SOL_MINT: &str = "So11111111111111111111111111111111111111112";
@@ -73,15 +78,33 @@ pub struct SwapResponse {
 
 pub struct JupiterClient {
     client: Client,
+    api_key: Option<String>,
+    quote_url: String,
+    swap_url: String,
 }
 
 impl JupiterClient {
     pub fn new() -> Self {
+        Self::with_api_key(None)
+    }
+
+    pub fn with_api_key(api_key: Option<String>) -> Self {
+        let (quote_url, swap_url) = if api_key.is_some() {
+            info!("🔑 Using Jupiter API with API key");
+            (JUPITER_QUOTE_API.to_string(), JUPITER_SWAP_API.to_string())
+        } else {
+            info!("⚠️  No Jupiter API key - using public endpoint (0.2% fee)");
+            (JUPITER_PUBLIC_QUOTE_API.to_string(), JUPITER_PUBLIC_SWAP_API.to_string())
+        };
+
         Self {
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
                 .build()
                 .expect("Failed to create HTTP client"),
+            api_key,
+            quote_url,
+            swap_url,
         }
     }
 
@@ -96,17 +119,19 @@ impl JupiterClient {
 
         let url = format!(
             "{}?inputMint={}&outputMint={}&amount={}&slippageBps={}&onlyDirectRoutes=false&asLegacyTransaction=false",
-            JUPITER_QUOTE_API,
+            self.quote_url,
             SOL_MINT,
             output_mint,
             amount_lamports,
             slippage_bps
         );
 
-        let response = self.client
-            .get(&url)
-            .send()
-            .await?;
+        let mut request = self.client.get(&url);
+        if let Some(ref api_key) = self.api_key {
+            request = request.header("x-api-key", api_key);
+        }
+
+        let response = request.send().await?;
 
         let elapsed = start.elapsed();
 
@@ -137,7 +162,7 @@ impl JupiterClient {
     ) -> Result<(VersionedTransaction, u64)> {
         let start = std::time::Instant::now();
 
-        let request = SwapRequest {
+        let swap_request = SwapRequest {
             quote_response: quote,
             user_public_key: user_pubkey.to_string(),
             wrap_and_unwrap_sol: true,
@@ -150,11 +175,12 @@ impl JupiterClient {
             skip_user_accounts_rpc_calls: false,
         };
 
-        let response = self.client
-            .post(JUPITER_SWAP_API)
-            .json(&request)
-            .send()
-            .await?;
+        let mut request = self.client.post(&self.swap_url).json(&swap_request);
+        if let Some(ref api_key) = self.api_key {
+            request = request.header("x-api-key", api_key);
+        }
+
+        let response = request.send().await?;
 
         let elapsed = start.elapsed();
 
@@ -191,17 +217,19 @@ impl JupiterClient {
 
         let url = format!(
             "{}?inputMint={}&outputMint={}&amount={}&slippageBps={}&onlyDirectRoutes=false&asLegacyTransaction=false",
-            JUPITER_QUOTE_API,
+            self.quote_url,
             input_mint,
             SOL_MINT,
             amount_tokens,
             slippage_bps
         );
 
-        let response = self.client
-            .get(&url)
-            .send()
-            .await?;
+        let mut request = self.client.get(&url);
+        if let Some(ref api_key) = self.api_key {
+            request = request.header("x-api-key", api_key);
+        }
+
+        let response = request.send().await?;
 
         let elapsed = start.elapsed();
 

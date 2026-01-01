@@ -30,7 +30,7 @@ impl SpectreTrader {
         ));
 
         Self {
-            jupiter: JupiterClient::new(),
+            jupiter: JupiterClient::with_api_key(config.jupiter_api_key.clone()),
             jito: JitoClient::new(&config.jito_block_engine_url),
             position_manager: PositionManager::new(),
             config,

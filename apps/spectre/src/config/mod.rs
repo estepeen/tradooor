@@ -23,6 +23,9 @@ pub struct Config {
     // Redis
     pub redis_url: String,
     pub redis_channel: String,
+
+    // Jupiter API
+    pub jupiter_api_key: Option<String>,
 }
 
 impl Config {
@@ -83,6 +86,8 @@ impl Config {
 
             redis_channel: std::env::var("REDIS_CHANNEL")
                 .unwrap_or_else(|_| "ninja_signals".to_string()),
+
+            jupiter_api_key: std::env::var("JUPITER_API_KEY").ok(),
         })
     }
 
