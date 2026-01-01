@@ -70,7 +70,9 @@
       "Bash(rustup target:*)",
       "Bash(rsync:*)",
       "Bash(ssh -i ~/.ssh/claude_assistant root@89.203.248.173 \"cd /root/tradooor && git pull origin master && pm2 restart all\")",
-      "Bash(ssh -i ~/.ssh/claude_assistant -o ConnectTimeout=10 -o StrictHostKeyChecking=no root@89.203.248.173 \"echo connected\")"
+      "Bash(ssh -i ~/.ssh/claude_assistant -o ConnectTimeout=10 -o StrictHostKeyChecking=no root@89.203.248.173 \"echo connected\")",
+      "Bash(python3:*)",
+      "Bash(pnpm --filter backend exec tsc:*)"
     ]
   }
 }

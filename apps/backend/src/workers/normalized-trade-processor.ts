@@ -46,7 +46,9 @@ const walletCorrelation = new WalletCorrelationService();
 const tokenMarketDataService = new TokenMarketDataService();
 
 // Enable/disable advanced signals processing
-const ENABLE_ADVANCED_SIGNALS = process.env.ENABLE_ADVANCED_SIGNALS !== 'false';
+// DISABLED: Advanced signals (accumulation, conviction-buy, etc.) are disabled
+// Only NINJA signals are active now
+const ENABLE_ADVANCED_SIGNALS = false; // process.env.ENABLE_ADVANCED_SIGNALS !== 'false';
 
 // Track wallets that need metrics recalculation (debounce)
 const walletMetricsDebounce = new Map<string, NodeJS.Timeout>(); // walletId -> timeout
