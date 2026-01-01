@@ -1504,6 +1504,8 @@ export class AdvancedSignalsService {
                   return Number(trade.priceBasePerToken || 0);
                 })(),
                 tradeTime: trade.timestamp.toISOString(),
+                // Market cap at entry time (for accurate signal display)
+                marketCapUsd: marketData.marketCap || undefined,
                 // Pro conviction signál: průměrná velikost a multiplier
                 avgTradeSize: signal.type === 'conviction-buy' ? signal.context.walletAvgPositionUsd : undefined,
                 convictionMultiplier: signal.type === 'conviction-buy' ? (
