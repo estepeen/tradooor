@@ -65,7 +65,8 @@
       "Bash(pnpm --filter backend add:*)",
       "Bash(git rm:*)",
       "Bash(pnpm --filter @solbot/db db:migrate:*)",
-      "Bash(pnpm --filter @solbot/db db:generate:*)"
+      "Bash(pnpm --filter @solbot/db db:generate:*)",
+      "Bash(scp:*)"
     ]
   }
 }

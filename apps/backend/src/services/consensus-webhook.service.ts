@@ -88,15 +88,7 @@ export class ConsensusWebhookService {
   ): Promise<{ consensusFound: boolean; paperTradeCreated?: any; signalCreated?: any }> {
     console.log(`🔍 [Consensus] Checking consensus for trade ${newTradeId.substring(0, 16)}... (token: ${tokenId.substring(0, 16)}..., wallet: ${walletId.substring(0, 16)}...)`);
     try {
-      // 1. Zkontroluj, jestli už není otevřená pozice pro tento token
-      const openPositions = await this.paperTradeRepo.findOpenPositions();
-      const alreadyOpen = openPositions.some(pos => pos.tokenId === tokenId);
-      if (alreadyOpen) {
-        console.log(`   ⏭️  Consensus check skipped: token ${tokenId.substring(0, 16)}... already in open positions`);
-        return { consensusFound: false };
-      }
-
-      // 2. Najdi všechny BUY trades pro tento token v posledních 2h
+      // 1. Najdi všechny BUY trades pro tento token v posledních 2h
       const timeWindowStart = new Date(timestamp.getTime() - CONSENSUS_TIME_WINDOW_HOURS * 60 * 60 * 1000);
       const timeWindowEnd = new Date(timestamp.getTime() + CONSENSUS_TIME_WINDOW_HOURS * 60 * 60 * 1000);
 
@@ -110,29 +102,15 @@ export class ConsensusWebhookService {
         return { consensusFound: false };
       }
 
-      // 3. Zkontroluj, jestli jsou alespoň 2 různé wallets
+      // 2. Zkontroluj, jestli jsou alespoň 2 různé wallets
       const uniqueWallets = new Set(recentBuys.map(t => t.walletId));
       if (uniqueWallets.size < 2) {
         return { consensusFound: false };
       }
 
-      // 3b. Check if wallets are correlated (cluster detection)
       const walletIds = Array.from(uniqueWallets);
-      let clusterData: { isCorrelated: boolean; avgStrength: number; pairs: any[] } | null = null;
-      let clusterPerformance: number | null = null;
 
-      try {
-        clusterData = await this.walletCorrelation.checkCluster(walletIds, CLUSTER_STRENGTH_THRESHOLD);
-
-        if (clusterData.isCorrelated) {
-          clusterPerformance = await this.walletCorrelation.getClusterPerformance(walletIds);
-          console.log(`   💎💎 [Cluster] CLUSTER DETECTED! ${walletIds.length} wallets, avg strength: ${clusterData.avgStrength}, historical success: ${clusterPerformance}%`);
-        }
-      } catch (clusterError: any) {
-        console.warn(`   ⚠️  Cluster check failed: ${clusterError.message}`);
-      }
-
-      // 4. Najdi druhý nákup - použij cenu druhého nákupu pro paper trade
+      // 3. Najdi druhý nákup - použij cenu druhého nákupu pro paper trade
       // Seřaď trades podle timestampu
       const sortedBuys = recentBuys.sort((a, b) => 
         new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
@@ -479,13 +457,11 @@ export class ConsensusWebhookService {
             new Date(b.tradeTime || 0).getTime() - new Date(a.tradeTime || 0).getTime()
           )[0];
 
-          // Determine signal type based on NINJA detection or cluster detection
+          // Determine signal type based on NINJA detection
           let signalType: string = isUpdate ? 'consensus-update' : 'consensus';
 
           if (isNinjaSignal && !isUpdate) {
             signalType = 'ninja';
-          } else if (clusterData?.isCorrelated && !isUpdate) {
-            signalType = 'cluster-consensus';
           }
 
           // Set default SL/TP based on signal type
@@ -501,9 +477,6 @@ export class ConsensusWebhookService {
             strength: uniqueWallets.size >= 4 ? 'strong' : uniqueWallets.size >= 3 ? 'medium' : 'weak',
             walletCount: uniqueWallets.size,
             avgWalletScore,
-            // Add cluster metadata if detected
-            clusterStrength: clusterData?.isCorrelated ? clusterData.avgStrength : undefined,
-            clusterPerformance: clusterPerformance !== null ? clusterPerformance : undefined,
             entryPriceUsd: entryPrice,
             marketCapUsd: marketDataResult?.marketCap,
             liquidityUsd: marketDataResult?.liquidity,
@@ -641,6 +614,65 @@ export class ConsensusWebhookService {
     } catch (error: any) {
       console.error(`❌ Error checking consensus after buy:`, error.message);
       return { consensusFound: false };
+    }
+  }
+
+  /**
+   * Check if wallets form a correlated cluster and emit CLUSTER signal
+   * Called separately from CONSENSUS/NINJA flow
+   */
+  async checkClusterSignal(
+    tokenId: string,
+    walletIds: string[],
+    timestamp: Date
+  ): Promise<{ clusterFound: boolean; signalCreated?: any }> {
+    if (walletIds.length < 2) {
+      return { clusterFound: false };
+    }
+
+    try {
+      const clusterData = await this.walletCorrelation.checkCluster(walletIds, CLUSTER_STRENGTH_THRESHOLD);
+
+      if (!clusterData.isCorrelated) {
+        return { clusterFound: false };
+      }
+
+      const clusterPerformance = await this.walletCorrelation.getClusterPerformance(walletIds);
+      console.log(`   💎 [CLUSTER] Detected! ${walletIds.length} wallets, avg strength: ${clusterData.avgStrength}, historical success: ${clusterPerformance}%`);
+
+      // Get token info
+      const token = await this.tokenRepo.findById(tokenId);
+      if (!token) {
+        console.warn(`   ⚠️  [CLUSTER] Token not found: ${tokenId}`);
+        return { clusterFound: true };
+      }
+
+      // Create CLUSTER signal notification
+      const notificationData: SignalNotificationData = {
+        tokenSymbol: token.symbol || 'Unknown',
+        tokenMint: token.mintAddress || '',
+        signalType: 'cluster',
+        strength: walletIds.length >= 4 ? 'strong' : walletIds.length >= 3 ? 'medium' : 'weak',
+        walletCount: walletIds.length,
+        avgWalletScore: 0,
+        clusterStrength: clusterData.avgStrength,
+        clusterPerformance: clusterPerformance !== null ? clusterPerformance : undefined,
+        entryPriceUsd: undefined,
+        marketCapUsd: undefined,
+        liquidityUsd: undefined,
+        volume24hUsd: undefined,
+        tokenAgeMinutes: undefined,
+        baseToken: undefined,
+        wallets: [],
+      };
+
+      // Send Discord notification
+      await this.discordNotification.sendSignalNotification(notificationData);
+
+      return { clusterFound: true, signalCreated: { type: 'cluster', walletCount: walletIds.length } };
+    } catch (error: any) {
+      console.warn(`   ⚠️  [CLUSTER] Check failed: ${error.message}`);
+      return { clusterFound: false };
     }
   }
 

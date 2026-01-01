@@ -528,9 +528,9 @@ export class DiscordNotificationService {
     } else if (data.signalType === 'accumulation') {
       // Accumulation → zelená čára
       color = 0x00ff00;
-    } else if (data.signalType === 'cluster-consensus') {
-      // 💎💎 CLUSTER → fialová čára
-      color = 0x9b59b6;
+    } else if (data.signalType === 'cluster') {
+      // 💎 CLUSTER → tmavě modrá čára
+      color = 0x1e3a8a;
     } else if (data.signalType === 'consensus' || data.signalType === 'consensus-update') {
       // Consensus → modrá čára
       color = 0x0099ff;
@@ -555,8 +555,8 @@ export class DiscordNotificationService {
       title = `🥷 NINJA Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
     } else if (data.signalType === 'accumulation') {
       title = `⚡ ACCUMULATION Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
-    } else if (data.signalType === 'cluster-consensus') {
-      title = `💎💎 CLUSTER Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
+    } else if (data.signalType === 'cluster') {
+      title = `💎 CLUSTER Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
     } else if (data.signalType === 'consensus' || data.signalType === 'consensus-update') {
       title = `💎 CONSENSUS Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
     } else if (
@@ -584,10 +584,10 @@ export class DiscordNotificationService {
     ];
 
     // Add cluster info if this is a cluster signal
-    if (data.signalType === 'cluster-consensus' && data.clusterStrength) {
-      signalInfo.push(`**Cluster:** ${data.clusterStrength}/100`);
+    if (data.signalType === 'cluster' && data.clusterStrength) {
+      signalInfo.push(`**Cluster Strength:** ${data.clusterStrength}/100`);
       if (data.clusterPerformance !== undefined) {
-        signalInfo.push(`**Success:** ${data.clusterPerformance}%`);
+        signalInfo.push(`**Historical Success:** ${data.clusterPerformance}%`);
       }
     }
 
@@ -807,7 +807,7 @@ export class DiscordNotificationService {
       'ninja': '🥷',
       'consensus': '🤝',
       'consensus-update': '📈',
-      'cluster-consensus': '💎',
+      'cluster': '💎',
       'whale-entry': '🐋',
       'early-sniper': '🎯',
       'hot-token': '🔥',
