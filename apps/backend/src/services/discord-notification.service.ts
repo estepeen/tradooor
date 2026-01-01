@@ -387,8 +387,8 @@ export class DiscordNotificationService {
     const totalBuyers = data.exitTotalBuyers || sellerCount;
     const strengthLabel = data.strength === 'strong' ? '🚨 CRITICAL' : '⚠️ WARNING';
 
-    // Title
-    const title = `${strengthLabel} EXIT ${data.tokenSymbol} (${sellerCount}/${totalBuyers} selling)`;
+    // Title with $ prefix for ticker
+    const title = `${strengthLabel} EXIT $${data.tokenSymbol} (${sellerCount}/${totalBuyers} selling)`;
 
     const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
 
@@ -549,28 +549,51 @@ export class DiscordNotificationService {
       color = COLORS[data.strength] || COLORS.medium;
     }
 
+    // Calculate entry MCap from first trader's buy (for accurate signal MCap)
+    // This shows the MCap when the signal was triggered, not current MCap
+    let entryMcapFromTraders: number | null = null;
+    if (data.wallets && data.wallets.length > 0) {
+      // Sort by trade time (oldest first) and get first trader's MCap
+      const sortedByTime = [...data.wallets]
+        .filter(w => w.tradeTime && w.marketCapUsd)
+        .sort((a, b) => new Date(a.tradeTime!).getTime() - new Date(b.tradeTime!).getTime());
+
+      if (sortedByTime.length > 0) {
+        entryMcapFromTraders = sortedByTime[0].marketCapUsd!;
+      }
+    }
+
+    // Use entry MCap from traders if available, otherwise fall back to data.marketCapUsd
+    const displayMcap = entryMcapFromTraders || data.marketCapUsd;
+    const entryMcapLabelForTitle = displayMcap
+      ? `$${this.formatNumber(displayMcap, 0)}`
+      : 'n/a';
+
+    // Token symbol with $ prefix (like ticker)
+    const tokenTicker = `$${data.tokenSymbol}`;
+
     // Build title podle typu signálu
     let title: string;
     if (data.signalType === 'ninja') {
-      title = `🥷 NINJA Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
+      title = `🥷 NINJA Signal – ${tokenTicker} @ ${entryMcapLabelForTitle}`;
     } else if (data.signalType === 'accumulation') {
-      title = `⚡ ACCUMULATION Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
+      title = `⚡ ACCUMULATION Signal – ${tokenTicker} @ ${entryMcapLabelForTitle}`;
     } else if (data.signalType === 'cluster') {
-      title = `💎 CLUSTER Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
+      title = `💎 CLUSTER Signal – ${tokenTicker} @ ${entryMcapLabelForTitle}`;
     } else if (data.signalType === 'consensus' || data.signalType === 'consensus-update') {
-      title = `💎 CONSENSUS Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
+      title = `💎 CONSENSUS Signal – ${tokenTicker} @ ${entryMcapLabelForTitle}`;
     } else if (
       data.signalType === 'whale-entry' ||
       data.signalType === 'conviction-buy' ||
       data.signalType === 'large-position'
     ) {
-      title = `🔥 CONVICTION Signal – ${data.tokenSymbol} @ ${entryMcapLabel}`;
+      title = `🔥 CONVICTION Signal – ${tokenTicker} @ ${entryMcapLabelForTitle}`;
     } else {
       // Ostatní typy necháme v původním formátu
       const signalEmoji = this.getSignalEmoji(data.signalType);
       const strengthEmoji =
         data.strength === 'strong' ? '🔥' : data.strength === 'medium' ? '⚡' : '💨';
-      title = `${signalEmoji} ${data.tokenSymbol} - ${data.signalType.toUpperCase()} Signal ${strengthEmoji}`;
+      title = `${signalEmoji} ${tokenTicker} - ${data.signalType.toUpperCase()} Signal ${strengthEmoji}`;
     }
 
     // Build fields
@@ -597,12 +620,12 @@ export class DiscordNotificationService {
       inline: true,
     });
 
-    // 2. Token Info
+    // 2. Token Info (use entry MCap from traders, not current MCap)
     const tokenInfo = [];
 
-    // Market Cap (Entry)
-    if (data.marketCapUsd) {
-      tokenInfo.push(`**MCap:** $${this.formatNumber(data.marketCapUsd, 0)}`);
+    // Market Cap (Entry) - from first trader's buy
+    if (displayMcap) {
+      tokenInfo.push(`**MCap:** $${this.formatNumber(displayMcap, 0)}`);
     }
 
     // Liquidity
@@ -630,13 +653,14 @@ export class DiscordNotificationService {
     });
 
     // 3. Strategy - Use AI values if available, otherwise defaults
+    // Calculate SL/TP based on entry MCap from traders (not current MCap)
     const slPercent = data.stopLossPercent && data.stopLossPercent > 0 ? data.stopLossPercent : 20;
     const tpPercent = data.takeProfitPercent && data.takeProfitPercent > 0 ? data.takeProfitPercent : 50;
 
     const strategyLines = [];
-    if (data.marketCapUsd) {
-      const slMcap = data.marketCapUsd * (1 - slPercent / 100);
-      const tpMcap = data.marketCapUsd * (1 + tpPercent / 100);
+    if (displayMcap) {
+      const slMcap = displayMcap * (1 - slPercent / 100);
+      const tpMcap = displayMcap * (1 + tpPercent / 100);
       strategyLines.push(`**SL:** $${this.formatNumber(slMcap, 0)} (-${slPercent}%) 🛑`);
       strategyLines.push(`**TP:** $${this.formatNumber(tpMcap, 0)} (+${tpPercent}%) 🎯`);
     } else {
@@ -890,11 +914,11 @@ export class DiscordNotificationService {
       color = 0xffff00; // Yellow for hold
     }
 
-    // Build title
+    // Build title with $ prefix for ticker
     const exitEmoji = this.getExitEmoji(data.exitType);
     const pnlEmoji = data.pnlPercent >= 0 ? '📈' : '📉';
     const pnlStr = `${data.pnlPercent >= 0 ? '+' : ''}${data.pnlPercent.toFixed(1)}%`;
-    const title = `${exitEmoji} EXIT Signal – ${data.tokenSymbol} (${pnlStr})`;
+    const title = `${exitEmoji} EXIT Signal – $${data.tokenSymbol} (${pnlStr})`;
 
     // Build fields
     const fields: DiscordEmbed['fields'] = [];
