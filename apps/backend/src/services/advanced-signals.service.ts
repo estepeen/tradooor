@@ -550,12 +550,14 @@ export class AdvancedSignalsService {
     console.log(`🔍 [ExitWarning] Checking sell for ${token.symbol || token.id.substring(0, 8)}...`);
 
     // 0. Fetch market data and filter by market cap
+    // PRIMÁRNĚ: použij MCap z trade.meta (bonding curve), pak Birdeye API
     const MIN_MARKET_CAP_FOR_EXIT_WARNING = 20000; // $20K minimum
 
     let marketData = { marketCap: null as number | null };
     if (token?.mintAddress) {
       try {
-        marketData = await this.tokenMarketData.getMarketData(token.mintAddress);
+        const tradeMeta = trade.meta as any;
+        marketData = await this.tokenMarketData.getMarketDataWithTradeMeta(token.mintAddress, tradeMeta);
       } catch (e) {
         console.warn(`   ⚠️  [ExitWarning] Failed to fetch market data for ${token.symbol}`);
       }
@@ -766,9 +768,11 @@ export class AdvancedSignalsService {
       volume24h: null as number | null,
     };
 
+    // PRIMÁRNĚ: použij MCap z trade.meta (bonding curve), pak Birdeye API
     if (token?.mintAddress) {
       try {
-        marketData = await this.tokenMarketData.getMarketData(token.mintAddress);
+        const tradeMeta = trade.meta as any;
+        marketData = await this.tokenMarketData.getMarketDataWithTradeMeta(token.mintAddress, tradeMeta);
       } catch (e) {
         console.warn(`   ⚠️  [Accumulation] Failed to fetch market data for ${token.symbol || token.mintAddress}`);
       }
@@ -930,13 +934,15 @@ export class AdvancedSignalsService {
     context: SignalContext
   ): Promise<AdvancedSignal | null> {
     // Fetch token market data for market cap filtering
+    // PRIMÁRNĚ: použij MCap z trade.meta (bonding curve), pak Birdeye API
     let marketData = {
       marketCap: null as number | null,
     };
 
     if (token?.mintAddress) {
       try {
-        marketData = await this.tokenMarketData.getMarketData(token.mintAddress);
+        const tradeMeta = trade.meta as any;
+        marketData = await this.tokenMarketData.getMarketDataWithTradeMeta(token.mintAddress, tradeMeta);
       } catch (e) {
         console.warn(`   ⚠️  [ConvictionBuy] Failed to fetch market data for ${token.symbol || token.mintAddress}`);
       }
@@ -1174,6 +1180,7 @@ export class AdvancedSignalsService {
     const wallet = trade.wallet;
 
     // Fetch token market data
+    // PRIMÁRNĚ: použij MCap z trade.meta (bonding curve), pak Birdeye API
     let marketData = {
       marketCap: null as number | null,
       liquidity: null as number | null,
@@ -1183,7 +1190,8 @@ export class AdvancedSignalsService {
 
     if (token?.mintAddress) {
       try {
-        marketData = await this.tokenMarketData.getMarketData(token.mintAddress);
+        const tradeMeta = trade.meta as any;
+        marketData = await this.tokenMarketData.getMarketDataWithTradeMeta(token.mintAddress, tradeMeta);
       } catch (e) {
         console.warn(`Failed to fetch market data for ${token.mintAddress}`);
       }

@@ -169,33 +169,36 @@ export class ConsensusWebhookService {
       // 4b. EARLY Market Cap Filter - check BEFORE creating signal
       // This ensures low market cap tokens don't create signals at all
       const token = await this.tokenRepo.findById(tokenId);
-      let earlyMarketData: any = null;
-
-      if (token?.mintAddress) {
-        try {
-          earlyMarketData = await this.tokenMarketData.getMarketData(token.mintAddress);
-        } catch (e) {
-          console.warn(`   ⚠️  [Consensus] Failed to fetch early market data for ${token.symbol}`);
-        }
-      }
 
       // Determine signal type based on market cap: NINJA (<20K) vs CONSENSUS (>=20K)
       let isNinjaSignal = false;
-      let marketCap = earlyMarketData?.marketCap;
-      let liquidity = earlyMarketData?.liquidity;
+      let marketCap: number | null = null;
+      let liquidity: number | null = null;
 
-      // FALLBACK: If API market data failed, use market cap from trade meta
-      // This is critical for NINJA signals - we need MCap even if API is slow
-      if (marketCap === null || marketCap === undefined) {
-        // Try to get MCap from the most recent trade's meta
-        const latestTrade = sortedBuys[sortedBuys.length - 1];
-        const tradeMeta = latestTrade?.meta as any;
-        if (tradeMeta?.marketCapUsd) {
-          marketCap = Number(tradeMeta.marketCapUsd);
-          console.log(`   📊 [Signal] Using MCap from trade meta: $${(marketCap / 1000).toFixed(1)}K`);
-        } else if (tradeMeta?.fdvUsd) {
-          marketCap = Number(tradeMeta.fdvUsd);
-          console.log(`   📊 [Signal] Using FDV from trade meta: $${(marketCap / 1000).toFixed(1)}K`);
+      // PRIMÁRNĚ: Použij MCap z trade meta (bonding curve výpočet - okamžitý, žádné API)
+      // Trade meta obsahuje MCap vypočtený z bonding curve pro pump.fun tokeny
+      const latestTrade = sortedBuys[sortedBuys.length - 1];
+      const tradeMeta = latestTrade?.meta as any;
+      if (tradeMeta?.marketCapUsd) {
+        marketCap = Number(tradeMeta.marketCapUsd);
+        console.log(`   📊 [Signal] MCap from trade meta (bonding curve): $${(marketCap / 1000).toFixed(1)}K`);
+      } else if (tradeMeta?.fdvUsd) {
+        marketCap = Number(tradeMeta.fdvUsd);
+        console.log(`   📊 [Signal] FDV from trade meta: $${(marketCap / 1000).toFixed(1)}K`);
+      }
+
+      // FALLBACK: Pokud trade meta nemá MCap, zkus Birdeye API
+      // (pro starší tokeny nebo non-pump.fun tokeny)
+      if ((marketCap === null || marketCap === undefined) && token?.mintAddress) {
+        try {
+          const earlyMarketData = await this.tokenMarketData.getMarketData(token.mintAddress);
+          if (earlyMarketData?.marketCap) {
+            marketCap = earlyMarketData.marketCap;
+            liquidity = earlyMarketData.liquidity ?? null;
+            console.log(`   📊 [Signal] MCap from Birdeye API: $${(marketCap / 1000).toFixed(1)}K`);
+          }
+        } catch (e) {
+          console.warn(`   ⚠️  [Consensus] Failed to fetch market data for ${token.symbol}`);
         }
       }
 
@@ -786,12 +789,23 @@ export class ConsensusWebhookService {
 
       if (!token) return null;
 
-      // 2. Načti market data
+      // 2. Načti market data - primárně z trade meta (bonding curve), pak Birdeye API
       let marketData: any = null;
-      try {
-        marketData = await this.tokenMarketData.getMarketData(token.mintAddress);
-      } catch (e) {
-        // Market data není kritická
+
+      // PRIMÁRNĚ: Použij MCap z trade meta (bonding curve - okamžité, žádné API)
+      const tradeMeta = trade.meta as any;
+      if (tradeMeta?.marketCapUsd || tradeMeta?.fdvUsd) {
+        marketData = {
+          marketCap: tradeMeta.marketCapUsd || tradeMeta.fdvUsd,
+          liquidity: tradeMeta.liquidity || null,
+        };
+      } else {
+        // FALLBACK: Birdeye API pro starší tokeny
+        try {
+          marketData = await this.tokenMarketData.getMarketData(token.mintAddress);
+        } catch (e) {
+          // Market data není kritická
+        }
       }
 
       // 3. Načti wallet info pro všechny zúčastněné wallety

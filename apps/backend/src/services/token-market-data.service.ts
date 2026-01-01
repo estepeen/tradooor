@@ -222,6 +222,39 @@ export class TokenMarketDataService {
   }
 
   /**
+   * Get market data with trade meta as primary source (for bonding curve MCap)
+   *
+   * PRIORITY:
+   * 1. Trade meta (bonding curve calculation - instant, no API)
+   * 2. Birdeye API (fallback for non-pump.fun tokens)
+   *
+   * @param mintAddress - Token mint address
+   * @param tradeMeta - Optional trade meta object containing marketCapUsd or fdvUsd
+   * @returns TokenMarketData with MCap from trade meta or API
+   */
+  async getMarketDataWithTradeMeta(
+    mintAddress: string,
+    tradeMeta?: { marketCapUsd?: number; fdvUsd?: number; liquidity?: number } | null
+  ): Promise<TokenMarketData> {
+    // 1. PRIMÁRNĚ: Použij MCap z trade meta (bonding curve - okamžité, žádné API)
+    if (tradeMeta?.marketCapUsd || tradeMeta?.fdvUsd) {
+      const marketCap = tradeMeta.marketCapUsd || tradeMeta.fdvUsd || null;
+      return {
+        price: null,
+        marketCap: marketCap,
+        liquidity: tradeMeta.liquidity || null,
+        volume24h: null,
+        tokenAgeMinutes: null,
+        ageMinutes: null,
+        source: 'bonding_curve',
+      };
+    }
+
+    // 2. FALLBACK: Birdeye API
+    return this.getMarketData(mintAddress);
+  }
+
+  /**
    * Calculate market cap from bonding curve price for pump.fun tokens
    * Formula: pricePerTokenUsd * PUMP_FUN_TOTAL_SUPPLY (1B)
    *
