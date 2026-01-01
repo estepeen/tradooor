@@ -175,6 +175,13 @@ async fn position_monitor(
                 if let Some(position) = trader.position_manager().get_position(&price_update.token_mint).await {
                     let current_price = price_update.price_usd;
 
+                    // Skip if in grace period (first 30s after buy)
+                    if position.is_in_grace_period() {
+                        // Still update the entry price if this is a more accurate price
+                        // (first few price updates after subscribe)
+                        continue;
+                    }
+
                     // Calculate PnL
                     let pnl = position.calculate_pnl(current_price);
 

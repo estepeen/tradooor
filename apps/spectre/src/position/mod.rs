@@ -78,10 +78,26 @@ impl Position {
         }
     }
 
+    /// Grace period after position creation (in seconds)
+    /// During this time, we ignore price updates to let prices stabilize
+    const GRACE_PERIOD_SECS: i64 = 30;
+
+    /// Check if position is still in grace period (recently created)
+    /// During grace period, we don't check SL/TP to avoid false triggers
+    pub fn is_in_grace_period(&self) -> bool {
+        let elapsed = chrono::Utc::now() - self.entry_time;
+        elapsed.num_seconds() < Self::GRACE_PERIOD_SECS
+    }
+
     /// Check if current price triggers SL or TP
-    /// Returns None if position is marked as unsellable
+    /// Returns None if position is marked as unsellable or in grace period
     pub fn check_exit(&self, current_price: f64) -> Option<ExitReason> {
         if self.is_unsellable {
+            return None;
+        }
+
+        // Don't check exits during grace period (price may not be stable yet)
+        if self.is_in_grace_period() {
             return None;
         }
 
