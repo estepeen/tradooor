@@ -131,6 +131,21 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
         // Pokud se nepodaří načíst market cap, pokračujeme bez něj (není kritické)
         // Nechceme spamovat logy, takže jen při výrazných chybách
       }
+
+      // FALLBACK: Pro nové pump.fun tokeny které ještě nejsou na DexScreener
+      // Počítáme MCap z bonding curve: pricePerToken * totalSupply (1B pro pump.fun)
+      // Použij SOL cenu z valuace pro převod na USD
+      if (!marketCapAtTradeTime && record.priceBasePerTokenRaw && record.baseToken === 'SOL') {
+        const PUMP_FUN_TOTAL_SUPPLY = 1_000_000_000; // 1 billion tokens
+        const pricePerTokenSol = record.priceBasePerTokenRaw;
+        // Potřebujeme SOL/USD cenu - použijeme z valuation (amountBaseUsd / amountBaseRaw)
+        if (valuation.amountBaseUsd && record.amountBaseRaw && record.amountBaseRaw > 0) {
+          const solPriceUsd = valuation.amountBaseUsd / record.amountBaseRaw;
+          const pricePerTokenUsd = pricePerTokenSol * solPriceUsd;
+          marketCapAtTradeTime = pricePerTokenUsd * PUMP_FUN_TOTAL_SUPPLY;
+          console.log(`[MARKETCAP] Calculated from bonding curve: $${(marketCapAtTradeTime / 1000).toFixed(1)}K (${record.tokenMint.substring(0, 8)}...)`);
+        }
+      }
     }
 
     // #region agent log - Debug amountBase storage

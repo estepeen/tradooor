@@ -1,7 +1,12 @@
 /**
  * Service for fetching token market data (market cap, liquidity, volume)
- * Primary: DexScreener API (free, better coverage for small tokens)
- * Fallback: Birdeye API (if DexScreener doesn't have data)
+ *
+ * Strategy for pump.fun tokens (detected by programId or mint suffix):
+ * 1. Calculate MCap from bonding curve: pricePerToken * 1B (instant, no API)
+ * 2. Fallback to Birdeye if bonding curve data not available
+ *
+ * Strategy for other tokens:
+ * 1. Birdeye API (reliable, has rate limits)
  */
 
 export interface TokenMarketData {
@@ -14,7 +19,7 @@ export interface TokenMarketData {
   holders?: number | null; // Number of holders
   topHolderPercent?: number | null; // Top holder %
   top10HolderPercent?: number | null; // Top 10 holders %
-  source?: 'dexscreener' | 'birdeye'; // Data source
+  source?: 'bonding_curve' | 'birdeye'; // Data source
 
   // Volume metrics (from DexScreener txns)
   buys5m?: number | null;    // Number of buy transactions in 5 minutes
@@ -29,6 +34,10 @@ export interface TokenMarketData {
   priceChange6h?: number | null;  // Price change % in 6 hours
   priceChange24h?: number | null; // Price change % in 24 hours
 }
+
+// Pump.fun constants
+const PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
+const PUMP_FUN_TOTAL_SUPPLY = 1_000_000_000; // 1 billion tokens
 
 export class TokenMarketDataService {
   private birdeyeApiKey: string | undefined;
@@ -49,107 +58,9 @@ export class TokenMarketDataService {
   }
 
   /**
-   * Fetch market data from DexScreener API (primary source)
-   */
-  private async getMarketDataFromDexScreener(mintAddress: string): Promise<TokenMarketData | null> {
-    try {
-      const url = `https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`;
-      const response = await fetch(url, {
-        headers: { 'Accept': 'application/json' },
-        signal: AbortSignal.timeout(5000), // 5s timeout
-      });
-
-      if (!response.ok) {
-        console.warn(`[DexScreener] HTTP ${response.status} for ${mintAddress.substring(0, 8)}...`);
-        return null;
-      }
-
-      const data = await response.json() as any;
-      if (!data.pairs || !Array.isArray(data.pairs) || data.pairs.length === 0) {
-        console.warn(`[DexScreener] No pairs found for ${mintAddress.substring(0, 8)}...`);
-        return null;
-      }
-
-      console.log(`[DexScreener] Found ${data.pairs.length} pairs for ${mintAddress.substring(0, 8)}... MCap: $${data.pairs[0]?.fdv || data.pairs[0]?.marketCap || 'N/A'}`);
-
-      // Find the best pair (highest liquidity)
-      const bestPair = data.pairs.reduce((best: any, pair: any) => {
-        const currentLiq = parseFloat(pair.liquidity?.usd || '0');
-        const bestLiq = parseFloat(best?.liquidity?.usd || '0');
-        return currentLiq > bestLiq ? pair : best;
-      }, data.pairs[0]);
-
-      // Extract data
-      const price = parseFloat(bestPair.priceUsd || '0') || null;
-      const liquidity = parseFloat(bestPair.liquidity?.usd || '0') || null;
-      const marketCap = parseFloat(bestPair.fdv || '0') || null; // FDV = Fully Diluted Valuation
-      const volume24h = parseFloat(bestPair.volume?.h24 || '0') || null;
-
-      // Calculate token age
-      let tokenAgeMinutes: number | null = null;
-      if (bestPair.pairCreatedAt) {
-        const createdAt = new Date(bestPair.pairCreatedAt);
-        const now = new Date();
-        tokenAgeMinutes = Math.round((now.getTime() - createdAt.getTime()) / (1000 * 60));
-      }
-
-      // Extract buy/sell transaction counts and volumes (5 minute window)
-      // DexScreener txns structure: { m5: { buys, sells }, h1: {...}, h6: {...}, h24: {...} }
-      const txns = bestPair.txns || {};
-      const m5 = txns.m5 || {};
-      const buys5m = m5.buys !== undefined ? Number(m5.buys) : null;
-      const sells5m = m5.sells !== undefined ? Number(m5.sells) : null;
-
-      // DexScreener volume structure: { m5, h1, h6, h24 } in USD
-      const volume = bestPair.volume || {};
-      const buyVolume5m = volume.m5 !== undefined ? parseFloat(volume.m5) / 2 : null; // Approximate: half is buys
-      const sellVolume5m = volume.m5 !== undefined ? parseFloat(volume.m5) / 2 : null; // Approximate: half is sells
-
-      // Calculate buy/sell ratio from transaction counts (more reliable)
-      let buySellRatio5m: number | null = null;
-      if (buys5m !== null && sells5m !== null && sells5m > 0) {
-        buySellRatio5m = buys5m / sells5m;
-      } else if (buys5m !== null && buys5m > 0 && sells5m === 0) {
-        buySellRatio5m = 10; // Cap at 10 if no sells
-      }
-
-      // Extract price changes
-      const priceChange = bestPair.priceChange || {};
-      const priceChange5m = priceChange.m5 !== undefined ? parseFloat(priceChange.m5) : null;
-      const priceChange1h = priceChange.h1 !== undefined ? parseFloat(priceChange.h1) : null;
-      const priceChange6h = priceChange.h6 !== undefined ? parseFloat(priceChange.h6) : null;
-      const priceChange24h = priceChange.h24 !== undefined ? parseFloat(priceChange.h24) : null;
-
-      return {
-        price,
-        marketCap,
-        liquidity,
-        volume24h,
-        tokenAgeMinutes,
-        ageMinutes: tokenAgeMinutes,
-        source: 'dexscreener',
-        // Volume metrics
-        buys5m,
-        sells5m,
-        buyVolume5m,
-        sellVolume5m,
-        buySellRatio5m,
-        // Price change metrics
-        priceChange5m,
-        priceChange1h,
-        priceChange6h,
-        priceChange24h,
-      };
-    } catch (error: any) {
-      console.warn(`⚠️  DexScreener error for ${mintAddress.substring(0, 8)}...: ${error.message}`);
-      return null;
-    }
-  }
-
-  /**
    * Get market data for a token
-   * Primary: DexScreener (free, better for small tokens)
-   * Fallback: Birdeye (if DexScreener doesn't have data)
+   * For pump.fun tokens: Calculate from bonding curve (instant)
+   * For other tokens: Use Birdeye API
    */
   async getMarketData(mintAddress: string, timestamp?: Date): Promise<TokenMarketData> {
     // Check cache first
@@ -158,21 +69,13 @@ export class TokenMarketDataService {
     if (cached) {
       const cacheTTL = this.getCacheTTL(cached.data.marketCap);
       if (Date.now() - cached.timestamp < cacheTTL) {
-      return cached.data;
-    }
-    }
-
-    // 1. Try DexScreener first (free, better coverage)
-    const dexData = await this.getMarketDataFromDexScreener(mintAddress);
-    if (dexData && dexData.price) {
-      this.cache.set(cacheKey, { data: dexData, timestamp: Date.now() });
-      return dexData;
+        return cached.data;
+      }
     }
 
-    // 2. Fallback to Birdeye if DexScreener doesn't have data
-
+    // Use Birdeye for all tokens (works for both pump.fun and other tokens)
     if (!this.birdeyeApiKey) {
-      console.warn(`⚠️  No data from DexScreener and BIRDEYE_API_KEY not set for ${mintAddress.substring(0, 8)}...`);
+      console.warn(`⚠️  BIRDEYE_API_KEY not set for ${mintAddress.substring(0, 8)}...`);
       return {
         price: null,
         marketCap: null,
@@ -294,7 +197,7 @@ export class TokenMarketDataService {
    */
   async getMarketDataBatch(mintAddresses: string[], timestamp?: Date): Promise<Map<string, TokenMarketData>> {
     const result = new Map<string, TokenMarketData>();
-    
+
     // Process in smaller batches to avoid rate limits
     const BATCH_SIZE = 10;
     for (let i = 0; i < mintAddresses.length; i += BATCH_SIZE) {
@@ -317,4 +220,30 @@ export class TokenMarketDataService {
 
     return result;
   }
+
+  /**
+   * Calculate market cap from bonding curve price for pump.fun tokens
+   * Formula: pricePerTokenUsd * PUMP_FUN_TOTAL_SUPPLY (1B)
+   *
+   * @param pricePerTokenSol - Price per token in SOL (from trade data)
+   * @param solPriceUsd - Current SOL price in USD
+   * @returns Market cap in USD
+   */
+  static calculatePumpFunMarketCap(pricePerTokenSol: number, solPriceUsd: number): number {
+    const pricePerTokenUsd = pricePerTokenSol * solPriceUsd;
+    return pricePerTokenUsd * PUMP_FUN_TOTAL_SUPPLY;
+  }
+
+  /**
+   * Check if a token is a pump.fun token based on program ID or mint address
+   * Pump.fun mints often end with "pump" suffix
+   */
+  static isPumpFunToken(programId?: string, mintAddress?: string): boolean {
+    if (programId === PUMP_FUN_PROGRAM_ID) return true;
+    if (mintAddress && mintAddress.toLowerCase().endsWith('pump')) return true;
+    return false;
+  }
 }
+
+// Export constants for use in other modules
+export { PUMP_FUN_PROGRAM_ID, PUMP_FUN_TOTAL_SUPPLY };
