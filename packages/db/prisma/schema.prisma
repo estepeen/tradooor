@@ -21,6 +21,10 @@ model SmartWallet {
   twitterUrl                String? // Twitter/X profil URL (např. "https://x.com/username")
   lastPumpfunTradeTimestamp DateTime? // Poslední Pump.fun trade (pro backfill a monitoring)
 
+  // Manual trader classification
+  tier                      Int?      // Trader tier: 1 = best (T1), 2 = good (T2), 3 = decent (T3), null = unclassified
+  avgBuyAmountUsd           Float?    // Manually set typical buy amount in USD (for conviction detection)
+
   // Metriky (průběžně přepočítávané)
   score                       Float   @default(0) // Celkové skóre kvality tradera (0-100)
   score7d                     Float   @default(0) // Skóre založené na posledních 7 dnech (0-100)
@@ -63,6 +67,7 @@ model SmartWallet {
 
   @@index([address])
   @@index([score])
+  @@index([tier])
   @@index([updatedAt])
 }
 

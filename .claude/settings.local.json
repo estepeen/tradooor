@@ -74,7 +74,9 @@
       "Bash(python3:*)",
       "Bash(pnpm --filter backend exec tsc:*)",
       "Bash(ssh -i ~/.ssh/claude_assistant -o ConnectTimeout=10 root@157.180.41.49 \"cd /opt/tradooor && git pull origin master && source ~/.nvm/nvm.sh && pm2 restart normalize-trades backend\")",
-      "Bash(pnpm --filter backend exec tsc --noEmit)"
+      "Bash(pnpm --filter backend exec tsc --noEmit)",
+      "Bash(pnpm:*)",
+      "Bash(ssh -i ~/.ssh/claude_assistant -o ConnectTimeout=10 root@157.180.41.49 \"cd /opt/tradooor && git pull origin master\")"
     ]
   }
 }
