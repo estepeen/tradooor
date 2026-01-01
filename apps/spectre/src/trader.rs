@@ -13,7 +13,70 @@ use crate::jupiter::JupiterClient;
 use crate::jito::JitoClient;
 use crate::pumpfun_trade::PumpfunTrader;
 use crate::position::{Position, PositionManager, ExitReason};
-use crate::redis::{SpectreSignal, TradeResult};
+use crate::redis::{SpectreSignal, SpectrePreSignal, TradeResult};
+
+use std::collections::HashMap;
+use tokio::sync::RwLock;
+
+/// Prepared transaction ready for immediate execution
+#[derive(Debug, Clone)]
+pub struct PreparedTx {
+    pub token_mint: String,
+    pub token_symbol: String,
+    pub tx_bytes: Vec<u8>,
+    pub created_at: std::time::Instant,
+    pub market_cap_usd: Option<f64>,
+    pub entry_price_usd: Option<f64>,
+}
+
+/// Cache for prepared transactions (from pre-signals)
+/// Expires after 60 seconds to avoid stale transactions
+pub struct PreparedTxCache {
+    cache: RwLock<HashMap<String, PreparedTx>>,
+    expiry_secs: u64,
+}
+
+impl PreparedTxCache {
+    pub fn new(expiry_secs: u64) -> Self {
+        Self {
+            cache: RwLock::new(HashMap::new()),
+            expiry_secs,
+        }
+    }
+
+    pub async fn insert(&self, token_mint: String, prepared: PreparedTx) {
+        let mut cache = self.cache.write().await;
+        info!(
+            "⚡ TX prepared for {} ({}) - ready for fast execution",
+            prepared.token_symbol,
+            &token_mint[..16.min(token_mint.len())]
+        );
+        cache.insert(token_mint, prepared);
+    }
+
+    pub async fn get(&self, token_mint: &str) -> Option<PreparedTx> {
+        let cache = self.cache.read().await;
+        if let Some(prepared) = cache.get(token_mint) {
+            // Check if expired
+            if prepared.created_at.elapsed().as_secs() < self.expiry_secs {
+                return Some(prepared.clone());
+            }
+        }
+        None
+    }
+
+    pub async fn remove(&self, token_mint: &str) {
+        let mut cache = self.cache.write().await;
+        cache.remove(token_mint);
+    }
+
+    /// Clean up expired entries
+    pub async fn cleanup_expired(&self) {
+        let mut cache = self.cache.write().await;
+        let expiry = self.expiry_secs;
+        cache.retain(|_, v| v.created_at.elapsed().as_secs() < expiry);
+    }
+}
 
 pub struct SpectreTrader {
     config: Config,
@@ -22,6 +85,7 @@ pub struct SpectreTrader {
     jito: JitoClient,
     pumpfun: PumpfunTrader,
     position_manager: PositionManager,
+    prepared_tx_cache: PreparedTxCache,
 }
 
 impl SpectreTrader {
@@ -36,9 +100,55 @@ impl SpectreTrader {
             jito: JitoClient::new(&config.jito_block_engine_url),
             pumpfun: PumpfunTrader::new(),
             position_manager: PositionManager::new(),
+            prepared_tx_cache: PreparedTxCache::new(60), // 60 second expiry
             config,
             rpc_client,
         }
+    }
+
+    /// Prepare TX for a pre-signal (after 1st wallet buy)
+    /// This allows us to execute immediately when 2nd wallet confirms
+    pub async fn prepare_tx_for_presignal(&self, pre_signal: &SpectrePreSignal) {
+        let token_mint = &pre_signal.token_mint;
+        let token_symbol = &pre_signal.token_symbol;
+
+        // Check if we already have a position (shouldn't prepare if we do)
+        if self.position_manager.has_position(token_mint).await {
+            warn!("⚠️ Already have position in {}, skipping TX preparation", token_symbol);
+            return;
+        }
+
+        // Get buy transaction from PumpPortal
+        let slippage_percent = (self.config.slippage_bps / 100) as u16;
+        let priority_fee_sol = self.config.jito_tip_lamports as f64 / 1e9;
+
+        match self.pumpfun.get_buy_transaction(
+            &self.config.wallet_pubkey().to_string(),
+            token_mint,
+            self.config.trade_amount_sol,
+            slippage_percent,
+            priority_fee_sol,
+        ).await {
+            Ok(tx_bytes) => {
+                let prepared = PreparedTx {
+                    token_mint: token_mint.clone(),
+                    token_symbol: token_symbol.clone(),
+                    tx_bytes,
+                    created_at: std::time::Instant::now(),
+                    market_cap_usd: pre_signal.market_cap_usd,
+                    entry_price_usd: pre_signal.entry_price_usd,
+                };
+                self.prepared_tx_cache.insert(token_mint.clone(), prepared).await;
+            }
+            Err(e) => {
+                warn!("⚠️ Failed to prepare TX for {}: {}", token_symbol, e);
+            }
+        }
+    }
+
+    /// Get prepared TX cache reference
+    pub fn prepared_tx_cache(&self) -> &PreparedTxCache {
+        &self.prepared_tx_cache
     }
 
     /// Execute buy order for a signal with retry logic
@@ -74,36 +184,52 @@ impl SpectreTrader {
     }
 
     /// Execute buy via pump.fun bonding curve (for NINJA signals)
+    /// Uses prepared TX from cache if available (Fast Confirm optimization)
     async fn execute_buy_pumpfun(&self, signal: &SpectreSignal) -> Result<TradeResult> {
         const MAX_ATTEMPTS: u32 = 2;
 
         let token_mint = &signal.token_mint;
         let token_symbol = &signal.token_symbol;
 
+        // ⚡ FAST CONFIRM: Check if we have a prepared TX from pre-signal
+        let prepared_tx = self.prepared_tx_cache.get(token_mint).await;
+        let used_prepared = prepared_tx.is_some();
+
+        if used_prepared {
+            info!("⚡ Using PREPARED TX for {} (Fast Confirm)", token_symbol);
+        }
+
         for attempt in 1..=MAX_ATTEMPTS {
             let start = std::time::Instant::now();
 
-            // 1. Get transaction from PumpPortal
-            let slippage_percent = (self.config.slippage_bps / 100) as u16; // Convert bps to percent
-            let priority_fee_sol = self.config.jito_tip_lamports as f64 / 1e9;
-
-            let tx_bytes = match self.pumpfun.get_buy_transaction(
-                &self.config.wallet_pubkey().to_string(),
-                token_mint,
-                self.config.trade_amount_sol,
-                slippage_percent,
-                priority_fee_sol,
-            ).await {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    error!("❌ [Attempt {}/{}] PumpPortal buy failed: {}", attempt, MAX_ATTEMPTS, e);
-                    if attempt < MAX_ATTEMPTS {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        continue;
+            // 1. Get transaction - from cache or PumpPortal
+            let tx_bytes = if let Some(ref prepared) = prepared_tx {
+                if attempt == 1 {
+                    // Use prepared TX on first attempt
+                    prepared.tx_bytes.clone()
+                } else {
+                    // Get fresh TX on retry (prepared might be stale)
+                    self.get_fresh_pumpfun_tx(token_mint).await?
+                }
+            } else {
+                // No prepared TX, get fresh one
+                match self.get_fresh_pumpfun_tx(token_mint).await {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        error!("❌ [Attempt {}/{}] PumpPortal buy failed: {}", attempt, MAX_ATTEMPTS, e);
+                        if attempt < MAX_ATTEMPTS {
+                            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                            continue;
+                        }
+                        return Ok(self.create_error_result(signal, &format!("PumpPortal failed: {}", e), attempt, None));
                     }
-                    return Ok(self.create_error_result(signal, &format!("PumpPortal failed: {}", e), attempt, None));
                 }
             };
+
+            // Remove from cache after use (regardless of success)
+            if used_prepared {
+                self.prepared_tx_cache.remove(token_mint).await;
+            }
 
             // 2. Sign transaction
             let signed_tx = match self.pumpfun.sign_transaction(&tx_bytes, &self.config.wallet) {
@@ -410,6 +536,20 @@ impl SpectreTrader {
 
         // Should never reach here, but just in case
         Ok(self.create_error_result(signal, "Max attempts exhausted", MAX_ATTEMPTS, None))
+    }
+
+    /// Helper to get fresh TX from PumpPortal (used when no prepared TX or on retry)
+    async fn get_fresh_pumpfun_tx(&self, token_mint: &str) -> Result<Vec<u8>> {
+        let slippage_percent = (self.config.slippage_bps / 100) as u16;
+        let priority_fee_sol = self.config.jito_tip_lamports as f64 / 1e9;
+
+        self.pumpfun.get_buy_transaction(
+            &self.config.wallet_pubkey().to_string(),
+            token_mint,
+            self.config.trade_amount_sol,
+            slippage_percent,
+            priority_fee_sol,
+        ).await
     }
 
     /// Helper to create error TradeResult with all signal context

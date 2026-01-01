@@ -21,7 +21,7 @@ import { PositionMonitorService } from './position-monitor.service.js';
 import { SignalPerformanceService } from './signal-performance.service.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 import { WalletCorrelationService } from './wallet-correlation.service.js';
-import { redisService, SpectreSignalPayload } from './redis.service.js';
+import { redisService, SpectreSignalPayload, SpectrePreSignalPayload } from './redis.service.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
@@ -104,6 +104,50 @@ export class ConsensusWebhookService {
 
       // 2. Zkontroluj, jestli jsou alespoň 2 různé wallets
       const uniqueWallets = new Set(recentBuys.map(t => t.walletId));
+
+      // ⚡ FAST CONFIRM: If only 1 wallet, send pre-signal to SPECTRE to prepare TX
+      if (uniqueWallets.size === 1 && process.env.ENABLE_SPECTRE_BOT === 'true') {
+        const firstTrade = recentBuys[0];
+        const token = await this.tokenRepo.findById(tokenId);
+        const wallet = await this.smartWalletRepo.findById(walletId);
+
+        // Get market data from trade meta (pump.fun bonding curve)
+        const tradeMeta = firstTrade?.meta as any;
+        const marketCap = tradeMeta?.marketCapUsd ? Number(tradeMeta.marketCapUsd) : null;
+        const liquidity = tradeMeta?.liquidityUsd ? Number(tradeMeta.liquidityUsd) : null;
+
+        // Calculate entry price
+        const amountToken = Number(firstTrade.amountToken || 0);
+        const valueUsd = Number(firstTrade.valueUsd || 0);
+        const entryPrice = amountToken > 0 && valueUsd > 0 ? valueUsd / amountToken : null;
+
+        // Check if MCap is in NINJA range before sending pre-signal
+        if (marketCap !== null && marketCap >= NINJA_MIN_MARKET_CAP_USD && marketCap < NINJA_MAX_MARKET_CAP_USD) {
+          const preSignal: SpectrePreSignalPayload = {
+            tokenMint: token?.mintAddress || '',
+            tokenSymbol: token?.symbol || 'Unknown',
+            marketCapUsd: marketCap,
+            liquidityUsd: liquidity,
+            entryPriceUsd: entryPrice,
+            timestamp: new Date().toISOString(),
+            firstWallet: {
+              address: wallet?.address || '',
+              label: wallet?.label || null,
+              score: wallet?.score ? Number(wallet.score) : null,
+            },
+          };
+
+          // Fire and forget - prepare TX in background
+          redisService.pushPreSignal(preSignal).catch(err => {
+            console.warn(`   ⚠️  Redis pre-signal push failed: ${err.message}`);
+          });
+
+          console.log(`   ⚡ [Pre-Signal] Sent to SPECTRE for ${token?.symbol} @ $${marketCap ? (marketCap / 1000).toFixed(1) + 'K' : 'N/A'} MCap`);
+        }
+
+        return { consensusFound: false };
+      }
+
       if (uniqueWallets.size < 2) {
         return { consensusFound: false };
       }

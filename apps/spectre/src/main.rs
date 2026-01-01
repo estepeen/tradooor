@@ -61,6 +61,9 @@ async fn main() -> Result<()> {
     ));
     let mut signal_rx = redis_listener.lock().await.subscribe().await?;
 
+    // Subscribe to pre-signals for Fast Confirm optimization
+    let mut pre_signal_rx = redis_listener.lock().await.subscribe_pre_signals().await?;
+
     // Initialize Birdeye/DexScreener client for price monitoring (fallback)
     let birdeye = Arc::new(BirdeyeClient::new(config.birdeye_api_key.clone()));
 
@@ -98,6 +101,16 @@ async fn main() -> Result<()> {
             shutdown_rx,
             price_rx
         ).await;
+    });
+
+    // Start pre-signal handler in background (Fast Confirm optimization)
+    let presignal_trader = trader.clone();
+    let presignal_handle = tokio::spawn(async move {
+        info!("⚡ Fast Confirm: Pre-signal handler started");
+        while let Some(pre_signal) = pre_signal_rx.recv().await {
+            presignal_trader.prepare_tx_for_presignal(&pre_signal).await;
+        }
+        info!("⚡ Pre-signal handler stopped");
     });
 
     info!("🚀 SPECTRE ready! Waiting for signals...");
@@ -144,6 +157,7 @@ async fn main() -> Result<()> {
     // Cleanup
     let _ = shutdown_tx.send(());
     let _ = monitor_handle.await;
+    presignal_handle.abort(); // Stop pre-signal handler
 
     info!("👋 SPECTRE shutting down...");
     Ok(())

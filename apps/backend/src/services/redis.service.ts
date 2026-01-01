@@ -75,6 +75,29 @@ class RedisService {
   }
 
   /**
+   * Push a pre-signal to SPECTRE to prepare TX skeleton (after 1st wallet buy)
+   * This allows SPECTRE to build the TX in advance for faster execution
+   */
+  async pushPreSignal(preSignal: SpectrePreSignalPayload): Promise<boolean> {
+    if (!this.client || !this.isConnected) {
+      console.warn('⚠️  [Redis] Not connected, skipping pre-signal push');
+      return false;
+    }
+
+    try {
+      const queueName = 'spectre_pre_signals';
+      const payload = JSON.stringify(preSignal);
+
+      await this.client.lpush(queueName, payload);
+      console.log(`⚡ [Redis] Pre-signal pushed: ${preSignal.tokenSymbol} (${preSignal.tokenMint.substring(0, 8)}...) - TX will be prepared`);
+      return true;
+    } catch (error: any) {
+      console.error('❌ [Redis] Failed to push pre-signal:', error.message);
+      return false;
+    }
+  }
+
+  /**
    * Check if Redis is connected
    */
   isReady(): boolean {
@@ -112,6 +135,24 @@ export interface SpectreSignalPayload {
     label: string | null;
     score: number | null;
   }>;
+}
+
+/**
+ * Pre-signal payload - sent after 1st wallet buy to prepare TX
+ * SPECTRE will build the TX skeleton and cache it for fast execution
+ */
+export interface SpectrePreSignalPayload {
+  tokenMint: string;
+  tokenSymbol: string;
+  marketCapUsd: number | null;
+  liquidityUsd: number | null;
+  entryPriceUsd: number | null;
+  timestamp: string;
+  firstWallet: {
+    address: string;
+    label: string | null;
+    score: number | null;
+  };
 }
 
 // Singleton instance

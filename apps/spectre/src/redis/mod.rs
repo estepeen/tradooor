@@ -29,6 +29,27 @@ pub struct SignalWallet {
     pub score: Option<f64>,
 }
 
+/// Pre-signal received after 1st wallet buy - used to prepare TX in advance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpectrePreSignal {
+    pub token_mint: String,
+    pub token_symbol: String,
+    pub market_cap_usd: Option<f64>,
+    pub liquidity_usd: Option<f64>,
+    pub entry_price_usd: Option<f64>,
+    pub timestamp: String,
+    pub first_wallet: PreSignalWallet,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreSignalWallet {
+    pub address: String,
+    pub label: Option<String>,
+    pub score: Option<f64>,
+}
+
 pub struct RedisListener {
     redis_url: String,
     queue_name: String,
@@ -129,6 +150,73 @@ impl RedisListener {
         let payload = serde_json::to_string(result)?;
         let _: () = self.connection.lpush("spectre_trade_results", payload).await?;
         Ok(())
+    }
+
+    /// Listen for pre-signals (after 1st wallet buy) to prepare TX in advance
+    pub async fn subscribe_pre_signals(&self) -> Result<mpsc::UnboundedReceiver<SpectrePreSignal>> {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        let redis_url = self.redis_url.clone();
+        let queue_name = "spectre_pre_signals".to_string();
+
+        info!("⚡ Listening for pre-signals on: {}", queue_name);
+
+        tokio::spawn(async move {
+            let client = match redis::Client::open(redis_url.as_str()) {
+                Ok(c) => c,
+                Err(e) => {
+                    error!("Failed to open Redis client for pre-signals: {}", e);
+                    return;
+                }
+            };
+
+            let mut conn = match client.get_multiplexed_async_connection().await {
+                Ok(c) => c,
+                Err(e) => {
+                    error!("Failed to get Redis connection for pre-signals: {}", e);
+                    return;
+                }
+            };
+
+            loop {
+                let result: redis::RedisResult<Option<(String, String)>> =
+                    redis::cmd("BRPOP")
+                        .arg(&queue_name)
+                        .arg(0)
+                        .query_async(&mut conn)
+                        .await;
+
+                match result {
+                    Ok(Some((_key, payload))) => {
+                        match serde_json::from_str::<SpectrePreSignal>(&payload) {
+                            Ok(pre_signal) => {
+                                info!(
+                                    "⚡ Pre-signal received: {} ({}) - preparing TX",
+                                    pre_signal.token_symbol,
+                                    &pre_signal.token_mint[..16.min(pre_signal.token_mint.len())]
+                                );
+
+                                if tx.send(pre_signal).is_err() {
+                                    error!("Pre-signal receiver dropped, stopping listener");
+                                    break;
+                                }
+                            }
+                            Err(e) => {
+                                let preview = &payload[..100.min(payload.len())];
+                                warn!("Failed to parse pre-signal: {} - payload: {}", e, preview);
+                            }
+                        }
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        warn!("Redis BRPOP error (pre-signals): {}", e);
+                        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+                    }
+                }
+            }
+        });
+
+        Ok(rx)
     }
 }
 
