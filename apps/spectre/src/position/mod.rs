@@ -78,26 +78,56 @@ impl Position {
         }
     }
 
-    /// Grace period after position creation (in seconds)
-    /// During this time, we ignore price updates to let prices stabilize
-    const GRACE_PERIOD_SECS: i64 = 30;
+    /// Short initial period to wait for first price sync (in seconds)
+    /// We need at least one PumpPortal price update to sync entry_price
+    const PRICE_SYNC_WAIT_SECS: i64 = 3;
 
-    /// Check if position is still in grace period (recently created)
-    /// During grace period, we don't check SL/TP to avoid false triggers
-    pub fn is_in_grace_period(&self) -> bool {
+    /// Check if we're still waiting for initial price sync
+    /// Returns true only for the first few seconds after position creation
+    pub fn is_waiting_for_price_sync(&self) -> bool {
         let elapsed = chrono::Utc::now() - self.entry_time;
-        elapsed.num_seconds() < Self::GRACE_PERIOD_SECS
+        elapsed.num_seconds() < Self::PRICE_SYNC_WAIT_SECS
+    }
+
+    /// Update entry price and recalculate SL/TP based on real PumpPortal price
+    /// This syncs our position with actual bonding curve price
+    pub fn sync_with_real_price(&mut self, real_price: f64) {
+        let old_entry = self.entry_price;
+        self.entry_price = real_price;
+
+        // Recalculate SL/TP from new entry price
+        let sl_multiplier = 1.0 - self.stop_loss_percent.abs() / 100.0;
+        self.stop_loss_price = real_price * sl_multiplier;
+
+        self.take_profit_price = real_price * (1.0 + self.take_profit_percent.abs() / 100.0);
+
+        info!(
+            "🔄 Price synced for {}: ${:.10} -> ${:.10} | New SL: ${:.10} | New TP: ${:.10}",
+            self.token_symbol,
+            old_entry,
+            real_price,
+            self.stop_loss_price,
+            self.take_profit_price
+        );
+    }
+
+    /// Check if entry price has been synced with real PumpPortal price
+    /// (entry_price will be very different from backend's estimate initially)
+    pub fn needs_price_sync(&self) -> bool {
+        // If position is pump.fun and we haven't synced yet (entry_price is still from signal)
+        // We detect this by checking if we're in the first few seconds
+        self.is_pumpfun && self.is_waiting_for_price_sync()
     }
 
     /// Check if current price triggers SL or TP
-    /// Returns None if position is marked as unsellable or in grace period
+    /// Returns None if position is marked as unsellable or waiting for price sync
     pub fn check_exit(&self, current_price: f64) -> Option<ExitReason> {
         if self.is_unsellable {
             return None;
         }
 
-        // Don't check exits during grace period (price may not be stable yet)
-        if self.is_in_grace_period() {
+        // Don't check exits until we've synced price from PumpPortal
+        if self.needs_price_sync() {
             return None;
         }
 
@@ -224,6 +254,20 @@ impl PositionManager {
                 position.token_symbol, reason
             );
         }
+    }
+
+    /// Sync position's entry price with real PumpPortal price
+    /// This fixes the price discrepancy between backend and PumpPortal
+    /// Returns true if sync was performed
+    pub async fn sync_entry_price(&self, token_mint: &str, real_price: f64) -> bool {
+        let mut positions = self.positions.write().await;
+        if let Some(position) = positions.get_mut(token_mint) {
+            if position.needs_price_sync() {
+                position.sync_with_real_price(real_price);
+                return true;
+            }
+        }
+        false
     }
 }
 

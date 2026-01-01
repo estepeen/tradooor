@@ -175,11 +175,12 @@ async fn position_monitor(
                 if let Some(position) = trader.position_manager().get_position(&price_update.token_mint).await {
                     let current_price = price_update.price_usd;
 
-                    // Skip if in grace period (first 30s after buy)
-                    if position.is_in_grace_period() {
-                        // Still update the entry price if this is a more accurate price
-                        // (first few price updates after subscribe)
-                        continue;
+                    // Sync entry price on first update (fixes price discrepancy)
+                    // This updates entry_price, SL, and TP based on real PumpPortal price
+                    if position.needs_price_sync() {
+                        trader.position_manager().sync_entry_price(&price_update.token_mint, current_price).await;
+                        // Get updated position after sync
+                        continue; // Skip this update, next one will have synced prices
                     }
 
                     // Calculate PnL
