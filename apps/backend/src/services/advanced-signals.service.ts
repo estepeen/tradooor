@@ -1606,9 +1606,6 @@ export class AdvancedSignalsService {
                 })() : undefined,
               }],
               security: securityData,
-              // Pro exit-warning: přidej detaily o prodejcích
-              exitSellers: signal.type === 'exit-warning' ? signal.context.exitSellers : undefined,
-              exitTotalBuyers: signal.type === 'exit-warning' ? signal.context.exitTotalBuyers : undefined,
             };
 
             console.log(`📨 [AdvancedSignals] About to send Discord notification - baseToken: ${notificationData.baseToken || 'MISSING'}, walletIds: ${notificationData.wallets?.map(w => w.walletId ? 'yes' : 'no').join(',') || 'none'}, aiDecision: ${notificationData.aiDecision || 'undefined'}`);

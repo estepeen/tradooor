@@ -210,10 +210,13 @@ async fn position_monitor(
 
                     // Check if we should exit
                     if let Some(exit_reason) = position.check_exit(current_price) {
-                        let reason_str = match exit_reason {
-                            ExitReason::StopLoss => "🛑 STOP LOSS",
-                            ExitReason::TakeProfit => "🎯 TAKE PROFIT",
-                            ExitReason::Manual => "👤 MANUAL",
+                        let reason_str = match &exit_reason {
+                            ExitReason::StopLoss => "🛑 STOP LOSS".to_string(),
+                            ExitReason::TakeProfit => "🎯 TAKE PROFIT".to_string(),
+                            ExitReason::Manual => "👤 MANUAL".to_string(),
+                            ExitReason::ScaledTakeProfit { stage, trigger_percent, .. } => {
+                                format!("🎯 NINJA TP#{} (+{:.0}%)", stage, trigger_percent)
+                            }
                         };
 
                         info!("🚨 {} triggered for {} at ${:.10} ({:.1}%)",
@@ -223,7 +226,7 @@ async fn position_monitor(
                             pnl.pnl_percent
                         );
 
-                        // Execute sell
+                        // Execute sell (partial for scaled, full for others)
                         execute_exit(&trader, &redis_listener, &position.token_mint, exit_reason).await;
                     }
                 }
@@ -276,10 +279,13 @@ async fn position_monitor(
 
                     // Check if we should exit
                     if let Some(exit_reason) = position.check_exit(current_price) {
-                        let reason_str = match exit_reason {
-                            ExitReason::StopLoss => "🛑 STOP LOSS",
-                            ExitReason::TakeProfit => "🎯 TAKE PROFIT",
-                            ExitReason::Manual => "👤 MANUAL",
+                        let reason_str = match &exit_reason {
+                            ExitReason::StopLoss => "🛑 STOP LOSS".to_string(),
+                            ExitReason::TakeProfit => "🎯 TAKE PROFIT".to_string(),
+                            ExitReason::Manual => "👤 MANUAL".to_string(),
+                            ExitReason::ScaledTakeProfit { stage, trigger_percent, .. } => {
+                                format!("🎯 NINJA TP#{} (+{:.0}%)", stage, trigger_percent)
+                            }
                         };
 
                         info!("🚨 {} triggered for {} at ${:.10} ({:.1}%)",
@@ -289,7 +295,7 @@ async fn position_monitor(
                             pnl.pnl_percent
                         );
 
-                        // Execute sell
+                        // Execute sell (partial for scaled, full for others)
                         execute_exit(&trader, &redis_listener, &position.token_mint, exit_reason).await;
                     }
                 }

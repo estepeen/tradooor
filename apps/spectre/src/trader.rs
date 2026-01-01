@@ -276,7 +276,8 @@ impl SpectreTrader {
             };
 
             // Create position for SL/TP monitoring (mark as pump.fun position)
-            let position = Position::new(
+            // Pass signal_type for NINJA scaled exits
+            let position = Position::new_with_signal_type(
                 token_mint.clone(),
                 token_symbol.clone(),
                 entry_price,
@@ -286,6 +287,7 @@ impl SpectreTrader {
                 signal.take_profit_percent,
                 tx_sig.clone(),
                 true, // is_pumpfun = true
+                signal.signal_type.clone(),
             );
             self.position_manager.add_position(position).await;
 
@@ -485,7 +487,8 @@ impl SpectreTrader {
             });
 
             // 5. Create position for SL/TP monitoring (Jupiter = not pump.fun)
-            let position = Position::new(
+            // Pass signal_type for NINJA scaled exits
+            let position = Position::new_with_signal_type(
                 token_mint.clone(),
                 token_symbol.clone(),
                 actual_entry_price,  // Use actual trade price!
@@ -495,6 +498,7 @@ impl SpectreTrader {
                 signal.take_profit_percent,
                 bundle_id.clone(),
                 false, // is_pumpfun = false (Jupiter)
+                signal.signal_type.clone(),
             );
             self.position_manager.add_position(position).await;
 
@@ -584,6 +588,7 @@ impl SpectreTrader {
 
     /// Execute sell order (SL/TP triggered) with retry logic
     /// Routes to pump.fun or Jupiter based on how position was opened
+    /// For ScaledTakeProfit, only sells partial position
     pub async fn execute_sell(&self, token_mint: &str, reason: ExitReason) -> Result<TradeResult> {
         let position = match self.position_manager.get_position(token_mint).await {
             Some(p) => p,
@@ -592,23 +597,48 @@ impl SpectreTrader {
             }
         };
 
+        // For scaled exits, calculate tokens to sell and update position
+        let (tokens_to_sell, should_remove_position) = match &reason {
+            ExitReason::ScaledTakeProfit { stage, sell_percent, .. } => {
+                // Advance position to next stage and get tokens to sell
+                match self.position_manager.advance_scaled_exit(token_mint, *stage, *sell_percent).await {
+                    Some((tokens, fully_closed)) => (tokens, fully_closed),
+                    None => return Err(anyhow!("Failed to advance scaled exit for {}", token_mint)),
+                }
+            }
+            _ => {
+                // Full exit - sell all tokens
+                (position.amount_tokens, true)
+            }
+        };
+
         info!(
-            "🔴 Executing SELL via {} ({}): {} - {} tokens",
+            "🔴 Executing {} SELL via {} ({}): {} - {} of {} tokens",
+            if reason.is_partial() { "PARTIAL" } else { "FULL" },
             if position.is_pumpfun { "PUMP.FUN" } else { "JUPITER" },
             reason,
             position.token_symbol,
+            tokens_to_sell,
             position.amount_tokens
         );
 
-        if position.is_pumpfun {
-            self.execute_sell_pumpfun(token_mint, &position, reason).await
+        // Create a modified position with the tokens to sell
+        let sell_position = Position {
+            amount_tokens: tokens_to_sell,
+            ..position.clone()
+        };
+
+        let result = if position.is_pumpfun {
+            self.execute_sell_pumpfun(token_mint, &sell_position, reason.clone(), should_remove_position).await
         } else {
-            self.execute_sell_jupiter(token_mint, &position, reason).await
-        }
+            self.execute_sell_jupiter(token_mint, &sell_position, reason.clone(), should_remove_position).await
+        };
+
+        result
     }
 
     /// Execute sell via pump.fun bonding curve
-    async fn execute_sell_pumpfun(&self, token_mint: &str, position: &Position, reason: ExitReason) -> Result<TradeResult> {
+    async fn execute_sell_pumpfun(&self, token_mint: &str, position: &Position, reason: ExitReason, should_remove_position: bool) -> Result<TradeResult> {
         const MAX_SELL_ATTEMPTS: u32 = 3;
         const RETRY_DELAY_MS: u64 = 500;
 
@@ -744,12 +774,15 @@ impl SpectreTrader {
                 }
             };
 
-            // SUCCESS!
-            self.position_manager.remove_position(token_mint).await;
+            // SUCCESS! Only remove position if it's a full exit
+            if should_remove_position {
+                self.position_manager.remove_position(token_mint).await;
+            }
 
             let elapsed = start.elapsed();
             info!(
-                "✅ PUMP.FUN SELL executed (attempt {}) ({}): {} tokens sold (took: {:?})",
+                "✅ PUMP.FUN {} SELL executed (attempt {}) ({}): {} tokens sold (took: {:?})",
+                if should_remove_position { "FULL" } else { "PARTIAL" },
                 attempt,
                 reason,
                 position.amount_tokens,
@@ -788,7 +821,7 @@ impl SpectreTrader {
     }
 
     /// Execute sell via Jupiter (for graduated tokens)
-    async fn execute_sell_jupiter(&self, token_mint: &str, position: &Position, reason: ExitReason) -> Result<TradeResult> {
+    async fn execute_sell_jupiter(&self, token_mint: &str, position: &Position, reason: ExitReason, should_remove_position: bool) -> Result<TradeResult> {
         const MAX_SELL_ATTEMPTS: u32 = 5;
         const RETRY_DELAY_MS: u64 = 1000;
 
@@ -1010,15 +1043,18 @@ impl SpectreTrader {
                 }
             };
 
-            // SUCCESS! Remove position and return
-            self.position_manager.remove_position(token_mint).await;
+            // SUCCESS! Only remove position if it's a full exit
+            if should_remove_position {
+                self.position_manager.remove_position(token_mint).await;
+            }
 
             let elapsed = start.elapsed();
             let pnl_sol = out_sol - position.amount_sol_invested;
             let pnl_percent = (out_sol / position.amount_sol_invested - 1.0) * 100.0;
 
             info!(
-                "✅ SELL executed (attempt {}) ({}): {} SOL received | PnL: {:.4} SOL ({:.1}%) | took: {:?}",
+                "✅ {} SELL executed (attempt {}) ({}): {} SOL received | PnL: {:.4} SOL ({:.1}%) | took: {:?}",
+                if should_remove_position { "FULL" } else { "PARTIAL" },
                 attempt,
                 reason,
                 out_sol,
