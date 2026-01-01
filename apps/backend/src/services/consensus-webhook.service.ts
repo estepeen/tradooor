@@ -42,7 +42,7 @@ const NINJA_MIN_DIVERSITY_PERCENT = 70;     // 70% unique wallets
 const NINJA_DIVERSITY_SAMPLE_SIZE = 30;     // From last 30 trades
 
 // Volume Spike Detection
-const NINJA_MIN_VOLUME_SPIKE_RATIO = 3.0;   // Min 3x volume vs avg last hour
+const NINJA_MIN_VOLUME_SPIKE_RATIO = 1.75;  // Min 1.75x volume vs avg last hour
 
 // Trading Parameters
 const NINJA_STOP_LOSS_PERCENT = 20;         // -20% SL
