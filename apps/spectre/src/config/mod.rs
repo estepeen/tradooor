@@ -78,9 +78,9 @@ impl Config {
                 .unwrap_or(-25.0),
 
             take_profit_percent: std::env::var("TAKE_PROFIT_PERCENT")
-                .unwrap_or_else(|_| "50".to_string())
+                .unwrap_or_else(|_| "100000".to_string()) // Disabled - trailing SL rozhoduje o exitu
                 .parse()
-                .unwrap_or(50.0),
+                .unwrap_or(100000.0),
 
             jito_tip_lamports: std::env::var("JITO_TIP_LAMPORTS")
                 .unwrap_or_else(|_| "100000".to_string()) // 0.0001 SOL default
