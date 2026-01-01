@@ -26,6 +26,12 @@ pub struct Config {
 
     // Jupiter API
     pub jupiter_api_key: Option<String>,
+
+    // Birdeye API (for price monitoring)
+    pub birdeye_api_key: Option<String>,
+
+    // Position monitoring
+    pub position_check_interval_secs: u64,
 }
 
 impl Config {
@@ -88,6 +94,13 @@ impl Config {
                 .unwrap_or_else(|_| "ninja_signals".to_string()),
 
             jupiter_api_key: std::env::var("JUPITER_API_KEY").ok(),
+
+            birdeye_api_key: std::env::var("BIRDEYE_API_KEY").ok(),
+
+            position_check_interval_secs: std::env::var("POSITION_CHECK_INTERVAL_SECS")
+                .unwrap_or_else(|_| "5".to_string())
+                .parse()
+                .unwrap_or(5),
         })
     }
 
