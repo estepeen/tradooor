@@ -167,7 +167,8 @@ impl JupiterClient {
             quote_response: quote,
             user_public_key: user_pubkey.to_string(),
             wrap_and_unwrap_sol: true,
-            use_shared_accounts: true,
+            // Disabled: Simple AMMs (pump.fun bonding curve) don't support shared accounts
+            use_shared_accounts: false,
             prioritization_fee_lamports: priority_fee_lamports,
             as_legacy_transaction: false,
             use_token_ledger: false,
