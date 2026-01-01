@@ -28,13 +28,13 @@ const CONSENSUS_TIME_WINDOW_HOURS = 2;
 const CLUSTER_STRENGTH_THRESHOLD = 70; // Minimum cluster strength for 💎💎 CLUSTER signal
 
 // NINJA Signal parameters (micro-cap, fast consensus)
-const NINJA_MIN_MARKET_CAP_USD = 4000;    // $4K minimum (needs some liquidity)
+const NINJA_MIN_MARKET_CAP_USD = 7000;    // $7K minimum (more stable than ultra-micro)
 const NINJA_MAX_MARKET_CAP_USD = 22000;   // $22K maximum (micro-cap territory)
 const NINJA_TIME_WINDOW_MINUTES = 3;       // 3 minute window for fast consensus
-const NINJA_MAX_PRICE_PUMP_PERCENT = 50;   // Max 50% pump from first buy
+const NINJA_MAX_PRICE_PUMP_PERCENT = 50;   // Max 50% pump from first buy (filters late entries)
 const NINJA_MIN_LIQUIDITY_USD = 3000;      // $3K minimum liquidity
-const NINJA_STOP_LOSS_PERCENT = 20;        // -20% SL (tighter for micro-cap risk)
-const NINJA_TAKE_PROFIT_PERCENT = 50;      // +50% TP (quick exit)
+const NINJA_STOP_LOSS_PERCENT = 30;        // -30% SL (more room for volatility)
+const NINJA_TAKE_PROFIT_PERCENT = 30;      // +30% TP (quick scalp exit)
 const NINJA_MIN_WALLETS = 2;               // 2+ wallets for consensus
 
 // CONSENSUS Signal parameters (regular market cap)
@@ -230,9 +230,23 @@ export class ConsensusWebhookService {
           // Falls through to regular CONSENSUS check below
         } else {
           // Check price pump - current price vs first buy price in ninja window
-          const ninjaBuyPrice = Number(ninjaFirstBuy?.priceBasePerToken || sortedBuys[0].priceBasePerToken || 0);
-          const currentPrice = Number(tradeToUse.priceBasePerToken || 0);
+          // Calculate USD price per token: prefer valueUsd/amountToken, fallback to priceBasePerToken
+          const getUsdPricePerToken = (trade: any): number => {
+            const amountToken = Number(trade.amountToken || 0);
+            const valueUsd = Number(trade.valueUsd || 0);
+            if (amountToken > 0 && valueUsd > 0) {
+              return valueUsd / amountToken;
+            }
+            // Fallback to priceBasePerToken (might be in SOL, less accurate)
+            return Number(trade.priceBasePerToken || 0);
+          };
+
+          const firstBuyTrade = ninjaFirstBuy || sortedBuys[0];
+          const ninjaBuyPrice = getUsdPricePerToken(firstBuyTrade);
+          const currentPrice = getUsdPricePerToken(tradeToUse);
           const pricePumpPercent = ninjaBuyPrice > 0 ? ((currentPrice - ninjaBuyPrice) / ninjaBuyPrice) * 100 : 0;
+
+          console.log(`   📊 [NINJA] Price check: First buy $${ninjaBuyPrice.toFixed(12)}, Current $${currentPrice.toFixed(12)}, Pump: ${pricePumpPercent.toFixed(1)}%`);
 
           if (pricePumpPercent > NINJA_MAX_PRICE_PUMP_PERCENT) {
             console.log(`   ⚠️  [NINJA] Token ${token?.symbol} pumped +${pricePumpPercent.toFixed(0)}% > ${NINJA_MAX_PRICE_PUMP_PERCENT}% max - FILTERED OUT (missed entry)`);

@@ -183,6 +183,13 @@ async fn position_monitor(
                         continue; // Skip this update, next one will have synced prices
                     }
 
+                    // Update trailing stop loss (raises SL as price goes up)
+                    trader.position_manager().update_trailing_sl(&price_update.token_mint, current_price).await;
+
+                    // Get updated position after potential trailing SL update
+                    let position = trader.position_manager().get_position(&price_update.token_mint).await
+                        .unwrap_or(position);
+
                     // Calculate PnL
                     let pnl = position.calculate_pnl(current_price);
 
@@ -232,15 +239,24 @@ async fn position_monitor(
                         }
                     };
 
+                    // Update trailing stop loss (raises SL as price goes up)
+                    trader.position_manager().update_trailing_sl(&position.token_mint, current_price).await;
+
+                    // Get updated position after potential trailing SL update
+                    let position = trader.position_manager().get_position(&position.token_mint).await
+                        .unwrap_or(position);
+
                     // Calculate PnL
                     let pnl = position.calculate_pnl(current_price);
+                    let trailing_status = if position.trailing_active { " [TRAILING]" } else { "" };
                     info!(
-                        "   {} @ ${:.10} | PnL: {:.1}% | SL: ${:.10} | TP: ${:.10}",
+                        "   {} @ ${:.10} | PnL: {:.1}% | SL: ${:.10} | TP: ${:.10}{}",
                         position.token_symbol,
                         current_price,
                         pnl.pnl_percent,
                         position.stop_loss_price,
-                        position.take_profit_price
+                        position.take_profit_price,
+                        trailing_status
                     );
 
                     // Check if we should exit
