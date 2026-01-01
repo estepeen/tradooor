@@ -340,18 +340,18 @@ export class DiscordNotificationService {
       color = COLORS[data.strength] || COLORS.medium;
     }
 
-    // Calculate entry MCap from first trader's buy (for accurate signal MCap)
-    // This shows the MCap when the signal was triggered, not current MCap
+    // Calculate entry MCap from the LATEST trader's buy (the one that triggered the signal)
+    // Entry = MCap when signal was triggered (newest trade), not first trade
     let entryMcapFromTraders: number | null = null;
     if (data.wallets && data.wallets.length > 0) {
-      // For accumulation signals, get MCap from first accumulationBuys entry
+      // For accumulation signals, get MCap from LAST (newest) accumulationBuys entry
       if (data.signalType === 'accumulation') {
         for (const wallet of data.wallets) {
           if (wallet.accumulationBuys && wallet.accumulationBuys.length > 0) {
-            // Sort by timestamp and get first buy's MCap
+            // Sort by timestamp DESC and get last buy's MCap (the one that triggered signal)
             const sortedBuys = [...wallet.accumulationBuys]
               .filter(b => b.timestamp && b.marketCapUsd)
-              .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+              .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
             if (sortedBuys.length > 0 && sortedBuys[0].marketCapUsd) {
               entryMcapFromTraders = sortedBuys[0].marketCapUsd;
               break;
@@ -359,10 +359,10 @@ export class DiscordNotificationService {
           }
         }
       } else {
-        // For other signals, sort by trade time (oldest first) and get first trader's MCap
+        // For other signals, sort by trade time DESC and get newest trader's MCap
         const sortedByTime = [...data.wallets]
           .filter(w => w.tradeTime && w.marketCapUsd)
-          .sort((a, b) => new Date(a.tradeTime!).getTime() - new Date(b.tradeTime!).getTime());
+          .sort((a, b) => new Date(b.tradeTime!).getTime() - new Date(a.tradeTime!).getTime());
 
         if (sortedByTime.length > 0) {
           entryMcapFromTraders = sortedByTime[0].marketCapUsd!;
