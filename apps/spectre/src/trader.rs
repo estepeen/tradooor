@@ -140,11 +140,14 @@ impl SpectreTrader {
 
             // 2. Get swap transaction AND blockhash in parallel for lower latency
             let rpc_client = self.rpc_client.clone();
-            let blockhash_future = async { rpc_client.get_latest_blockhash().await };
+            let wallet_pubkey = self.config.wallet_pubkey();
+            let jito_tip = self.config.jito_tip_lamports;
+
+            let blockhash_future = rpc_client.get_latest_blockhash();
             let swap_tx_future = self.jupiter.get_swap_transaction(
                 quote,
-                &self.config.wallet_pubkey(),
-                self.config.jito_tip_lamports,
+                &wallet_pubkey,
+                jito_tip,
             );
 
             let (blockhash_result, swap_tx_result) = tokio::join!(blockhash_future, swap_tx_future);
