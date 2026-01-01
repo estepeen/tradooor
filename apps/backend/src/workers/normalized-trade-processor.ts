@@ -115,35 +115,35 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
     // Načti aktuální market cap v době trade (pro zobrazení v signálech)
     // POZNÁMKA: Načítáme aktuální data v době trade, ne historická data
     // Ukládáme market cap pro BUY i SELL trades (ne pro VOID)
-    // Používáme sdílenou instanci tokenMarketDataService pro cache mezi všemi trades
     let marketCapAtTradeTime: number | null = null;
     if (record.side === 'buy' || record.side === 'sell') {
-      try {
-        const token = await tokenRepo.findById(record.tokenId);
-        if (token?.mintAddress) {
-          // Použij sdílenou instanci (cache je sdílená mezi všemi trades)
-          const marketData = await tokenMarketDataService.getMarketData(token.mintAddress);
-          if (marketData?.marketCap) {
-            marketCapAtTradeTime = marketData.marketCap;
-          }
-        }
-      } catch (error: any) {
-        // Pokud se nepodaří načíst market cap, pokračujeme bez něj (není kritické)
-        // Nechceme spamovat logy, takže jen při výrazných chybách
-      }
+      // PRIMÁRNĚ: Pro pump.fun tokeny (SOL base) počítáme MCap z bonding curve
+      // Formula: pricePerToken * 1B (všechny pump.fun tokeny mají 1B supply)
+      // Toto je nejspolehlivější - žádné API, žádný rate limit
+      const isPumpFunToken = record.baseToken === 'SOL' && record.priceBasePerTokenRaw;
 
-      // FALLBACK: Pro nové pump.fun tokeny které ještě nejsou na DexScreener
-      // Počítáme MCap z bonding curve: pricePerToken * totalSupply (1B pro pump.fun)
-      // Použij SOL cenu z valuace pro převod na USD
-      if (!marketCapAtTradeTime && record.priceBasePerTokenRaw && record.baseToken === 'SOL') {
+      if (isPumpFunToken && record.priceBasePerTokenRaw && record.amountBaseRaw && record.amountBaseRaw > 0 && valuation.amountBaseUsd) {
         const PUMP_FUN_TOTAL_SUPPLY = 1_000_000_000; // 1 billion tokens
         const pricePerTokenSol = record.priceBasePerTokenRaw;
-        // Potřebujeme SOL/USD cenu - použijeme z valuation (amountBaseUsd / amountBaseRaw)
-        if (valuation.amountBaseUsd && record.amountBaseRaw && record.amountBaseRaw > 0) {
-          const solPriceUsd = valuation.amountBaseUsd / record.amountBaseRaw;
-          const pricePerTokenUsd = pricePerTokenSol * solPriceUsd;
-          marketCapAtTradeTime = pricePerTokenUsd * PUMP_FUN_TOTAL_SUPPLY;
-          console.log(`[MARKETCAP] Calculated from bonding curve: $${(marketCapAtTradeTime / 1000).toFixed(1)}K (${record.tokenMint.substring(0, 8)}...)`);
+        const solPriceUsd = valuation.amountBaseUsd / record.amountBaseRaw;
+        const pricePerTokenUsd = pricePerTokenSol * solPriceUsd;
+        marketCapAtTradeTime = pricePerTokenUsd * PUMP_FUN_TOTAL_SUPPLY;
+        console.log(`[MARKETCAP] Bonding curve: $${(marketCapAtTradeTime / 1000).toFixed(1)}K (${record.tokenMint.substring(0, 8)}...)`);
+      }
+
+      // FALLBACK: Pro non-pump.fun tokeny zkus Birdeye API
+      if (!marketCapAtTradeTime) {
+        try {
+          const token = await tokenRepo.findById(record.tokenId);
+          if (token?.mintAddress) {
+            const marketData = await tokenMarketDataService.getMarketData(token.mintAddress);
+            if (marketData?.marketCap) {
+              marketCapAtTradeTime = marketData.marketCap;
+              console.log(`[MARKETCAP] Birdeye: $${(marketCapAtTradeTime / 1000).toFixed(1)}K (${record.tokenMint.substring(0, 8)}...)`);
+            }
+          }
+        } catch (error: any) {
+          // Birdeye selhalo, ale pro pump.fun tokeny máme bonding curve
         }
       }
     }
