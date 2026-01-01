@@ -576,11 +576,22 @@ export class DiscordNotificationService {
         if (sortedByTime.length > 0) {
           entryMcapFromTraders = sortedByTime[0].marketCapUsd!;
         }
+
+        // Debug: Log wallet MCaps for diagnosis
+        console.log(`📊 [Discord] Entry MCap calculation for ${data.signalType}:`);
+        console.log(`   - Total wallets: ${data.wallets.length}`);
+        console.log(`   - Wallets with MCap: ${sortedByTime.length}`);
+        data.wallets.forEach((w, i) => {
+          console.log(`   - Wallet ${i + 1}: tradeTime=${w.tradeTime ? 'yes' : 'no'}, marketCapUsd=${w.marketCapUsd || 'missing'}`);
+        });
+        console.log(`   - Entry MCap from traders: ${entryMcapFromTraders || 'none'}`);
+        console.log(`   - Fallback data.marketCapUsd: ${data.marketCapUsd || 'none'}`);
       }
     }
 
     // Use entry MCap from traders if available, otherwise fall back to data.marketCapUsd
     const displayMcap = entryMcapFromTraders || data.marketCapUsd;
+    console.log(`📊 [Discord] Final displayMcap: ${displayMcap || 'none'}`);
     const entryMcapLabelForTitle = displayMcap
       ? `$${this.formatNumber(displayMcap, 0)}`
       : 'n/a';
