@@ -207,12 +207,33 @@ export class ConsensusWebhookService {
         return { consensusFound: false };
       }
 
-      // Calculate time span for NINJA check
+      // For NINJA check: find 2+ wallets within NINJA_TIME_WINDOW_MINUTES
+      // We need to check if there's a "cluster" of 2+ wallet buys in a short time window
+      const currentTradeTime = new Date(tradeToUse.timestamp).getTime();
+      const ninjaWindowStart = currentTradeTime - NINJA_TIME_WINDOW_MINUTES * 60 * 1000;
+
+      // Filter buys within NINJA time window from current trade
+      const buysInNinjaWindow = sortedBuys.filter(t => {
+        const tradeTime = new Date(t.timestamp).getTime();
+        return tradeTime >= ninjaWindowStart && tradeTime <= currentTradeTime;
+      });
+
+      const ninjaWallets = new Set(buysInNinjaWindow.map(t => t.walletId));
+      const ninjaWalletCount = ninjaWallets.size;
+
+      // Calculate total time span for logging
       const firstBuyTime = new Date(sortedBuys[0].timestamp).getTime();
       const lastBuyTime = new Date(sortedBuys[sortedBuys.length - 1].timestamp).getTime();
-      const timeSpanMinutes = (lastBuyTime - firstBuyTime) / (1000 * 60);
+      const totalTimeSpanMinutes = (lastBuyTime - firstBuyTime) / (1000 * 60);
 
-      console.log(`   ⏱️  [Signal] Time span: ${timeSpanMinutes.toFixed(1)} min (first: ${sortedBuys[0].timestamp}, last: ${sortedBuys[sortedBuys.length - 1].timestamp})`);
+      // Time span within ninja window (for NINJA detection)
+      const ninjaFirstBuy = buysInNinjaWindow[0];
+      const ninjaLastBuy = buysInNinjaWindow[buysInNinjaWindow.length - 1];
+      const ninjaTimeSpan = ninjaFirstBuy && ninjaLastBuy
+        ? (new Date(ninjaLastBuy.timestamp).getTime() - new Date(ninjaFirstBuy.timestamp).getTime()) / (1000 * 60)
+        : 0;
+
+      console.log(`   ⏱️  [Signal] Total span: ${totalTimeSpanMinutes.toFixed(1)} min | NINJA window (${NINJA_TIME_WINDOW_MINUTES}min): ${ninjaWalletCount} wallets, ${ninjaTimeSpan.toFixed(1)} min span`);
 
       // Check if this qualifies as NINJA signal (micro-cap fast consensus)
       if (marketCap >= NINJA_MIN_MARKET_CAP_USD && marketCap < NINJA_MAX_MARKET_CAP_USD) {
@@ -226,15 +247,15 @@ export class ConsensusWebhookService {
           return { consensusFound: false };
         }
 
-        // Check time window - all buys must be within NINJA_TIME_WINDOW_MINUTES
-        if (timeSpanMinutes > NINJA_TIME_WINDOW_MINUTES) {
-          console.log(`   ⚠️  [NINJA] Token ${token?.symbol} buys span ${timeSpanMinutes.toFixed(1)} min > ${NINJA_TIME_WINDOW_MINUTES} min max - not a NINJA (checking CONSENSUS...)`);
+        // Check if we have 2+ wallets within NINJA time window
+        if (ninjaWalletCount < NINJA_MIN_WALLETS) {
+          console.log(`   ⚠️  [NINJA] Only ${ninjaWalletCount} wallet(s) in ${NINJA_TIME_WINDOW_MINUTES}min window (need ${NINJA_MIN_WALLETS}+) - not a NINJA (checking CONSENSUS...)`);
           // Falls through to regular CONSENSUS check below
         } else {
-          // Check price pump - current price vs first buy price
-          const firstBuyPrice = Number(sortedBuys[0].priceBasePerToken || 0);
+          // Check price pump - current price vs first buy price in ninja window
+          const ninjaBuyPrice = Number(ninjaFirstBuy?.priceBasePerToken || sortedBuys[0].priceBasePerToken || 0);
           const currentPrice = Number(tradeToUse.priceBasePerToken || 0);
-          const pricePumpPercent = firstBuyPrice > 0 ? ((currentPrice - firstBuyPrice) / firstBuyPrice) * 100 : 0;
+          const pricePumpPercent = ninjaBuyPrice > 0 ? ((currentPrice - ninjaBuyPrice) / ninjaBuyPrice) * 100 : 0;
 
           if (pricePumpPercent > NINJA_MAX_PRICE_PUMP_PERCENT) {
             console.log(`   ⚠️  [NINJA] Token ${token?.symbol} pumped +${pricePumpPercent.toFixed(0)}% > ${NINJA_MAX_PRICE_PUMP_PERCENT}% max - FILTERED OUT (missed entry)`);
@@ -243,7 +264,7 @@ export class ConsensusWebhookService {
 
           // All NINJA checks passed!
           isNinjaSignal = true;
-          console.log(`   🥷 [NINJA] ✅ NINJA Signal detected! MCap: $${(marketCap / 1000).toFixed(1)}K, ${uniqueWallets.size} wallets in ${timeSpanMinutes.toFixed(1)} min, pump: +${pricePumpPercent.toFixed(0)}%`);
+          console.log(`   🥷 [NINJA] ✅ NINJA Signal detected! MCap: $${(marketCap / 1000).toFixed(1)}K, ${ninjaWalletCount} wallets in ${ninjaTimeSpan.toFixed(1)} min, pump: +${pricePumpPercent.toFixed(0)}%`);
         }
       } else if (marketCap < NINJA_MIN_MARKET_CAP_USD) {
         console.log(`   ⚠️  [Signal] MCap $${(marketCap / 1000).toFixed(1)}K < $5K minimum - too low, FILTERED OUT`);
