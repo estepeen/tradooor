@@ -138,25 +138,18 @@ impl SpectreTrader {
                 }
             }
 
-            // 2. Get swap transaction
-            let (transaction, _last_valid_block) = match self.jupiter.get_swap_transaction(
+            // 2. Get swap transaction AND blockhash in parallel for lower latency
+            let rpc_client = self.rpc_client.clone();
+            let blockhash_future = async { rpc_client.get_latest_blockhash().await };
+            let swap_tx_future = self.jupiter.get_swap_transaction(
                 quote,
                 &self.config.wallet_pubkey(),
                 self.config.jito_tip_lamports,
-            ).await {
-                Ok(tx) => tx,
-                Err(e) => {
-                    error!("❌ [Attempt {}/{}] Failed to get swap transaction: {}", attempt, MAX_ATTEMPTS, e);
-                    if attempt < MAX_ATTEMPTS {
-                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                        continue;
-                    }
-                    return Ok(self.create_error_result(signal, &format!("Swap tx failed: {}", e), attempt, current_price));
-                }
-            };
+            );
 
-            // 3. Sign transaction
-            let recent_blockhash = match self.rpc_client.get_latest_blockhash().await {
+            let (blockhash_result, swap_tx_result) = tokio::join!(blockhash_future, swap_tx_future);
+
+            let recent_blockhash = match blockhash_result {
                 Ok(bh) => bh,
                 Err(e) => {
                     error!("❌ [Attempt {}/{}] Failed to get blockhash: {}", attempt, MAX_ATTEMPTS, e);
@@ -165,6 +158,18 @@ impl SpectreTrader {
                         continue;
                     }
                     return Ok(self.create_error_result(signal, &format!("Blockhash failed: {}", e), attempt, current_price));
+                }
+            };
+
+            let (transaction, _last_valid_block) = match swap_tx_result {
+                Ok(tx) => tx,
+                Err(e) => {
+                    error!("❌ [Attempt {}/{}] Failed to get swap transaction: {}", attempt, MAX_ATTEMPTS, e);
+                    if attempt < MAX_ATTEMPTS {
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                        continue;
+                    }
+                    return Ok(self.create_error_result(signal, &format!("Swap tx failed: {}", e), attempt, current_price));
                 }
             };
 
