@@ -149,16 +149,22 @@ export class ConsensusWebhookService {
       let marketCap: number | null = null;
       let liquidity: number | null = null;
 
-      // PRIMÁRNĚ: Použij MCap z trade meta (bonding curve výpočet - okamžitý, žádné API)
-      // Trade meta obsahuje MCap vypočtený z bonding curve pro pump.fun tokeny
+      // PRIMÁRNĚ: Pro filtrování použij MCap z POSLEDNÍHO trade (= aktuální stav)
+      // Ne z prvního trade - ten může mít velmi nízký MCap
       const latestTrade = sortedBuys[sortedBuys.length - 1];
       const tradeMeta = latestTrade?.meta as any;
+
+      // Také získej MCap prvního trade pro price pump check
+      const firstTrade = sortedBuys[0];
+      const firstTradeMeta = firstTrade?.meta as any;
+      const firstTradeMcap = firstTradeMeta?.marketCapUsd || firstTradeMeta?.fdvUsd || null;
+
       if (tradeMeta?.marketCapUsd) {
         marketCap = Number(tradeMeta.marketCapUsd);
-        console.log(`   📊 [Signal] MCap from trade meta (bonding curve): $${(marketCap / 1000).toFixed(1)}K`);
+        console.log(`   📊 [Signal] MCap from LATEST trade meta (bonding curve): $${(marketCap / 1000).toFixed(1)}K (first trade was $${firstTradeMcap ? (firstTradeMcap / 1000).toFixed(1) + 'K' : 'N/A'})`);
       } else if (tradeMeta?.fdvUsd) {
         marketCap = Number(tradeMeta.fdvUsd);
-        console.log(`   📊 [Signal] FDV from trade meta: $${(marketCap / 1000).toFixed(1)}K`);
+        console.log(`   📊 [Signal] FDV from LATEST trade meta: $${(marketCap / 1000).toFixed(1)}K`);
       }
 
       // FALLBACK: Pokud trade meta nemá MCap, zkus Birdeye API
@@ -214,7 +220,7 @@ export class ConsensusWebhookService {
 
       // Check if this qualifies as NINJA signal (micro-cap fast consensus)
       if (marketCap >= NINJA_MIN_MARKET_CAP_USD && marketCap < NINJA_MAX_MARKET_CAP_USD) {
-        console.log(`   🥷 [NINJA] MCap in NINJA range ($5K-$20K): $${(marketCap / 1000).toFixed(1)}K`);
+        console.log(`   🥷 [NINJA] MCap in NINJA range ($${NINJA_MIN_MARKET_CAP_USD / 1000}K-$${NINJA_MAX_MARKET_CAP_USD / 1000}K): $${(marketCap / 1000).toFixed(1)}K`);
 
         // NINJA candidate - check additional requirements
 
@@ -258,10 +264,10 @@ export class ConsensusWebhookService {
           console.log(`   🥷 [NINJA] ✅ NINJA Signal detected! MCap: $${(marketCap / 1000).toFixed(1)}K, ${ninjaWalletCount} wallets in ${ninjaTimeSpan.toFixed(1)} min, pump: +${pricePumpPercent.toFixed(0)}%`);
         }
       } else if (marketCap < NINJA_MIN_MARKET_CAP_USD) {
-        console.log(`   ⚠️  [Signal] MCap $${(marketCap / 1000).toFixed(1)}K < $5K minimum - too low, FILTERED OUT`);
+        console.log(`   ⚠️  [Signal] MCap $${(marketCap / 1000).toFixed(1)}K < $${NINJA_MIN_MARKET_CAP_USD / 1000}K NINJA minimum - too low, FILTERED OUT`);
         return { consensusFound: false };
       } else {
-        console.log(`   📈 [CONSENSUS] MCap $${(marketCap / 1000).toFixed(1)}K >= $20K - checking CONSENSUS signal`);
+        console.log(`   📈 [CONSENSUS] MCap $${(marketCap / 1000).toFixed(1)}K >= $${NINJA_MAX_MARKET_CAP_USD / 1000}K - checking CONSENSUS signal`);
       }
 
       // If not NINJA, check regular CONSENSUS minimum
