@@ -83,15 +83,17 @@ impl Config {
                 .parse()
                 .unwrap_or(100000.0),
 
+            // Note: These are actually priority fees sent to PumpPortal, not Jito tips
+            // Jito bundling provides MEV protection regardless of tip amount
             jito_tip_lamports: std::env::var("JITO_TIP_LAMPORTS")
-                .unwrap_or_else(|_| "1000000".to_string()) // 0.001 SOL default for BUY
+                .unwrap_or_else(|_| "200000".to_string()) // 0.0002 SOL (~$0.04) for BUY priority fee
                 .parse()
-                .unwrap_or(1000000),
+                .unwrap_or(200000),
 
             jito_tip_sell_lamports: std::env::var("JITO_TIP_SELL_LAMPORTS")
-                .unwrap_or_else(|_| "350000".to_string()) // 0.00035 SOL default for SELL (lower priority)
+                .unwrap_or_else(|_| "150000".to_string()) // 0.00015 SOL (~$0.03) for SELL priority fee
                 .parse()
-                .unwrap_or(350000),
+                .unwrap_or(150000),
 
             redis_url: std::env::var("REDIS_URL")
                 .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string()),

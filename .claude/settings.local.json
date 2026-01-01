@@ -68,7 +68,9 @@
       "Bash(pnpm --filter @solbot/db db:generate:*)",
       "Bash(scp:*)",
       "Bash(rustup target:*)",
-      "Bash(rsync:*)"
+      "Bash(rsync:*)",
+      "Bash(ssh -i ~/.ssh/claude_assistant root@89.203.248.173 \"cd /root/tradooor && git pull origin master && pm2 restart all\")",
+      "Bash(ssh -i ~/.ssh/claude_assistant -o ConnectTimeout=10 -o StrictHostKeyChecking=no root@89.203.248.173 \"echo connected\")"
     ]
   }
 }
