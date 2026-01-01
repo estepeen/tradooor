@@ -56,14 +56,21 @@ export class TokenMarketDataService {
       const url = `https://api.dexscreener.com/latest/dex/tokens/${mintAddress}`;
       const response = await fetch(url, {
         headers: { 'Accept': 'application/json' },
+        signal: AbortSignal.timeout(5000), // 5s timeout
       });
 
-      if (!response.ok) return null;
+      if (!response.ok) {
+        console.warn(`[DexScreener] HTTP ${response.status} for ${mintAddress.substring(0, 8)}...`);
+        return null;
+      }
 
       const data = await response.json() as any;
       if (!data.pairs || !Array.isArray(data.pairs) || data.pairs.length === 0) {
+        console.warn(`[DexScreener] No pairs found for ${mintAddress.substring(0, 8)}...`);
         return null;
       }
+
+      console.log(`[DexScreener] Found ${data.pairs.length} pairs for ${mintAddress.substring(0, 8)}... MCap: $${data.pairs[0]?.fdv || data.pairs[0]?.marketCap || 'N/A'}`);
 
       // Find the best pair (highest liquidity)
       const bestPair = data.pairs.reduce((best: any, pair: any) => {
