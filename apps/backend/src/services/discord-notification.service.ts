@@ -78,28 +78,6 @@ export interface SignalNotificationData {
     }>;
   }>;
 
-  // Pro exit-warning signál: detaily o prodejcích
-  exitSellers?: Array<{
-    walletId: string;
-    address: string;
-    label: string | null;
-    score: number;
-    totalSoldUsd: number;
-    totalSoldTokens: number;
-    totalBoughtTokens: number;   // Celkový bag (kolik nakoupil)
-    remainingTokens: number;     // Kolik mu zbývá po prodeji
-    lastSellTime: Date;
-    sellCount: number;
-    // Individual sells for detailed display
-    sells?: Array<{
-      amountUsd: number;
-      amountTokens: number;
-      timestamp: Date;
-      marketCapUsd?: number;
-    }>;
-  }>;
-  exitTotalBuyers?: number; // Celkový počet walletů co nakoupily
-  currentMarketCapUsd?: number; // Current MCap for display
 }
 
 /**
@@ -133,37 +111,6 @@ export interface SpectreTradeNotificationData {
   // Position settings
   stopLossPercent?: number;
   takeProfitPercent?: number;
-}
-
-export interface ExitSignalNotificationData {
-  tokenSymbol: string;
-  tokenMint: string;
-
-  // Exit signal info
-  exitType: 'wallet_exit' | 'stop_loss' | 'take_profit' | 'trailing_stop' | 'ai_recommendation' | 'time_based' | 'momentum_loss' | 'volume_drop';
-  strength: 'weak' | 'medium' | 'strong';
-  recommendation: 'hold' | 'partial_exit_25' | 'partial_exit_50' | 'partial_exit_75' | 'full_exit';
-
-  // Position info
-  entryPriceUsd: number;
-  currentPriceUsd: number;
-  pnlPercent: number;
-  drawdownFromPeak?: number;
-  holdTimeMinutes: number;
-
-  // Wallet activity
-  entryWalletCount: number;
-  activeWalletCount: number;
-  exitedWalletCount: number;
-
-  // Trigger info
-  triggerReason?: string;
-  triggerWalletLabel?: string;
-
-  // AI info
-  aiDecision?: string;
-  aiConfidence?: number;
-  aiReasoning?: string;
 }
 
 interface DiscordEmbed {
@@ -351,198 +298,12 @@ export class DiscordNotificationService {
     }
   }
 
-  /**
-   * Pošle signál do exit kanálu (pro exit-warning signály)
-   * Používá speciální jednodušší formát - červená barva, jen token info a prodejci
-   */
-  async sendSignalToExitChannel(data: SignalNotificationData): Promise<boolean> {
-    if (!this.exitEnabled) {
-      console.warn('⚠️  Exit channel notification skipped: DISCORD_EXIT_WEBHOOK_URL not set');
-      return false;
-    }
-
-    try {
-      console.log(`📨 [Discord] sendSignalToExitChannel called for ${data.tokenSymbol} (${data.signalType})`);
-
-      const embed = await this.buildExitWarningEmbed(data);
-
-      // Validate embed has required fields (Discord requires title or description)
-      if (!embed.title && !embed.description) {
-        embed.description = 'Exit warning signal triggered';
-      }
-
-      const payload: DiscordWebhookPayload = {
-        username: 'Spectre Exit Alerts',
-        embeds: [embed],
-      };
-
-      // Debug log payload
-      console.log(`📨 [Discord] Exit channel payload: ${JSON.stringify(payload).substring(0, 500)}...`);
-
-      const response = await fetch(this.exitWebhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`❌ Discord exit channel webhook error: ${response.status} - ${errorText}`);
-        return false;
-      }
-
-      console.log(`📨 Discord exit channel notification sent for ${data.tokenSymbol}`);
-      return true;
-    } catch (error: any) {
-      console.error(`❌ Failed to send Discord exit channel notification: ${error.message}`);
-      return false;
-    }
-  }
-
-  /**
-   * Vytvoří speciální embed pro exit-warning signál
-   * Jednodušší formát: červená barva, token info, kdo prodává a za kolik
-   */
-  private async buildExitWarningEmbed(data: SignalNotificationData): Promise<DiscordEmbed> {
-    const birdeyeUrl = `https://birdeye.so/token/${data.tokenMint}?chain=solana`;
-    const frontendUrl = process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_API_URL || 'https://tradooor.stepanpanek.cz';
-
-    // Červená barva pro exit warning
-    const color = 0xff0000; // Červená
-
-    // Počet prodejců vs celkem kupců
-    const sellerCount = data.exitSellers?.length || data.walletCount || 0;
-    const totalBuyers = data.exitTotalBuyers || sellerCount;
-    const strengthLabel = data.strength === 'strong' ? '🚨 CRITICAL' : '⚠️ WARNING';
-
-    // Title with $ prefix for ticker
-    const title = `${strengthLabel} EXIT $${data.tokenSymbol} (${sellerCount}/${totalBuyers} selling)`;
-
-    const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
-
-    // Token Info - jednodušší verze
-    const tokenInfo = [];
-    if (data.marketCapUsd) {
-      tokenInfo.push(`**MCap:** $${this.formatNumber(data.marketCapUsd, 0)}`);
-    }
-    if (data.liquidityUsd) {
-      tokenInfo.push(`**Liq:** $${this.formatNumber(data.liquidityUsd, 0)}`);
-    }
-    if (data.entryPriceUsd) {
-      tokenInfo.push(`**Price:** $${this.formatNumber(data.entryPriceUsd, 8)}`);
-    }
-
-    if (tokenInfo.length > 0) {
-      fields.push({
-        name: '📊 Token',
-        value: tokenInfo.join('\n'),
-        inline: true,
-      });
-    }
-
-    // Sellers - show each individual sell with MCap
-    if (data.exitSellers && data.exitSellers.length > 0) {
-      const sellerLines: string[] = [];
-
-      for (const seller of data.exitSellers) {
-        const name = seller.label || `${seller.address.substring(0, 6)}...`;
-        const profileUrl = `${frontendUrl}/wallet/${seller.address}`;
-        const scoreStr = seller.score ? ` [${Math.round(seller.score)}]` : '';
-
-        // Show each individual sell
-        if (seller.sells && seller.sells.length > 0) {
-          for (const sell of seller.sells) {
-            // Format time with seconds
-            let timeStr = '';
-            if (sell.timestamp) {
-              const time = new Date(sell.timestamp);
-              const formatter = new Intl.DateTimeFormat('cs-CZ', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: false,
-                timeZone: 'Europe/Prague',
-              });
-              timeStr = formatter.format(time);
-            }
-
-            // Sold amount
-            const soldStr = `$${this.formatNumber(sell.amountUsd, 0)}`;
-
-            // MCap at time of sell (or current)
-            const mcapStr = sell.marketCapUsd
-              ? `@ $${this.formatNumber(sell.marketCapUsd, 0)} MCap`
-              : '';
-
-            // Format: [Name [score]](link) - $XXX @ $XXK MCap • HH:MM:SS
-            const line = `[**${name}${scoreStr}**](${profileUrl}) - ${soldStr} ${mcapStr} • ${timeStr}`;
-            sellerLines.push(line);
-          }
-        } else {
-          // Fallback: show aggregated data if no individual sells
-          let timeStr = '';
-          if (seller.lastSellTime) {
-            const time = new Date(seller.lastSellTime);
-            const formatter = new Intl.DateTimeFormat('cs-CZ', {
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit',
-              hour12: false,
-              timeZone: 'Europe/Prague',
-            });
-            timeStr = formatter.format(time);
-          }
-
-          const soldStr = `$${this.formatNumber(seller.totalSoldUsd, 0)}`;
-          let soldPercentStr = '';
-          let remainingStr = '';
-          if (seller.totalBoughtTokens && seller.totalBoughtTokens > 0) {
-            const soldPercent = (seller.totalSoldTokens / seller.totalBoughtTokens) * 100;
-            const remainingPercent = (seller.remainingTokens / seller.totalBoughtTokens) * 100;
-            soldPercentStr = ` (${soldPercent.toFixed(0)}%)`;
-            remainingStr = `, remaining ${remainingPercent.toFixed(0)}%`;
-          }
-
-          const line = `[**${name}${scoreStr}**](${profileUrl}) - ${soldStr}${soldPercentStr}${remainingStr}${timeStr ? ` • ${timeStr}` : ''}`;
-          sellerLines.push(line);
-        }
-      }
-
-      fields.push({
-        name: '🔴 Sellers',
-        value: sellerLines.join('\n') || 'No data',
-        inline: false,
-      });
-    }
-
-    // Discord requires at least one field or description - add fallback if empty
-    if (fields.length === 0) {
-      fields.push({
-        name: '📊 Info',
-        value: 'Exit warning triggered',
-        inline: false,
-      });
-    }
-
-    return {
-      title,
-      url: birdeyeUrl,
-      color,
-      fields,
-      timestamp: new Date().toISOString(),
-      footer: {
-        text: `Exit Warning • ${data.strength}`,
-      },
-    };
-  }
 
   /**
    * Vytvoří embed pro signál
    */
   private async buildSignalEmbed(data: SignalNotificationData): Promise<DiscordEmbed> {
-    const birdeyeUrl = `https://birdeye.so/token/${data.tokenMint}?chain=solana`;
+    const gmgnUrl = `https://gmgn.ai/sol/token/${data.tokenMint}`;
     const baseToken = (data.baseToken || 'SOL').toUpperCase();
 
     // Entry MCap label for title / trader line
@@ -855,7 +616,7 @@ export class DiscordNotificationService {
 
     return {
       title,
-      url: birdeyeUrl,
+      url: gmgnUrl,
       color,
       fields,
       footer: {
@@ -912,202 +673,19 @@ export class DiscordNotificationService {
   }
 
 /**
-   * Pošle notifikaci o exit signálu (do separátního kanálu)
-   */
-  async sendExitSignalNotification(data: ExitSignalNotificationData): Promise<boolean> {
-    if (!this.exitEnabled) {
-      console.warn('⚠️  Exit notification skipped: DISCORD_EXIT_WEBHOOK_URL not set');
-      return false;
-    }
-
-    try {
-      const embed = this.buildExitSignalEmbed(data);
-
-      const payload: DiscordWebhookPayload = {
-        username: 'Spectre Exit Alerts',
-        embeds: [embed],
-      };
-
-      const response = await fetch(this.exitWebhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`❌ Discord exit webhook error: ${response.status} - ${errorText}`);
-        return false;
-      }
-
-      console.log(`📨 Discord exit notification sent for ${data.tokenSymbol} to exit channel`);
-      return true;
-    } catch (error: any) {
-      console.error(`❌ Failed to send Discord exit notification: ${error.message}`);
-      return false;
-    }
-  }
-
-  /**
-   * Vytvoří embed pro exit signál
-   */
-  private buildExitSignalEmbed(data: ExitSignalNotificationData): DiscordEmbed {
-    const birdeyeUrl = `https://birdeye.so/token/${data.tokenMint}?chain=solana`;
-
-    // Determine color based on recommendation
-    let color: number;
-    if (data.recommendation === 'full_exit') {
-      color = 0xff0000; // Red
-    } else if (data.recommendation.startsWith('partial_exit')) {
-      color = 0xffa500; // Orange
-    } else {
-      color = 0xffff00; // Yellow for hold
-    }
-
-    // Build title with $ prefix for ticker
-    const exitEmoji = this.getExitEmoji(data.exitType);
-    const pnlEmoji = data.pnlPercent >= 0 ? '📈' : '📉';
-    const pnlStr = `${data.pnlPercent >= 0 ? '+' : ''}${data.pnlPercent.toFixed(1)}%`;
-    const title = `${exitEmoji} EXIT Signal – $${data.tokenSymbol} (${pnlStr})`;
-
-    // Build fields
-    const fields: DiscordEmbed['fields'] = [];
-
-    // Exit Type and Recommendation
-    fields.push({
-      name: '🚨 Exit Signal',
-      value: [
-        `**Type:** ${data.exitType.replace(/_/g, ' ').toUpperCase()}`,
-        `**Strength:** ${data.strength.toUpperCase()}`,
-        `**Recommendation:** ${data.recommendation.replace(/_/g, ' ').toUpperCase()}`,
-      ].join('\n'),
-      inline: true,
-    });
-
-    // Position Info
-    const holdTimeStr = data.holdTimeMinutes >= 60
-      ? `${Math.floor(data.holdTimeMinutes / 60)}h ${Math.round(data.holdTimeMinutes % 60)}m`
-      : `${Math.round(data.holdTimeMinutes)}m`;
-
-    fields.push({
-      name: `${pnlEmoji} Position`,
-      value: [
-        `**Entry:** $${this.formatNumber(data.entryPriceUsd, 8)}`,
-        `**Current:** $${this.formatNumber(data.currentPriceUsd, 8)}`,
-        `**PnL:** ${pnlStr}`,
-        `**Hold Time:** ${holdTimeStr}`,
-      ].join('\n'),
-      inline: true,
-    });
-
-    // Drawdown (if applicable)
-    if (data.drawdownFromPeak && data.drawdownFromPeak > 0) {
-      fields.push({
-        name: '📉 From Peak',
-        value: [
-          `**Drawdown:** -${data.drawdownFromPeak.toFixed(1)}%`,
-        ].join('\n'),
-        inline: true,
-      });
-    }
-
-    // Wallet Activity
-    const exitPercent = data.entryWalletCount > 0
-      ? ((data.exitedWalletCount / data.entryWalletCount) * 100).toFixed(0)
-      : 0;
-
-    fields.push({
-      name: '👛 Wallet Activity',
-      value: [
-        `**Original:** ${data.entryWalletCount}`,
-        `**Holding:** ${data.activeWalletCount}`,
-        `**Exited:** ${data.exitedWalletCount} (${exitPercent}%)`,
-      ].join('\n'),
-      inline: true,
-    });
-
-    // AI Decision (if available)
-    if (data.aiDecision && data.aiConfidence) {
-      fields.push({
-        name: '🤖 AI Analysis',
-        value: [
-          `**Decision:** ${data.aiDecision.replace(/_/g, ' ').toUpperCase()}`,
-          `**Confidence:** ${data.aiConfidence}%`,
-        ].join('\n'),
-        inline: true,
-      });
-    }
-
-    // Trigger Reason
-    if (data.triggerReason) {
-      let triggerValue = data.triggerReason;
-      if (data.triggerWalletLabel) {
-        triggerValue = `${data.triggerWalletLabel}: ${triggerValue}`;
-      }
-      fields.push({
-        name: '⚡ Trigger',
-        value: triggerValue.length > 200 ? triggerValue.substring(0, 200) + '...' : triggerValue,
-        inline: false,
-      });
-    }
-
-    // AI Reasoning
-    if (data.aiReasoning) {
-      fields.push({
-        name: '💭 AI Reasoning',
-        value: data.aiReasoning.length > 200
-          ? data.aiReasoning.substring(0, 200) + '...'
-          : data.aiReasoning,
-        inline: false,
-      });
-    }
-
-    return {
-      title,
-      url: birdeyeUrl,
-      color,
-      fields,
-      footer: {
-        text: (() => {
-          const now = new Date();
-          const pragueTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/Prague' }));
-          const day = String(pragueTime.getDate()).padStart(2, '0');
-          const month = String(pragueTime.getMonth() + 1).padStart(2, '0');
-          const year = pragueTime.getFullYear();
-          const hours = String(pragueTime.getHours()).padStart(2, '0');
-          const minutes = String(pragueTime.getMinutes()).padStart(2, '0');
-          return `🚨 Exit Alert • ${day}/${month}/${year}, ${hours}:${minutes}`;
-        })(),
-      },
-    };
-  }
-
-  /**
-   * Emoji pro typ exit signálu
-   */
-  private getExitEmoji(exitType: string): string {
-    const emojis: Record<string, string> = {
-      'wallet_exit': '👛',
-      'stop_loss': '🛑',
-      'take_profit': '🎯',
-      'trailing_stop': '📉',
-      'ai_recommendation': '🤖',
-      'time_based': '⏰',
-      'momentum_loss': '📊',
-      'volume_drop': '💧',
-    };
-    return emojis[exitType] || '🚨';
-  }
-
-  /**
    * Pošle notifikaci o SPECTRE trade (buy/sell) do exit kanálu
    * Tracker pro sledování vlastních obchodů
+   * Pro SELL: vyžaduje PnL data, jinak se nepošle (aby se zabránilo N/A embedům)
    */
   async sendSpectreTradeNotification(data: SpectreTradeNotificationData): Promise<boolean> {
     if (!this.exitEnabled) {
       console.warn('⚠️  SPECTRE trade notification skipped: DISCORD_EXIT_WEBHOOK_URL not set');
+      return false;
+    }
+
+    // Pro SELL vyžadujeme PnL data - jinak neposlat (zabránit N/A embedům)
+    if (data.action === 'sell' && data.pnlPercent === undefined) {
+      console.warn(`⚠️  SPECTRE SELL notification skipped for ${data.tokenSymbol}: missing PnL data`);
       return false;
     }
 
@@ -1147,6 +725,7 @@ export class DiscordNotificationService {
    */
   private buildSpectreTradeEmbed(data: SpectreTradeNotificationData): DiscordEmbed {
     const pumpfunUrl = `https://pump.fun/coin/${data.tokenMint}`;
+    const gmgnUrl = `https://gmgn.ai/sol/token/${data.tokenMint}`;
     const isBuy = data.action === 'buy';
 
     // Barvy: zelená pro BUY, červená pro SELL
@@ -1188,7 +767,7 @@ export class DiscordNotificationService {
         `**Amount:** ${data.amountSol.toFixed(4)} SOL`,
         `**Time:** ${formatTime(data.tradeTimestamp)}`,
         '',
-        `[pump.fun](${pumpfunUrl})${data.txSignature ? ` • [tx](https://solscan.io/tx/${data.txSignature})` : ''}`,
+        `[pump.fun](${pumpfunUrl}) • [gmgn](${gmgnUrl})${data.txSignature ? ` • [tx](https://solscan.io/tx/${data.txSignature})` : ''}`,
       ].join('\n');
 
       return {
@@ -1218,7 +797,7 @@ export class DiscordNotificationService {
         `**PnL:** ${pnlStr}${pnlUsdStr ? ` (${pnlUsdStr})` : ''}`,
         `**Time:** ${formatTime(data.tradeTimestamp)}`,
         '',
-        `[pump.fun](${pumpfunUrl})${data.txSignature ? ` • [tx](https://solscan.io/tx/${data.txSignature})` : ''}`,
+        `[pump.fun](${pumpfunUrl}) • [gmgn](${gmgnUrl})${data.txSignature ? ` • [tx](https://solscan.io/tx/${data.txSignature})` : ''}`,
       ].join('\n');
 
       return {
