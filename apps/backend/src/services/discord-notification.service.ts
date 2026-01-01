@@ -636,12 +636,18 @@ export class DiscordNotificationService {
       inline: true,
     });
 
-    // 2. Token Info (use entry MCap from traders, not current MCap)
+    // 2. Token Info
     const tokenInfo = [];
 
-    // Market Cap (Entry) - from first trader's buy
+    // Show entry MCap (from trader's buy) - this is what's in the title
     if (displayMcap) {
-      tokenInfo.push(`**MCap:** $${this.formatNumber(displayMcap, 0)}`);
+      tokenInfo.push(`**MCap (Entry):** $${this.formatNumber(displayMcap, 0)}`);
+    }
+
+    // Show current MCap if different from entry (helps judge if you're late)
+    if (data.marketCapUsd && entryMcapFromTraders && data.marketCapUsd !== entryMcapFromTraders) {
+      const pumpPercent = ((data.marketCapUsd - entryMcapFromTraders) / entryMcapFromTraders * 100).toFixed(0);
+      tokenInfo.push(`**MCap (Now):** $${this.formatNumber(data.marketCapUsd, 0)} (${Number(pumpPercent) >= 0 ? '+' : ''}${pumpPercent}%)`);
     }
 
     // Liquidity
