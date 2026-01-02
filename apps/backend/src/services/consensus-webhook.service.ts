@@ -419,29 +419,33 @@ export class ConsensusWebhookService {
 
       // 6. TIER-SPECIFIC QUALITY REQUIREMENT (Tier 3 & 4)
       if (tier.qualityRequirement) {
-        // Count quality wallets: those that are tracked (in our DB with label) OR bought > $100
+        // Count quality wallets: T1/T2 wallets OR bought > minBuyAmountUsd
         let qualityWalletCount = 0;
+        const qualityWalletLabels: string[] = [];
 
         for (const trade of buysInNinjaWindow) {
           const wallet = await this.smartWalletRepo.findById(trade.walletId);
           const tradeValueUsd = Number(trade.valueUsd || 0);
 
-          // Quality = has label (tracked wallet) OR buy > minBuyAmountUsd
-          const isTracked = wallet?.label && wallet.label.length > 0;
+          // Quality = T1 or T2 wallet (tier 1 or 2) OR buy > minBuyAmountUsd
+          const isQualityTier = wallet?.tier !== null && wallet?.tier !== undefined && wallet.tier <= 2;
           const isBigBuy = tier.qualityRequirement.minBuyAmountUsd
             ? tradeValueUsd >= tier.qualityRequirement.minBuyAmountUsd
             : false;
 
-          if (isTracked || isBigBuy) {
+          if (isQualityTier || isBigBuy) {
             qualityWalletCount++;
+            if (isQualityTier && wallet?.label) {
+              qualityWalletLabels.push(`${wallet.label}(T${wallet.tier})`);
+            }
           }
         }
 
         if (qualityWalletCount < tier.qualityRequirement.minQualityWallets) {
-          console.log(`   ❌ [NINJA] Only ${qualityWalletCount} quality wallets (${tier.name} needs ${tier.qualityRequirement.minQualityWallets}+ tracked or >$${tier.qualityRequirement.minBuyAmountUsd} buys) - FILTERED OUT`);
+          console.log(`   ❌ [NINJA] Only ${qualityWalletCount} quality wallets (${tier.name} needs ${tier.qualityRequirement.minQualityWallets}+ T1/T2 or >$${tier.qualityRequirement.minBuyAmountUsd} buys) - FILTERED OUT`);
           return { consensusFound: false };
         }
-        console.log(`   ✅ [NINJA] Quality: ${qualityWalletCount} quality wallets (${tier.name} min: ${tier.qualityRequirement.minQualityWallets})`);
+        console.log(`   ✅ [NINJA] Quality: ${qualityWalletCount} quality wallets (${tier.name} min: ${tier.qualityRequirement.minQualityWallets}) [${qualityWalletLabels.join(', ') || 'big buys'}]`);
       }
 
       // 7. VOLUME SPIKE DETECTION
