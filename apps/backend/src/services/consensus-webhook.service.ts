@@ -26,6 +26,7 @@ import { SignalGateCheckRepository, GateCheckInput } from '../repositories/signa
 import { DailyStatsRepository } from '../repositories/daily-stats.repository.js';
 import { signalStrengthService, SignalStrengthResult } from './signal-strength.service.js';
 import { pumpFunHolderService, HolderAnalysisResult } from './pump-fun-holder.service.js';
+import { signalLearningService, SignalQualityBonus } from './signal-learning.service.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
@@ -913,16 +914,40 @@ export class ConsensusWebhookService {
         isUpdate = true;
         console.log(`   📈 [NINJA] Update: ${previousWalletCount} → ${uniqueWallets.size} wallets`);
 
+        // Get learning bonus for signal quality adjustment
+        let learningBonus: SignalQualityBonus | null = null;
+        try {
+          learningBonus = await signalLearningService.getQualityBonus({
+            walletIds: Array.from(uniqueWallets) as string[],
+            marketCapUsd: marketCap,
+            tierName: tier.name,
+            timeWindowMinutes: ninjaTimeWindowMinutes,
+          });
+          if (learningBonus.reasoning.length > 0) {
+            console.log(`   🧠 [Learning] ${learningBonus.reasoning.join(' | ')}`);
+          }
+        } catch (learnError: any) {
+          console.warn(`   ⚠️  Learning bonus failed: ${learnError.message}`);
+        }
+
+        // Calculate quality score with learning bonus
+        const baseQualityScore = uniqueWallets.size >= 4 ? 90 : uniqueWallets.size >= 3 ? 80 : 60;
+        const finalQualityScore = Math.max(0, Math.min(100, baseQualityScore + (learningBonus?.totalBonus || 0)));
+
         // Aktualizuj existující signal
         await this.signalRepo.update(existingSignal.id, {
           meta: {
             ...(existingSignal.meta as object || {}),
             walletCount: uniqueWallets.size,
+            walletIds: Array.from(uniqueWallets),
+            tier: tier.name,
+            timeWindowMinutes: ninjaTimeWindowMinutes,
+            learningBonus: learningBonus?.totalBonus || 0,
             lastUpdateTradeId: newTradeId,
           },
-          qualityScore: uniqueWallets.size >= 4 ? 90 : uniqueWallets.size >= 3 ? 80 : 60,
+          qualityScore: finalQualityScore,
           riskLevel,
-          reasoning: `NINJA: ${uniqueWallets.size} smart wallets bought this token`,
+          reasoning: `NINJA: ${uniqueWallets.size} smart wallets bought this token${learningBonus?.totalBonus ? ` (learning: ${learningBonus.totalBonus > 0 ? '+' : ''}${learningBonus.totalBonus})` : ''}`,
         });
       }
       
@@ -944,12 +969,47 @@ export class ConsensusWebhookService {
 
           console.log(`   📊 Consensus signal created: ${signal.id.substring(0, 16)}... (${uniqueWallets.size} wallets)`);
 
+          // Get learning bonus for new signal
+          let newSignalLearningBonus: SignalQualityBonus | null = null;
+          try {
+            newSignalLearningBonus = await signalLearningService.getQualityBonus({
+              walletIds: Array.from(uniqueWallets) as string[],
+              marketCapUsd: marketCap,
+              tierName: tier.name,
+              timeWindowMinutes: ninjaTimeWindowMinutes,
+            });
+            if (newSignalLearningBonus.reasoning.length > 0) {
+              console.log(`   🧠 [Learning] ${newSignalLearningBonus.reasoning.join(' | ')}`);
+            }
+          } catch (learnError: any) {
+            console.warn(`   ⚠️  Learning bonus failed: ${learnError.message}`);
+          }
+
+          // Update signal with learning data and extended meta
+          const newBaseQualityScore = uniqueWallets.size >= 4 ? 90 : uniqueWallets.size >= 3 ? 80 : 60;
+          const newFinalQualityScore = Math.max(0, Math.min(100, newBaseQualityScore + (newSignalLearningBonus?.totalBonus || 0)));
+
+          await this.signalRepo.update(signal.id, {
+            meta: {
+              ...(signal.meta as object || {}),
+              walletCount: uniqueWallets.size,
+              walletIds: Array.from(uniqueWallets),
+              tier: tier.name,
+              timeWindowMinutes: ninjaTimeWindowMinutes,
+              learningBonus: newSignalLearningBonus?.totalBonus || 0,
+              entryMarketCapUsd: marketCap,
+            },
+            qualityScore: newFinalQualityScore,
+            reasoning: `NINJA: ${uniqueWallets.size} smart wallets bought this token${newSignalLearningBonus?.totalBonus ? ` (learning: ${newSignalLearningBonus.totalBonus > 0 ? '+' : ''}${newSignalLearningBonus.totalBonus})` : ''}`,
+          });
+
           // Vytvoř signal performance tracking record
           try {
             await this.signalPerformance.createPerformanceRecord(
               signal.id,
               tokenId,
-              tradeToUsePrice
+              tradeToUsePrice,
+              { marketCapUsd: marketCap, liquidityUsd: liquidity }
             );
           } catch (perfError: any) {
             console.warn(`   ⚠️  Signal performance record creation failed: ${perfError.message}`);
@@ -1109,6 +1169,19 @@ export class ConsensusWebhookService {
             console.warn(`   ⚠️  Signal strength calculation failed, using fallback: ${strengthError.message}`);
           }
 
+          // Get learning insights for Discord notification
+          let discordLearningBonus: SignalQualityBonus | null = null;
+          try {
+            discordLearningBonus = await signalLearningService.getQualityBonus({
+              walletIds: Array.from(uniqueWallets) as string[],
+              marketCapUsd: marketCap,
+              tierName: tier.name,
+              timeWindowMinutes: ninjaTimeWindowMinutes,
+            });
+          } catch (learnErr: any) {
+            // Ignore - non-critical for notification
+          }
+
           // Připrav notification data BEZ AI (AI bude async)
           const notificationData: SignalNotificationData = {
             tokenSymbol: token?.symbol || 'Unknown',
@@ -1156,6 +1229,14 @@ export class ConsensusWebhookService {
               creatorAddress: holderAnalysis.creatorAddress ?? undefined,
               creatorHasSold: holderAnalysis.creatorHasSold,
               creatorSellPercent: holderAnalysis.creatorSellPercent,
+            } : undefined,
+            // Learning insights from historical performance
+            learningInsights: discordLearningBonus ? {
+              totalBonus: discordLearningBonus.totalBonus,
+              walletComboBonus: discordLearningBonus.walletComboBonus,
+              mcapRangeBonus: discordLearningBonus.mcapRangeBonus,
+              timeWindowBonus: discordLearningBonus.timeWindowBonus,
+              reasoning: discordLearningBonus.reasoning,
             } : undefined,
             // Security removed for latency
           };

@@ -52,6 +52,15 @@ export interface SignalNotificationData {
     creatorSellPercent: number;
   };
 
+  // Learning Insights (historical performance)
+  learningInsights?: {
+    totalBonus: number;
+    walletComboBonus: number;
+    mcapRangeBonus: number;
+    timeWindowBonus: number;
+    reasoning: string[];
+  };
+
   // Security (RugCheck)
   security?: {
     riskLevel: 'safe' | 'low' | 'medium' | 'high' | 'critical';
@@ -506,6 +515,29 @@ export class DiscordNotificationService {
       fields.push({
         name: '👥 Holder Distribution',
         value: holderInfo.join('\n'),
+        inline: true,
+      });
+    }
+
+    // 2c. Learning Insights (if available and meaningful)
+    if (data.learningInsights && data.learningInsights.totalBonus !== 0) {
+      const learningInfo: string[] = [];
+
+      const bonusEmoji = data.learningInsights.totalBonus > 0 ? '🧠' : '⚠️';
+      const bonusSign = data.learningInsights.totalBonus > 0 ? '+' : '';
+      learningInfo.push(`${bonusEmoji} **Adj:** ${bonusSign}${data.learningInsights.totalBonus} pts`);
+
+      // Show breakdown if significant
+      if (data.learningInsights.walletComboBonus !== 0) {
+        learningInfo.push(`Wallet: ${data.learningInsights.walletComboBonus > 0 ? '+' : ''}${data.learningInsights.walletComboBonus}`);
+      }
+      if (data.learningInsights.mcapRangeBonus !== 0) {
+        learningInfo.push(`MCap: ${data.learningInsights.mcapRangeBonus > 0 ? '+' : ''}${data.learningInsights.mcapRangeBonus}`);
+      }
+
+      fields.push({
+        name: '📚 Historical',
+        value: learningInfo.join('\n'),
         inline: true,
       });
     }
