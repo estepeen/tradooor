@@ -14,6 +14,7 @@ export interface SignalNotificationData {
   // Signal info
   signalType: string;
   strength: 'weak' | 'medium' | 'strong';
+  signalStrength?: string; // Detailed signal strength reasoning (wallet tiers + patterns)
   walletCount: number;
   avgWalletScore: number;
 
@@ -426,6 +427,15 @@ export class DiscordNotificationService {
       value: signalInfo.join('\n'),
       inline: true,
     });
+
+    // Add detailed signal strength breakdown if available (wallet tiers + patterns)
+    if (data.signalStrength) {
+      fields.push({
+        name: '🎯 Signal Quality',
+        value: data.signalStrength,
+        inline: false,
+      });
+    }
 
     // 2. Token Info
     const tokenInfo = [];

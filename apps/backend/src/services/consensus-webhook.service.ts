@@ -24,6 +24,7 @@ import { WalletCorrelationService } from './wallet-correlation.service.js';
 import { redisService, SpectreSignalPayload, SpectrePreSignalPayload } from './redis.service.js';
 import { SignalGateCheckRepository, GateCheckInput } from '../repositories/signal-gate-check.repository.js';
 import { DailyStatsRepository } from '../repositories/daily-stats.repository.js';
+import { signalStrengthService, SignalStrengthResult } from './signal-strength.service.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
@@ -1021,12 +1022,37 @@ export class ConsensusWebhookService {
           const defaultStopLoss = NINJA_STOP_LOSS_PERCENT;
           const defaultTakeProfit = NINJA_TAKE_PROFIT_PERCENT;
 
+          // ENHANCED SIGNAL STRENGTH CALCULATION (wallet tiers + accumulation/conviction)
+          // Build map of wallet ID -> trade amount in SOL
+          const tradesBySolAmount = new Map<string, number>();
+          for (const w of walletsData) {
+            tradesBySolAmount.set(w.id, Number(w.tradeAmountUsd) || 0); // tradeAmountUsd is actually in base token (SOL)
+          }
+
+          // Calculate signal strength using wallet tiers, patterns, and momentum
+          let signalStrengthResult: SignalStrengthResult | null = null;
+          let calculatedStrength: 'weak' | 'medium' | 'strong' = uniqueWallets.size >= 4 ? 'strong' : uniqueWallets.size >= 3 ? 'medium' : 'weak'; // Fallback
+
+          try {
+            signalStrengthResult = await signalStrengthService.calculateStrength(
+              tokenId,
+              Array.from(uniqueWallets) as string[],
+              buySellVolumeRatio,
+              tradesBySolAmount
+            );
+            calculatedStrength = signalStrengthResult.strength;
+            console.log(`   🎯 [NINJA] ${signalStrengthResult.reasoning}`);
+          } catch (strengthError: any) {
+            console.warn(`   ⚠️  Signal strength calculation failed, using fallback: ${strengthError.message}`);
+          }
+
           // Připrav notification data BEZ AI (AI bude async)
           const notificationData: SignalNotificationData = {
             tokenSymbol: token?.symbol || 'Unknown',
             tokenMint: token?.mintAddress || '',
             signalType,
-            strength: uniqueWallets.size >= 4 ? 'strong' : uniqueWallets.size >= 3 ? 'medium' : 'weak',
+            strength: calculatedStrength,
+            signalStrength: signalStrengthResult?.reasoning, // Add detailed reasoning
             walletCount: uniqueWallets.size,
             avgWalletScore,
             entryPriceUsd: entryPrice,
