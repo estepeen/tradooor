@@ -49,19 +49,38 @@ const NINJA_DIVERSITY_SAMPLE_SIZE = 30;     // From last 30 trades
 // Volume Spike Detection
 const NINJA_MIN_VOLUME_SPIKE_RATIO = 1.75;  // Min 1.75x volume vs avg last hour
 
+// Absolute minimum volume spike by MCap (USD)
+const NINJA_MIN_SPIKE_VOLUME_BY_MCAP = {
+  low: { maxMcap: 100_000, minVolume: 500 },      // MCap $50-100k  → min $500 spike
+  medium: { maxMcap: 200_000, minVolume: 1000 },  // MCap $100-200k → min $1k spike
+  high: { maxMcap: 350_000, minVolume: 2000 },    // MCap $200-350k → min $2k spike
+  veryHigh: { maxMcap: Infinity, minVolume: 3500 } // MCap $350k+   → min $3.5k spike
+};
+
+// Volume spike confirmation (multiple wallets, not just one whale)
+const NINJA_MIN_SPIKE_UNIQUE_WALLETS = 3;         // Min 3 different wallets in spike
+const NINJA_SPIKE_CONFIRMATION_WINDOW_SEC = 30;   // 30s window after SW buy for confirmation
+
 // Liquidity Monitoring (Pre-Entry Checks)
 const NINJA_LIQUIDITY_5MIN_MAX_DROP = 0.10;   // Max 10% drop in 5min
 const NINJA_LIQUIDITY_15MIN_MAX_DROP = 0.20;  // Max 20% drop in 15min
 const NINJA_MIN_LIQUIDITY_MCAP_RATIO = 0.08;  // Min 8% liquidity/mcap ratio
 
-// Buy/Sell Pressure Monitoring (5min window)
+// Buy/Sell Pressure Monitoring (dynamic window by MCap)
 const NINJA_MIN_BUY_SELL_VOLUME_RATIO = 1.5;  // Min buy/sell volume ratio
 const NINJA_BLOCK_BUY_SELL_VOLUME_RATIO = 1.0; // Block if below this (more sells than buys)
 const NINJA_MIN_BUYERS_SELLERS_RATIO = 2.0;   // Min unique buyers/sellers ratio
-const NINJA_MIN_PRICE_MOMENTUM_PERCENT = 5;   // Min +5% price momentum (5min)
+const NINJA_MIN_PRICE_MOMENTUM_PERCENT = 5;   // Min +5% price momentum
 const NINJA_MAX_PRICE_MOMENTUM_PERCENT = 25;  // Max +25% (avoid overheated)
 const NINJA_BLOCK_PRICE_MOMENTUM_PERCENT = -3; // Block if below -3% (downtrend)
 const NINJA_OVERHEAT_PRICE_MOMENTUM_PERCENT = 40; // Block if above 40% (too hot)
+
+// Dynamic momentum window by MCap (smaller MCap = faster moves = shorter window)
+const NINJA_MOMENTUM_WINDOW_BY_MCAP = {
+  low: { maxMcap: 150_000, windowMinutes: 2 },     // MCap < $150k → 2min window
+  medium: { maxMcap: 300_000, windowMinutes: 3 },  // MCap $150-300k → 3min window
+  high: { maxMcap: Infinity, windowMinutes: 5 },   // MCap $300k+ → 5min window
+};
 
 // Moving Average Trend Filter
 // Entry only when price is above both MA_1min and MA_5min (uptrend confirmation)
@@ -583,7 +602,7 @@ export class ConsensusWebhookService {
         console.log(`   ✅ [NINJA] Quality: ${qualityWalletCount} quality wallets (${tier.name} min: ${tier.qualityRequirement.minQualityWallets}) [${qualityWalletLabels.join(', ') || 'big buys'}]`);
       }
 
-      // 7. VOLUME SPIKE DETECTION
+      // 7. VOLUME SPIKE DETECTION (Enhanced)
       // Compare volume in tier's time window vs average volume in last hour
       const oneHourAgo = currentTradeTime - 60 * 60 * 1000;
       const allBuysLastHour = await this.tradeRepo.findBuysByTokenAndTimeWindow(
@@ -607,63 +626,95 @@ export class ConsensusWebhookService {
       // Calculate volume spike ratio
       const volumeSpikeRatio = expectedVolumeInWindow > 0 ? volumeInTierWindow / expectedVolumeInWindow : 0;
 
+      // 7a. Check relative volume spike ratio
       if (volumeSpikeRatio < NINJA_MIN_VOLUME_SPIKE_RATIO) {
         console.log(`   ❌ [NINJA] Volume spike ${volumeSpikeRatio.toFixed(2)}x < ${NINJA_MIN_VOLUME_SPIKE_RATIO}x minimum (window: $${volumeInTierWindow.toFixed(0)}, expected: $${expectedVolumeInWindow.toFixed(0)}) - FILTERED OUT`);
         return { consensusFound: false };
       }
-      console.log(`   ✅ [NINJA] Volume spike: ${volumeSpikeRatio.toFixed(2)}x (window: $${volumeInTierWindow.toFixed(0)} vs expected: $${expectedVolumeInWindow.toFixed(0)}, min ${NINJA_MIN_VOLUME_SPIKE_RATIO}x)`);
 
-      // 7b. BUY/SELL PRESSURE CHECK (5min window)
-      const pressureWindowStart = currentTradeTime - 5 * 60 * 1000; // 5 min window
-      const buysIn5min = await this.tradeRepo.findBuysByTokenAndTimeWindow(
+      // 7b. Check ABSOLUTE minimum volume by MCap tier
+      let minSpikeVolumeUsd = NINJA_MIN_SPIKE_VOLUME_BY_MCAP.veryHigh.minVolume; // Default to highest
+      if (marketCap <= NINJA_MIN_SPIKE_VOLUME_BY_MCAP.low.maxMcap) {
+        minSpikeVolumeUsd = NINJA_MIN_SPIKE_VOLUME_BY_MCAP.low.minVolume;
+      } else if (marketCap <= NINJA_MIN_SPIKE_VOLUME_BY_MCAP.medium.maxMcap) {
+        minSpikeVolumeUsd = NINJA_MIN_SPIKE_VOLUME_BY_MCAP.medium.minVolume;
+      } else if (marketCap <= NINJA_MIN_SPIKE_VOLUME_BY_MCAP.high.maxMcap) {
+        minSpikeVolumeUsd = NINJA_MIN_SPIKE_VOLUME_BY_MCAP.high.minVolume;
+      }
+
+      if (volumeInTierWindow < minSpikeVolumeUsd) {
+        console.log(`   ❌ [NINJA] Volume spike $${volumeInTierWindow.toFixed(0)} < $${minSpikeVolumeUsd} absolute minimum (MCap: $${(marketCap/1000).toFixed(0)}k) - FILTERED OUT`);
+        return { consensusFound: false };
+      }
+
+      // 7c. Check spike is from MULTIPLE wallets (not one whale)
+      const uniqueWalletsInSpike = new Set(buysInNinjaWindow.map(t => t.walletId)).size;
+      if (uniqueWalletsInSpike < NINJA_MIN_SPIKE_UNIQUE_WALLETS) {
+        console.log(`   ❌ [NINJA] Volume spike from only ${uniqueWalletsInSpike} wallets < ${NINJA_MIN_SPIKE_UNIQUE_WALLETS} minimum (need diverse interest) - FILTERED OUT`);
+        return { consensusFound: false };
+      }
+
+      console.log(`   ✅ [NINJA] Volume spike: ${volumeSpikeRatio.toFixed(2)}x, $${volumeInTierWindow.toFixed(0)} (min $${minSpikeVolumeUsd}), ${uniqueWalletsInSpike} wallets`);
+
+      // 7d. BUY/SELL PRESSURE CHECK (dynamic window by MCap)
+      // Determine momentum window based on MCap
+      let momentumWindowMinutes = NINJA_MOMENTUM_WINDOW_BY_MCAP.high.windowMinutes; // Default 5min
+      if (marketCap <= NINJA_MOMENTUM_WINDOW_BY_MCAP.low.maxMcap) {
+        momentumWindowMinutes = NINJA_MOMENTUM_WINDOW_BY_MCAP.low.windowMinutes;
+      } else if (marketCap <= NINJA_MOMENTUM_WINDOW_BY_MCAP.medium.maxMcap) {
+        momentumWindowMinutes = NINJA_MOMENTUM_WINDOW_BY_MCAP.medium.windowMinutes;
+      }
+
+      const pressureWindowStart = currentTradeTime - momentumWindowMinutes * 60 * 1000;
+      const buysInMomentumWindow = await this.tradeRepo.findBuysByTokenAndTimeWindow(
         tokenId,
         new Date(pressureWindowStart),
         new Date(currentTradeTime)
       );
-      const sellsIn5min = await this.tradeRepo.findSellsByTokenAndTimeWindow(
+      const sellsInMomentumWindow = await this.tradeRepo.findSellsByTokenAndTimeWindow(
         tokenId,
         new Date(pressureWindowStart),
         new Date(currentTradeTime)
       );
 
       // Calculate buy/sell volume ratio
-      const buyVolumeUsd = buysIn5min.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
-      const sellVolumeUsd = sellsIn5min.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
+      const buyVolumeUsd = buysInMomentumWindow.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
+      const sellVolumeUsd = sellsInMomentumWindow.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
       const buySellVolumeRatio = sellVolumeUsd > 0 ? buyVolumeUsd / sellVolumeUsd : (buyVolumeUsd > 0 ? 999 : 0);
 
       // Calculate unique buyers/sellers ratio
-      const uniqueBuyers5min = new Set(buysIn5min.map(t => t.walletId)).size;
-      const uniqueSellers5min = new Set(sellsIn5min.map(t => t.walletId)).size;
-      const buyerSellerRatio = uniqueSellers5min > 0 ? uniqueBuyers5min / uniqueSellers5min : (uniqueBuyers5min > 0 ? 999 : 0);
+      const uniqueBuyersMomentum = new Set(buysInMomentumWindow.map(t => t.walletId)).size;
+      const uniqueSellersMomentum = new Set(sellsInMomentumWindow.map(t => t.walletId)).size;
+      const buyerSellerRatio = uniqueSellersMomentum > 0 ? uniqueBuyersMomentum / uniqueSellersMomentum : (uniqueBuyersMomentum > 0 ? 999 : 0);
 
       // Store for dynamic priority fee calculation (ČÁST 10)
       let momentumPriceMomentumPercent = 0;
 
       // Check buy/sell volume ratio
       if (buySellVolumeRatio < NINJA_BLOCK_BUY_SELL_VOLUME_RATIO) {
-        console.log(`   ❌ [NINJA] Buy/Sell volume ratio ${buySellVolumeRatio.toFixed(2)} < ${NINJA_BLOCK_BUY_SELL_VOLUME_RATIO} (more sells!) - $${buyVolumeUsd.toFixed(0)} buys vs $${sellVolumeUsd.toFixed(0)} sells - FILTERED OUT`);
+        console.log(`   ❌ [NINJA] Buy/Sell volume ratio ${buySellVolumeRatio.toFixed(2)} < ${NINJA_BLOCK_BUY_SELL_VOLUME_RATIO} (more sells!) - $${buyVolumeUsd.toFixed(0)} buys vs $${sellVolumeUsd.toFixed(0)} sells (${momentumWindowMinutes}min) - FILTERED OUT`);
         return { consensusFound: false };
       }
       if (buySellVolumeRatio < NINJA_MIN_BUY_SELL_VOLUME_RATIO) {
-        console.log(`   ⚠️  [NINJA] Buy/Sell volume ratio ${buySellVolumeRatio.toFixed(2)} < ${NINJA_MIN_BUY_SELL_VOLUME_RATIO} (weak buying) - waiting for better conditions`);
+        console.log(`   ⚠️  [NINJA] Buy/Sell volume ratio ${buySellVolumeRatio.toFixed(2)} < ${NINJA_MIN_BUY_SELL_VOLUME_RATIO} (weak buying) - ${momentumWindowMinutes}min window`);
         // Don't block, just warn - can still proceed if other conditions are strong
       } else {
-        console.log(`   ✅ [NINJA] Buy/Sell volume: ${buySellVolumeRatio.toFixed(2)}x ($${buyVolumeUsd.toFixed(0)} buys / $${sellVolumeUsd.toFixed(0)} sells)`);
+        console.log(`   ✅ [NINJA] Buy/Sell volume: ${buySellVolumeRatio.toFixed(2)}x ($${buyVolumeUsd.toFixed(0)} buys / $${sellVolumeUsd.toFixed(0)} sells) [${momentumWindowMinutes}min]`);
       }
 
       // Check buyers/sellers ratio
-      if (buyerSellerRatio < NINJA_MIN_BUYERS_SELLERS_RATIO && uniqueSellers5min > 0) {
-        console.log(`   ⚠️  [NINJA] Buyers/Sellers ratio ${buyerSellerRatio.toFixed(2)} < ${NINJA_MIN_BUYERS_SELLERS_RATIO} (${uniqueBuyers5min} buyers / ${uniqueSellers5min} sellers) - weak momentum`);
+      if (buyerSellerRatio < NINJA_MIN_BUYERS_SELLERS_RATIO && uniqueSellersMomentum > 0) {
+        console.log(`   ⚠️  [NINJA] Buyers/Sellers ratio ${buyerSellerRatio.toFixed(2)} < ${NINJA_MIN_BUYERS_SELLERS_RATIO} (${uniqueBuyersMomentum} buyers / ${uniqueSellersMomentum} sellers) - weak momentum`);
         // Don't block, just warn
       } else {
-        console.log(`   ✅ [NINJA] Buyers/Sellers: ${buyerSellerRatio.toFixed(2)}x (${uniqueBuyers5min} buyers / ${uniqueSellers5min} sellers)`);
+        console.log(`   ✅ [NINJA] Buyers/Sellers: ${buyerSellerRatio.toFixed(2)}x (${uniqueBuyersMomentum} buyers / ${uniqueSellersMomentum} sellers)`);
       }
 
-      // 7c. PRICE MOMENTUM CHECK (5min)
-      // Get price from earliest and latest trade in 5min window
-      if (buysIn5min.length >= 2) {
-        const earliestTrade = buysIn5min[0];
-        const latestTrade = buysIn5min[buysIn5min.length - 1];
+      // 7e. PRICE MOMENTUM CHECK (dynamic window)
+      // Get price from earliest and latest trade in momentum window
+      if (buysInMomentumWindow.length >= 2) {
+        const earliestTrade = buysInMomentumWindow[0];
+        const latestTrade = buysInMomentumWindow[buysInMomentumWindow.length - 1];
         const earliestPrice = Number(earliestTrade.priceBasePerToken || 0);
         const latestPrice = Number(latestTrade.priceBasePerToken || 0);
 
@@ -672,33 +723,33 @@ export class ConsensusWebhookService {
           momentumPriceMomentumPercent = priceMomentumPercent; // Store for priority fee calculation
 
           if (priceMomentumPercent < NINJA_BLOCK_PRICE_MOMENTUM_PERCENT) {
-            console.log(`   ❌ [NINJA] Price momentum ${priceMomentumPercent.toFixed(1)}% < ${NINJA_BLOCK_PRICE_MOMENTUM_PERCENT}% - DOWNTREND, FILTERED OUT`);
+            console.log(`   ❌ [NINJA] Price momentum ${priceMomentumPercent.toFixed(1)}% < ${NINJA_BLOCK_PRICE_MOMENTUM_PERCENT}% (${momentumWindowMinutes}min) - DOWNTREND, FILTERED OUT`);
             return { consensusFound: false };
           }
 
           if (priceMomentumPercent > NINJA_OVERHEAT_PRICE_MOMENTUM_PERCENT) {
-            console.log(`   ❌ [NINJA] Price momentum ${priceMomentumPercent.toFixed(1)}% > ${NINJA_OVERHEAT_PRICE_MOMENTUM_PERCENT}% - OVERHEATED, FILTERED OUT`);
+            console.log(`   ❌ [NINJA] Price momentum ${priceMomentumPercent.toFixed(1)}% > ${NINJA_OVERHEAT_PRICE_MOMENTUM_PERCENT}% (${momentumWindowMinutes}min) - OVERHEATED, FILTERED OUT`);
             return { consensusFound: false };
           }
 
           if (priceMomentumPercent >= NINJA_MIN_PRICE_MOMENTUM_PERCENT && priceMomentumPercent <= NINJA_MAX_PRICE_MOMENTUM_PERCENT) {
-            console.log(`   ✅ [NINJA] Price momentum: +${priceMomentumPercent.toFixed(1)}% (optimal range ${NINJA_MIN_PRICE_MOMENTUM_PERCENT}-${NINJA_MAX_PRICE_MOMENTUM_PERCENT}%)`);
+            console.log(`   ✅ [NINJA] Price momentum: +${priceMomentumPercent.toFixed(1)}% [${momentumWindowMinutes}min] (optimal ${NINJA_MIN_PRICE_MOMENTUM_PERCENT}-${NINJA_MAX_PRICE_MOMENTUM_PERCENT}%)`);
           } else if (priceMomentumPercent > NINJA_MAX_PRICE_MOMENTUM_PERCENT) {
-            console.log(`   ⚠️  [NINJA] Price momentum: +${priceMomentumPercent.toFixed(1)}% (above optimal, may be cooling)`);
+            console.log(`   ⚠️  [NINJA] Price momentum: +${priceMomentumPercent.toFixed(1)}% [${momentumWindowMinutes}min] (above optimal, may be cooling)`);
           } else {
-            console.log(`   ⚠️  [NINJA] Price momentum: ${priceMomentumPercent >= 0 ? '+' : ''}${priceMomentumPercent.toFixed(1)}% (below optimal ${NINJA_MIN_PRICE_MOMENTUM_PERCENT}%)`);
+            console.log(`   ⚠️  [NINJA] Price momentum: ${priceMomentumPercent >= 0 ? '+' : ''}${priceMomentumPercent.toFixed(1)}% [${momentumWindowMinutes}min] (below optimal ${NINJA_MIN_PRICE_MOMENTUM_PERCENT}%)`);
           }
         }
       }
 
-      // 7d. MOVING AVERAGE TREND FILTER
-      // Calculate MA_1min and MA_5min, block entry if current price is below either
+      // 7f. MOVING AVERAGE TREND FILTER
+      // Calculate MA_1min and MA based on momentum window, block entry if current price is below either
       const currentPrice = Number(tradeToUse.priceBasePerToken || 0);
 
-      if (currentPrice > 0 && buysIn5min.length > 0) {
+      if (currentPrice > 0 && buysInMomentumWindow.length > 0) {
         // Calculate MA_1min (average price in last 1 minute)
         const oneMinAgo = currentTradeTime - 1 * 60 * 1000;
-        const tradesIn1min = buysIn5min.filter(t => new Date(t.timestamp).getTime() >= oneMinAgo);
+        const tradesIn1min = buysInMomentumWindow.filter(t => new Date(t.timestamp).getTime() >= oneMinAgo);
 
         let ma1min: number | null = null;
         if (NINJA_MA_1MIN_ENABLED && tradesIn1min.length > 0) {
@@ -706,11 +757,11 @@ export class ConsensusWebhookService {
           ma1min = sum1min / tradesIn1min.length;
         }
 
-        // Calculate MA_5min (average price in last 5 minutes)
-        let ma5min: number | null = null;
-        if (NINJA_MA_5MIN_ENABLED && buysIn5min.length > 0) {
-          const sum5min = buysIn5min.reduce((sum, t) => sum + Number(t.priceBasePerToken || 0), 0);
-          ma5min = sum5min / buysIn5min.length;
+        // Calculate MA for momentum window (dynamic: 2-5min based on MCap)
+        let maMomentum: number | null = null;
+        if (NINJA_MA_5MIN_ENABLED && buysInMomentumWindow.length > 0) {
+          const sumMomentum = buysInMomentumWindow.reduce((sum, t) => sum + Number(t.priceBasePerToken || 0), 0);
+          maMomentum = sumMomentum / buysInMomentumWindow.length;
         }
 
         // Check MA_1min
@@ -720,34 +771,34 @@ export class ConsensusWebhookService {
           return { consensusFound: false };
         }
 
-        // Check MA_5min
-        if (ma5min !== null && currentPrice < ma5min) {
-          const belowMa5minPercent = ((ma5min - currentPrice) / ma5min) * 100;
-          console.log(`   ❌ [NINJA] Price below MA_5min: ${currentPrice.toExponential(4)} < ${ma5min.toExponential(4)} (-${belowMa5minPercent.toFixed(2)}%) - DOWNTREND, FILTERED OUT`);
+        // Check MA_momentum (dynamic window)
+        if (maMomentum !== null && currentPrice < maMomentum) {
+          const belowMaMomentumPercent = ((maMomentum - currentPrice) / maMomentum) * 100;
+          console.log(`   ❌ [NINJA] Price below MA_${momentumWindowMinutes}min: ${currentPrice.toExponential(4)} < ${maMomentum.toExponential(4)} (-${belowMaMomentumPercent.toFixed(2)}%) - DOWNTREND, FILTERED OUT`);
           return { consensusFound: false };
         }
 
         // Log MA status
-        if (ma1min !== null && ma5min !== null) {
+        if (ma1min !== null && maMomentum !== null) {
           const aboveMa1minPercent = ((currentPrice - ma1min) / ma1min) * 100;
-          const aboveMa5minPercent = ((currentPrice - ma5min) / ma5min) * 100;
-          console.log(`   ✅ [NINJA] MA Trend: Price above MA_1min (+${aboveMa1minPercent.toFixed(2)}%) and MA_5min (+${aboveMa5minPercent.toFixed(2)}%) - UPTREND`);
+          const aboveMaMomentumPercent = ((currentPrice - maMomentum) / maMomentum) * 100;
+          console.log(`   ✅ [NINJA] MA Trend: Price above MA_1min (+${aboveMa1minPercent.toFixed(2)}%) and MA_${momentumWindowMinutes}min (+${aboveMaMomentumPercent.toFixed(2)}%) - UPTREND`);
         } else if (ma1min !== null) {
           const aboveMa1minPercent = ((currentPrice - ma1min) / ma1min) * 100;
           console.log(`   ✅ [NINJA] MA Trend: Price above MA_1min (+${aboveMa1minPercent.toFixed(2)}%)`);
-        } else if (ma5min !== null) {
-          const aboveMa5minPercent = ((currentPrice - ma5min) / ma5min) * 100;
-          console.log(`   ✅ [NINJA] MA Trend: Price above MA_5min (+${aboveMa5minPercent.toFixed(2)}%)`);
+        } else if (maMomentum !== null) {
+          const aboveMaMomentumPercent = ((currentPrice - maMomentum) / maMomentum) * 100;
+          console.log(`   ✅ [NINJA] MA Trend: Price above MA_${momentumWindowMinutes}min (+${aboveMaMomentumPercent.toFixed(2)}%)`);
         } else {
           console.log(`   ⚠️  [NINJA] MA Trend: Not enough data for MA calculation`);
         }
       }
 
-      // 7e. WHALE ACTIVITY DETECTION (Pre-Entry)
+      // 7g. WHALE ACTIVITY DETECTION (Pre-Entry)
       // Check for large sells that indicate whale dumping
-      if (sellsIn5min.length > 0) {
+      if (sellsInMomentumWindow.length > 0) {
         // Check each sell for whale activity
-        for (const sell of sellsIn5min) {
+        for (const sell of sellsInMomentumWindow) {
           const sellAmountToken = Number(sell.amountToken || 0);
           const sellValueUsd = Number(sell.valueUsd || 0);
 
@@ -768,11 +819,11 @@ export class ConsensusWebhookService {
         }
 
         // Log whale check passed
-        const maxSellUsd = Math.max(...sellsIn5min.map(s => Number(s.valueUsd || 0)));
-        const maxSellSupply = Math.max(...sellsIn5min.map(s => (Number(s.amountToken || 0) / PUMP_FUN_TOTAL_SUPPLY) * 100));
-        console.log(`   ✅ [NINJA] Whale check: Max sell $${maxSellUsd.toFixed(0)} (${maxSellSupply.toFixed(3)}% supply) - no whale dumps`);
+        const maxSellUsd = Math.max(...sellsInMomentumWindow.map(s => Number(s.valueUsd || 0)));
+        const maxSellSupply = Math.max(...sellsInMomentumWindow.map(s => (Number(s.amountToken || 0) / PUMP_FUN_TOTAL_SUPPLY) * 100));
+        console.log(`   ✅ [NINJA] Whale check: Max sell $${maxSellUsd.toFixed(0)} (${maxSellSupply.toFixed(3)}% supply) [${momentumWindowMinutes}min] - no whale dumps`);
       } else {
-        console.log(`   ✅ [NINJA] Whale check: No sells in 5min window`);
+        console.log(`   ✅ [NINJA] Whale check: No sells in ${momentumWindowMinutes}min window`);
       }
 
       // 8. DIVERSITY CHECK (global - same for all tiers)
