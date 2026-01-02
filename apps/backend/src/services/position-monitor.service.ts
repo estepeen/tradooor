@@ -20,6 +20,10 @@ const LIQUIDITY_DROP_EMERGENCY_PERCENT = 15;  // >15% drop from entry = EMERGENC
 
 // Buy/Sell Pressure Monitoring Constants
 const SELL_PRESSURE_EXIT_RATIO = 0.7;  // If buy/sell ratio < 0.7, exit 50%
+
+// Whale Activity Monitoring Constants
+const WHALE_DUMP_SUPPLY_PERCENT = 2.0;  // If whale sells > 2% supply = EMERGENCY EXIT 75%
+const PUMP_FUN_TOTAL_SUPPLY = 1_000_000_000;  // 1B tokens for pump.fun
 import {
   VirtualPositionRepository,
   VirtualPositionRecord,
@@ -335,6 +339,36 @@ export class PositionMonitorService {
     // Log buy/sell pressure status
     if (buySellRatio < 1.5 && sellVolumeUsd > 0) {
       console.log(`   ⚠️  [PositionMonitor] Pressure warning: Buy/Sell ${buySellRatio.toFixed(2)}x`);
+    }
+
+    // 0c. Check whale dumps (single sell > 2% of supply)
+    if (sellsIn5min.length > 0) {
+      for (const sell of sellsIn5min) {
+        const sellAmountToken = Number(sell.amountToken || 0);
+        const sellValueUsd = Number(sell.valueUsd || 0);
+        const supplyPercent = (sellAmountToken / PUMP_FUN_TOTAL_SUPPLY) * 100;
+
+        if (supplyPercent >= WHALE_DUMP_SUPPLY_PERCENT) {
+          console.log(`   🐋 [PositionMonitor] WHALE DUMP: ${supplyPercent.toFixed(2)}% of supply sold ($${sellValueUsd.toFixed(0)})`);
+
+          return this.createExitSignal(position, {
+            type: 'whale_dump',
+            strength: 'strong',
+            recommendation: 'partial_exit_75',
+            priceAtSignal: context.currentPrice,
+            pnlPercentAtSignal: pnlPercent,
+            triggerReason: `WHALE DUMP: ${supplyPercent.toFixed(2)}% of supply sold in single TX ($${sellValueUsd.toFixed(0)})`,
+            marketCapAtSignal: context.marketCapUsd,
+            liquidityAtSignal: context.liquidityUsd,
+          });
+        }
+      }
+
+      // Log max sell for monitoring
+      const maxSellSupply = Math.max(...sellsIn5min.map(s => (Number(s.amountToken || 0) / PUMP_FUN_TOTAL_SUPPLY) * 100));
+      if (maxSellSupply > 0.5) {
+        console.log(`   ⚠️  [PositionMonitor] Large sell detected: ${maxSellSupply.toFixed(2)}% of supply`);
+      }
     }
 
     // 1. Check stop loss

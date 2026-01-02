@@ -63,6 +63,15 @@ const NINJA_OVERHEAT_PRICE_MOMENTUM_PERCENT = 40; // Block if above 40% (too hot
 const NINJA_MA_1MIN_ENABLED = true;   // Check 1min MA
 const NINJA_MA_5MIN_ENABLED = true;   // Check 5min MA
 
+// Whale Activity Detection (Pre-Entry)
+const NINJA_WHALE_SUPPLY_PERCENT_BLOCK = 1.0;  // Block if single sell > 1% supply
+const NINJA_WHALE_USD_BLOCK_LOW_MCAP = 500;    // Block if single sell > $500 (for 50-100k mcap)
+const NINJA_WHALE_USD_BLOCK_THRESHOLD_MCAP = 100000; // Apply USD block only below this mcap
+const NINJA_WHALE_LOOKBACK_5MIN = 5 * 60 * 1000;     // 5min lookback for large sells
+const NINJA_WHALE_LOOKBACK_10MIN = 10 * 60 * 1000;   // 10min lookback for top holder sells
+const NINJA_WHALE_LOOKBACK_15MIN = 15 * 60 * 1000;   // 15min lookback for dev sells
+const PUMP_FUN_TOTAL_SUPPLY = 1_000_000_000;         // 1B tokens for pump.fun
+
 // Trading Parameters
 const NINJA_STOP_LOSS_PERCENT = 20;         // -20% SL
 const NINJA_TAKE_PROFIT_PERCENT = 30;       // +30% first TP
@@ -691,6 +700,38 @@ export class ConsensusWebhookService {
         } else {
           console.log(`   ⚠️  [NINJA] MA Trend: Not enough data for MA calculation`);
         }
+      }
+
+      // 7e. WHALE ACTIVITY DETECTION (Pre-Entry)
+      // Check for large sells that indicate whale dumping
+      if (sellsIn5min.length > 0) {
+        // Check each sell for whale activity
+        for (const sell of sellsIn5min) {
+          const sellAmountToken = Number(sell.amountToken || 0);
+          const sellValueUsd = Number(sell.valueUsd || 0);
+
+          // Calculate percentage of total supply (pump.fun = 1B tokens)
+          const supplyPercent = (sellAmountToken / PUMP_FUN_TOTAL_SUPPLY) * 100;
+
+          // BLOCK: Single sell > 1% of supply
+          if (supplyPercent >= NINJA_WHALE_SUPPLY_PERCENT_BLOCK) {
+            console.log(`   ❌ [NINJA] WHALE SELL detected: ${supplyPercent.toFixed(2)}% of supply in single TX ($${sellValueUsd.toFixed(0)}) - FILTERED OUT`);
+            return { consensusFound: false };
+          }
+
+          // BLOCK: Single sell > $500 for low mcap tokens (< 100k)
+          if (marketCap < NINJA_WHALE_USD_BLOCK_THRESHOLD_MCAP && sellValueUsd >= NINJA_WHALE_USD_BLOCK_LOW_MCAP) {
+            console.log(`   ❌ [NINJA] LARGE SELL at low mcap: $${sellValueUsd.toFixed(0)} sell (${supplyPercent.toFixed(3)}% supply) at $${(marketCap / 1000).toFixed(1)}K mcap - FILTERED OUT`);
+            return { consensusFound: false };
+          }
+        }
+
+        // Log whale check passed
+        const maxSellUsd = Math.max(...sellsIn5min.map(s => Number(s.valueUsd || 0)));
+        const maxSellSupply = Math.max(...sellsIn5min.map(s => (Number(s.amountToken || 0) / PUMP_FUN_TOTAL_SUPPLY) * 100));
+        console.log(`   ✅ [NINJA] Whale check: Max sell $${maxSellUsd.toFixed(0)} (${maxSellSupply.toFixed(3)}% supply) - no whale dumps`);
+      } else {
+        console.log(`   ✅ [NINJA] Whale check: No sells in 5min window`);
       }
 
       // 8. DIVERSITY CHECK (global - same for all tiers)
