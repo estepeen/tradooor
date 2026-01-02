@@ -61,6 +61,26 @@ export interface DevSellInfo {
   }[];
 }
 
+export interface InsiderAnalysisResult {
+  // Early buyers (first 5 minutes after launch)
+  earlyBuyerCount: number;
+  earlyBuyerAddresses: string[];
+
+  // Insider selling detection
+  insidersSelling: boolean;
+  insiderSellCount: number;
+  insiderSellPercent: number;  // % of supply sold by insiders recently
+
+  // Bundled transaction detection (same slot = coordinated)
+  hasBundledBuys: boolean;
+  bundledBuyCount: number;     // Number of buys in same slot
+  bundledBuyAddresses: string[];
+
+  // Risk assessment
+  insiderRiskLevel: 'low' | 'medium' | 'high';
+  riskReasons: string[];
+}
+
 export class PumpFunHolderService {
   /**
    * Get holder analysis for a pump.fun token
@@ -398,6 +418,216 @@ export class PumpFunHolderService {
     } catch (error: any) {
       console.warn(`   ⚠️  [PumpFun] fetchRecentTrades failed: ${error.message}`);
       return null;
+    }
+  }
+
+  /**
+   * Analyze insider activity for a token
+   * Detects early buyers, insider selling, and bundled transactions
+   */
+  async analyzeInsiders(tokenMint: string): Promise<InsiderAnalysisResult | null> {
+    try {
+      // Fetch token info for creation timestamp
+      const tokenInfo = await this.fetchTokenInfo(tokenMint);
+      if (!tokenInfo) {
+        return null;
+      }
+
+      // Fetch all trades (we need early ones for insider detection)
+      const allTrades = await this.fetchAllTrades(tokenMint, 500);
+      if (!allTrades || allTrades.length === 0) {
+        return null;
+      }
+
+      // Token creation time
+      const createdAt = tokenInfo.created_timestamp
+        ? new Date(tokenInfo.created_timestamp).getTime()
+        : null;
+
+      if (!createdAt) {
+        console.warn(`   ⚠️  [PumpFun] No creation timestamp for ${tokenMint.substring(0, 8)}...`);
+        return null;
+      }
+
+      // 1. Find early buyers (first 5 minutes after launch)
+      const EARLY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+      const earlyBuys = allTrades.filter(t => {
+        const tradeTime = new Date(t.timestamp).getTime();
+        return t.is_buy === true && (tradeTime - createdAt) <= EARLY_WINDOW_MS;
+      });
+
+      const earlyBuyerAddresses = [...new Set(earlyBuys.map(t => t.user))];
+      const earlyBuyerCount = earlyBuyerAddresses.length;
+
+      // 2. Check if early buyers (insiders) are selling recently
+      const RECENT_WINDOW_MS = 30 * 60 * 1000; // Last 30 minutes
+      const now = Date.now();
+      const recentSells = allTrades.filter(t => {
+        const tradeTime = new Date(t.timestamp).getTime();
+        return t.is_buy === false && (now - tradeTime) <= RECENT_WINDOW_MS;
+      });
+
+      // Check if any early buyer is in recent sellers
+      const insiderSells = recentSells.filter(t => earlyBuyerAddresses.includes(t.user));
+      const insidersSelling = insiderSells.length > 0;
+      const insiderSellCount = insiderSells.length;
+
+      // Calculate % of supply sold by insiders
+      const insiderSellAmount = insiderSells.reduce((sum, t) => sum + (t.token_amount || 0), 0);
+      const insiderSellPercent = (insiderSellAmount / PUMP_FUN_TOTAL_SUPPLY) * 100;
+
+      // 3. Detect bundled transactions (multiple buys in same slot = coordinated)
+      const buysBySlot = new Map<number, any[]>();
+      const recentBuys = allTrades.filter(t => {
+        const tradeTime = new Date(t.timestamp).getTime();
+        return t.is_buy === true && (now - tradeTime) <= RECENT_WINDOW_MS;
+      });
+
+      for (const trade of recentBuys) {
+        const slot = trade.slot;
+        if (slot) {
+          if (!buysBySlot.has(slot)) {
+            buysBySlot.set(slot, []);
+          }
+          buysBySlot.get(slot)!.push(trade);
+        }
+      }
+
+      // Find slots with multiple buys (bundled)
+      let bundledBuyCount = 0;
+      const bundledBuyAddresses: string[] = [];
+
+      for (const [_slot, trades] of buysBySlot) {
+        if (trades.length >= 2) {
+          bundledBuyCount += trades.length;
+          for (const t of trades) {
+            if (!bundledBuyAddresses.includes(t.user)) {
+              bundledBuyAddresses.push(t.user);
+            }
+          }
+        }
+      }
+
+      const hasBundledBuys = bundledBuyCount >= 3; // 3+ bundled buys is suspicious
+
+      // 4. Calculate risk level
+      const riskReasons: string[] = [];
+      let riskScore = 0;
+
+      if (insidersSelling && insiderSellPercent > 0.5) {
+        riskReasons.push(`Early buyers selling ${insiderSellPercent.toFixed(2)}% of supply`);
+        riskScore += 3;
+      }
+
+      if (hasBundledBuys && bundledBuyCount >= 5) {
+        riskReasons.push(`${bundledBuyCount} bundled buys detected (coordinated network)`);
+        riskScore += 2;
+      }
+
+      if (earlyBuyerCount >= 10 && earlyBuyerCount <= 20) {
+        // Many early buyers could be insider network
+        riskReasons.push(`${earlyBuyerCount} early buyers in first 5min`);
+        riskScore += 1;
+      }
+
+      let insiderRiskLevel: 'low' | 'medium' | 'high' = 'low';
+      if (riskScore >= 4) {
+        insiderRiskLevel = 'high';
+      } else if (riskScore >= 2) {
+        insiderRiskLevel = 'medium';
+      }
+
+      return {
+        earlyBuyerCount,
+        earlyBuyerAddresses,
+        insidersSelling,
+        insiderSellCount,
+        insiderSellPercent,
+        hasBundledBuys,
+        bundledBuyCount,
+        bundledBuyAddresses,
+        insiderRiskLevel,
+        riskReasons,
+      };
+    } catch (error: any) {
+      console.error(`   ❌ [PumpFun] analyzeInsiders failed: ${error.message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Quick insider risk check for signal gating
+   * Returns true if insider risk is HIGH and should block
+   */
+  async shouldBlockForInsiderRisk(tokenMint: string): Promise<{
+    shouldBlock: boolean;
+    reason: string | null;
+    insiderRiskLevel: 'low' | 'medium' | 'high' | null;
+  }> {
+    try {
+      const insiderAnalysis = await this.analyzeInsiders(tokenMint);
+
+      if (!insiderAnalysis) {
+        return { shouldBlock: false, reason: null, insiderRiskLevel: null };
+      }
+
+      // BLOCK if high insider risk
+      if (insiderAnalysis.insiderRiskLevel === 'high') {
+        return {
+          shouldBlock: true,
+          reason: insiderAnalysis.riskReasons.join('; '),
+          insiderRiskLevel: 'high',
+        };
+      }
+
+      // BLOCK if insiders sold > 2% of supply recently
+      if (insiderAnalysis.insidersSelling && insiderAnalysis.insiderSellPercent > 2) {
+        return {
+          shouldBlock: true,
+          reason: `Early buyers dumping: ${insiderAnalysis.insiderSellPercent.toFixed(2)}% sold`,
+          insiderRiskLevel: insiderAnalysis.insiderRiskLevel,
+        };
+      }
+
+      return {
+        shouldBlock: false,
+        reason: null,
+        insiderRiskLevel: insiderAnalysis.insiderRiskLevel,
+      };
+    } catch (error: any) {
+      console.error(`   ❌ [PumpFun] shouldBlockForInsiderRisk failed: ${error.message}`);
+      return { shouldBlock: false, reason: null, insiderRiskLevel: null };
+    }
+  }
+
+  /**
+   * Fetch all trades from pump.fun API (for insider analysis)
+   */
+  private async fetchAllTrades(tokenMint: string, limit: number = 500): Promise<any[] | null> {
+    try {
+      // Use /trades/all endpoint for historical data
+      const response = await fetch(`${PUMP_FUN_API_BASE}/trades/all/${tokenMint}?limit=${limit}`);
+
+      if (!response.ok) {
+        // Fallback to /trades/latest if /trades/all doesn't exist
+        return this.fetchRecentTrades(tokenMint, limit);
+      }
+
+      const data = await response.json() as any;
+
+      if (Array.isArray(data)) {
+        return data;
+      }
+
+      if (data && data.trades && Array.isArray(data.trades)) {
+        return data.trades;
+      }
+
+      // Fallback
+      return this.fetchRecentTrades(tokenMint, limit);
+    } catch (error: any) {
+      console.warn(`   ⚠️  [PumpFun] fetchAllTrades failed, trying fallback: ${error.message}`);
+      return this.fetchRecentTrades(tokenMint, limit);
     }
   }
 

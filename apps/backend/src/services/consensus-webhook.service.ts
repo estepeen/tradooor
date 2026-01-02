@@ -867,6 +867,51 @@ export class ConsensusWebhookService {
         }
       }
 
+      // 11. INSIDER WALLET DETECTION (pump.fun API)
+      // Check for early buyers selling and bundled transactions
+      if (token?.mintAddress) {
+        try {
+          const insiderCheck = await pumpFunHolderService.shouldBlockForInsiderRisk(token.mintAddress);
+
+          if (insiderCheck.shouldBlock) {
+            console.log(`   ❌ [NINJA] INSIDER RISK: ${insiderCheck.reason} - FILTERED OUT`);
+
+            // Log gate failure for analytics
+            this.logGateCheck({
+              tokenMint: token.mintAddress,
+              tokenSymbol: token.symbol || 'Unknown',
+              marketCapUsd: marketCap,
+              liquidityUsd: liquidity ?? undefined,
+              buySellVolumeRatio,
+              buyerSellerRatio,
+              priceMomentum5min: momentumPriceMomentumPercent,
+              tier: tier.name,
+              walletCount: ninjaWalletCount,
+              requiredWallets: tier.minWallets,
+              liquidityGatePassed: true,
+              momentumGatePassed: true,
+              riskGatePassed: false, // Insider risk = risk gate failure
+              walletGatePassed: true,
+              allGatesPassed: false,
+              signalEmitted: false,
+              blockReason: `Insider: ${insiderCheck.reason}`,
+            }).catch(err => console.warn(`   ⚠️  Gate check logging failed: ${err.message}`));
+
+            return { consensusFound: false };
+          }
+
+          // Log insider risk level if medium (warning but not blocking)
+          if (insiderCheck.insiderRiskLevel === 'medium') {
+            console.log(`   ⚠️  [NINJA] Insider risk: MEDIUM (monitoring)`);
+          } else if (insiderCheck.insiderRiskLevel === 'low') {
+            console.log(`   ✅ [NINJA] Insider risk: LOW`);
+          }
+        } catch (insiderError: any) {
+          console.warn(`   ⚠️  [NINJA] Insider check failed (non-blocking): ${insiderError.message}`);
+          // Non-blocking - continue without insider data
+        }
+      }
+
       // ALL NINJA CHECKS PASSED!
       isNinjaSignal = true;
       console.log(`   🥷 [NINJA] ✅ ${tier.name} SIGNAL CONFIRMED!`);
