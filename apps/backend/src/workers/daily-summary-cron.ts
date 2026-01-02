@@ -72,6 +72,15 @@ interface DailySummary {
     emergency: number;
     whaleDump: number;
   };
+  timing: {
+    signalsWithTiming: number;
+    avgTotalMs: number | null;
+    minTotalMs: number | null;
+    maxTotalMs: number | null;
+    avgHolderCheckMs: number | null;
+    avgInsiderCheckMs: number | null;
+    avgPreChecksMs: number | null;
+  } | null;
 }
 
 async function calculateDailyStats(date: Date): Promise<DailySummary | null> {
@@ -85,6 +94,27 @@ async function calculateDailyStats(date: Date): Promise<DailySummary | null> {
 
     const totalSignals = stats.signalsReceived || 0;
     const totalTrades = stats.wins + stats.losses;
+
+    // Get timing stats for this day
+    const nextDay = new Date(date);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+    let timingStats = null;
+    try {
+      const rawTimingStats = await gateCheckRepo.getTimingStatsForDateRange(date, nextDay);
+      if (rawTimingStats.count > 0) {
+        timingStats = {
+          signalsWithTiming: rawTimingStats.count,
+          avgTotalMs: rawTimingStats.avgTotalMs,
+          minTotalMs: rawTimingStats.minTotalMs,
+          maxTotalMs: rawTimingStats.maxTotalMs,
+          avgHolderCheckMs: rawTimingStats.avgHolderCheckMs,
+          avgInsiderCheckMs: rawTimingStats.avgInsiderCheckMs,
+          avgPreChecksMs: rawTimingStats.avgPreChecksMs,
+        };
+      }
+    } catch (err: any) {
+      console.warn(`   ⚠️  Could not get timing stats: ${err.message}`);
+    }
 
     return {
       date: date.toISOString().split('T')[0],
@@ -130,6 +160,7 @@ async function calculateDailyStats(date: Date): Promise<DailySummary | null> {
         emergency: stats.exitsByEmergency,
         whaleDump: stats.exitsByWhaleDump,
       },
+      timing: timingStats,
     };
   } catch (error: any) {
     console.error(`Error calculating daily stats: ${error.message}`);
@@ -182,6 +213,21 @@ function formatSummaryMessage(summary: DailySummary): string {
 • Emergency: ${summary.exits.emergency}
 • Whale Dump: ${summary.exits.whaleDump}
 `.trim();
+
+  // Add timing section if available
+  if (summary.timing) {
+    const t = summary.timing;
+    const speedEmoji = t.avgTotalMs && t.avgTotalMs < 500 ? '⚡' : t.avgTotalMs && t.avgTotalMs < 1000 ? '🚀' : '🐢';
+    message += `
+
+**SIGNAL TIMING ${speedEmoji}:**
+• Signals measured: ${t.signalsWithTiming}
+• Avg Total: ${t.avgTotalMs?.toFixed(0) ?? 'N/A'}ms
+• Min/Max: ${t.minTotalMs ?? 'N/A'}ms / ${t.maxTotalMs ?? 'N/A'}ms
+• Holder Check: ${t.avgHolderCheckMs?.toFixed(0) ?? 'N/A'}ms
+• Insider Check: ${t.avgInsiderCheckMs?.toFixed(0) ?? 'N/A'}ms
+• Pre-checks: ${t.avgPreChecksMs?.toFixed(0) ?? 'N/A'}ms`;
+  }
 
   return message;
 }

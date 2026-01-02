@@ -961,6 +961,12 @@ model SignalGateCheck {
   priorityFeeLamports      Int?
   priorityFeeReason        String?
 
+  // Timing metrics (ms)
+  totalProcessingMs        Int?     // Total NINJA gate processing time
+  holderCheckMs            Int?     // pump.fun holder API call
+  insiderCheckMs           Int?     // pump.fun insider API call
+  preChecksMs              Int?     // All checks before holder/insider
+
   createdAt                DateTime @default(now())
 
   @@index([tokenMint])

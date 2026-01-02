@@ -604,7 +604,7 @@ export class ConsensusWebhookService {
         console.log(`   ✅ [NINJA] Quality: ${qualityWalletCount} quality wallets (${tier.name} min: ${tier.qualityRequirement.minQualityWallets}) [${qualityWalletLabels.join(', ') || 'big buys'}]`);
       }
 
-      // 7. VOLUME SPIKE DETECTION (Enhanced)
+      // 7. VOLUME SPIKE DETECTION (Enhanced) - Uses NET BUY volume (buys - sells)
       // Compare volume in tier's time window vs average volume in last hour
       const oneHourAgo = currentTradeTime - 60 * 60 * 1000;
       const allBuysLastHour = await this.tradeRepo.findBuysByTokenAndTimeWindow(
@@ -612,29 +612,52 @@ export class ConsensusWebhookService {
         new Date(oneHourAgo),
         new Date(currentTradeTime)
       );
+      const allSellsLastHour = await this.tradeRepo.findSellsByTokenAndTimeWindow(
+        tokenId,
+        new Date(oneHourAgo),
+        new Date(currentTradeTime)
+      );
 
-      // Calculate total volume in last hour (in USD)
-      const totalVolumeLastHour = allBuysLastHour.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
+      // Get sells in tier window for NET calculation
+      const sellsInNinjaWindow = await this.tradeRepo.findSellsByTokenAndTimeWindow(
+        tokenId,
+        new Date(ninjaWindowStart),
+        new Date(currentTradeTime)
+      );
 
-      // Calculate volume in tier's time window (in USD)
-      const volumeInTierWindow = buysInNinjaWindow.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
+      // Calculate total NET volume in last hour (buys - sells)
+      const totalBuyVolumeLastHour = allBuysLastHour.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
+      const totalSellVolumeLastHour = allSellsLastHour.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
+      const totalNetVolumeLastHour = totalBuyVolumeLastHour - totalSellVolumeLastHour;
 
-      // Average volume per minute in last hour
-      const avgVolumePerMinute = totalVolumeLastHour / 60;
+      // Calculate NET volume in tier's time window (buys - sells)
+      const buyVolumeInTierWindow = buysInNinjaWindow.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
+      const sellVolumeInTierWindow = sellsInNinjaWindow.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
+      const netVolumeInTierWindow = buyVolumeInTierWindow - sellVolumeInTierWindow;
 
-      // Expected volume for tier window based on hourly average
-      const expectedVolumeInWindow = avgVolumePerMinute * tier.timeWindowMinutes;
-
-      // Calculate volume spike ratio
-      const volumeSpikeRatio = expectedVolumeInWindow > 0 ? volumeInTierWindow / expectedVolumeInWindow : 0;
-
-      // 7a. Check relative volume spike ratio
-      if (volumeSpikeRatio < NINJA_MIN_VOLUME_SPIKE_RATIO) {
-        console.log(`   ❌ [NINJA] Volume spike ${volumeSpikeRatio.toFixed(2)}x < ${NINJA_MIN_VOLUME_SPIKE_RATIO}x minimum (window: $${volumeInTierWindow.toFixed(0)}, expected: $${expectedVolumeInWindow.toFixed(0)}) - FILTERED OUT`);
+      // If NET volume is negative or zero, there's no buy spike
+      if (netVolumeInTierWindow <= 0) {
+        console.log(`   ❌ [NINJA] NET volume spike $${netVolumeInTierWindow.toFixed(0)} <= 0 (buys: $${buyVolumeInTierWindow.toFixed(0)}, sells: $${sellVolumeInTierWindow.toFixed(0)}) - MORE SELLS THAN BUYS, FILTERED OUT`);
         return { consensusFound: false };
       }
 
-      // 7b. Check ABSOLUTE minimum volume by MCap tier
+      // Average NET volume per minute in last hour (can be negative if more sells)
+      const avgNetVolumePerMinute = totalNetVolumeLastHour / 60;
+
+      // Expected NET volume for tier window based on hourly average
+      // Use absolute value for comparison if avg is negative (means we're doing better than avg)
+      const expectedVolumeInWindow = Math.max(avgNetVolumePerMinute * tier.timeWindowMinutes, 0);
+
+      // Calculate volume spike ratio (use buy volume for ratio calculation, but NET for minimum)
+      const volumeSpikeRatio = expectedVolumeInWindow > 0 ? netVolumeInTierWindow / expectedVolumeInWindow : (netVolumeInTierWindow > 0 ? 999 : 0);
+
+      // 7a. Check relative volume spike ratio
+      if (volumeSpikeRatio < NINJA_MIN_VOLUME_SPIKE_RATIO && expectedVolumeInWindow > 0) {
+        console.log(`   ❌ [NINJA] Volume spike ${volumeSpikeRatio.toFixed(2)}x < ${NINJA_MIN_VOLUME_SPIKE_RATIO}x minimum (NET: $${netVolumeInTierWindow.toFixed(0)}, expected: $${expectedVolumeInWindow.toFixed(0)}) - FILTERED OUT`);
+        return { consensusFound: false };
+      }
+
+      // 7b. Check ABSOLUTE minimum NET volume by MCap tier
       let minSpikeVolumeUsd = NINJA_MIN_SPIKE_VOLUME_BY_MCAP.veryHigh.minVolume; // Default to highest
       if (marketCap <= NINJA_MIN_SPIKE_VOLUME_BY_MCAP.low.maxMcap) {
         minSpikeVolumeUsd = NINJA_MIN_SPIKE_VOLUME_BY_MCAP.low.minVolume;
@@ -644,8 +667,8 @@ export class ConsensusWebhookService {
         minSpikeVolumeUsd = NINJA_MIN_SPIKE_VOLUME_BY_MCAP.high.minVolume;
       }
 
-      if (volumeInTierWindow < minSpikeVolumeUsd) {
-        console.log(`   ❌ [NINJA] Volume spike $${volumeInTierWindow.toFixed(0)} < $${minSpikeVolumeUsd} absolute minimum (MCap: $${(marketCap/1000).toFixed(0)}k) - FILTERED OUT`);
+      if (netVolumeInTierWindow < minSpikeVolumeUsd) {
+        console.log(`   ❌ [NINJA] NET volume spike $${netVolumeInTierWindow.toFixed(0)} < $${minSpikeVolumeUsd} absolute minimum (MCap: $${(marketCap/1000).toFixed(0)}k) - FILTERED OUT`);
         return { consensusFound: false };
       }
 
@@ -656,7 +679,7 @@ export class ConsensusWebhookService {
         return { consensusFound: false };
       }
 
-      console.log(`   ✅ [NINJA] Volume spike: ${volumeSpikeRatio.toFixed(2)}x, $${volumeInTierWindow.toFixed(0)} (min $${minSpikeVolumeUsd}), ${uniqueWalletsInSpike} wallets`);
+      console.log(`   ✅ [NINJA] Volume spike: ${volumeSpikeRatio.toFixed(2)}x, NET $${netVolumeInTierWindow.toFixed(0)} (buys $${buyVolumeInTierWindow.toFixed(0)} - sells $${sellVolumeInTierWindow.toFixed(0)}, min $${minSpikeVolumeUsd}), ${uniqueWalletsInSpike} wallets`);
 
       // 7d. BUY/SELL PRESSURE CHECK (dynamic window by MCap)
       // Determine momentum window based on MCap
@@ -1405,7 +1428,10 @@ export class ConsensusWebhookService {
               console.warn(`   ⚠️  Redis SPECTRE push failed: ${err.message}`);
             });
 
-            // Log successful gate check (ČÁST 12)
+            // Calculate total timing before logging (Redis timing not included as it's async)
+            timings.total = Date.now() - ninjaStartTime;
+
+            // Log successful gate check (ČÁST 12) with timing data
             this.logGateCheck({
               tokenMint: notificationData.tokenMint,
               tokenSymbol: notificationData.tokenSymbol,
@@ -1425,6 +1451,11 @@ export class ConsensusWebhookService {
               signalEmitted: true,
               priorityFeeLamports: dynamicPriorityFeeLamports,
               priorityFeeReason,
+              // Timing metrics
+              totalProcessingMs: timings.total,
+              holderCheckMs: timings.holderCheck,
+              insiderCheckMs: timings.insiderCheck,
+              preChecksMs: timings.beforeHolderCheck,
             }).catch(err => console.warn(`   ⚠️  Gate check logging failed: ${err.message}`));
           }
 
