@@ -1153,14 +1153,30 @@ export class SolanaCollectorService {
       const balanceBefore: number | null = null;
       const balanceAfter: number | null = null;
 
-      // DISABLED: Trade data storage disabled - web UI no longer used
-      // const normalizedTrade = await this.normalizedTradeRepo.create({...});
+      // Store as NormalizedTrade for async processing (needed for NINJA consensus signals)
+      const normalizedTrade = await this.normalizedTradeRepo.create({
+        txSignature: normalized.txSignature,
+        walletId: wallet.id,
+        tokenId: token.id,
+        tokenMint: normalized.tokenMint,
+        side: normalized.side,
+        amountToken: normalized.amountToken,
+        amountBaseRaw,
+        baseToken: normalized.baseToken,
+        priceBasePerTokenRaw: normalized.priceBasePerToken,
+        timestamp: normalized.timestamp,
+        dex: normalized.dex,
+        balanceBefore,
+        balanceAfter,
+        meta: heliusDebugMeta,
+        rawPayload: tx,
+      });
 
       console.log(
-        `   ⏭️ [Helius] Trade storage DISABLED: ${normalized.side} ${normalized.amountToken.toFixed(6)} tokens, ${amountBaseRaw.toFixed(6)} ${normalized.baseToken}`
+        `   ✅ [Helius] Normalized trade stored: ${normalizedTrade.id.substring(0, 12)}... (${normalized.side} ${normalized.amountToken.toFixed(6)} tokens, ${amountBaseRaw.toFixed(6)} ${normalized.baseToken})`
       );
 
-      return { saved: false, reason: 'storage_disabled' };
+      return { saved: true, normalizedTradeId: normalizedTrade.id };
     } catch (error: any) {
       console.error(`❌ [Helius] Error processing transaction:`, error);
       return { saved: false, reason: error.message || 'unknown error' };
@@ -1319,14 +1335,34 @@ export class SolanaCollectorService {
         return { saved: false, reason: 'token_not_found' };
       }
 
-      // DISABLED: Trade data storage disabled - web UI no longer used
-      // const normalizedRecord = await this.normalizedTradeRepo.create({...});
+      // Store as NormalizedTrade for async processing (needed for NINJA consensus signals)
+      const normalizedRecord = await this.normalizedTradeRepo.create({
+        txSignature: normalized.txSignature,
+        walletId: wallet.id,
+        tokenId: token.id,
+        tokenMint: token.mintAddress,
+        side: normalized.side,
+        amountToken: normalized.amountToken,
+        amountBaseRaw,
+        baseToken: normalized.baseToken,
+        priceBasePerTokenRaw: normalized.priceBasePerToken,
+        timestamp: normalized.timestamp,
+        dex: normalized.dex,
+        meta: {
+          source: 'quicknode-webhook',
+          baseToken: normalized.baseToken,
+          quicknodeDebug: quicknodeDebugMeta,
+          walletAddress,
+          liquidityType: (normalized as any).liquidityType,
+        },
+        rawPayload: tx,
+      });
 
       console.log(
-        `   ⏭️ [QuickNode] Trade storage DISABLED: ${normalized.side} ${normalized.amountToken} tokens, ${normalized.amountBase} ${normalized.baseToken}`
+        `   ✅ [QuickNode] Normalized trade stored: ${normalizedRecord.id.substring(0, 12)}... (${normalized.side} ${normalized.amountToken.toFixed(6)} tokens, ${amountBaseRaw.toFixed(6)} ${normalized.baseToken})`
       );
 
-      return { saved: false, reason: 'storage_disabled' };
+      return { saved: true, normalizedTradeId: normalizedRecord.id };
     } catch (error: any) {
       console.error(`❌ Error processing QuickNode webhook transaction:`, error);
       return { saved: false, reason: error.message || 'unknown error' };
