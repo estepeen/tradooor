@@ -445,11 +445,49 @@ export class ConsensusWebhookService {
       // 1. GLOBAL MARKET CAP CHECK
       if (marketCap < NINJA_MIN_MARKET_CAP_USD) {
         console.log(`   ❌ [NINJA] MCap $${(marketCap / 1000).toFixed(1)}K < $${NINJA_MIN_MARKET_CAP_USD / 1000}K minimum - FILTERED OUT`);
+
+        // Log early filter for analytics
+        this.logGateCheck({
+          tokenMint: token?.mintAddress || 'unknown',
+          tokenSymbol: token?.symbol || 'Unknown',
+          marketCapUsd: marketCap,
+          liquidityUsd: liquidity ?? undefined,
+          tier: 'none',
+          walletCount: 0,
+          requiredWallets: 0,
+          liquidityGatePassed: false,
+          momentumGatePassed: false,
+          riskGatePassed: false,
+          walletGatePassed: false,
+          allGatesPassed: false,
+          signalEmitted: false,
+          blockReason: `MCap $${(marketCap / 1000).toFixed(1)}K < $${NINJA_MIN_MARKET_CAP_USD / 1000}K min`,
+        }).catch(() => {});
+
         return { consensusFound: false };
       }
 
       if (marketCap > NINJA_MAX_MARKET_CAP_USD) {
         console.log(`   ❌ [NINJA] MCap $${(marketCap / 1000).toFixed(1)}K > $${NINJA_MAX_MARKET_CAP_USD / 1000}K maximum - FILTERED OUT`);
+
+        // Log early filter for analytics
+        this.logGateCheck({
+          tokenMint: token?.mintAddress || 'unknown',
+          tokenSymbol: token?.symbol || 'Unknown',
+          marketCapUsd: marketCap,
+          liquidityUsd: liquidity ?? undefined,
+          tier: 'none',
+          walletCount: 0,
+          requiredWallets: 0,
+          liquidityGatePassed: false,
+          momentumGatePassed: false,
+          riskGatePassed: false,
+          walletGatePassed: false,
+          allGatesPassed: false,
+          signalEmitted: false,
+          blockReason: `MCap $${(marketCap / 1000).toFixed(1)}K > $${NINJA_MAX_MARKET_CAP_USD / 1000}K max`,
+        }).catch(() => {});
+
         return { consensusFound: false };
       }
 
@@ -457,6 +495,24 @@ export class ConsensusWebhookService {
       const tier = getNinjaTier(marketCap);
       if (!tier) {
         console.log(`   ❌ [NINJA] MCap $${(marketCap / 1000).toFixed(1)}K doesn't match any tier - FILTERED OUT`);
+
+        this.logGateCheck({
+          tokenMint: token?.mintAddress || 'unknown',
+          tokenSymbol: token?.symbol || 'Unknown',
+          marketCapUsd: marketCap,
+          liquidityUsd: liquidity ?? undefined,
+          tier: 'none',
+          walletCount: 0,
+          requiredWallets: 0,
+          liquidityGatePassed: false,
+          momentumGatePassed: false,
+          riskGatePassed: false,
+          walletGatePassed: false,
+          allGatesPassed: false,
+          signalEmitted: false,
+          blockReason: `No tier for MCap $${(marketCap / 1000).toFixed(1)}K`,
+        }).catch(() => {});
+
         return { consensusFound: false };
       }
 
@@ -465,6 +521,24 @@ export class ConsensusWebhookService {
       // 3. LIQUIDITY CHECK (global minimum)
       if (liquidity !== null && liquidity !== undefined && liquidity < NINJA_MIN_LIQUIDITY_USD) {
         console.log(`   ❌ [NINJA] Liquidity $${(liquidity / 1000).toFixed(1)}K < $${NINJA_MIN_LIQUIDITY_USD / 1000}K minimum - FILTERED OUT`);
+
+        this.logGateCheck({
+          tokenMint: token?.mintAddress || 'unknown',
+          tokenSymbol: token?.symbol || 'Unknown',
+          marketCapUsd: marketCap,
+          liquidityUsd: liquidity,
+          tier: tier.name,
+          walletCount: 0,
+          requiredWallets: tier.minWallets,
+          liquidityGatePassed: false,
+          momentumGatePassed: false,
+          riskGatePassed: false,
+          walletGatePassed: false,
+          allGatesPassed: false,
+          signalEmitted: false,
+          blockReason: `Liquidity $${(liquidity / 1000).toFixed(1)}K < $${NINJA_MIN_LIQUIDITY_USD / 1000}K min`,
+        }).catch(() => {});
+
         return { consensusFound: false };
       }
       console.log(`   ✅ [NINJA] Liquidity: $${liquidity ? (liquidity / 1000).toFixed(1) + 'K' : 'N/A'} (min $${NINJA_MIN_LIQUIDITY_USD / 1000}K)`);
@@ -474,6 +548,25 @@ export class ConsensusWebhookService {
         const liquidityMcapRatio = liquidity / marketCap;
         if (liquidityMcapRatio < NINJA_MIN_LIQUIDITY_MCAP_RATIO) {
           console.log(`   ❌ [NINJA] Liquidity/MCap ratio ${(liquidityMcapRatio * 100).toFixed(1)}% < ${NINJA_MIN_LIQUIDITY_MCAP_RATIO * 100}% minimum - thin liquidity, FILTERED OUT`);
+
+          this.logGateCheck({
+            tokenMint: token?.mintAddress || 'unknown',
+            tokenSymbol: token?.symbol || 'Unknown',
+            marketCapUsd: marketCap,
+            liquidityUsd: liquidity,
+            liquidityMcapRatio,
+            tier: tier.name,
+            walletCount: 0,
+            requiredWallets: tier.minWallets,
+            liquidityGatePassed: false,
+            momentumGatePassed: false,
+            riskGatePassed: false,
+            walletGatePassed: false,
+            allGatesPassed: false,
+            signalEmitted: false,
+            blockReason: `Liq/MCap ${(liquidityMcapRatio * 100).toFixed(1)}% < ${NINJA_MIN_LIQUIDITY_MCAP_RATIO * 100}% min`,
+          }).catch(() => {});
+
           return { consensusFound: false };
         }
         console.log(`   ✅ [NINJA] Liquidity/MCap: ${(liquidityMcapRatio * 100).toFixed(1)}% (min ${NINJA_MIN_LIQUIDITY_MCAP_RATIO * 100}%)`);
