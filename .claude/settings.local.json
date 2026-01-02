@@ -77,7 +77,8 @@
       "Bash(pnpm --filter backend exec tsc --noEmit)",
       "Bash(pnpm:*)",
       "Bash(ssh -i ~/.ssh/claude_assistant -o ConnectTimeout=10 root@157.180.41.49 \"cd /opt/tradooor && git pull origin master\")",
-      "Bash(ssh -i ~/.ssh/claude_assistant -o ConnectTimeout=10 root@157.180.41.49 \"cd /opt/tradooor && git pull origin master && cd packages/db && pnpm db:push\")"
+      "Bash(ssh -i ~/.ssh/claude_assistant -o ConnectTimeout=10 root@157.180.41.49 \"cd /opt/tradooor && git pull origin master && cd packages/db && pnpm db:push\")",
+      "Bash(DATABASE_URL=\"postgresql://admintrdr95:ksd82lAKxOAi2Kj80s2kl12l95@localhost:5432/tradooor\" pnpm exec prisma migrate:*)"
     ]
   }
 }

@@ -1,8 +1,10 @@
 import { Connection, PublicKey } from '@solana/web3.js';
 
+const PUMP_FUN_API_BASE = 'https://frontend-api-v3.pump.fun';
+
 /**
  * Service pro získávání token metadata z různých zdrojů
- * Prioritizuje: Birdeye API > DexScreener > Metaplex on-chain
+ * Prioritizuje: Pump.fun (for pump tokens) > Birdeye API > DexScreener > Metaplex on-chain
  */
 export class TokenMetadataService {
   private connection: Connection;
@@ -12,6 +14,49 @@ export class TokenMetadataService {
   constructor(rpcUrl?: string) {
     this.connection = new Connection(rpcUrl || process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com', 'confirmed');
     this.birdeyeApiKey = process.env.BIRDEYE_API_KEY;
+  }
+
+  /**
+   * Check if token is a pump.fun token (mint ends with 'pump')
+   */
+  private isPumpFunToken(mintAddress: string): boolean {
+    return mintAddress.toLowerCase().endsWith('pump');
+  }
+
+  /**
+   * Get token metadata from pump.fun API
+   * Only works for pump.fun tokens
+   */
+  private async getPumpFunMetadata(mintAddress: string): Promise<{
+    symbol?: string;
+    name?: string;
+    decimals?: number;
+  } | null> {
+    try {
+      const response = await fetch(`${PUMP_FUN_API_BASE}/coins/${mintAddress}`, {
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return null;
+      }
+
+      const data = await response.json() as any;
+
+      if (data && (data.symbol || data.name)) {
+        return {
+          symbol: data.symbol || undefined,
+          name: data.name || undefined,
+          decimals: 6, // pump.fun tokens always have 6 decimals
+        };
+      }
+
+      return null;
+    } catch (error: any) {
+      return null;
+    }
   }
 
   /**
@@ -174,13 +219,21 @@ export class TokenMetadataService {
   /**
    * Hlavní metoda pro získání token metadata
    * Zkouší různé zdroje v pořadí priority
-   * Prioritizujeme Birdeye (spolehlivější) > DexScreener > Metaplex > Helius
+   * Prioritizujeme: Pump.fun (for pump tokens) > Birdeye > DexScreener > Metaplex
    */
   async getTokenMetadata(mintAddress: string): Promise<{
     symbol?: string;
     name?: string;
     decimals?: number;
   } | null> {
+    // 0. For pump.fun tokens, try pump.fun API first (fastest and most reliable for these tokens)
+    if (this.isPumpFunToken(mintAddress)) {
+      const pumpData = await this.getPumpFunMetadata(mintAddress);
+      if (pumpData && (pumpData.symbol || pumpData.name)) {
+        return pumpData;
+      }
+    }
+
     // 1. Zkus Birdeye API (pokud máme API key - spolehlivější a přesnější)
     const birdeyeData = await this.getBirdeyeMetadata(mintAddress);
     if (birdeyeData && (birdeyeData.symbol || birdeyeData.name)) {
@@ -209,7 +262,7 @@ export class TokenMetadataService {
 
     // Helius API removed - using webhook-only approach
     // 4. Helius API fallback was removed to prevent API credit usage
-    // We only use Birdeye, DexScreener, and Metaplex now
+    // We only use Pump.fun, Birdeye, DexScreener, and Metaplex now
 
     return null;
   }
@@ -308,8 +361,39 @@ export class TokenMetadataService {
       return result;
     }
 
+    // 0. Pro pump.fun tokeny zkus pump.fun API (nejrychlejší pro tyto tokeny)
+    const pumpTokens = mintAddresses.filter(m => this.isPumpFunToken(m));
+    const nonPumpTokens = mintAddresses.filter(m => !this.isPumpFunToken(m));
+
+    // Fetch pump.fun metadata in parallel (batch of 10)
+    if (pumpTokens.length > 0) {
+      const PUMP_BATCH_SIZE = 10;
+      for (let i = 0; i < pumpTokens.length; i += PUMP_BATCH_SIZE) {
+        const batch = pumpTokens.slice(i, i + PUMP_BATCH_SIZE);
+        const pumpResults = await Promise.all(
+          batch.map(async (mintAddress) => {
+            const metadata = await this.getPumpFunMetadata(mintAddress);
+            return { mintAddress, metadata };
+          })
+        );
+        pumpResults.forEach(({ mintAddress, metadata }) => {
+          if (metadata && (metadata.symbol || metadata.name)) {
+            result.set(mintAddress, metadata);
+          }
+        });
+        // Small delay between batches
+        if (i + PUMP_BATCH_SIZE < pumpTokens.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+    }
+
+    // For pump tokens that pump.fun didn't find, add them back to be checked by other sources
+    const pumpTokensNotFound = pumpTokens.filter(m => !result.has(m));
+    const tokensForBirdeye = [...nonPumpTokens, ...pumpTokensNotFound];
+
     // 1. Zkus Birdeye API pro všechny tokeny (spolehlivější a přesnější)
-    const birdeyePromises = mintAddresses.map(async (mintAddress) => {
+    const birdeyePromises = tokensForBirdeye.map(async (mintAddress) => {
       const metadata = await this.getBirdeyeMetadata(mintAddress);
       if (metadata && (metadata.symbol || metadata.name)) {
         return { mintAddress, metadata };
@@ -318,11 +402,11 @@ export class TokenMetadataService {
     });
 
     // Process Birdeye in smaller batches to avoid rate limits
-    const BATCH_SIZE = 5;
-    for (let i = 0; i < birdeyePromises.length; i += BATCH_SIZE) {
-      const batch = birdeyePromises.slice(i, i + BATCH_SIZE);
+    const BIRDEYE_BATCH_SIZE = 5;
+    for (let i = 0; i < birdeyePromises.length; i += BIRDEYE_BATCH_SIZE) {
+      const batch = birdeyePromises.slice(i, i + BIRDEYE_BATCH_SIZE);
       const batchResults = await Promise.all(batch);
-      
+
       batchResults.forEach(({ mintAddress, metadata }) => {
         if (metadata) {
           result.set(mintAddress, metadata);
@@ -330,13 +414,13 @@ export class TokenMetadataService {
       });
 
       // Small delay between batches
-      if (i + BATCH_SIZE < birdeyePromises.length) {
+      if (i + BIRDEYE_BATCH_SIZE < birdeyePromises.length) {
         await new Promise(resolve => setTimeout(resolve, 200));
       }
     }
 
     // 2. Pro tokeny, které Birdeye nenašel, zkus DexScreener batch (fallback)
-    const remaining = mintAddresses.filter(m => !result.has(m));
+    const remaining = tokensForBirdeye.filter(m => !result.has(m));
     if (remaining.length > 0) {
       const dexscreenerResults = await this.getDexScreenerMetadataBatch(remaining);
       dexscreenerResults.forEach((info, mint) => {
@@ -344,7 +428,7 @@ export class TokenMetadataService {
       });
     }
 
-    // 3. Pro tokeny, které Birdeye ani DexScreener nenašel, zkus ostatní zdroje
+    // 3. Pro tokeny, které ani pump.fun, Birdeye ani DexScreener nenašel, zkus ostatní zdroje
     const stillRemaining = mintAddresses.filter(m => !result.has(m));
     
     if (stillRemaining.length > 0) {
