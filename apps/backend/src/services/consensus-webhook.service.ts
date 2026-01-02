@@ -438,6 +438,8 @@ export class ConsensusWebhookService {
       // NEW NINJA SIGNAL DETECTION (2025 Redesign) - TIERED SYSTEM
       // Only NINJA signals are emitted - CONSENSUS signals DISABLED
       // ============================================================================
+      const ninjaStartTime = Date.now();
+      const timings: Record<string, number> = {};
       const currentTradeTime = new Date(tradeToUse.timestamp).getTime();
 
       // 1. GLOBAL MARKET CAP CHECK
@@ -864,10 +866,13 @@ export class ConsensusWebhookService {
 
       // 10. HOLDER CONCENTRATION CHECK (pump.fun API)
       // Check top holder concentration and dev wallet activity
+      timings.beforeHolderCheck = Date.now() - ninjaStartTime;
       let holderAnalysis: HolderAnalysisResult | null = null;
       if (token?.mintAddress) {
         try {
+          const holderCheckStart = Date.now();
           const holderCheck = await pumpFunHolderService.shouldBlockSignal(token.mintAddress);
+          timings.holderCheck = Date.now() - holderCheckStart;
 
           if (holderCheck.shouldBlock) {
             console.log(`   ❌ [NINJA] HOLDER RISK: ${holderCheck.reason} - FILTERED OUT`);
@@ -922,7 +927,9 @@ export class ConsensusWebhookService {
       // Check for early buyers selling and bundled transactions
       if (token?.mintAddress) {
         try {
+          const insiderCheckStart = Date.now();
           const insiderCheck = await pumpFunHolderService.shouldBlockForInsiderRisk(token.mintAddress);
+          timings.insiderCheck = Date.now() - insiderCheckStart;
 
           if (insiderCheck.shouldBlock) {
             console.log(`   ❌ [NINJA] INSIDER RISK: ${insiderCheck.reason} - FILTERED OUT`);
@@ -1389,7 +1396,12 @@ export class ConsensusWebhookService {
             };
 
             // Fire and forget - don't block Discord notification
-            redisService.pushSignal(spectrePayload).catch(err => {
+            const redisPushStart = Date.now();
+            redisService.pushSignal(spectrePayload).then(() => {
+              timings.redisPush = Date.now() - redisPushStart;
+              timings.total = Date.now() - ninjaStartTime;
+              console.log(`   ⏱️  [NINJA TIMING] Total: ${timings.total}ms | Holder: ${timings.holderCheck || 0}ms | Insider: ${timings.insiderCheck || 0}ms | Redis: ${timings.redisPush}ms | Pre-checks: ${timings.beforeHolderCheck || 0}ms`);
+            }).catch(err => {
               console.warn(`   ⚠️  Redis SPECTRE push failed: ${err.message}`);
             });
 
