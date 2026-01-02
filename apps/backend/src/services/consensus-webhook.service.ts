@@ -37,10 +37,16 @@ const CLUSTER_STRENGTH_THRESHOLD = 70; // Minimum cluster strength for 💎💎 
 // ============================================================================
 
 // Global limits
-const NINJA_MIN_MARKET_CAP_USD = 80000;     // $80K minimum (Tier 1 start)
+const NINJA_MIN_MARKET_CAP_USD = 75000;     // $75K minimum (Tier 0 start)
 const NINJA_MAX_MARKET_CAP_USD = 500000;    // $500K maximum (Tier 4 end)
 const NINJA_MIN_LIQUIDITY_USD = 15000;      // $15K minimum liquidity
-const NINJA_MIN_TOKEN_AGE_MINUTES = 60;     // 1 hour minimum age
+
+// Dynamic token age based on MCap (smaller MCap = faster lifecycle = shorter age required)
+const NINJA_TOKEN_AGE_BY_MCAP = {
+  low: { maxMcap: 100_000, minAgeMinutes: 30 },     // MCap $50-100k  → 30min min age
+  medium: { maxMcap: 200_000, minAgeMinutes: 45 },  // MCap $100-200k → 45min min age
+  high: { maxMcap: Infinity, minAgeMinutes: 60 },   // MCap $200k+    → 60min min age
+};
 
 // Diversity (same for all tiers)
 const NINJA_MIN_DIVERSITY_PERCENT = 70;     // 70% unique wallets
@@ -51,10 +57,11 @@ const NINJA_MIN_VOLUME_SPIKE_RATIO = 1.75;  // Min 1.75x volume vs avg last hour
 
 // Absolute minimum volume spike by MCap (USD)
 const NINJA_MIN_SPIKE_VOLUME_BY_MCAP = {
-  low: { maxMcap: 100_000, minVolume: 500 },      // MCap $50-100k  → min $500 spike
-  medium: { maxMcap: 200_000, minVolume: 1000 },  // MCap $100-200k → min $1k spike
-  high: { maxMcap: 350_000, minVolume: 2000 },    // MCap $200-350k → min $2k spike
-  veryHigh: { maxMcap: Infinity, minVolume: 3500 } // MCap $350k+   → min $3.5k spike
+  veryLow: { maxMcap: 100_000, minVolume: 400 },  // MCap $75-100k  → min $400 spike
+  low: { maxMcap: 150_000, minVolume: 600 },      // MCap $100-150k → min $600 spike
+  medium: { maxMcap: 250_000, minVolume: 1000 },  // MCap $150-250k → min $1k spike
+  high: { maxMcap: 400_000, minVolume: 2000 },    // MCap $250-400k → min $2k spike
+  veryHigh: { maxMcap: Infinity, minVolume: 3500 } // MCap $400k+   → min $3.5k spike
 };
 
 // Volume spike confirmation (multiple wallets, not just one whale)
@@ -147,9 +154,18 @@ interface NinjaTier {
 
 const NINJA_TIERS: NinjaTier[] = [
   {
+    name: 'Tier 0',
+    minMcap: 75000,      // $75K
+    maxMcap: 100000,     // $100K
+    timeWindowMinutes: 3,  // Shorter window for smaller MCap
+    minWallets: 2,         // Lower requirement
+    activityWindowMinutes: 8,
+    minUniqueBuyers: 6,
+  },
+  {
     name: 'Tier 1',
-    minMcap: 80000,      // $80K
-    maxMcap: 120000,     // $120K
+    minMcap: 100000,     // $100K
+    maxMcap: 150000,     // $150K
     timeWindowMinutes: 5,
     minWallets: 3,
     activityWindowMinutes: 10,
@@ -157,8 +173,8 @@ const NINJA_TIERS: NinjaTier[] = [
   },
   {
     name: 'Tier 2',
-    minMcap: 120000,     // $120K
-    maxMcap: 200000,     // $200K
+    minMcap: 150000,     // $150K
+    maxMcap: 250000,     // $250K
     timeWindowMinutes: 8,
     minWallets: 3,
     activityWindowMinutes: 10,
@@ -166,8 +182,8 @@ const NINJA_TIERS: NinjaTier[] = [
   },
   {
     name: 'Tier 3',
-    minMcap: 200000,     // $200K
-    maxMcap: 350000,     // $350K
+    minMcap: 250000,     // $250K
+    maxMcap: 400000,     // $400K
     timeWindowMinutes: 12,
     minWallets: 4,
     activityWindowMinutes: 15,
@@ -179,7 +195,7 @@ const NINJA_TIERS: NinjaTier[] = [
   },
   {
     name: 'Tier 4',
-    minMcap: 350000,     // $350K
+    minMcap: 400000,     // $400K
     maxMcap: 500000,     // $500K
     timeWindowMinutes: 15,
     minWallets: 4,
@@ -965,7 +981,8 @@ export class ConsensusWebhookService {
       }
       console.log(`   ✅ [NINJA] Diversity: ${diversityPercent.toFixed(0)}% (${uniqueWalletsInSample}/${sampleSize} unique, min ${NINJA_MIN_DIVERSITY_PERCENT}%)`);
 
-      // 9. TOKEN AGE CHECK (global - 1 hour minimum)
+      // 9. TOKEN AGE CHECK (dynamic based on MCap)
+      // Smaller MCap = faster lifecycle = shorter age required
       let tokenAgeMinutes: number | null = null;
       if (allTokenBuys24h.length > 0) {
         const oldestBuy = allTokenBuys24h.reduce((oldest, t) =>
@@ -974,11 +991,19 @@ export class ConsensusWebhookService {
         tokenAgeMinutes = (currentTradeTime - new Date(oldestBuy.timestamp).getTime()) / (1000 * 60);
       }
 
-      if (tokenAgeMinutes !== null && tokenAgeMinutes < NINJA_MIN_TOKEN_AGE_MINUTES) {
-        console.log(`   ❌ [NINJA] Token age ${tokenAgeMinutes.toFixed(0)}min < ${NINJA_MIN_TOKEN_AGE_MINUTES}min minimum - FILTERED OUT`);
+      // Get dynamic min age based on MCap
+      let minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.high.minAgeMinutes; // Default 60min
+      if (marketCap < NINJA_TOKEN_AGE_BY_MCAP.low.maxMcap) {
+        minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.low.minAgeMinutes;
+      } else if (marketCap < NINJA_TOKEN_AGE_BY_MCAP.medium.maxMcap) {
+        minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.medium.minAgeMinutes;
+      }
+
+      if (tokenAgeMinutes !== null && tokenAgeMinutes < minTokenAgeMinutes) {
+        console.log(`   ❌ [NINJA] Token age ${tokenAgeMinutes.toFixed(0)}min < ${minTokenAgeMinutes}min minimum (MCap-based) - FILTERED OUT`);
         return { consensusFound: false };
       }
-      console.log(`   ✅ [NINJA] Token age: ${tokenAgeMinutes ? tokenAgeMinutes.toFixed(0) + 'min' : 'N/A'} (min ${NINJA_MIN_TOKEN_AGE_MINUTES}min)`);
+      console.log(`   ✅ [NINJA] Token age: ${tokenAgeMinutes ? tokenAgeMinutes.toFixed(0) + 'min' : 'N/A'} (min ${minTokenAgeMinutes}min for MCap $${(marketCap / 1000).toFixed(0)}K)`);
 
       // 10. HOLDER CONCENTRATION CHECK (pump.fun API)
       // Check top holder concentration and dev wallet activity
