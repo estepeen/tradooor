@@ -698,6 +698,15 @@ model VirtualPosition {
   trailingStopPercent Decimal? @db.Decimal(36, 18)
   trailingStopPrice   Decimal? @db.Decimal(36, 18) // Dynamic trailing stop price
 
+  // Tiered Take Profit tracking
+  tp1Hit              Boolean  @default(false)  // +25% hit, sold 60%
+  tp1HitAt            DateTime?
+  tp2Hit              Boolean  @default(false)  // +40% hit, sold 30%
+  tp2HitAt            DateTime?
+  tp3Hit              Boolean  @default(false)  // +70% hit, sold 10% (moonbag)
+  tp3HitAt            DateTime?
+  remainingPercent    Int      @default(100)    // Percentage of position remaining (100 -> 40 -> 10 -> 0)
+
   // AI exit tracking
   lastAiDecision      String?
   lastAiConfidence    Int?

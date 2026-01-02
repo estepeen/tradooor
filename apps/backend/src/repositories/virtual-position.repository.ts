@@ -38,6 +38,15 @@ export interface VirtualPositionRecord {
   trailingStopPercent: number | null;
   trailingStopPrice: number | null;
 
+  // Tiered Take Profit tracking
+  tp1Hit: boolean;
+  tp1HitAt: Date | null;
+  tp2Hit: boolean;
+  tp2HitAt: Date | null;
+  tp3Hit: boolean;
+  tp3HitAt: Date | null;
+  remainingPercent: number;
+
   // AI exit tracking
   lastAiDecision: string | null;
   lastAiConfidence: number | null;
@@ -298,6 +307,41 @@ export class VirtualPositionRepository {
     return this.mapToRecord(result);
   }
 
+  async updateTakeProfitHit(
+    id: string,
+    tpLevel: 1 | 2 | 3,
+    remainingPercent: number
+  ): Promise<VirtualPositionRecord | null> {
+    const now = new Date();
+    const data: any = {
+      remainingPercent,
+      updatedAt: now,
+    };
+
+    if (tpLevel === 1) {
+      data.tp1Hit = true;
+      data.tp1HitAt = now;
+      data.status = 'partial_exit';
+    } else if (tpLevel === 2) {
+      data.tp2Hit = true;
+      data.tp2HitAt = now;
+      data.status = 'partial_exit';
+    } else if (tpLevel === 3) {
+      data.tp3Hit = true;
+      data.tp3HitAt = now;
+      data.status = 'closed';
+      data.exitTimestamp = now;
+      data.exitReason = 'TP3 hit - moonbag exit';
+    }
+
+    const result = await prisma.virtualPosition.update({
+      where: { id },
+      data,
+    });
+
+    return this.mapToRecord(result);
+  }
+
   async setTrailingStop(
     id: string,
     trailingStopPercent: number
@@ -431,6 +475,13 @@ export class VirtualPositionRepository {
       suggestedTakeProfit: result.suggestedTakeProfit ? Number(result.suggestedTakeProfit) : null,
       trailingStopPercent: result.trailingStopPercent ? Number(result.trailingStopPercent) : null,
       trailingStopPrice: result.trailingStopPrice ? Number(result.trailingStopPrice) : null,
+      tp1Hit: result.tp1Hit ?? false,
+      tp1HitAt: result.tp1HitAt ?? null,
+      tp2Hit: result.tp2Hit ?? false,
+      tp2HitAt: result.tp2HitAt ?? null,
+      tp3Hit: result.tp3Hit ?? false,
+      tp3HitAt: result.tp3HitAt ?? null,
+      remainingPercent: result.remainingPercent ?? 100,
       lastAiDecision: result.lastAiDecision ?? null,
       lastAiConfidence: result.lastAiConfidence ?? null,
       lastAiReasoning: result.lastAiReasoning ?? null,

@@ -24,6 +24,23 @@ const SELL_PRESSURE_EXIT_RATIO = 0.7;  // If buy/sell ratio < 0.7, exit 50%
 // Whale Activity Monitoring Constants
 const WHALE_DUMP_SUPPLY_PERCENT = 2.0;  // If whale sells > 2% supply = EMERGENCY EXIT 75%
 const PUMP_FUN_TOTAL_SUPPLY = 1_000_000_000;  // 1B tokens for pump.fun
+
+// Tiered Take Profit Constants
+const TP1_PERCENT = 25;   // +25% = sell 60%
+const TP1_SELL_PERCENT = 60;
+const TP2_PERCENT = 40;   // +40% = sell 30% (90% total sold)
+const TP2_SELL_PERCENT = 30;
+const TP3_PERCENT = 70;   // +70% = sell 10% (100% - moonbag exit)
+const TP3_SELL_PERCENT = 10;
+
+// Stop Loss
+const STOP_LOSS_PERCENT = 25;  // -25% hard stop
+
+// Time-Based Exit Constants
+const TIME_EXIT_STAGNANT_MINUTES = 15;     // After 15min with -10% to +10% = full exit
+const TIME_EXIT_STAGNANT_MIN_PNL = -10;    // Min PnL for stagnant check
+const TIME_EXIT_STAGNANT_MAX_PNL = 10;     // Max PnL for stagnant check
+const TIME_EXIT_NO_TP1_MINUTES = 30;       // After 30min without TP1 = full exit
 import {
   VirtualPositionRepository,
   VirtualPositionRecord,
@@ -371,21 +388,103 @@ export class PositionMonitorService {
       }
     }
 
-    // 1. Check stop loss
-    if (position.suggestedStopLoss && context.currentPrice <= position.suggestedStopLoss) {
+    // 1. Check hard stop loss (-25%)
+    if (pnlPercent <= -STOP_LOSS_PERCENT) {
       return this.createExitSignal(position, {
         type: 'stop_loss',
         strength: 'strong',
         recommendation: 'full_exit',
         priceAtSignal: context.currentPrice,
         pnlPercentAtSignal: pnlPercent,
-        triggerReason: `Price hit stop loss at $${position.suggestedStopLoss.toFixed(8)}`,
+        triggerReason: `STOP LOSS: PnL ${pnlPercent.toFixed(1)}% hit -${STOP_LOSS_PERCENT}% threshold`,
         marketCapAtSignal: context.marketCapUsd,
         liquidityAtSignal: context.liquidityUsd,
       });
     }
 
-    // 2. Check trailing stop
+    // 2. Check tiered take profits (TP1 -> TP2 -> TP3)
+    // TP3: +70% = sell remaining 10% (moonbag exit)
+    if (!position.tp3Hit && position.tp2Hit && pnlPercent >= TP3_PERCENT) {
+      console.log(`   🎯 [PositionMonitor] TP3 HIT: +${pnlPercent.toFixed(1)}% >= +${TP3_PERCENT}% - selling remaining ${TP3_SELL_PERCENT}%`);
+      await this.positionRepo.updateTakeProfitHit(position.id, 3, 0);
+      return this.createExitSignal(position, {
+        type: 'take_profit',
+        strength: 'strong',
+        recommendation: 'full_exit',
+        priceAtSignal: context.currentPrice,
+        pnlPercentAtSignal: pnlPercent,
+        triggerReason: `TP3: +${pnlPercent.toFixed(1)}% - selling final ${TP3_SELL_PERCENT}% (moonbag exit)`,
+        marketCapAtSignal: context.marketCapUsd,
+        liquidityAtSignal: context.liquidityUsd,
+      });
+    }
+
+    // TP2: +40% = sell 30% (90% total sold)
+    if (!position.tp2Hit && position.tp1Hit && pnlPercent >= TP2_PERCENT) {
+      console.log(`   🎯 [PositionMonitor] TP2 HIT: +${pnlPercent.toFixed(1)}% >= +${TP2_PERCENT}% - selling ${TP2_SELL_PERCENT}%`);
+      await this.positionRepo.updateTakeProfitHit(position.id, 2, 10); // 10% remaining after TP2
+      return this.createExitSignal(position, {
+        type: 'take_profit',
+        strength: 'medium',
+        recommendation: 'partial_exit_25', // Closest to 30%
+        priceAtSignal: context.currentPrice,
+        pnlPercentAtSignal: pnlPercent,
+        triggerReason: `TP2: +${pnlPercent.toFixed(1)}% - selling ${TP2_SELL_PERCENT}% (${position.remainingPercent - TP2_SELL_PERCENT}% remaining)`,
+        marketCapAtSignal: context.marketCapUsd,
+        liquidityAtSignal: context.liquidityUsd,
+      });
+    }
+
+    // TP1: +25% = sell 60%
+    if (!position.tp1Hit && pnlPercent >= TP1_PERCENT) {
+      console.log(`   🎯 [PositionMonitor] TP1 HIT: +${pnlPercent.toFixed(1)}% >= +${TP1_PERCENT}% - selling ${TP1_SELL_PERCENT}%`);
+      await this.positionRepo.updateTakeProfitHit(position.id, 1, 40); // 40% remaining after TP1
+      return this.createExitSignal(position, {
+        type: 'take_profit',
+        strength: 'medium',
+        recommendation: 'partial_exit_50', // Closest to 60%
+        priceAtSignal: context.currentPrice,
+        pnlPercentAtSignal: pnlPercent,
+        triggerReason: `TP1: +${pnlPercent.toFixed(1)}% - selling ${TP1_SELL_PERCENT}% (${100 - TP1_SELL_PERCENT}% remaining)`,
+        marketCapAtSignal: context.marketCapUsd,
+        liquidityAtSignal: context.liquidityUsd,
+      });
+    }
+
+    // 3. Time-based exits
+    // 3a. After 15min with -10% to +10% = stagnant, full exit
+    if (holdTimeMinutes >= TIME_EXIT_STAGNANT_MINUTES &&
+        pnlPercent >= TIME_EXIT_STAGNANT_MIN_PNL &&
+        pnlPercent <= TIME_EXIT_STAGNANT_MAX_PNL) {
+      console.log(`   ⏱️  [PositionMonitor] TIME EXIT (stagnant): ${holdTimeMinutes.toFixed(0)}min with ${pnlPercent.toFixed(1)}% PnL`);
+      return this.createExitSignal(position, {
+        type: 'time_based',
+        strength: 'medium',
+        recommendation: 'full_exit',
+        priceAtSignal: context.currentPrice,
+        pnlPercentAtSignal: pnlPercent,
+        triggerReason: `Stagnant position: ${holdTimeMinutes.toFixed(0)}min hold with ${pnlPercent.toFixed(1)}% PnL (${TIME_EXIT_STAGNANT_MIN_PNL}% to ${TIME_EXIT_STAGNANT_MAX_PNL}% range)`,
+        marketCapAtSignal: context.marketCapUsd,
+        liquidityAtSignal: context.liquidityUsd,
+      });
+    }
+
+    // 3b. After 30min without TP1 = full exit
+    if (holdTimeMinutes >= TIME_EXIT_NO_TP1_MINUTES && !position.tp1Hit) {
+      console.log(`   ⏱️  [PositionMonitor] TIME EXIT (no TP1): ${holdTimeMinutes.toFixed(0)}min without hitting TP1`);
+      return this.createExitSignal(position, {
+        type: 'time_based',
+        strength: 'medium',
+        recommendation: 'full_exit',
+        priceAtSignal: context.currentPrice,
+        pnlPercentAtSignal: pnlPercent,
+        triggerReason: `No TP1 in ${holdTimeMinutes.toFixed(0)}min (max ${TIME_EXIT_NO_TP1_MINUTES}min) - exiting at ${pnlPercent.toFixed(1)}%`,
+        marketCapAtSignal: context.marketCapUsd,
+        liquidityAtSignal: context.liquidityUsd,
+      });
+    }
+
+    // 4. Check trailing stop (if enabled)
     if (position.trailingStopPrice && context.currentPrice <= position.trailingStopPrice) {
       return this.createExitSignal(position, {
         type: 'trailing_stop',
@@ -400,21 +499,7 @@ export class PositionMonitorService {
       });
     }
 
-    // 3. Check take profit
-    if (position.suggestedTakeProfit && context.currentPrice >= position.suggestedTakeProfit) {
-      return this.createExitSignal(position, {
-        type: 'take_profit',
-        strength: 'medium',
-        recommendation: 'partial_exit_50',
-        priceAtSignal: context.currentPrice,
-        pnlPercentAtSignal: pnlPercent,
-        triggerReason: `Price hit take profit at $${position.suggestedTakeProfit.toFixed(8)}`,
-        marketCapAtSignal: context.marketCapUsd,
-        liquidityAtSignal: context.liquidityUsd,
-      });
-    }
-
-    // 4. Check wallet exits (if 50%+ wallets exited)
+    // 5. Check wallet exits (if 50%+ wallets exited)
     const walletExitPercent = position.entryWalletCount > 0
       ? (position.exitedWalletCount / position.entryWalletCount) * 100
       : 0;
