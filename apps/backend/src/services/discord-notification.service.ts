@@ -41,6 +41,17 @@ export interface SignalNotificationData {
   takeProfitPriceUsd?: number;
   aiRiskScore?: number;
   
+  // Holder Analysis (pump.fun)
+  holderAnalysis?: {
+    top10HolderPercent: number;
+    topHolderPercent: number;
+    totalHolders: number;
+    isConcentrated: boolean;
+    creatorAddress?: string;
+    creatorHasSold: boolean;
+    creatorSellPercent: number;
+  };
+
   // Security (RugCheck)
   security?: {
     riskLevel: 'safe' | 'low' | 'medium' | 'high' | 'critical';
@@ -474,6 +485,30 @@ export class DiscordNotificationService {
       value: tokenInfo.join('\n'),
       inline: true,
     });
+
+    // 2b. Holder Analysis (if available from pump.fun)
+    if (data.holderAnalysis) {
+      const holderInfo: string[] = [];
+
+      // Top 10 concentration with warning indicator
+      const concentrationEmoji = data.holderAnalysis.isConcentrated ? '⚠️' : '✅';
+      holderInfo.push(`${concentrationEmoji} **Top 10:** ${data.holderAnalysis.top10HolderPercent.toFixed(1)}%`);
+      holderInfo.push(`**Top 1:** ${data.holderAnalysis.topHolderPercent.toFixed(1)}%`);
+      holderInfo.push(`**Holders:** ${data.holderAnalysis.totalHolders}`);
+
+      // Dev wallet status
+      if (data.holderAnalysis.creatorHasSold) {
+        holderInfo.push(`⚠️ **Dev Sold:** ${data.holderAnalysis.creatorSellPercent.toFixed(1)}%`);
+      } else {
+        holderInfo.push(`✅ **Dev:** Holding`);
+      }
+
+      fields.push({
+        name: '👥 Holder Distribution',
+        value: holderInfo.join('\n'),
+        inline: true,
+      });
+    }
 
     // 3. Strategy - Use AI values if available, otherwise defaults
     // Calculate SL/TP based on entry MCap from traders (not current MCap)

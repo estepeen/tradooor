@@ -25,6 +25,7 @@ import { redisService, SpectreSignalPayload, SpectrePreSignalPayload } from './r
 import { SignalGateCheckRepository, GateCheckInput } from '../repositories/signal-gate-check.repository.js';
 import { DailyStatsRepository } from '../repositories/daily-stats.repository.js';
 import { signalStrengthService, SignalStrengthResult } from './signal-strength.service.js';
+import { pumpFunHolderService, HolderAnalysisResult } from './pump-fun-holder.service.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
@@ -74,6 +75,12 @@ const NINJA_WHALE_LOOKBACK_5MIN = 5 * 60 * 1000;     // 5min lookback for large 
 const NINJA_WHALE_LOOKBACK_10MIN = 10 * 60 * 1000;   // 10min lookback for top holder sells
 const NINJA_WHALE_LOOKBACK_15MIN = 15 * 60 * 1000;   // 15min lookback for dev sells
 const PUMP_FUN_TOTAL_SUPPLY = 1_000_000_000;         // 1B tokens for pump.fun
+
+// Holder Concentration Limits (pump.fun API)
+const NINJA_MAX_TOP10_HOLDER_PERCENT = 70;            // Block if top 10 holders > 70%
+const NINJA_WARN_TOP10_HOLDER_PERCENT = 50;           // Warn if top 10 holders > 50%
+const NINJA_BLOCK_DEV_SELL_PERCENT = 1.0;             // Block if dev sold > 1% of supply in 15min
+const NINJA_BLOCK_DEV_ALLOCATION_SOLD_PERCENT = 50;   // Block if dev sold > 50% of their allocation
 
 // Trading Parameters
 const NINJA_STOP_LOSS_PERCENT = 20;         // -20% SL
@@ -803,6 +810,62 @@ export class ConsensusWebhookService {
       }
       console.log(`   ✅ [NINJA] Token age: ${tokenAgeMinutes ? tokenAgeMinutes.toFixed(0) + 'min' : 'N/A'} (min ${NINJA_MIN_TOKEN_AGE_MINUTES}min)`);
 
+      // 10. HOLDER CONCENTRATION CHECK (pump.fun API)
+      // Check top holder concentration and dev wallet activity
+      let holderAnalysis: HolderAnalysisResult | null = null;
+      if (token?.mintAddress) {
+        try {
+          const holderCheck = await pumpFunHolderService.shouldBlockSignal(token.mintAddress);
+
+          if (holderCheck.shouldBlock) {
+            console.log(`   ❌ [NINJA] HOLDER RISK: ${holderCheck.reason} - FILTERED OUT`);
+
+            // Log gate failure for analytics
+            this.logGateCheck({
+              tokenMint: token.mintAddress,
+              tokenSymbol: token.symbol || 'Unknown',
+              marketCapUsd: marketCap,
+              liquidityUsd: liquidity ?? undefined,
+              buySellVolumeRatio,
+              buyerSellerRatio,
+              priceMomentum5min: momentumPriceMomentumPercent,
+              tier: tier.name,
+              walletCount: ninjaWalletCount,
+              requiredWallets: tier.minWallets,
+              liquidityGatePassed: true,
+              momentumGatePassed: true,
+              riskGatePassed: false, // Holder risk = risk gate failure
+              walletGatePassed: true,
+              allGatesPassed: false,
+              signalEmitted: false,
+              blockReason: `Holder: ${holderCheck.reason}`,
+            }).catch(err => console.warn(`   ⚠️  Gate check logging failed: ${err.message}`));
+
+            return { consensusFound: false };
+          }
+
+          // Store for Discord notification
+          holderAnalysis = await pumpFunHolderService.getHolderAnalysis(token.mintAddress);
+
+          // Log holder info
+          if (holderCheck.details.top10Percent !== undefined) {
+            const warnEmoji = holderCheck.details.top10Percent > NINJA_WARN_TOP10_HOLDER_PERCENT ? '⚠️ ' : '✅';
+            console.log(`   ${warnEmoji} [NINJA] Holder concentration: Top 10 = ${holderCheck.details.top10Percent.toFixed(1)}% (max ${NINJA_MAX_TOP10_HOLDER_PERCENT}%)`);
+          }
+
+          if (holderCheck.details.creatorSelling !== undefined && holderCheck.details.creatorSellPercent !== undefined) {
+            if (holderCheck.details.creatorSelling) {
+              console.log(`   ⚠️  [NINJA] Dev activity: Sold ${holderCheck.details.creatorSellPercent.toFixed(2)}% of allocation`);
+            } else {
+              console.log(`   ✅ [NINJA] Dev activity: No recent sells detected`);
+            }
+          }
+        } catch (holderError: any) {
+          console.warn(`   ⚠️  [NINJA] Holder check failed (non-blocking): ${holderError.message}`);
+          // Non-blocking - continue without holder data
+        }
+      }
+
       // ALL NINJA CHECKS PASSED!
       isNinjaSignal = true;
       console.log(`   🥷 [NINJA] ✅ ${tier.name} SIGNAL CONFIRMED!`);
@@ -1084,6 +1147,16 @@ export class ConsensusWebhookService {
               tradeTime: w.tradeTime,
               marketCapUsd: w.marketCapUsd,
             })),
+            // Holder analysis from pump.fun
+            holderAnalysis: holderAnalysis ? {
+              top10HolderPercent: holderAnalysis.top10HolderPercent,
+              topHolderPercent: holderAnalysis.topHolderPercent,
+              totalHolders: holderAnalysis.totalHolders,
+              isConcentrated: holderAnalysis.isConcentrated,
+              creatorAddress: holderAnalysis.creatorAddress ?? undefined,
+              creatorHasSold: holderAnalysis.creatorHasSold,
+              creatorSellPercent: holderAnalysis.creatorSellPercent,
+            } : undefined,
             // Security removed for latency
           };
 
