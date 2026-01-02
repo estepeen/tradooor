@@ -9,7 +9,8 @@ export type ExitSignalType =
   | 'time_based'
   | 'momentum_loss'
   | 'volume_drop'
-  | 'liquidity_drop';
+  | 'liquidity_drop'
+  | 'sell_pressure';
 
 export type ExitStrength = 'weak' | 'medium' | 'strong';
 

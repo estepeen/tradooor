@@ -17,6 +17,9 @@ import { DiscordNotificationService } from './discord-notification.service.js';
 
 // Liquidity Monitoring Constants
 const LIQUIDITY_DROP_EMERGENCY_PERCENT = 15;  // >15% drop from entry = EMERGENCY EXIT
+
+// Buy/Sell Pressure Monitoring Constants
+const SELL_PRESSURE_EXIT_RATIO = 0.7;  // If buy/sell ratio < 0.7, exit 50%
 import {
   VirtualPositionRepository,
   VirtualPositionRecord,
@@ -32,6 +35,7 @@ import {
   PositionWalletActivityRepository,
   PositionWalletActivityRecord,
 } from '../repositories/position-wallet-activity.repository.js';
+import { TradeRepository } from '../repositories/trade.repository.js';
 
 // ============================================
 // Types
@@ -66,6 +70,7 @@ export class PositionMonitorService {
   private positionRepo: VirtualPositionRepository;
   private exitSignalRepo: ExitSignalRepository;
   private walletActivityRepo: PositionWalletActivityRepository;
+  private tradeRepo: TradeRepository;
 
   constructor() {
     this.tokenMarketData = new TokenMarketDataService();
@@ -74,6 +79,7 @@ export class PositionMonitorService {
     this.positionRepo = new VirtualPositionRepository();
     this.exitSignalRepo = new ExitSignalRepository();
     this.walletActivityRepo = new PositionWalletActivityRepository();
+    this.tradeRepo = new TradeRepository();
   }
 
   // ============================================
@@ -290,6 +296,45 @@ export class PositionMonitorService {
       if (liquidityDropPercent > 5) {
         console.log(`   ⚠️  [PositionMonitor] Liquidity warning: -${liquidityDropPercent.toFixed(1)}% from entry`);
       }
+    }
+
+    // 0b. Check sell pressure (buy/sell ratio in last 5min)
+    const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const now = new Date();
+    const buysIn5min = await this.tradeRepo.findBuysByTokenAndTimeWindow(
+      position.tokenId,
+      fiveMinAgo,
+      now
+    );
+    const sellsIn5min = await this.tradeRepo.findSellsByTokenAndTimeWindow(
+      position.tokenId,
+      fiveMinAgo,
+      now
+    );
+
+    const buyVolumeUsd = buysIn5min.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
+    const sellVolumeUsd = sellsIn5min.reduce((sum, t) => sum + Number(t.valueUsd || 0), 0);
+    const buySellRatio = sellVolumeUsd > 0 ? buyVolumeUsd / sellVolumeUsd : 999;
+
+    if (buySellRatio < SELL_PRESSURE_EXIT_RATIO && sellVolumeUsd > 0) {
+      console.log(`   🚨 [PositionMonitor] SELL PRESSURE: Buy/Sell ratio ${buySellRatio.toFixed(2)} < ${SELL_PRESSURE_EXIT_RATIO}`);
+      console.log(`      Buys: $${buyVolumeUsd.toFixed(0)} vs Sells: $${sellVolumeUsd.toFixed(0)}`);
+
+      return this.createExitSignal(position, {
+        type: 'sell_pressure',
+        strength: 'medium',
+        recommendation: 'partial_exit_50',
+        priceAtSignal: context.currentPrice,
+        pnlPercentAtSignal: pnlPercent,
+        triggerReason: `Sell pressure detected: Buy/Sell ratio ${buySellRatio.toFixed(2)} (buys: $${buyVolumeUsd.toFixed(0)} vs sells: $${sellVolumeUsd.toFixed(0)})`,
+        marketCapAtSignal: context.marketCapUsd,
+        liquidityAtSignal: context.liquidityUsd,
+      });
+    }
+
+    // Log buy/sell pressure status
+    if (buySellRatio < 1.5 && sellVolumeUsd > 0) {
+      console.log(`   ⚠️  [PositionMonitor] Pressure warning: Buy/Sell ${buySellRatio.toFixed(2)}x`);
     }
 
     // 1. Check stop loss

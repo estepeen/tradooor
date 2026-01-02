@@ -328,4 +328,64 @@ export class TradeRepository {
       meta: t.meta,
     }));
   }
+
+  /**
+   * Najde všechny SELL trades pro token v časovém okně (pro buy/sell pressure detection)
+   */
+  async findSellsByTokenAndTimeWindow(
+    tokenId: string,
+    fromDate: Date,
+    toDate: Date
+  ) {
+    const trades = await prisma.trade.findMany({
+      where: {
+        tokenId,
+        side: 'sell',
+        timestamp: {
+          gte: fromDate,
+          lte: toDate,
+        },
+      },
+      select: {
+        id: true,
+        meta: true,
+        walletId: true,
+        tokenId: true,
+        timestamp: true,
+        amountBase: true,
+        amountToken: true,
+        priceBasePerToken: true,
+        valueUsd: true,
+        side: true,
+      },
+      orderBy: { timestamp: 'asc' },
+    });
+
+    // CRITICAL FIX: Properly convert Prisma Decimal to JavaScript number
+    const safeToNumber = (value: any): number => {
+      if (value === null || value === undefined) return 0;
+      if (typeof value === 'object' && typeof value.toNumber === 'function') {
+        return value.toNumber();
+      }
+      if (typeof value === 'string') {
+        const parsed = parseFloat(value);
+        return isNaN(parsed) ? 0 : parsed;
+      }
+      const num = Number(value);
+      return isNaN(num) ? 0 : num;
+    };
+
+    return trades.map(t => ({
+      id: t.id,
+      walletId: t.walletId,
+      tokenId: t.tokenId,
+      timestamp: t.timestamp,
+      amountBase: safeToNumber(t.amountBase),
+      amountToken: safeToNumber(t.amountToken),
+      priceBasePerToken: safeToNumber(t.priceBasePerToken),
+      valueUsd: safeToNumber(t.valueUsd),
+      side: t.side,
+      meta: t.meta,
+    }));
+  }
 }
