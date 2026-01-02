@@ -77,6 +77,28 @@ const NINJA_STOP_LOSS_PERCENT = 20;         // -20% SL
 const NINJA_TAKE_PROFIT_PERCENT = 30;       // +30% first TP
 
 // ============================================================================
+// DYNAMIC PRIORITY FEES (ČÁST 10)
+// Based on momentum: buy/sell ratio + price change
+// ============================================================================
+// Very strong momentum: buy/sell >3.0 AND price +15-20%
+const PRIORITY_FEE_VERY_STRONG_LAMPORTS = 1_000_000;  // 0.001 SOL
+const PRIORITY_FEE_VERY_STRONG_MIN_BS_RATIO = 3.0;
+const PRIORITY_FEE_VERY_STRONG_MIN_PRICE_CHANGE = 15;
+const PRIORITY_FEE_VERY_STRONG_MAX_PRICE_CHANGE = 25;  // Still within optimal range
+
+// Standard momentum: buy/sell 1.5-3.0 AND price +5-15%
+const PRIORITY_FEE_STANDARD_LAMPORTS = 700_000;       // 0.0007 SOL
+const PRIORITY_FEE_STANDARD_MIN_BS_RATIO = 1.5;
+const PRIORITY_FEE_STANDARD_MIN_PRICE_CHANGE = 5;
+
+// Weak momentum: buy/sell 1.0-1.5 - DON'T TRADE (already filtered by NINJA checks)
+// But if signal passes, use minimal fee
+const PRIORITY_FEE_WEAK_LAMPORTS = 500_000;           // 0.0005 SOL
+
+// SELL priority (always same, set in SPECTRE config)
+// const PRIORITY_FEE_SELL_LAMPORTS = 250_000;        // 0.00025 SOL (handled by jito_tip_sell_lamports)
+
+// ============================================================================
 // TIER DEFINITIONS
 // ============================================================================
 interface NinjaTier {
@@ -599,6 +621,9 @@ export class ConsensusWebhookService {
       const uniqueSellers5min = new Set(sellsIn5min.map(t => t.walletId)).size;
       const buyerSellerRatio = uniqueSellers5min > 0 ? uniqueBuyers5min / uniqueSellers5min : (uniqueBuyers5min > 0 ? 999 : 0);
 
+      // Store for dynamic priority fee calculation (ČÁST 10)
+      let momentumPriceMomentumPercent = 0;
+
       // Check buy/sell volume ratio
       if (buySellVolumeRatio < NINJA_BLOCK_BUY_SELL_VOLUME_RATIO) {
         console.log(`   ❌ [NINJA] Buy/Sell volume ratio ${buySellVolumeRatio.toFixed(2)} < ${NINJA_BLOCK_BUY_SELL_VOLUME_RATIO} (more sells!) - $${buyVolumeUsd.toFixed(0)} buys vs $${sellVolumeUsd.toFixed(0)} sells - FILTERED OUT`);
@@ -629,6 +654,7 @@ export class ConsensusWebhookService {
 
         if (earliestPrice > 0 && latestPrice > 0) {
           const priceMomentumPercent = ((latestPrice - earliestPrice) / earliestPrice) * 100;
+          momentumPriceMomentumPercent = priceMomentumPercent; // Store for priority fee calculation
 
           if (priceMomentumPercent < NINJA_BLOCK_PRICE_MOMENTUM_PERCENT) {
             console.log(`   ❌ [NINJA] Price momentum ${priceMomentumPercent.toFixed(1)}% < ${NINJA_BLOCK_PRICE_MOMENTUM_PERCENT}% - DOWNTREND, FILTERED OUT`);
@@ -1035,6 +1061,32 @@ export class ConsensusWebhookService {
 
           // 5d. Push signal to Redis for SPECTRE trading bot (NINJA signals only for now)
           if (signalType === 'ninja' && process.env.ENABLE_SPECTRE_BOT === 'true') {
+            // Calculate dynamic priority fee based on momentum (ČÁST 10)
+            // Very strong: buy/sell >3.0 AND price +15-25%
+            // Standard: buy/sell 1.5-3.0 AND price +5-15%
+            // Weak: anything else that passed filters
+            let dynamicPriorityFeeLamports = PRIORITY_FEE_STANDARD_LAMPORTS; // Default to standard
+            let priorityFeeReason = 'standard';
+
+            if (buySellVolumeRatio >= PRIORITY_FEE_VERY_STRONG_MIN_BS_RATIO &&
+                momentumPriceMomentumPercent >= PRIORITY_FEE_VERY_STRONG_MIN_PRICE_CHANGE &&
+                momentumPriceMomentumPercent <= PRIORITY_FEE_VERY_STRONG_MAX_PRICE_CHANGE) {
+              // Very strong momentum - highest priority
+              dynamicPriorityFeeLamports = PRIORITY_FEE_VERY_STRONG_LAMPORTS;
+              priorityFeeReason = 'very_strong';
+            } else if (buySellVolumeRatio >= PRIORITY_FEE_STANDARD_MIN_BS_RATIO &&
+                       momentumPriceMomentumPercent >= PRIORITY_FEE_STANDARD_MIN_PRICE_CHANGE) {
+              // Standard momentum - normal priority
+              dynamicPriorityFeeLamports = PRIORITY_FEE_STANDARD_LAMPORTS;
+              priorityFeeReason = 'standard';
+            } else {
+              // Weak momentum (passed filters but not optimal) - lower priority
+              dynamicPriorityFeeLamports = PRIORITY_FEE_WEAK_LAMPORTS;
+              priorityFeeReason = 'weak';
+            }
+
+            console.log(`   💰 [NINJA] Priority fee: ${(dynamicPriorityFeeLamports / 1e9).toFixed(6)} SOL (${priorityFeeReason}) - B/S ratio: ${buySellVolumeRatio.toFixed(2)}, Price momentum: +${momentumPriceMomentumPercent.toFixed(1)}%`);
+
             const spectrePayload: SpectreSignalPayload = {
               signalType: 'ninja',
               tokenSymbol: notificationData.tokenSymbol,
@@ -1051,6 +1103,7 @@ export class ConsensusWebhookService {
                 label: w.label ?? null,
                 score: w.score ?? null,
               })),
+              priorityFeeLamports: dynamicPriorityFeeLamports,
             };
 
             // Fire and forget - don't block Discord notification

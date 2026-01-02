@@ -91,9 +91,9 @@ impl Config {
                 .unwrap_or(700000),
 
             jito_tip_sell_lamports: std::env::var("JITO_TIP_SELL_LAMPORTS")
-                .unwrap_or_else(|_| "150000".to_string()) // 0.00015 SOL (~$0.03) for SELL priority fee
+                .unwrap_or_else(|_| "250000".to_string()) // 0.00025 SOL (~$0.05) for SELL priority fee
                 .parse()
-                .unwrap_or(150000),
+                .unwrap_or(250000),
 
             redis_url: std::env::var("REDIS_URL")
                 .unwrap_or_else(|_| "redis://127.0.0.1:6379".to_string()),

@@ -135,6 +135,11 @@ export interface SpectreSignalPayload {
     label: string | null;
     score: number | null;
   }>;
+  // Dynamic priority fee based on momentum (lamports)
+  // - Very strong momentum (buy/sell >3.0 + price +15-20%): 1,000,000 lamports (0.001 SOL)
+  // - Standard momentum (ratio 1.5-2.0 + price +5-10%): 700,000 lamports (0.0007 SOL)
+  // - Falls back to config default if not provided
+  priorityFeeLamports?: number;
 }
 
 /**

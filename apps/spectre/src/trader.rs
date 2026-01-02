@@ -191,6 +191,15 @@ impl SpectreTrader {
         let token_mint = &signal.token_mint;
         let token_symbol = &signal.token_symbol;
 
+        // Use dynamic priority fee from signal, or fall back to config default
+        let priority_fee = signal.priority_fee_lamports.unwrap_or(self.config.jito_tip_lamports);
+        info!(
+            "💰 Priority fee: {} lamports ({:.6} SOL) {}",
+            priority_fee,
+            priority_fee as f64 / 1e9,
+            if signal.priority_fee_lamports.is_some() { "(dynamic)" } else { "(config default)" }
+        );
+
         // ⚡ FAST CONFIRM: Check if we have a prepared TX from pre-signal
         let prepared_tx = self.prepared_tx_cache.get(token_mint).await;
         let used_prepared = prepared_tx.is_some();
@@ -203,17 +212,18 @@ impl SpectreTrader {
             let start = std::time::Instant::now();
 
             // 1. Get transaction - from cache or PumpPortal
+            // Note: Prepared TX uses config default fee; fresh TX uses dynamic fee
             let tx_bytes = if let Some(ref prepared) = prepared_tx {
                 if attempt == 1 {
-                    // Use prepared TX on first attempt
+                    // Use prepared TX on first attempt (may have old priority fee, but faster)
                     prepared.tx_bytes.clone()
                 } else {
-                    // Get fresh TX on retry (prepared might be stale)
-                    self.get_fresh_pumpfun_tx(token_mint).await?
+                    // Get fresh TX on retry with dynamic priority fee
+                    self.get_fresh_pumpfun_tx_with_fee(token_mint, priority_fee).await?
                 }
             } else {
-                // No prepared TX, get fresh one
-                match self.get_fresh_pumpfun_tx(token_mint).await {
+                // No prepared TX, get fresh one with dynamic priority fee
+                match self.get_fresh_pumpfun_tx_with_fee(token_mint, priority_fee).await {
                     Ok(bytes) => bytes,
                     Err(e) => {
                         error!("❌ [Attempt {}/{}] PumpPortal buy failed: {}", attempt, MAX_ATTEMPTS, e);
@@ -543,9 +553,15 @@ impl SpectreTrader {
     }
 
     /// Helper to get fresh TX from PumpPortal (used when no prepared TX or on retry)
+    /// Uses config default priority fee - for dynamic fee, use get_fresh_pumpfun_tx_with_fee
     async fn get_fresh_pumpfun_tx(&self, token_mint: &str) -> Result<Vec<u8>> {
+        self.get_fresh_pumpfun_tx_with_fee(token_mint, self.config.jito_tip_lamports).await
+    }
+
+    /// Helper to get fresh TX from PumpPortal with custom priority fee
+    async fn get_fresh_pumpfun_tx_with_fee(&self, token_mint: &str, priority_fee_lamports: u64) -> Result<Vec<u8>> {
         let slippage_percent = (self.config.slippage_bps / 100) as u16;
-        let priority_fee_sol = self.config.jito_tip_lamports as f64 / 1e9;
+        let priority_fee_sol = priority_fee_lamports as f64 / 1e9;
 
         self.pumpfun.get_buy_transaction(
             &self.config.wallet_pubkey().to_string(),

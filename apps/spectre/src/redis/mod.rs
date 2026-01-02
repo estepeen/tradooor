@@ -19,6 +19,12 @@ pub struct SpectreSignal {
     pub strength: String,              // "STRONG", "MEDIUM", "WEAK"
     pub timestamp: String,
     pub wallets: Vec<SignalWallet>,
+    // Dynamic priority fee based on momentum (lamports)
+    // - Very strong momentum: 1,000,000 lamports (0.001 SOL)
+    // - Standard momentum: 700,000 lamports (0.0007 SOL)
+    // - Weak momentum: 500,000 lamports (0.0005 SOL)
+    // Falls back to config default if not provided
+    pub priority_fee_lamports: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
