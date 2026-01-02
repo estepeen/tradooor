@@ -8,7 +8,8 @@ export type ExitSignalType =
   | 'ai_recommendation'
   | 'time_based'
   | 'momentum_loss'
-  | 'volume_drop';
+  | 'volume_drop'
+  | 'liquidity_drop';
 
 export type ExitStrength = 'weak' | 'medium' | 'strong';
 

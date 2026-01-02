@@ -44,6 +44,11 @@ const NINJA_DIVERSITY_SAMPLE_SIZE = 30;     // From last 30 trades
 // Volume Spike Detection
 const NINJA_MIN_VOLUME_SPIKE_RATIO = 1.75;  // Min 1.75x volume vs avg last hour
 
+// Liquidity Monitoring (Pre-Entry Checks)
+const NINJA_LIQUIDITY_5MIN_MAX_DROP = 0.10;   // Max 10% drop in 5min
+const NINJA_LIQUIDITY_15MIN_MAX_DROP = 0.20;  // Max 20% drop in 15min
+const NINJA_MIN_LIQUIDITY_MCAP_RATIO = 0.08;  // Min 8% liquidity/mcap ratio
+
 // Trading Parameters
 const NINJA_STOP_LOSS_PERCENT = 20;         // -20% SL
 const NINJA_TAKE_PROFIT_PERCENT = 30;       // +30% first TP
@@ -376,12 +381,82 @@ export class ConsensusWebhookService {
 
       console.log(`   🎯 [NINJA] ${tier.name} ($${tier.minMcap / 1000}K-$${tier.maxMcap / 1000}K): MCap $${(marketCap / 1000).toFixed(1)}K`);
 
-      // 3. LIQUIDITY CHECK (global)
+      // 3. LIQUIDITY CHECK (global minimum)
       if (liquidity !== null && liquidity !== undefined && liquidity < NINJA_MIN_LIQUIDITY_USD) {
         console.log(`   ❌ [NINJA] Liquidity $${(liquidity / 1000).toFixed(1)}K < $${NINJA_MIN_LIQUIDITY_USD / 1000}K minimum - FILTERED OUT`);
         return { consensusFound: false };
       }
       console.log(`   ✅ [NINJA] Liquidity: $${liquidity ? (liquidity / 1000).toFixed(1) + 'K' : 'N/A'} (min $${NINJA_MIN_LIQUIDITY_USD / 1000}K)`);
+
+      // 3b. LIQUIDITY/MCAP RATIO CHECK
+      if (liquidity !== null && liquidity !== undefined && marketCap > 0) {
+        const liquidityMcapRatio = liquidity / marketCap;
+        if (liquidityMcapRatio < NINJA_MIN_LIQUIDITY_MCAP_RATIO) {
+          console.log(`   ❌ [NINJA] Liquidity/MCap ratio ${(liquidityMcapRatio * 100).toFixed(1)}% < ${NINJA_MIN_LIQUIDITY_MCAP_RATIO * 100}% minimum - thin liquidity, FILTERED OUT`);
+          return { consensusFound: false };
+        }
+        console.log(`   ✅ [NINJA] Liquidity/MCap: ${(liquidityMcapRatio * 100).toFixed(1)}% (min ${NINJA_MIN_LIQUIDITY_MCAP_RATIO * 100}%)`);
+      }
+
+      // 3c. LIQUIDITY TREND CHECK (compare with historical trades)
+      // Get liquidity from trades 5min and 15min ago to detect drops
+      const fiveMinAgo = currentTradeTime - 5 * 60 * 1000;
+      const fifteenMinAgo = currentTradeTime - 15 * 60 * 1000;
+
+      // Find trades closest to 5min and 15min ago
+      const tradesFor5minCheck = sortedBuys.filter(t => {
+        const tradeTime = new Date(t.timestamp).getTime();
+        return tradeTime >= fifteenMinAgo && tradeTime <= fiveMinAgo;
+      });
+
+      const tradesFor15minCheck = sortedBuys.filter(t => {
+        const tradeTime = new Date(t.timestamp).getTime();
+        return tradeTime >= fifteenMinAgo - 10 * 60 * 1000 && tradeTime <= fifteenMinAgo;
+      });
+
+      // Get liquidity from 5min ago
+      let liquidity5minAgo: number | null = null;
+      if (tradesFor5minCheck.length > 0) {
+        const trade5min = tradesFor5minCheck[tradesFor5minCheck.length - 1]; // Most recent in that window
+        const meta5min = trade5min?.meta as any;
+        liquidity5minAgo = meta5min?.liquidityUsd ? Number(meta5min.liquidityUsd) : null;
+      }
+
+      // Get liquidity from 15min ago
+      let liquidity15minAgo: number | null = null;
+      if (tradesFor15minCheck.length > 0) {
+        const trade15min = tradesFor15minCheck[tradesFor15minCheck.length - 1];
+        const meta15min = trade15min?.meta as any;
+        liquidity15minAgo = meta15min?.liquidityUsd ? Number(meta15min.liquidityUsd) : null;
+      }
+
+      // Check 5min liquidity drop
+      if (liquidity !== null && liquidity5minAgo !== null && liquidity5minAgo > 0) {
+        const drop5min = 1 - (liquidity / liquidity5minAgo);
+        if (drop5min > NINJA_LIQUIDITY_5MIN_MAX_DROP) {
+          console.log(`   ❌ [NINJA] Liquidity dropped ${(drop5min * 100).toFixed(1)}% in 5min (max ${NINJA_LIQUIDITY_5MIN_MAX_DROP * 100}%) - $${(liquidity5minAgo / 1000).toFixed(1)}K → $${(liquidity / 1000).toFixed(1)}K - FILTERED OUT`);
+          return { consensusFound: false };
+        }
+        if (drop5min > 0) {
+          console.log(`   ⚠️  [NINJA] Liquidity 5min: -${(drop5min * 100).toFixed(1)}% ($${(liquidity5minAgo / 1000).toFixed(1)}K → $${(liquidity / 1000).toFixed(1)}K)`);
+        } else {
+          console.log(`   ✅ [NINJA] Liquidity 5min: +${(Math.abs(drop5min) * 100).toFixed(1)}% (stable/growing)`);
+        }
+      }
+
+      // Check 15min liquidity drop
+      if (liquidity !== null && liquidity15minAgo !== null && liquidity15minAgo > 0) {
+        const drop15min = 1 - (liquidity / liquidity15minAgo);
+        if (drop15min > NINJA_LIQUIDITY_15MIN_MAX_DROP) {
+          console.log(`   ❌ [NINJA] Liquidity dropped ${(drop15min * 100).toFixed(1)}% in 15min (max ${NINJA_LIQUIDITY_15MIN_MAX_DROP * 100}%) - $${(liquidity15minAgo / 1000).toFixed(1)}K → $${(liquidity / 1000).toFixed(1)}K - FILTERED OUT`);
+          return { consensusFound: false };
+        }
+        if (drop15min > 0) {
+          console.log(`   ⚠️  [NINJA] Liquidity 15min: -${(drop15min * 100).toFixed(1)}% ($${(liquidity15minAgo / 1000).toFixed(1)}K → $${(liquidity / 1000).toFixed(1)}K)`);
+        } else {
+          console.log(`   ✅ [NINJA] Liquidity 15min: +${(Math.abs(drop15min) * 100).toFixed(1)}% (stable/growing)`);
+        }
+      }
 
       // 4. TIER-SPECIFIC TIME WINDOW & WALLET COUNT
       const ninjaTimeWindowMinutes = tier.timeWindowMinutes;

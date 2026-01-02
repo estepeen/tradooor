@@ -14,6 +14,9 @@ import { prisma } from '../lib/prisma.js';
 import { TokenMarketDataService } from './token-market-data.service.js';
 import { AIExitService, ExitContext as AIExitContext, AIExitDecision } from './ai-exit.service.js';
 import { DiscordNotificationService } from './discord-notification.service.js';
+
+// Liquidity Monitoring Constants
+const LIQUIDITY_DROP_EMERGENCY_PERCENT = 15;  // >15% drop from entry = EMERGENCY EXIT
 import {
   VirtualPositionRepository,
   VirtualPositionRecord,
@@ -262,6 +265,32 @@ export class PositionMonitorService {
     const pnlPercent = position.unrealizedPnlPercent || 0;
     const drawdown = position.drawdownFromPeak || 0;
     const holdTimeMinutes = (Date.now() - position.entryTimestamp.getTime()) / 60000;
+
+    // 0. EMERGENCY: Check liquidity drop (>15% from entry = immediate exit)
+    if (context.liquidityUsd !== undefined && position.entryLiquidityUsd) {
+      const liquidityDropPercent = ((position.entryLiquidityUsd - context.liquidityUsd) / position.entryLiquidityUsd) * 100;
+
+      if (liquidityDropPercent > LIQUIDITY_DROP_EMERGENCY_PERCENT) {
+        console.log(`   🚨 [PositionMonitor] EMERGENCY: Liquidity dropped ${liquidityDropPercent.toFixed(1)}% from entry!`);
+        console.log(`      Entry: $${(position.entryLiquidityUsd / 1000).toFixed(1)}K → Current: $${(context.liquidityUsd / 1000).toFixed(1)}K`);
+
+        return this.createExitSignal(position, {
+          type: 'liquidity_drop',
+          strength: 'strong',
+          recommendation: 'full_exit',
+          priceAtSignal: context.currentPrice,
+          pnlPercentAtSignal: pnlPercent,
+          triggerReason: `EMERGENCY: Liquidity dropped ${liquidityDropPercent.toFixed(1)}% from entry ($${(position.entryLiquidityUsd / 1000).toFixed(1)}K → $${(context.liquidityUsd / 1000).toFixed(1)}K)`,
+          marketCapAtSignal: context.marketCapUsd,
+          liquidityAtSignal: context.liquidityUsd,
+        });
+      }
+
+      // Log liquidity status for monitoring
+      if (liquidityDropPercent > 5) {
+        console.log(`   ⚠️  [PositionMonitor] Liquidity warning: -${liquidityDropPercent.toFixed(1)}% from entry`);
+      }
+    }
 
     // 1. Check stop loss
     if (position.suggestedStopLoss && context.currentPrice <= position.suggestedStopLoss) {
