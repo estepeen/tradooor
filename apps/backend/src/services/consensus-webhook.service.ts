@@ -58,6 +58,11 @@ const NINJA_MAX_PRICE_MOMENTUM_PERCENT = 25;  // Max +25% (avoid overheated)
 const NINJA_BLOCK_PRICE_MOMENTUM_PERCENT = -3; // Block if below -3% (downtrend)
 const NINJA_OVERHEAT_PRICE_MOMENTUM_PERCENT = 40; // Block if above 40% (too hot)
 
+// Moving Average Trend Filter
+// Entry only when price is above both MA_1min and MA_5min (uptrend confirmation)
+const NINJA_MA_1MIN_ENABLED = true;   // Check 1min MA
+const NINJA_MA_5MIN_ENABLED = true;   // Check 5min MA
+
 // Trading Parameters
 const NINJA_STOP_LOSS_PERCENT = 20;         // -20% SL
 const NINJA_TAKE_PROFIT_PERCENT = 30;       // +30% first TP
@@ -633,6 +638,58 @@ export class ConsensusWebhookService {
           } else {
             console.log(`   ⚠️  [NINJA] Price momentum: ${priceMomentumPercent >= 0 ? '+' : ''}${priceMomentumPercent.toFixed(1)}% (below optimal ${NINJA_MIN_PRICE_MOMENTUM_PERCENT}%)`);
           }
+        }
+      }
+
+      // 7d. MOVING AVERAGE TREND FILTER
+      // Calculate MA_1min and MA_5min, block entry if current price is below either
+      const currentPrice = Number(tradeToUse.priceBasePerToken || 0);
+
+      if (currentPrice > 0 && buysIn5min.length > 0) {
+        // Calculate MA_1min (average price in last 1 minute)
+        const oneMinAgo = currentTradeTime - 1 * 60 * 1000;
+        const tradesIn1min = buysIn5min.filter(t => new Date(t.timestamp).getTime() >= oneMinAgo);
+
+        let ma1min: number | null = null;
+        if (NINJA_MA_1MIN_ENABLED && tradesIn1min.length > 0) {
+          const sum1min = tradesIn1min.reduce((sum, t) => sum + Number(t.priceBasePerToken || 0), 0);
+          ma1min = sum1min / tradesIn1min.length;
+        }
+
+        // Calculate MA_5min (average price in last 5 minutes)
+        let ma5min: number | null = null;
+        if (NINJA_MA_5MIN_ENABLED && buysIn5min.length > 0) {
+          const sum5min = buysIn5min.reduce((sum, t) => sum + Number(t.priceBasePerToken || 0), 0);
+          ma5min = sum5min / buysIn5min.length;
+        }
+
+        // Check MA_1min
+        if (ma1min !== null && currentPrice < ma1min) {
+          const belowMa1minPercent = ((ma1min - currentPrice) / ma1min) * 100;
+          console.log(`   ❌ [NINJA] Price below MA_1min: ${currentPrice.toExponential(4)} < ${ma1min.toExponential(4)} (-${belowMa1minPercent.toFixed(2)}%) - DOWNTREND, FILTERED OUT`);
+          return { consensusFound: false };
+        }
+
+        // Check MA_5min
+        if (ma5min !== null && currentPrice < ma5min) {
+          const belowMa5minPercent = ((ma5min - currentPrice) / ma5min) * 100;
+          console.log(`   ❌ [NINJA] Price below MA_5min: ${currentPrice.toExponential(4)} < ${ma5min.toExponential(4)} (-${belowMa5minPercent.toFixed(2)}%) - DOWNTREND, FILTERED OUT`);
+          return { consensusFound: false };
+        }
+
+        // Log MA status
+        if (ma1min !== null && ma5min !== null) {
+          const aboveMa1minPercent = ((currentPrice - ma1min) / ma1min) * 100;
+          const aboveMa5minPercent = ((currentPrice - ma5min) / ma5min) * 100;
+          console.log(`   ✅ [NINJA] MA Trend: Price above MA_1min (+${aboveMa1minPercent.toFixed(2)}%) and MA_5min (+${aboveMa5minPercent.toFixed(2)}%) - UPTREND`);
+        } else if (ma1min !== null) {
+          const aboveMa1minPercent = ((currentPrice - ma1min) / ma1min) * 100;
+          console.log(`   ✅ [NINJA] MA Trend: Price above MA_1min (+${aboveMa1minPercent.toFixed(2)}%)`);
+        } else if (ma5min !== null) {
+          const aboveMa5minPercent = ((currentPrice - ma5min) / ma5min) * 100;
+          console.log(`   ✅ [NINJA] MA Trend: Price above MA_5min (+${aboveMa5minPercent.toFixed(2)}%)`);
+        } else {
+          console.log(`   ⚠️  [NINJA] MA Trend: Not enough data for MA calculation`);
         }
       }
 
