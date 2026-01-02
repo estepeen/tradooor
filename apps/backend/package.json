@@ -101,7 +101,8 @@
     "signal-performance:cron": "tsx src/workers/signal-performance-cron.ts",
     "helius:sync": "tsx src/scripts/sync-helius-webhooks.ts",
     "helius:list-wallets": "tsx src/scripts/list-wallet-addresses.ts",
-    "spectre:results-worker": "tsx src/workers/spectre-results-worker.ts"
+    "spectre:results-worker": "tsx src/workers/spectre-results-worker.ts",
+    "daily-summary:cron": "tsx src/workers/daily-summary-cron.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",

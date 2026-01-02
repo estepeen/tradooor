@@ -902,3 +902,132 @@ model SpectreTrade {
   @@index([executedAt])
   @@index([positionId])
 }
+
+// ============================================================================
+// SIGNAL GATE CHECK LOGGING (ČÁST 12)
+// ============================================================================
+
+/// Logs all gate check results for each potential NINJA signal
+/// Used for analysis of why signals were blocked or passed
+model SignalGateCheck {
+  id              String   @id @default(cuid())
+  tokenMint       String
+  tokenSymbol     String?
+
+  // Market data at check time
+  marketCapUsd    Decimal? @db.Decimal(36, 18)
+  liquidityUsd    Decimal? @db.Decimal(36, 18)
+
+  // LIQUIDITY GATE results
+  liquidity5minChange      Decimal? @db.Decimal(36, 18)  // % change (negative = drop)
+  liquidity15minChange     Decimal? @db.Decimal(36, 18) // % change (negative = drop)
+  liquidityMcapRatio       Decimal? @db.Decimal(36, 18) // Ratio (0-1)
+  liquidityGatePassed      Boolean  @default(false)
+  liquidityGateReason      String?
+
+  // MOMENTUM GATE results
+  buySellVolumeRatio       Decimal? @db.Decimal(36, 18) // Buy/Sell volume ratio
+  buyerSellerRatio         Decimal? @db.Decimal(36, 18) // Unique buyers/sellers ratio
+  priceMomentum5min        Decimal? @db.Decimal(36, 18) // % price change
+  priceAboveMa1min         Boolean  @default(false)
+  priceAboveMa5min         Boolean  @default(false)
+  momentumGatePassed       Boolean  @default(false)
+  momentumGateReason       String?
+
+  // RISK GATE results
+  largeSellDetected        Boolean  @default(false)  // >1% supply sell
+  largeSellPercent         Decimal? @db.Decimal(36, 18)
+  largeSellValueUsd        Decimal? @db.Decimal(36, 18)
+  riskGatePassed           Boolean  @default(false)
+  riskGateReason           String?
+
+  // WALLET GATE results (tier-specific)
+  tier                     String?   // Tier 1, Tier 2, etc.
+  walletCount              Int?
+  requiredWallets          Int?
+  uniqueBuyersInWindow     Int?
+  requiredUniqueBuyers     Int?
+  qualityWalletCount       Int?
+  requiredQualityWallets   Int?
+  walletGatePassed         Boolean  @default(false)
+  walletGateReason         String?
+
+  // Overall result
+  allGatesPassed           Boolean  @default(false)
+  signalEmitted            Boolean  @default(false)
+  blockReason              String?  // First gate that failed
+
+  // Priority fee if signal was emitted
+  priorityFeeLamports      Int?
+  priorityFeeReason        String?
+
+  createdAt                DateTime @default(now())
+
+  @@index([tokenMint])
+  @@index([createdAt])
+  @@index([allGatesPassed])
+  @@index([signalEmitted])
+}
+
+/// Daily aggregated statistics for monitoring and reporting
+model DailyStats {
+  id                    String   @id @default(cuid())
+  date                  DateTime @unique // Date at midnight UTC
+
+  // Signal statistics
+  signalsReceived       Int      @default(0) // Total potential signals checked
+  signalsBlocked        Int      @default(0) // Signals that failed gates
+  signalsEmitted        Int      @default(0) // Signals that passed all gates
+
+  // Gate failure breakdown
+  blockedByLiquidity    Int      @default(0)
+  blockedByMomentum     Int      @default(0)
+  blockedByRisk         Int      @default(0)
+  blockedByWallet       Int      @default(0)
+  blockedByMcap         Int      @default(0)
+  blockedByOther        Int      @default(0)
+
+  // Trade statistics
+  tradesExecuted        Int      @default(0)
+  tradesSuccessful      Int      @default(0)
+  tradesFailed          Int      @default(0)
+
+  // PnL statistics
+  totalPnlSol           Decimal  @default(0) @db.Decimal(36, 18)
+  totalPnlUsd           Decimal  @default(0) @db.Decimal(36, 18)
+  wins                  Int      @default(0)
+  losses                Int      @default(0)
+  winRate               Decimal? @db.Decimal(36, 18)
+  avgWinPercent         Decimal? @db.Decimal(36, 18)
+  avgLossPercent        Decimal? @db.Decimal(36, 18)
+  largestWinPercent     Decimal? @db.Decimal(36, 18)
+  largestLossPercent    Decimal? @db.Decimal(36, 18)
+
+  // Position statistics
+  positionsOpened       Int      @default(0)
+  positionsClosed       Int      @default(0)
+  avgHoldTimeMinutes    Decimal? @db.Decimal(36, 18)
+
+  // Exit reason breakdown
+  exitsBySl             Int      @default(0)
+  exitsByTp1            Int      @default(0)
+  exitsByTp2            Int      @default(0)
+  exitsByTp3            Int      @default(0)
+  exitsByTime           Int      @default(0)
+  exitsByEmergency      Int      @default(0)
+  exitsByWhaleDump      Int      @default(0)
+
+  // Max drawdown tracking
+  maxDrawdownPercent    Decimal? @db.Decimal(36, 18)
+
+  // SOL price range (for context)
+  solPriceOpen          Decimal? @db.Decimal(36, 18)
+  solPriceClose         Decimal? @db.Decimal(36, 18)
+  solPriceHigh          Decimal? @db.Decimal(36, 18)
+  solPriceLow           Decimal? @db.Decimal(36, 18)
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([date])
+}

@@ -22,6 +22,8 @@ import { SignalPerformanceService } from './signal-performance.service.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 import { WalletCorrelationService } from './wallet-correlation.service.js';
 import { redisService, SpectreSignalPayload, SpectrePreSignalPayload } from './redis.service.js';
+import { SignalGateCheckRepository, GateCheckInput } from '../repositories/signal-gate-check.repository.js';
+import { DailyStatsRepository } from '../repositories/daily-stats.repository.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
@@ -190,6 +192,8 @@ export class ConsensusWebhookService {
   private signalPerformance: SignalPerformanceService;
   private tradeFeatureRepo: TradeFeatureRepository;
   private walletCorrelation: WalletCorrelationService;
+  private gateCheckRepo: SignalGateCheckRepository;
+  private dailyStatsRepo: DailyStatsRepository;
 
   constructor() {
     this.paperTradeService = new PaperTradeService();
@@ -206,6 +210,8 @@ export class ConsensusWebhookService {
     this.signalPerformance = new SignalPerformanceService();
     this.tradeFeatureRepo = new TradeFeatureRepository();
     this.walletCorrelation = new WalletCorrelationService();
+    this.gateCheckRepo = new SignalGateCheckRepository();
+    this.dailyStatsRepo = new DailyStatsRepository();
   }
 
   /**
@@ -1110,6 +1116,28 @@ export class ConsensusWebhookService {
             redisService.pushSignal(spectrePayload).catch(err => {
               console.warn(`   ⚠️  Redis SPECTRE push failed: ${err.message}`);
             });
+
+            // Log successful gate check (ČÁST 12)
+            this.logGateCheck({
+              tokenMint: notificationData.tokenMint,
+              tokenSymbol: notificationData.tokenSymbol,
+              marketCapUsd: notificationData.marketCapUsd ?? undefined,
+              liquidityUsd: notificationData.liquidityUsd ?? undefined,
+              buySellVolumeRatio,
+              buyerSellerRatio,
+              priceMomentum5min: momentumPriceMomentumPercent,
+              tier: tier.name,
+              walletCount: uniqueWallets.size,
+              requiredWallets: tier.minWallets,
+              liquidityGatePassed: true,
+              momentumGatePassed: true,
+              riskGatePassed: true,
+              walletGatePassed: true,
+              allGatesPassed: true,
+              signalEmitted: true,
+              priorityFeeLamports: dynamicPriorityFeeLamports,
+              priorityFeeReason,
+            }).catch(err => console.warn(`   ⚠️  Gate check logging failed: ${err.message}`));
           }
 
           // 5e. Spusť AI ASYNCHRONNĚ a edituj zprávu
@@ -1517,6 +1545,49 @@ export class ConsensusWebhookService {
       console.log(`   💾 Signal ${signalId.substring(0, 8)}... updated with AI decision`);
     } catch (error: any) {
       console.warn(`Failed to update signal with AI: ${error.message}`);
+    }
+  }
+
+  /**
+   * Log gate check results for analytics (ČÁST 12)
+   * Fire and forget - does not block signal flow
+   */
+  private async logGateCheck(data: GateCheckInput): Promise<void> {
+    try {
+      await this.gateCheckRepo.create(data);
+
+      // Update daily stats
+      if (data.signalEmitted) {
+        await this.dailyStatsRepo.incrementMultiple({
+          signalsReceived: 1,
+          signalsEmitted: 1,
+        });
+      } else {
+        // Determine which gate blocked
+        let blockField: keyof typeof blockReasons = 'blockedByOther';
+        const blockReasons = {
+          blockedByLiquidity: !data.liquidityGatePassed,
+          blockedByMomentum: data.liquidityGatePassed && !data.momentumGatePassed,
+          blockedByRisk: data.liquidityGatePassed && data.momentumGatePassed && !data.riskGatePassed,
+          blockedByWallet: data.liquidityGatePassed && data.momentumGatePassed && data.riskGatePassed && !data.walletGatePassed,
+          blockedByOther: true,
+        };
+
+        for (const [key, value] of Object.entries(blockReasons)) {
+          if (value) {
+            blockField = key as keyof typeof blockReasons;
+            break;
+          }
+        }
+
+        await this.dailyStatsRepo.incrementMultiple({
+          signalsReceived: 1,
+          signalsBlocked: 1,
+          [blockField]: 1,
+        });
+      }
+    } catch (error: any) {
+      console.warn(`[GateCheck] Logging failed: ${error.message}`);
     }
   }
 }
