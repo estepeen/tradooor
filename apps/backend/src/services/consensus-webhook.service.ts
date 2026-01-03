@@ -149,10 +149,6 @@ interface NinjaTier {
   minWallets: number;
   activityWindowMinutes: number;
   minUniqueBuyers: number;
-  qualityRequirement?: {
-    minQualityWallets: number;      // Min wallets that are tracked/quality
-    minBuyAmountUsd?: number;       // Or min buy amount in USD
-  };
 }
 
 const NINJA_TIERS: NinjaTier[] = [
@@ -160,8 +156,8 @@ const NINJA_TIERS: NinjaTier[] = [
     name: 'Tier 1',
     minMcap: 40000,      // $40K
     maxMcap: 100000,     // $100K
-    timeWindowMinutes: 3,  // Shorter window for smaller MCap
-    minWallets: 2,         // Lower requirement
+    timeWindowMinutes: 3,
+    minWallets: 2,
     activityWindowMinutes: 8,
     minUniqueBuyers: 6,
   },
@@ -179,13 +175,9 @@ const NINJA_TIERS: NinjaTier[] = [
     minMcap: 200000,     // $200K
     maxMcap: 400000,     // $400K
     timeWindowMinutes: 10,
-    minWallets: 4,
+    minWallets: 3,
     activityWindowMinutes: 15,
     minUniqueBuyers: 6,
-    qualityRequirement: {
-      minQualityWallets: 2,  // Min 2 tracked/quality wallets
-      minBuyAmountUsd: 100,  // Or buys > $100
-    },
   },
   {
     name: 'Tier 4',
@@ -195,23 +187,15 @@ const NINJA_TIERS: NinjaTier[] = [
     minWallets: 4,
     activityWindowMinutes: 20,
     minUniqueBuyers: 8,
-    qualityRequirement: {
-      minQualityWallets: 3,  // Min 3 tracked/quality wallets
-      minBuyAmountUsd: 100,  // Or buys > $100
-    },
   },
   {
     name: 'Tier 5',
     minMcap: 700000,     // $700K
     maxMcap: 1000000,    // $1M
     timeWindowMinutes: 20,
-    minWallets: 5,
+    minWallets: 4,
     activityWindowMinutes: 25,
     minUniqueBuyers: 10,
-    qualityRequirement: {
-      minQualityWallets: 4,  // Min 4 tracked/quality wallets
-      minBuyAmountUsd: 150,  // Or buys > $150
-    },
   },
 ];
 
@@ -689,38 +673,7 @@ export class ConsensusWebhookService {
       }
       console.log(`   ✅ [NINJA] Activity: ${uniqueBuyersInActivityWindow} unique buyers in ${tier.activityWindowMinutes}min (${tier.name} min: ${tier.minUniqueBuyers})`);
 
-      // 6. TIER-SPECIFIC QUALITY REQUIREMENT (Tier 3 & 4)
-      if (tier.qualityRequirement) {
-        // Count quality wallets: T1/T2 wallets OR bought > minBuyAmountUsd
-        let qualityWalletCount = 0;
-        const qualityWalletLabels: string[] = [];
-
-        for (const trade of buysInNinjaWindow) {
-          const wallet = await this.smartWalletRepo.findById(trade.walletId);
-          const tradeValueUsd = Number(trade.valueUsd || 0);
-
-          // Quality = T1 or T2 wallet (tier 1 or 2) OR buy > minBuyAmountUsd
-          const isQualityTier = wallet?.tier !== null && wallet?.tier !== undefined && wallet.tier <= 2;
-          const isBigBuy = tier.qualityRequirement.minBuyAmountUsd
-            ? tradeValueUsd >= tier.qualityRequirement.minBuyAmountUsd
-            : false;
-
-          if (isQualityTier || isBigBuy) {
-            qualityWalletCount++;
-            if (isQualityTier && wallet?.label) {
-              qualityWalletLabels.push(`${wallet.label}(T${wallet.tier})`);
-            }
-          }
-        }
-
-        if (qualityWalletCount < tier.qualityRequirement.minQualityWallets) {
-          console.log(`   ❌ [NINJA] Only ${qualityWalletCount} quality wallets (${tier.name} needs ${tier.qualityRequirement.minQualityWallets}+ T1/T2 or >$${tier.qualityRequirement.minBuyAmountUsd} buys) - FILTERED OUT`);
-          return { consensusFound: false };
-        }
-        console.log(`   ✅ [NINJA] Quality: ${qualityWalletCount} quality wallets (${tier.name} min: ${tier.qualityRequirement.minQualityWallets}) [${qualityWalletLabels.join(', ') || 'big buys'}]`);
-      }
-
-      // 7. VOLUME SPIKE DETECTION (Enhanced) - Uses NET BUY volume (buys - sells)
+      // 6. VOLUME SPIKE DETECTION (Enhanced) - Uses NET BUY volume (buys - sells)
       // Compare volume in tier's time window vs average volume in last hour
       const oneHourAgo = currentTradeTime - 60 * 60 * 1000;
       const allBuysLastHour = await this.tradeRepo.findBuysByTokenAndTimeWindow(
