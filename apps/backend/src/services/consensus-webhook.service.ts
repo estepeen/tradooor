@@ -38,7 +38,7 @@ const CLUSTER_STRENGTH_THRESHOLD = 70; // Minimum cluster strength for 💎💎 
 
 // Global limits
 const NINJA_MIN_MARKET_CAP_USD = 75000;     // $75K minimum (Tier 0 start)
-const NINJA_MAX_MARKET_CAP_USD = 500000;    // $500K maximum (Tier 4 end)
+const NINJA_MAX_MARKET_CAP_USD = 1000000;   // $1M maximum (Tier 5 end)
 const NINJA_MIN_LIQUIDITY_USD = 15000;      // $15K minimum liquidity
 
 // Dynamic token age based on MCap (smaller MCap = faster lifecycle = shorter age required)
@@ -57,11 +57,12 @@ const NINJA_MIN_VOLUME_SPIKE_RATIO = 1.75;  // Min 1.75x volume vs avg last hour
 
 // Absolute minimum volume spike by MCap (USD)
 const NINJA_MIN_SPIKE_VOLUME_BY_MCAP = {
-  veryLow: { maxMcap: 100_000, minVolume: 400 },  // MCap $75-100k  → min $400 spike
-  low: { maxMcap: 150_000, minVolume: 600 },      // MCap $100-150k → min $600 spike
-  medium: { maxMcap: 250_000, minVolume: 1000 },  // MCap $150-250k → min $1k spike
-  high: { maxMcap: 400_000, minVolume: 2000 },    // MCap $250-400k → min $2k spike
-  veryHigh: { maxMcap: Infinity, minVolume: 3500 } // MCap $400k+   → min $3.5k spike
+  veryLow: { maxMcap: 100_000, minVolume: 400 },   // MCap $75-100k   → min $400 spike
+  low: { maxMcap: 150_000, minVolume: 600 },       // MCap $100-150k  → min $600 spike
+  medium: { maxMcap: 250_000, minVolume: 1000 },   // MCap $150-250k  → min $1k spike
+  high: { maxMcap: 400_000, minVolume: 2000 },     // MCap $250-400k  → min $2k spike
+  veryHigh: { maxMcap: 700_000, minVolume: 3500 }, // MCap $400-700k  → min $3.5k spike
+  ultra: { maxMcap: Infinity, minVolume: 5000 }    // MCap $700k-1M   → min $5k spike
 };
 
 // Volume spike confirmation (multiple wallets, not just one whale)
@@ -196,7 +197,7 @@ const NINJA_TIERS: NinjaTier[] = [
   {
     name: 'Tier 4',
     minMcap: 400000,     // $400K
-    maxMcap: 500000,     // $500K
+    maxMcap: 700000,     // $700K
     timeWindowMinutes: 15,
     minWallets: 4,
     activityWindowMinutes: 20,
@@ -204,6 +205,19 @@ const NINJA_TIERS: NinjaTier[] = [
     qualityRequirement: {
       minQualityWallets: 3,  // Min 3 tracked/quality wallets
       minBuyAmountUsd: 100,  // Or buys > $100
+    },
+  },
+  {
+    name: 'Tier 5',
+    minMcap: 700000,     // $700K
+    maxMcap: 1000000,    // $1M
+    timeWindowMinutes: 20,
+    minWallets: 5,
+    activityWindowMinutes: 25,
+    minUniqueBuyers: 10,
+    qualityRequirement: {
+      minQualityWallets: 4,  // Min 4 tracked/quality wallets
+      minBuyAmountUsd: 150,  // Or buys > $150
     },
   },
 ];
