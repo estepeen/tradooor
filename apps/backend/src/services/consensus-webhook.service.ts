@@ -37,13 +37,13 @@ const CLUSTER_STRENGTH_THRESHOLD = 70; // Minimum cluster strength for 💎💎 
 // ============================================================================
 
 // Global limits
-const NINJA_MIN_MARKET_CAP_USD = 40000;     // $40K minimum (Tier 0 start)
+const NINJA_MIN_MARKET_CAP_USD = 30000;     // $30K minimum (Tier 1 start)
 const NINJA_MAX_MARKET_CAP_USD = 1000000;   // $1M maximum (Tier 5 end)
 const NINJA_MIN_LIQUIDITY_USD = 15000;      // $15K minimum liquidity
 
 // Dynamic token age based on MCap (smaller MCap = faster lifecycle = shorter age required)
 const NINJA_TOKEN_AGE_BY_MCAP = {
-  tier1: { maxMcap: 75_000, minAgeMinutes: 5 },      // MCap $40-75k   → 5min min age
+  tier1: { maxMcap: 75_000, minAgeMinutes: 5 },      // MCap $30-75k   → 5min min age
   tier2a: { maxMcap: 100_000, minAgeMinutes: 15 },   // MCap $75-100k  → 15min min age
   tier2b: { maxMcap: 200_000, minAgeMinutes: 30 },   // MCap $100-200k → 30min min age
   tier3: { maxMcap: 500_000, minAgeMinutes: 120 },   // MCap $200-500k → 120min min age
@@ -154,7 +154,7 @@ interface NinjaTier {
 const NINJA_TIERS: NinjaTier[] = [
   {
     name: 'Tier 1',
-    minMcap: 40000,      // $40K
+    minMcap: 30000,      // $30K
     maxMcap: 100000,     // $100K
     timeWindowMinutes: 3,
     minWallets: 2,
