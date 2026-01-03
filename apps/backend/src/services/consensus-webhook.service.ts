@@ -184,7 +184,7 @@ const NINJA_TIERS: NinjaTier[] = [
     minMcap: 400000,     // $400K
     maxMcap: 700000,     // $700K
     timeWindowMinutes: 60,
-    minWallets: 4,
+    minWallets: 3,
     activityWindowMinutes: 90,
     minUniqueBuyers: 15,
   },
