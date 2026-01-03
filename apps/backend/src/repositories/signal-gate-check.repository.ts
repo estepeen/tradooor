@@ -216,6 +216,34 @@ export class SignalGateCheckRepository {
   }
 
   /**
+   * Get top block reasons for a date range
+   */
+  async getTopBlockReasons(startDate: Date, endDate: Date, limit: number = 10): Promise<Array<{ reason: string; count: number }>> {
+    const result = await prisma.$queryRaw<Array<{ reason: string; count: bigint }>>`
+      SELECT "blockReason" as reason, COUNT(*) as count
+      FROM "SignalGateCheck"
+      WHERE "createdAt" >= ${startDate} AND "createdAt" < ${endDate}
+        AND "blockReason" IS NOT NULL
+      GROUP BY "blockReason"
+      ORDER BY count DESC
+      LIMIT ${limit}
+    `;
+    return result.map(r => ({ reason: r.reason, count: Number(r.count) }));
+  }
+
+  /**
+   * Get unique tokens checked in date range
+   */
+  async getUniqueTokensCount(startDate: Date, endDate: Date): Promise<number> {
+    const result = await prisma.$queryRaw<Array<{ count: bigint }>>`
+      SELECT COUNT(DISTINCT "tokenMint") as count
+      FROM "SignalGateCheck"
+      WHERE "createdAt" >= ${startDate} AND "createdAt" < ${endDate}
+    `;
+    return Number(result[0].count);
+  }
+
+  /**
    * Get timing statistics for emitted signals in a date range
    */
   async getTimingStatsForDateRange(startDate: Date, endDate: Date): Promise<{

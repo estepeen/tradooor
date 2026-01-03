@@ -85,19 +85,13 @@ interface DailySummary {
 
 async function calculateDailyStats(date: Date): Promise<DailySummary | null> {
   try {
-    const stats = await dailyStatsRepo.getByDate(date);
-
-    if (!stats) {
-      console.log(`   No stats found for ${date.toISOString().split('T')[0]}`);
-      return null;
-    }
-
-    const totalSignals = stats.signalsReceived || 0;
-    const totalTrades = stats.wins + stats.losses;
-
-    // Get timing stats for this day
     const nextDay = new Date(date);
     nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+
+    // Get gate check stats directly from SignalGateCheck table
+    const gateStats = await gateCheckRepo.getStatsForDateRange(date, nextDay);
+
+    // Get timing stats for this day
     let timingStats = null;
     try {
       const rawTimingStats = await gateCheckRepo.getTimingStatsForDateRange(date, nextDay);
@@ -116,49 +110,54 @@ async function calculateDailyStats(date: Date): Promise<DailySummary | null> {
       console.warn(`   ⚠️  Could not get timing stats: ${err.message}`);
     }
 
+    // Try to get DailyStats for trade/PnL info (optional - may not exist)
+    const stats = await dailyStatsRepo.getByDate(date);
+
+    const totalTrades = stats ? stats.wins + stats.losses : 0;
+
     return {
       date: date.toISOString().split('T')[0],
       signals: {
-        received: stats.signalsReceived,
-        blocked: stats.signalsBlocked,
-        emitted: stats.signalsEmitted,
-        passRate: totalSignals > 0 ? (stats.signalsEmitted / totalSignals) * 100 : 0,
+        received: gateStats.total,
+        blocked: gateStats.blocked,
+        emitted: gateStats.passed,
+        passRate: gateStats.total > 0 ? (gateStats.passed / gateStats.total) * 100 : 0,
       },
       gateFailures: {
-        liquidity: stats.blockedByLiquidity,
-        momentum: stats.blockedByMomentum,
-        risk: stats.blockedByRisk,
-        wallet: stats.blockedByWallet,
-        mcap: stats.blockedByMcap,
-        other: stats.blockedByOther,
+        liquidity: gateStats.blockedByLiquidity,
+        momentum: gateStats.blockedByMomentum,
+        risk: gateStats.blockedByRisk,
+        wallet: gateStats.blockedByWallet,
+        mcap: stats?.blockedByMcap || 0,
+        other: stats?.blockedByOther || 0,
       },
       trades: {
-        executed: stats.tradesExecuted,
-        successful: stats.tradesSuccessful,
-        failed: stats.tradesFailed,
-        successRate: stats.tradesExecuted > 0
+        executed: stats?.tradesExecuted || 0,
+        successful: stats?.tradesSuccessful || 0,
+        failed: stats?.tradesFailed || 0,
+        successRate: stats?.tradesExecuted && stats.tradesExecuted > 0
           ? (stats.tradesSuccessful / stats.tradesExecuted) * 100
           : 0,
       },
       pnl: {
-        totalSol: Number(stats.totalPnlSol) || 0,
-        totalUsd: Number(stats.totalPnlUsd) || 0,
-        wins: stats.wins,
-        losses: stats.losses,
-        winRate: totalTrades > 0 ? (stats.wins / totalTrades) * 100 : null,
-        avgWinPercent: stats.avgWinPercent ? Number(stats.avgWinPercent) : null,
-        avgLossPercent: stats.avgLossPercent ? Number(stats.avgLossPercent) : null,
-        largestWinPercent: stats.largestWinPercent ? Number(stats.largestWinPercent) : null,
-        largestLossPercent: stats.largestLossPercent ? Number(stats.largestLossPercent) : null,
+        totalSol: stats ? Number(stats.totalPnlSol) || 0 : 0,
+        totalUsd: stats ? Number(stats.totalPnlUsd) || 0 : 0,
+        wins: stats?.wins || 0,
+        losses: stats?.losses || 0,
+        winRate: totalTrades > 0 ? ((stats?.wins || 0) / totalTrades) * 100 : null,
+        avgWinPercent: stats?.avgWinPercent ? Number(stats.avgWinPercent) : null,
+        avgLossPercent: stats?.avgLossPercent ? Number(stats.avgLossPercent) : null,
+        largestWinPercent: stats?.largestWinPercent ? Number(stats.largestWinPercent) : null,
+        largestLossPercent: stats?.largestLossPercent ? Number(stats.largestLossPercent) : null,
       },
       exits: {
-        sl: stats.exitsBySl,
-        tp1: stats.exitsByTp1,
-        tp2: stats.exitsByTp2,
-        tp3: stats.exitsByTp3,
-        time: stats.exitsByTime,
-        emergency: stats.exitsByEmergency,
-        whaleDump: stats.exitsByWhaleDump,
+        sl: stats?.exitsBySl || 0,
+        tp1: stats?.exitsByTp1 || 0,
+        tp2: stats?.exitsByTp2 || 0,
+        tp3: stats?.exitsByTp3 || 0,
+        time: stats?.exitsByTime || 0,
+        emergency: stats?.exitsByEmergency || 0,
+        whaleDump: stats?.exitsByWhaleDump || 0,
       },
       timing: timingStats,
     };
@@ -244,11 +243,42 @@ async function generateDailySummary() {
     const summary = await calculateDailyStats(yesterday);
 
     if (!summary) {
-      console.log('   No data for yesterday, skipping summary.');
+      console.log('   Failed to calculate stats, skipping summary.');
       return;
     }
 
-    const message = formatSummaryMessage(summary);
+    // Always send summary, even if no signals (shows system is running)
+    console.log(`   Gate checks processed: ${summary.signals.received}`);
+    console.log(`   Signals emitted: ${summary.signals.emitted}`);
+
+    // Get top block reasons and unique tokens count
+    const nextDay = new Date(yesterday);
+    nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+
+    let topBlockReasons: Array<{ reason: string; count: number }> = [];
+    let uniqueTokens = 0;
+    try {
+      topBlockReasons = await gateCheckRepo.getTopBlockReasons(yesterday, nextDay, 5);
+      uniqueTokens = await gateCheckRepo.getUniqueTokensCount(yesterday, nextDay);
+    } catch (err: any) {
+      console.warn(`   ⚠️  Could not get block reasons: ${err.message}`);
+    }
+
+    let message = formatSummaryMessage(summary);
+
+    // Add unique tokens info
+    if (uniqueTokens > 0) {
+      message += `\n\n**TOKENS ANALYZED:** ${uniqueTokens} unique tokens`;
+    }
+
+    // Add top block reasons
+    if (topBlockReasons.length > 0) {
+      message += '\n\n**TOP BLOCK REASONS:**';
+      for (const { reason, count } of topBlockReasons) {
+        message += `\n• ${reason}: ${count}`;
+      }
+    }
+
     console.log('\n' + message + '\n');
 
     // Send to Discord if enabled
