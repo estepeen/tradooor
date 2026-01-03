@@ -1,4 +1,5 @@
 import { prisma } from '../lib/prisma.js';
+import { createId } from '@paralleldrive/cuid2';
 
 export interface SignalGateCheckRecord {
   id: string;
@@ -120,9 +121,10 @@ export class SignalGateCheckRepository {
    * Log a gate check result
    */
   async create(data: GateCheckInput): Promise<SignalGateCheckRecord> {
+    const id = createId();
     const result = await prisma.$queryRaw<SignalGateCheckRecord[]>`
       INSERT INTO "SignalGateCheck" (
-        "tokenMint", "tokenSymbol", "marketCapUsd", "liquidityUsd",
+        "id", "tokenMint", "tokenSymbol", "marketCapUsd", "liquidityUsd",
         "liquidity5minChange", "liquidity15minChange", "liquidityMcapRatio",
         "liquidityGatePassed", "liquidityGateReason",
         "buySellVolumeRatio", "buyerSellerRatio", "priceMomentum5min",
@@ -137,7 +139,7 @@ export class SignalGateCheckRepository {
         "priorityFeeLamports", "priorityFeeReason",
         "totalProcessingMs", "holderCheckMs", "insiderCheckMs", "preChecksMs"
       ) VALUES (
-        ${data.tokenMint}, ${data.tokenSymbol ?? null}, ${data.marketCapUsd ?? null}, ${data.liquidityUsd ?? null},
+        ${id}, ${data.tokenMint}, ${data.tokenSymbol ?? null}, ${data.marketCapUsd ?? null}, ${data.liquidityUsd ?? null},
         ${data.liquidity5minChange ?? null}, ${data.liquidity15minChange ?? null}, ${data.liquidityMcapRatio ?? null},
         ${data.liquidityGatePassed ?? false}, ${data.liquidityGateReason ?? null},
         ${data.buySellVolumeRatio ?? null}, ${data.buyerSellerRatio ?? null}, ${data.priceMomentum5min ?? null},

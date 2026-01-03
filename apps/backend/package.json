@@ -105,6 +105,7 @@
     "daily-summary:cron": "tsx src/workers/daily-summary-cron.ts"
   },
   "dependencies": {
+    "@paralleldrive/cuid2": "^3.0.6",
     "@prisma/client": "^5.22.0",
     "@solana/web3.js": "^1.87.6",
     "@solbot/db": "workspace:*",
