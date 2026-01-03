@@ -168,7 +168,7 @@ const NINJA_TIERS: NinjaTier[] = [
     timeWindowMinutes: 30,
     minWallets: 3,
     activityWindowMinutes: 45,
-    minUniqueBuyers: 7,
+    minUniqueBuyers: 8,
   },
   {
     name: 'Tier 3',
@@ -177,7 +177,7 @@ const NINJA_TIERS: NinjaTier[] = [
     timeWindowMinutes: 45,
     minWallets: 3,
     activityWindowMinutes: 60,
-    minUniqueBuyers: 6,
+    minUniqueBuyers: 10,
   },
   {
     name: 'Tier 4',
@@ -186,7 +186,7 @@ const NINJA_TIERS: NinjaTier[] = [
     timeWindowMinutes: 60,
     minWallets: 4,
     activityWindowMinutes: 90,
-    minUniqueBuyers: 8,
+    minUniqueBuyers: 15,
   },
   {
     name: 'Tier 5',
@@ -195,7 +195,7 @@ const NINJA_TIERS: NinjaTier[] = [
     timeWindowMinutes: 120,
     minWallets: 4,
     activityWindowMinutes: 180,
-    minUniqueBuyers: 10,
+    minUniqueBuyers: 20,
   },
 ];
 
