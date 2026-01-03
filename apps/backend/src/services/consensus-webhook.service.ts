@@ -165,7 +165,7 @@ const NINJA_TIERS: NinjaTier[] = [
     name: 'Tier 2',
     minMcap: 100000,     // $100K
     maxMcap: 200000,     // $200K
-    timeWindowMinutes: 30,
+    timeWindowMinutes: 20,
     minWallets: 3,
     activityWindowMinutes: 45,
     minUniqueBuyers: 8,
