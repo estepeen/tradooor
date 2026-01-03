@@ -43,10 +43,11 @@ const NINJA_MIN_LIQUIDITY_USD = 15000;      // $15K minimum liquidity
 
 // Dynamic token age based on MCap (smaller MCap = faster lifecycle = shorter age required)
 const NINJA_TOKEN_AGE_BY_MCAP = {
-  veryLow: { maxMcap: 75_000, minAgeMinutes: 5 },    // MCap $40-75k   → 5min min age
-  low: { maxMcap: 100_000, minAgeMinutes: 15 },      // MCap $75-100k  → 15min min age
-  medium: { maxMcap: 200_000, minAgeMinutes: 30 },   // MCap $100-200k → 30min min age
-  high: { maxMcap: Infinity, minAgeMinutes: 60 },    // MCap $200k+    → 60min min age
+  tier1: { maxMcap: 75_000, minAgeMinutes: 5 },      // MCap $40-75k   → 5min min age
+  tier2a: { maxMcap: 100_000, minAgeMinutes: 15 },   // MCap $75-100k  → 15min min age
+  tier2b: { maxMcap: 200_000, minAgeMinutes: 30 },   // MCap $100-200k → 30min min age
+  tier3: { maxMcap: 500_000, minAgeMinutes: 120 },   // MCap $200-500k → 120min min age
+  tier4plus: { maxMcap: Infinity, minAgeMinutes: 240 }, // MCap $500k+ → 240min min age
 };
 
 // Diversity (same for all tiers)
@@ -156,7 +157,7 @@ interface NinjaTier {
 
 const NINJA_TIERS: NinjaTier[] = [
   {
-    name: 'Tier 0',
+    name: 'Tier 1',
     minMcap: 40000,      // $40K
     maxMcap: 100000,     // $100K
     timeWindowMinutes: 3,  // Shorter window for smaller MCap
@@ -165,31 +166,22 @@ const NINJA_TIERS: NinjaTier[] = [
     minUniqueBuyers: 6,
   },
   {
-    name: 'Tier 1',
-    minMcap: 100000,     // $100K
-    maxMcap: 150000,     // $150K
-    timeWindowMinutes: 5,
-    minWallets: 3,
-    activityWindowMinutes: 10,
-    minUniqueBuyers: 8,
-  },
-  {
     name: 'Tier 2',
-    minMcap: 150000,     // $150K
-    maxMcap: 250000,     // $250K
-    timeWindowMinutes: 8,
+    minMcap: 100000,     // $100K
+    maxMcap: 200000,     // $200K
+    timeWindowMinutes: 6,
     minWallets: 3,
     activityWindowMinutes: 10,
-    minUniqueBuyers: 6,
+    minUniqueBuyers: 7,
   },
   {
     name: 'Tier 3',
-    minMcap: 250000,     // $250K
+    minMcap: 200000,     // $200K
     maxMcap: 400000,     // $400K
-    timeWindowMinutes: 12,
+    timeWindowMinutes: 10,
     minWallets: 4,
     activityWindowMinutes: 15,
-    minUniqueBuyers: 5,
+    minUniqueBuyers: 6,
     qualityRequirement: {
       minQualityWallets: 2,  // Min 2 tracked/quality wallets
       minBuyAmountUsd: 100,  // Or buys > $100
@@ -1007,13 +999,15 @@ export class ConsensusWebhookService {
       }
 
       // Get dynamic min age based on MCap
-      let minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.high.minAgeMinutes; // Default 60min
-      if (marketCap < NINJA_TOKEN_AGE_BY_MCAP.veryLow.maxMcap) {
-        minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.veryLow.minAgeMinutes;
-      } else if (marketCap < NINJA_TOKEN_AGE_BY_MCAP.low.maxMcap) {
-        minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.low.minAgeMinutes;
-      } else if (marketCap < NINJA_TOKEN_AGE_BY_MCAP.medium.maxMcap) {
-        minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.medium.minAgeMinutes;
+      let minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.tier4plus.minAgeMinutes; // Default 240min
+      if (marketCap < NINJA_TOKEN_AGE_BY_MCAP.tier1.maxMcap) {
+        minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.tier1.minAgeMinutes;
+      } else if (marketCap < NINJA_TOKEN_AGE_BY_MCAP.tier2a.maxMcap) {
+        minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.tier2a.minAgeMinutes;
+      } else if (marketCap < NINJA_TOKEN_AGE_BY_MCAP.tier2b.maxMcap) {
+        minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.tier2b.minAgeMinutes;
+      } else if (marketCap < NINJA_TOKEN_AGE_BY_MCAP.tier3.maxMcap) {
+        minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.tier3.minAgeMinutes;
       }
 
       if (tokenAgeMinutes !== null && tokenAgeMinutes < minTokenAgeMinutes) {
