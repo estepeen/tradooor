@@ -37,7 +37,7 @@ const CLUSTER_STRENGTH_THRESHOLD = 70; // Minimum cluster strength for 💎💎 
 // ============================================================================
 
 // Global limits
-const NINJA_MIN_MARKET_CAP_USD = 30000;     // $30K minimum (Tier 1 start)
+const NINJA_MIN_MARKET_CAP_USD = 50000;     // $50K minimum (Tier 1 start)
 const NINJA_MAX_MARKET_CAP_USD = 1000000;   // $1M maximum (Tier 5 end)
 const NINJA_MIN_LIQUIDITY_USD = 15000;      // $15K minimum liquidity
 
@@ -154,47 +154,47 @@ interface NinjaTier {
 const NINJA_TIERS: NinjaTier[] = [
   {
     name: 'Tier 1',
-    minMcap: 30000,      // $30K
+    minMcap: 50000,      // $50K
     maxMcap: 100000,     // $100K
-    timeWindowMinutes: 3,
+    timeWindowMinutes: 5,
     minWallets: 2,
-    activityWindowMinutes: 8,
+    activityWindowMinutes: 10,
     minUniqueBuyers: 6,
   },
   {
     name: 'Tier 2',
     minMcap: 100000,     // $100K
     maxMcap: 200000,     // $200K
-    timeWindowMinutes: 6,
+    timeWindowMinutes: 30,
     minWallets: 3,
-    activityWindowMinutes: 10,
+    activityWindowMinutes: 40,
     minUniqueBuyers: 7,
   },
   {
     name: 'Tier 3',
     minMcap: 200000,     // $200K
     maxMcap: 400000,     // $400K
-    timeWindowMinutes: 10,
+    timeWindowMinutes: 45,
     minWallets: 3,
-    activityWindowMinutes: 15,
+    activityWindowMinutes: 60,
     minUniqueBuyers: 6,
   },
   {
     name: 'Tier 4',
     minMcap: 400000,     // $400K
     maxMcap: 700000,     // $700K
-    timeWindowMinutes: 15,
+    timeWindowMinutes: 60,
     minWallets: 4,
-    activityWindowMinutes: 20,
+    activityWindowMinutes: 75,
     minUniqueBuyers: 8,
   },
   {
     name: 'Tier 5',
     minMcap: 700000,     // $700K
     maxMcap: 1000000,    // $1M
-    timeWindowMinutes: 20,
+    timeWindowMinutes: 90,
     minWallets: 4,
-    activityWindowMinutes: 25,
+    activityWindowMinutes: 120,
     minUniqueBuyers: 10,
   },
 ];
