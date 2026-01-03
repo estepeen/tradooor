@@ -37,15 +37,16 @@ const CLUSTER_STRENGTH_THRESHOLD = 70; // Minimum cluster strength for 💎💎 
 // ============================================================================
 
 // Global limits
-const NINJA_MIN_MARKET_CAP_USD = 75000;     // $75K minimum (Tier 0 start)
+const NINJA_MIN_MARKET_CAP_USD = 40000;     // $40K minimum (Tier 0 start)
 const NINJA_MAX_MARKET_CAP_USD = 1000000;   // $1M maximum (Tier 5 end)
 const NINJA_MIN_LIQUIDITY_USD = 15000;      // $15K minimum liquidity
 
 // Dynamic token age based on MCap (smaller MCap = faster lifecycle = shorter age required)
 const NINJA_TOKEN_AGE_BY_MCAP = {
-  low: { maxMcap: 100_000, minAgeMinutes: 30 },     // MCap $50-100k  → 30min min age
-  medium: { maxMcap: 200_000, minAgeMinutes: 45 },  // MCap $100-200k → 45min min age
-  high: { maxMcap: Infinity, minAgeMinutes: 60 },   // MCap $200k+    → 60min min age
+  veryLow: { maxMcap: 75_000, minAgeMinutes: 5 },    // MCap $40-75k   → 5min min age
+  low: { maxMcap: 100_000, minAgeMinutes: 15 },      // MCap $75-100k  → 15min min age
+  medium: { maxMcap: 200_000, minAgeMinutes: 30 },   // MCap $100-200k → 30min min age
+  high: { maxMcap: Infinity, minAgeMinutes: 60 },    // MCap $200k+    → 60min min age
 };
 
 // Diversity (same for all tiers)
@@ -156,7 +157,7 @@ interface NinjaTier {
 const NINJA_TIERS: NinjaTier[] = [
   {
     name: 'Tier 0',
-    minMcap: 75000,      // $75K
+    minMcap: 40000,      // $40K
     maxMcap: 100000,     // $100K
     timeWindowMinutes: 3,  // Shorter window for smaller MCap
     minWallets: 2,         // Lower requirement
@@ -1007,7 +1008,9 @@ export class ConsensusWebhookService {
 
       // Get dynamic min age based on MCap
       let minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.high.minAgeMinutes; // Default 60min
-      if (marketCap < NINJA_TOKEN_AGE_BY_MCAP.low.maxMcap) {
+      if (marketCap < NINJA_TOKEN_AGE_BY_MCAP.veryLow.maxMcap) {
+        minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.veryLow.minAgeMinutes;
+      } else if (marketCap < NINJA_TOKEN_AGE_BY_MCAP.low.maxMcap) {
         minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.low.minAgeMinutes;
       } else if (marketCap < NINJA_TOKEN_AGE_BY_MCAP.medium.maxMcap) {
         minTokenAgeMinutes = NINJA_TOKEN_AGE_BY_MCAP.medium.minAgeMinutes;
