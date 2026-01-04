@@ -640,22 +640,46 @@ export class ConsensusWebhookService {
       }
 
       // 4. TIER-SPECIFIC TIME WINDOW & WALLET COUNT
+      // IMPORTANT: Only count wallets where MCap was already in tier range at time of their trade
       const ninjaTimeWindowMinutes = tier.timeWindowMinutes;
       const ninjaWindowStart = currentTradeTime - ninjaTimeWindowMinutes * 60 * 1000;
 
       const buysInNinjaWindow = sortedBuys.filter(t => {
         const tradeTime = new Date(t.timestamp).getTime();
-        return tradeTime >= ninjaWindowStart && tradeTime <= currentTradeTime;
+        const tradeMeta = t.meta as any;
+        const tradeMcap = tradeMeta?.marketCapUsd ? Number(tradeMeta.marketCapUsd) : null;
+        // Only count trades where MCap was >= tier minimum at time of trade
+        const mcapValid = tradeMcap !== null && tradeMcap >= tier.minMcap;
+        return tradeTime >= ninjaWindowStart && tradeTime <= currentTradeTime && mcapValid;
       });
 
       const ninjaWallets = new Set(buysInNinjaWindow.map(t => t.walletId));
       const ninjaWalletCount = ninjaWallets.size;
 
       if (ninjaWalletCount < tier.minWallets) {
-        console.log(`   ❌ [NINJA] Only ${ninjaWalletCount} wallet(s) in ${ninjaTimeWindowMinutes}min window (${tier.name} needs ${tier.minWallets}+) - FILTERED OUT`);
+        console.log(`   ❌ [NINJA] Only ${ninjaWalletCount} wallet(s) in ${ninjaTimeWindowMinutes}min window with MCap >= $${tier.minMcap/1000}K (${tier.name} needs ${tier.minWallets}+) - FILTERED OUT`);
+
+        // Log gate check for wallet failure
+        this.logGateCheck({
+          tokenMint: token?.mintAddress || 'unknown',
+          tokenSymbol: token?.symbol || 'Unknown',
+          marketCapUsd: marketCap,
+          liquidityUsd: liquidity ?? undefined,
+          tier: tier.name,
+          walletCount: ninjaWalletCount,
+          requiredWallets: tier.minWallets,
+          liquidityGatePassed: true,
+          momentumGatePassed: false,
+          riskGatePassed: false,
+          walletGatePassed: false,
+          allGatesPassed: false,
+          signalEmitted: false,
+          blockReason: `Only ${ninjaWalletCount} wallets in ${ninjaTimeWindowMinutes}min (need ${tier.minWallets})`,
+        }).catch(() => {});
+
         return { consensusFound: false };
       }
-      console.log(`   ✅ [NINJA] Wallets: ${ninjaWalletCount} in ${ninjaTimeWindowMinutes}min window (${tier.name} min: ${tier.minWallets})`);
+      console.log(`   ✅ [NINJA] Wallets: ${ninjaWalletCount} in ${ninjaTimeWindowMinutes}min window with MCap >= $${tier.minMcap/1000}K (${tier.name} min: ${tier.minWallets})`);
 
       // 5. TIER-SPECIFIC ACTIVITY CHECK (unique buyers in activity window)
       const activityWindowStart = currentTradeTime - tier.activityWindowMinutes * 60 * 1000;
@@ -669,6 +693,27 @@ export class ConsensusWebhookService {
 
       if (uniqueBuyersInActivityWindow < tier.minUniqueBuyers) {
         console.log(`   ❌ [NINJA] Only ${uniqueBuyersInActivityWindow} unique buyers in ${tier.activityWindowMinutes}min (${tier.name} needs ${tier.minUniqueBuyers}+) - FILTERED OUT`);
+
+        // Log gate check for activity failure
+        this.logGateCheck({
+          tokenMint: token?.mintAddress || 'unknown',
+          tokenSymbol: token?.symbol || 'Unknown',
+          marketCapUsd: marketCap,
+          liquidityUsd: liquidity ?? undefined,
+          tier: tier.name,
+          walletCount: ninjaWalletCount,
+          requiredWallets: tier.minWallets,
+          uniqueBuyersInWindow: uniqueBuyersInActivityWindow,
+          requiredUniqueBuyers: tier.minUniqueBuyers,
+          liquidityGatePassed: true,
+          momentumGatePassed: false,
+          riskGatePassed: false,
+          walletGatePassed: true, // Wallet check passed
+          allGatesPassed: false,
+          signalEmitted: false,
+          blockReason: `Only ${uniqueBuyersInActivityWindow} buyers in ${tier.activityWindowMinutes}min (need ${tier.minUniqueBuyers})`,
+        }).catch(() => {});
+
         return { consensusFound: false };
       }
       console.log(`   ✅ [NINJA] Activity: ${uniqueBuyersInActivityWindow} unique buyers in ${tier.activityWindowMinutes}min (${tier.name} min: ${tier.minUniqueBuyers})`);
