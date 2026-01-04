@@ -159,44 +159,44 @@ const NINJA_TIERS: NinjaTier[] = [
     maxMcap: 100000,     // $100K
     timeWindowMinutes: 5,
     minWallets: 2,
-    activityWindowMinutes: 10,
-    minUniqueBuyers: 6,
+    activityWindowMinutes: 5,  // Same as time window
+    minUniqueBuyers: 2,        // Median - relaxed for entry tier
   },
   {
     name: 'Tier 2',
     minMcap: 100000,     // $100K
     maxMcap: 200000,     // $200K
-    timeWindowMinutes: 20,
-    minWallets: 3,
-    activityWindowMinutes: 45,
-    minUniqueBuyers: 8,
+    timeWindowMinutes: 10,
+    minWallets: 2,
+    activityWindowMinutes: 10, // Same as time window
+    minUniqueBuyers: 4,        // 75th percentile
   },
   {
     name: 'Tier 3',
     minMcap: 200000,     // $200K
     maxMcap: 400000,     // $400K
-    timeWindowMinutes: 45,
+    timeWindowMinutes: 20,
     minWallets: 3,
-    activityWindowMinutes: 60,
-    minUniqueBuyers: 10,
+    activityWindowMinutes: 20, // Same as time window
+    minUniqueBuyers: 8,        // 88th percentile
   },
   {
     name: 'Tier 4',
     minMcap: 400000,     // $400K
     maxMcap: 700000,     // $700K
-    timeWindowMinutes: 60,
+    timeWindowMinutes: 30,
     minWallets: 3,
-    activityWindowMinutes: 90,
-    minUniqueBuyers: 15,
+    activityWindowMinutes: 30, // Same as time window
+    minUniqueBuyers: 12,       // 94th percentile
   },
   {
     name: 'Tier 5',
     minMcap: 700000,     // $700K
     maxMcap: 1000000,    // $1M
-    timeWindowMinutes: 120,
+    timeWindowMinutes: 45,
     minWallets: 4,
-    activityWindowMinutes: 180,
-    minUniqueBuyers: 20,
+    activityWindowMinutes: 45, // Same as time window
+    minUniqueBuyers: 20,       // 97th percentile
   },
 ];
 
