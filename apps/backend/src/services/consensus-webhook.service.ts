@@ -27,6 +27,7 @@ import { DailyStatsRepository } from '../repositories/daily-stats.repository.js'
 import { signalStrengthService, SignalStrengthResult } from './signal-strength.service.js';
 import { pumpFunHolderService, HolderAnalysisResult } from './pump-fun-holder.service.js';
 import { signalLearningService, SignalQualityBonus } from './signal-learning.service.js';
+import { getPumpPortalTracker } from './pumpportal-tracker.service.js';
 
 const INITIAL_CAPITAL_USD = 1000;
 const CONSENSUS_TIME_WINDOW_HOURS = 2;
@@ -681,42 +682,9 @@ export class ConsensusWebhookService {
       }
       console.log(`   ✅ [NINJA] Wallets: ${ninjaWalletCount} in ${ninjaTimeWindowMinutes}min window with MCap >= $${tier.minMcap/1000}K (${tier.name} min: ${tier.minWallets})`);
 
-      // 5. TIER-SPECIFIC ACTIVITY CHECK (unique buyers in activity window)
-      const activityWindowStart = currentTradeTime - tier.activityWindowMinutes * 60 * 1000;
-      const allTokenBuys = await this.tradeRepo.findBuysByTokenAndTimeWindow(
-        tokenId,
-        new Date(activityWindowStart),
-        new Date(currentTradeTime)
-      );
-
-      const uniqueBuyersInActivityWindow = new Set(allTokenBuys.map(t => t.walletId)).size;
-
-      if (uniqueBuyersInActivityWindow < tier.minUniqueBuyers) {
-        console.log(`   ❌ [NINJA] Only ${uniqueBuyersInActivityWindow} unique buyers in ${tier.activityWindowMinutes}min (${tier.name} needs ${tier.minUniqueBuyers}+) - FILTERED OUT`);
-
-        // Log gate check for activity failure
-        this.logGateCheck({
-          tokenMint: token?.mintAddress || 'unknown',
-          tokenSymbol: token?.symbol || 'Unknown',
-          marketCapUsd: marketCap,
-          liquidityUsd: liquidity ?? undefined,
-          tier: tier.name,
-          walletCount: ninjaWalletCount,
-          requiredWallets: tier.minWallets,
-          uniqueBuyersInWindow: uniqueBuyersInActivityWindow,
-          requiredUniqueBuyers: tier.minUniqueBuyers,
-          liquidityGatePassed: true,
-          momentumGatePassed: false,
-          riskGatePassed: false,
-          walletGatePassed: true, // Wallet check passed
-          allGatesPassed: false,
-          signalEmitted: false,
-          blockReason: `Only ${uniqueBuyersInActivityWindow} buyers in ${tier.activityWindowMinutes}min (need ${tier.minUniqueBuyers})`,
-        }).catch(() => {});
-
-        return { consensusFound: false };
-      }
-      console.log(`   ✅ [NINJA] Activity: ${uniqueBuyersInActivityWindow} unique buyers in ${tier.activityWindowMinutes}min (${tier.name} min: ${tier.minUniqueBuyers})`);
+      // 5. SKIP DB-BASED ACTIVITY CHECK - Will use PumpPortal WebSocket check later (step 12)
+      // PumpPortal provides real on-chain unique buyers, not just from our smart wallets
+      let uniqueBuyersInActivityWindow = 0; // Will be set by PumpPortal check
 
       // 6. VOLUME SPIKE DETECTION (Enhanced) - Uses NET BUY volume (buys - sells)
       // Compare volume in tier's time window vs average volume in last hour
@@ -1117,6 +1085,88 @@ export class ConsensusWebhookService {
         } catch (insiderError: any) {
           console.warn(`   ⚠️  [NINJA] Insider check failed (non-blocking): ${insiderError.message}`);
           // Non-blocking - continue without insider data
+        }
+      }
+
+      // 12. PUMPPORTAL UNIQUE BUYERS CHECK (real on-chain data)
+      // This is the FINAL gate check - uses WebSocket data for actual unique buyers
+      if (token?.mintAddress) {
+        const pumpPortalTracker = getPumpPortalTracker();
+
+        // Subscribe to token if not already tracking
+        pumpPortalTracker.subscribeToken(token.mintAddress);
+
+        // Get current unique buyers from PumpPortal
+        const pumpPortalStats = pumpPortalTracker.getTrackerStats(token.mintAddress);
+
+        if (pumpPortalStats) {
+          uniqueBuyersInActivityWindow = pumpPortalStats.uniqueBuyers;
+
+          // Check against tier requirements
+          if (uniqueBuyersInActivityWindow < tier.minUniqueBuyers) {
+            console.log(`   ❌ [NINJA] PumpPortal: Only ${uniqueBuyersInActivityWindow} on-chain buyers (${tier.name} needs ${tier.minUniqueBuyers}+) - FILTERED OUT`);
+
+            // Log gate check for activity failure
+            this.logGateCheck({
+              tokenMint: token.mintAddress,
+              tokenSymbol: token.symbol || 'Unknown',
+              marketCapUsd: marketCap,
+              liquidityUsd: liquidity ?? undefined,
+              tier: tier.name,
+              walletCount: ninjaWalletCount,
+              requiredWallets: tier.minWallets,
+              uniqueBuyersInWindow: uniqueBuyersInActivityWindow,
+              requiredUniqueBuyers: tier.minUniqueBuyers,
+              liquidityGatePassed: true,
+              momentumGatePassed: true,
+              riskGatePassed: true,
+              walletGatePassed: true,
+              allGatesPassed: false,
+              signalEmitted: false,
+              blockReason: `PumpPortal: Only ${uniqueBuyersInActivityWindow} on-chain buyers (need ${tier.minUniqueBuyers})`,
+            }).catch(() => {});
+
+            return { consensusFound: false };
+          }
+
+          console.log(`   ✅ [NINJA] PumpPortal: ${uniqueBuyersInActivityWindow} on-chain buyers (${tier.name} min: ${tier.minUniqueBuyers})`);
+
+          // Log additional stats if available
+          if (pumpPortalStats.uniqueSellers > 0) {
+            const buyerSellerRatioPP = pumpPortalStats.uniqueBuyers / pumpPortalStats.uniqueSellers;
+            console.log(`      On-chain B/S ratio: ${buyerSellerRatioPP.toFixed(2)}x (${pumpPortalStats.uniqueBuyers} buyers / ${pumpPortalStats.uniqueSellers} sellers)`);
+          }
+        } else {
+          // PumpPortal not tracking this token yet - use smart wallet count as fallback
+          // This can happen for the first trade or if WebSocket is not connected
+          console.log(`   ⚠️  [NINJA] PumpPortal: No data yet for ${token.mintAddress.substring(0, 8)}... (using smart wallet count as fallback)`);
+          uniqueBuyersInActivityWindow = ninjaWalletCount;
+
+          // Still apply minimum check with fallback data
+          if (uniqueBuyersInActivityWindow < tier.minUniqueBuyers) {
+            console.log(`   ❌ [NINJA] Fallback: Only ${uniqueBuyersInActivityWindow} smart wallets (${tier.name} needs ${tier.minUniqueBuyers}+) - FILTERED OUT`);
+
+            this.logGateCheck({
+              tokenMint: token.mintAddress,
+              tokenSymbol: token.symbol || 'Unknown',
+              marketCapUsd: marketCap,
+              liquidityUsd: liquidity ?? undefined,
+              tier: tier.name,
+              walletCount: ninjaWalletCount,
+              requiredWallets: tier.minWallets,
+              uniqueBuyersInWindow: uniqueBuyersInActivityWindow,
+              requiredUniqueBuyers: tier.minUniqueBuyers,
+              liquidityGatePassed: true,
+              momentumGatePassed: true,
+              riskGatePassed: true,
+              walletGatePassed: true,
+              allGatesPassed: false,
+              signalEmitted: false,
+              blockReason: `Fallback: Only ${uniqueBuyersInActivityWindow} wallets (need ${tier.minUniqueBuyers}, PumpPortal not ready)`,
+            }).catch(() => {});
+
+            return { consensusFound: false };
+          }
         }
       }
 

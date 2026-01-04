@@ -21,6 +21,7 @@ import { TokenRepository } from '../repositories/token.repository.js';
 import { TokenMarketDataService } from '../services/token-market-data.service.js';
 import { TradeFeatureRepository } from '../repositories/trade-feature.repository.js';
 import { WalletCorrelationService } from '../services/wallet-correlation.service.js';
+import { startPumpPortalTracker, stopPumpPortalTracker } from '../services/pumpportal-tracker.service.js';
 
 // Log environment variables status
 console.log(`🔍 [NormalizedTradeWorker] Environment check:`);
@@ -458,6 +459,15 @@ async function processNormalizedTrade(record: Awaited<ReturnType<typeof normaliz
 async function runWorker() {
   console.log('🚀 Normalized trade ingestion worker started');
 
+  // Start PumpPortal WebSocket tracker for on-chain unique buyers data
+  try {
+    await startPumpPortalTracker();
+    console.log('✅ PumpPortal tracker started');
+  } catch (pumpPortalError: any) {
+    console.warn(`⚠️  PumpPortal tracker failed to start: ${pumpPortalError.message}`);
+    // Non-blocking - continue without PumpPortal (will use fallback)
+  }
+
   while (true) {
     try {
       const pending = await normalizedTradeRepo.findPending(BATCH_SIZE);
@@ -488,9 +498,23 @@ runWorker().catch(error => {
   process.exit(1);
 });
 
+// Handle graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('🛑 [NormalizedTradeWorker] Received SIGTERM, shutting down...');
+  stopPumpPortalTracker();
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('🛑 [NormalizedTradeWorker] Received SIGINT, shutting down...');
+  stopPumpPortalTracker();
+  process.exit(0);
+});
+
 // Handle unhandled promise rejections
 process.on('unhandledRejection', (reason, promise) => {
   console.error('❌ [NormalizedTradeWorker] Unhandled Rejection at:', promise, 'reason:', reason);
+  stopPumpPortalTracker();
   process.exit(1);
 });
 
