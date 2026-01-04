@@ -90,7 +90,8 @@
       "Bash(ssh -i ~/.ssh/claude_assistant root@157.180.41.49 'source ~/.nvm/nvm.sh && cd /opt/tradooor/apps/backend && DB=$\\(grep \"\"^DATABASE_URL=\"\" .env | cut -d= -f2- | tr -d \"\"\\\\\"\"\"\" | sed \"\"s/?.*//\"\" \\) && psql \"\"$DB\"\" -c \"\"\nSELECT \n  \\\\\"\"tokenSymbol\\\\\"\",\n  \\\\\"\"marketCapUsd\\\\\"\",\n  \\\\\"\"blockReason\\\\\"\",\n  \\\\\"\"walletCount\\\\\"\",\n  \\\\\"\"requiredWallets\\\\\"\",\n  \\\\\"\"tier\\\\\"\",\n  \\\\\"\"walletGatePassed\\\\\"\",\n  \\\\\"\"allGatesPassed\\\\\"\",\n  \\\\\"\"createdAt\\\\\"\"\nFROM \\\\\"\"SignalGateCheck\\\\\"\"\nWHERE LOWER\\(\\\\\"\"tokenSymbol\\\\\"\"\\) LIKE ''''%marlee%''''\nORDER BY \\\\\"\"createdAt\\\\\"\" DESC\nLIMIT 20;\n\"\"')",
       "Bash(ssh -i ~/.ssh/claude_assistant root@157.180.41.49 'grep -i \"\"marlee\"\" /root/.pm2/logs/normalize-trades-out.log | tail -30')",
       "Bash(ssh -i ~/.ssh/claude_assistant root@157.180.41.49 'ls -la /root/.pm2/logs/ | grep normalize')",
-      "Bash(pnpm exec tsc:*)"
+      "Bash(pnpm exec tsc:*)",
+      "Bash(ssh -i ~/.ssh/claude_assistant root@157.180.41.49 'source ~/.nvm/nvm.sh && cd /opt/tradooor/apps/backend && DB=$\\(grep \"\"^DATABASE_URL=\"\" .env | cut -d= -f2- | tr -d \"\"\\\\\"\"\"\" | sed \"\"s/?.*//\"\"\\) && psql \"\"$DB\"\" -c \"\"\nSELECT \n  \\\\\"\"blockReason\\\\\"\",\n  COUNT\\(*\\) as cnt\nFROM \\\\\"\"SignalGateCheck\\\\\"\"\nWHERE \\\\\"\"createdAt\\\\\"\" >= NOW\\(\\) - INTERVAL ''''6 hours''''\nGROUP BY \\\\\"\"blockReason\\\\\"\"\nORDER BY cnt DESC\nLIMIT 20;\n\"\"')"
     ]
   }
 }

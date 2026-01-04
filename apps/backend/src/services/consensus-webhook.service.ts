@@ -645,20 +645,19 @@ export class ConsensusWebhookService {
       const ninjaTimeWindowMinutes = tier.timeWindowMinutes;
       const ninjaWindowStart = currentTradeTime - ninjaTimeWindowMinutes * 60 * 1000;
 
+      // Count all wallets that bought within the time window
+      // Note: We use current MCap for tier determination, not individual trade MCap
+      // (trade meta often doesn't have marketCapUsd stored)
       const buysInNinjaWindow = sortedBuys.filter(t => {
         const tradeTime = new Date(t.timestamp).getTime();
-        const tradeMeta = t.meta as any;
-        const tradeMcap = tradeMeta?.marketCapUsd ? Number(tradeMeta.marketCapUsd) : null;
-        // Only count trades where MCap was >= tier minimum at time of trade
-        const mcapValid = tradeMcap !== null && tradeMcap >= tier.minMcap;
-        return tradeTime >= ninjaWindowStart && tradeTime <= currentTradeTime && mcapValid;
+        return tradeTime >= ninjaWindowStart && tradeTime <= currentTradeTime;
       });
 
       const ninjaWallets = new Set(buysInNinjaWindow.map(t => t.walletId));
       const ninjaWalletCount = ninjaWallets.size;
 
       if (ninjaWalletCount < tier.minWallets) {
-        console.log(`   ❌ [NINJA] Only ${ninjaWalletCount} wallet(s) in ${ninjaTimeWindowMinutes}min window with MCap >= $${tier.minMcap/1000}K (${tier.name} needs ${tier.minWallets}+) - FILTERED OUT`);
+        console.log(`   ❌ [NINJA] Only ${ninjaWalletCount} wallet(s) in ${ninjaTimeWindowMinutes}min window (${tier.name} needs ${tier.minWallets}+) - FILTERED OUT`);
 
         // Log gate check for wallet failure
         this.logGateCheck({
@@ -680,7 +679,7 @@ export class ConsensusWebhookService {
 
         return { consensusFound: false };
       }
-      console.log(`   ✅ [NINJA] Wallets: ${ninjaWalletCount} in ${ninjaTimeWindowMinutes}min window with MCap >= $${tier.minMcap/1000}K (${tier.name} min: ${tier.minWallets})`);
+      console.log(`   ✅ [NINJA] Wallets: ${ninjaWalletCount} in ${ninjaTimeWindowMinutes}min window (${tier.name} min: ${tier.minWallets})`);
 
       // 5. SKIP DB-BASED ACTIVITY CHECK - Will use PumpPortal WebSocket check later (step 12)
       // PumpPortal provides real on-chain unique buyers, not just from our smart wallets
